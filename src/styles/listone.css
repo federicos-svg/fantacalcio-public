@@ -1,0 +1,144 @@
+/* Frontend Structure Foundation v1 — listone.css
+   Listone Svincolati table: wrapper border, header row, and per-row state
+   modifiers (clickable / assigned / selected). Panel-level chrome reuses
+   .panel--bordered from components.css — no separate class needed for it. */
+
+.listone-table {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.listone-table-head {
+  display: flex;
+  background: var(--panel-inner);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-sec);
+  padding: 8px 12px;
+  gap: 10px;
+}
+
+.listone-row {
+  display: flex;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--text-mid);
+  border-top: 1px solid var(--border);
+  align-items: center;
+  gap: 10px;
+}
+
+/* Each cell is a flex child with only a flex-grow ratio set inline (see
+   listoneColumnFlex in src/ui/listone.ts) — flex-basis:0 alone still lets a
+   long unbroken value (a header label, a club/player name) push its
+   min-content width past the share the gap above assumes, at which point
+   browsers ignore the gap and, since .listone-table clips overflow, the
+   tail of the text is silently cut off instead of just crowding its
+   neighbor. min-width:0 lets cells shrink below that min-content width and
+   overflow-wrap lets a single long word (e.g. "Quotazione") break instead
+   of overflowing — together this is what fixes the ~390px column collision
+   found in E2E simulation ("Atalanta18", "RuoloSquadraQuotazione") without
+   clipping text or causing page-level horizontal scroll. */
+.listone-table-head > div,
+.listone-row > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.listone-row--clickable {
+  cursor: pointer;
+}
+.listone-row--assigned {
+  opacity: 0.6;
+}
+.listone-row--selected {
+  background: var(--panel-inner);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* Status filter — a dropdown rather than three side-by-side segments: the
+   options only get longer, and the segments crowded the title row. */
+.status-filter {
+  position: relative;
+  flex: none;
+}
+.status-filter__trigger {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-sec);
+}
+.status-filter__trigger:hover,
+.status-filter__trigger[aria-expanded="true"] {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+.status-filter__trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.status-filter__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.status-filter__value {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.status-filter__caret {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.status-filter__list {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 120;
+  display: grid;
+  min-width: 100%;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 10px 26px color-mix(in oklch, var(--bg) 70%, transparent);
+}
+.status-filter__option {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--text-sec);
+  text-align: left;
+  white-space: nowrap;
+}
+.status-filter__option:hover {
+  background: var(--panel-inner);
+  color: var(--text-primary);
+}
+.status-filter__option.is-active {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+.status-filter__option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.status-filter__check {
+  color: var(--accent);
+  font-size: 11px;
+}

@@ -1,0 +1,500 @@
+/* Frontend Structure Foundation v1 — asta.css
+   Asta-screen-specific layout: the responsive grids introduced in PR #86
+   (moved here verbatim from index.html — same rules, same breakpoints,
+   just relocated into a modular file) plus the search/assign form row
+   shape shared by "Ricerca giocatore" and "Assegna a". */
+
+/* SQUADRE (LEGA): 1 card per row on mobile, 2 on medium, up to 4 on wide
+   desktop. Needs real breakpoints (inline styles can't express these) —
+   see renderTeamsPanel in src/main.ts. */
+.teams-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+@media (min-width: 640px) {
+  .teams-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (min-width: 1024px) {
+  .teams-grid { grid-template-columns: repeat(4, 1fr); }
+}
+
+/* The BUDGET & ROSA panel that used to hold the role breakdown is gone: the
+   breakdown now lives in the sticky strip (.critical-roster below). */
+
+/* Shared shape of "Ricerca giocatore" and "Assegna a": a row of field
+   groups plus a trailing action button, wrapping on narrow widths. Each
+   field group's own flex-basis/min-width stays inline (genuinely different
+   per field — name/role/club/team/price all size differently). */
+.form-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+
+/* INSERIMENTO RAPIDO — command line (Chiamata moment, src/ui/views.ts
+   renderAssignCommandPanel, T13 #231). The input takes all the width it can
+   and the action button never wraps under it on desktop; on narrow widths the
+   button drops to its own full-width row rather than shrinking to a tap
+   target too small to hit at speed. */
+.assign-command { margin-bottom: 18px; }
+.assign-command__row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.assign-command__row > .field-input {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.assign-command__row > .btn { flex: 0 0 auto; }
+@media (max-width: 479px) {
+  .assign-command__row > .btn { flex: 1 0 100%; }
+}
+/* The preview is the thing the operator reads before committing, so it is
+   sized and weighted like content, not like a hint. */
+.assign-command__preview {
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 600;
+}
+.assign-command__preview--ready { color: var(--text-primary); }
+.assign-command__preview--blocked { color: var(--text-mid); font-weight: 500; }
+.assign-command__error {
+  margin-top: 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--stop-red);
+}
+
+/* CONTESTO CHIAMATA / nomination_context (Chiamata moment, src/ui/views.ts
+   renderNominationContextPanel). On-demand: the body is in the DOM only when
+   expanded, so the collapsed state costs one row of height. */
+.nomination-context { margin-top: 16px; }
+.nomination-context__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.nomination-context__body {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin: 12px 0 8px;
+}
+@media (min-width: 768px) {
+  .nomination-context__body { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  /* The opponent list is a full-width row of its own: eight names squeezed
+     into a third of the panel wrap into unreadable slivers. */
+  .nomination-context__block--wide { grid-column: 1 / -1; }
+}
+.nomination-context__block {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-inner);
+}
+.nomination-context__block-title {
+  margin: 0 0 8px;
+  color: var(--text-sec);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.nomination-context__facts {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nomination-context__facts > li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+.nomination-context__facts > li > span {
+  color: var(--text-sec);
+  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nomination-context__facts > li > strong {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  flex: none;
+}
+.nomination-context__empty {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.nomination-context__opponents {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+@media (min-width: 640px) {
+  .nomination-context__opponents { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 1024px) {
+  .nomination-context__opponents { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+.nomination-context__opponents > li {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.nomination-context__opponents > li > span {
+  color: var(--text-mid);
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nomination-context__opponents > li > strong {
+  color: var(--green);
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+.nomination-context__opponents > li > em {
+  color: var(--text-sec);
+  font-size: 11.5px;
+  font-style: normal;
+}
+
+/* AVVERSARI TIER-1 — CONTABILITÀ (Rose screen, src/ui/views.ts
+   renderOpponentTier1Panel). Same 1/2/4 breakpoints as .teams-grid but its
+   own class on purpose: .teams-grid is what the Rose team-card grid is
+   asserted on (e2e/rose-screen.spec.ts), and these are not team cards. */
+.opponent-tier1 { margin-bottom: 4px; }
+.opponent-tier1__grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin: 10px 0 8px;
+}
+@media (min-width: 640px) {
+  .opponent-tier1__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 1024px) {
+  .opponent-tier1__grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+.opponent-tier1__card {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-inner);
+}
+.opponent-tier1__name {
+  color: var(--text-primary);
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.opponent-tier1__budget {
+  color: var(--green);
+  font-family: var(--font-mono);
+  font-size: 19px;
+}
+.opponent-tier1__budget em {
+  color: var(--text-sec);
+  font-family: inherit;
+  font-size: 12px;
+  font-style: normal;
+}
+.opponent-tier1__total {
+  color: var(--text-sec);
+  font-size: 12.5px;
+}
+.opponent-tier1__total strong {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+.opponent-tier1__slots {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.opponent-tier1__slot {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.opponent-tier1__slot em {
+  color: var(--text-mid);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-style: normal;
+}
+
+/* SCARSITÀ PER RUOLO (Chiamata moment, src/ui/views.ts
+   renderRoleScarcityPanel): four role cells. Two per row on a phone — four
+   side by side stop being readable well before they stop fitting, the same
+   trade-off .critical-roster already makes below. */
+.scarcity-panel { margin-bottom: 18px; }
+.scarcity-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  margin: 10px 0 8px;
+}
+@media (min-width: 640px) {
+  .scarcity-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+.scarcity-cell {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-inner);
+}
+.scarcity-cell__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-bottom: 2px;
+}
+.scarcity-cell__head em {
+  color: var(--text-sec);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.15;
+  min-width: 0;
+}
+/* Below the 2-column breakpoint a cell is ~150px wide: "CENTROCAMPISTI"
+   neither fits nor breaks gracefully next to the chip. The chip alone
+   identifies the role there — the same idiom .critical-roster already uses —
+   while the word stays in the accessibility tree instead of being dropped. */
+@media (max-width: 639px) {
+  .scarcity-cell__head em {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+.scarcity-metric {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.scarcity-metric > span {
+  color: var(--text-sec);
+  font-size: 11px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scarcity-metric > strong {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  flex: none;
+}
+/* The listone row count is a secondary, differently-sourced number (see
+   renderRoleScarcityPanel) — it must never read as the same figure as the
+   log-derived slot count above it. */
+.scarcity-metric--secondary > strong {
+  color: var(--text-sec);
+  font-size: 12.5px;
+}
+
+/* Rehearsal-critical accounting stays reachable while the Asta page scrolls.
+   It wraps instead of clipping at narrow widths. */
+.critical-auction-strip {
+  position: sticky;
+  top: 8px;
+  z-index: 110;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 12px 22px;
+  flex-wrap: wrap;
+  min-width: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in oklch, var(--panel) 94%, transparent);
+  box-shadow: 0 8px 24px color-mix(in oklch, var(--bg) 72%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.critical-metric {
+  display: grid;
+  gap: 1px;
+  min-width: max-content;
+}
+.critical-metric > span:first-child {
+  color: var(--text-sec);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.critical-metric > strong {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 15px;
+}
+/* The bid ceiling carries the stop state that used to be a separate badge:
+   open (green) / locked at the floor (amber) / roster not completable (red).
+   Colour is never the only carrier — the inline note states the condition. */
+.critical-metric--bid {
+  margin-left: auto;
+  padding-left: 14px;
+  border-left: 1px solid var(--border);
+}
+.critical-metric--bid > strong em {
+  font-family: inherit;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+/* Roster progress: its own full-width line under the metrics, so the numbers
+   that drive the next bid stay on the first line at any width. */
+.critical-roster {
+  flex: 1 1 100%;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px 16px;
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+}
+.critical-role {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.critical-role-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.critical-role-head em {
+  color: var(--text-sec);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-style: normal;
+}
+.critical-role--complete .critical-role-head em { color: var(--green); }
+.critical-role-bar {
+  display: block;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--border);
+  overflow: hidden;
+}
+.critical-role-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--accent);
+  transition: width 0.2s;
+}
+.critical-role--complete .critical-role-bar > i { background: var(--green); }
+/* Per-role structural budget envelope (budgetPlan().perRole — issue #265
+   item #1): slot/min/max, numbers only, no prose. Own line under the
+   roster bar so it never competes with the role-completion readout above
+   it for the same horizontal space. */
+.critical-role-plan {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-sec);
+}
+.critical-role-plan-item em {
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-right: 3px;
+}
+.critical-bid--open > strong { color: var(--green); }
+.critical-bid--locked > strong { color: var(--accent); }
+.critical-bid--stop > strong { color: var(--stop-red); }
+.critical-bid--done > strong { color: var(--text-sec); }
+@media (max-width: 520px) {
+  .critical-auction-strip {
+    top: 4px;
+    gap: 8px 14px;
+    padding: 9px 10px;
+  }
+  .critical-metric--bid {
+    margin-left: 0;
+    padding-left: 0;
+    border-left: 0;
+  }
+  /* Two columns instead of four: four role bars side by side stop being
+     readable well before the strip itself stops fitting. */
+  .critical-roster {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Tranche 2b (#231): "R" badge on a Rose roster row for a riconferma
+   pre-asta (regolamento di lega, §4) — src/ui/views.ts renderRoseCard,
+   driven by RosterEntry.seq < 0. Small and monochrome-accent, same idiom as
+   the DEV badge (devStatic.ts) rather than a loud color: it marks
+   provenance, not a warning.
+   Fix 9 (PX polish, round 2, #285): the plain --accent (oklch(0.55 0.13
+   250)) on --panel measures ~3.4:1 against .panel--compact's fill — below
+   WCAG AA's 4.5:1 for text this small (9.5px, nowhere near the "large
+   text" 3:1 exception). Lightened to oklch(0.68 0.13 250) — same hue/
+   chroma (still reads as "the accent color", still quiet, no fill/no loud
+   color swap like the DEV badge's) — which measures ~5.7:1 on --panel. */
+.roster-badge-confirmed {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  border: 1px solid oklch(0.68 0.13 250);
+  color: oklch(0.68 0.13 250);
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+}

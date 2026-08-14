@@ -1,0 +1,36 @@
+/* Frontend Structure Foundation v1 — base.css
+   Reset, global body styles, and design tokens as CSS custom properties.
+   The --* values below are a literal copy of src/ui/theme.ts's `C` object —
+   kept in sync by hand (this is a plain-CSS foundation, not a build-time
+   token pipeline; see docs note in theme.ts). `C` itself is unchanged and
+   still used directly by existing inline styles — these custom properties
+   only back the *new* classes introduced in components.css/layout.css/
+   asta.css/listone.css. */
+
+:root {
+  --bg: oklch(0.19 0.008 270);
+  --panel: oklch(0.24 0.01 270);
+  --panel-inner: oklch(0.28 0.012 270);
+  --border: oklch(0.32 0.012 270);
+  --accent: oklch(0.55 0.13 250);
+  --accent-dim: oklch(0.35 0.06 250);
+  --text-primary: oklch(0.96 0.005 270);
+  --text-sec: oklch(0.62 0.01 270);
+  --text-mid: oklch(0.82 0.006 270);
+  --text-dim: oklch(0.5 0.01 270);
+  --stop-red: oklch(0.66 0.19 25);
+  --stop-red-dark: oklch(0.5 0.16 25);
+  --green: oklch(0.65 0.15 145);
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: -apple-system, system-ui, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+#app { min-height: 100vh; }

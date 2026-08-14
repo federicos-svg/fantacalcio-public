@@ -1,0 +1,45 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+.env
+.env.*
+coverage/
+
+# Playwright E2E — scratch/report output, never versioned (see
+# playwright.config.ts, TEST-HARNESS-01). Uploaded to CI as an artifact only
+# on failure (.github/workflows/ci.yml), never committed.
+/playwright-report/
+/test-results/
+/blob-report/
+
+# Graphify — entirely local, never versioned (2026-07-11 hardening).
+# Community-detection (Leiden) is not run-to-run deterministic even with a
+# fixed seed (verified: same HEAD, two consecutive `graphify update` runs,
+# same 2505 nodes/3730 edges, but ~5% of nodes land in a different
+# `community` id each time) — so graph.json/GRAPH_REPORT.md/manifest.json/
+# labels would churn on every commit/checkout no matter what subset is
+# tracked. Regenerate on demand: `npm run graphify:bootstrap` then
+# `graphify update .` (code-only, no LLM key, ~15s).
+/graph.json
+graphify-out/
+
+# Machine-specific resolved path of the pinned graphify binary, written by
+# `npm run graphify:bootstrap` after verifying `--version` against
+# .claude/skills/graphify/.graphify_version. Never a path a human wrote —
+# regenerated per machine/session, must never be committed.
+.claude/hooks/graphify-bin.local
+
+# Git worktrees dei worker temporanei delegati dall'Executive (Team Charter
+# §Struttura: isolamento per task). Sono checkout annidati creati e distrutti
+# dall'harness dentro il repo, mai lavoro da versionare: senza questa riga un
+# worker in volo lascia il tracked tree sporco e fa fallire repo-guardrails
+# nella sessione che lo ha delegato.
+.claude/worktrees/
+
+# Project-local `uv` tool directories (UV_TOOL_DIR/UV_TOOL_BIN_DIR, set only
+# on the bootstrap's install subprocess env — never exported to the shell).
+# graphify is installed here, never into uv's global tool directory, so
+# this repo's pinned install can never be shadowed by (or shadow) another
+# project's or the machine's global graphify.
+.graphify-tools/

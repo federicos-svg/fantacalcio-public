@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auction_event.schema.json",
+  "title": "AuctionEvent",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["type","seq","ts","playerId","role","fantaTeamId","price"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"const": "PURCHASE"},
+        "seq": {"type": "integer", "minimum": 0},
+        "ts": {"type": "string", "minLength": 1},
+        "playerId": {"type": "string", "minLength": 1},
+        "role": {"enum": ["P","D","C","A"]},
+        "fantaTeamId": {"type": "string", "minLength": 1},
+        "price": {"type": "integer", "minimum": 0}
+      }
+    },
+    {
+      "type": "object",
+      "required": ["type","seq","ts","targetSeq"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"const": "VOID"},
+        "seq": {"type": "integer", "minimum": 0},
+        "ts": {"type": "string", "minLength": 1},
+        "targetSeq": {"type": "integer", "minimum": 0}
+      }
+    }
+  ]
+}

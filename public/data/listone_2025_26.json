@@ -1,0 +1,8 @@
+[
+  { "name": "Aldo Prova", "role": "P", "club": "ClubUno", "quotation": 5 },
+  { "name": "Beatrice Fittizia", "role": "D", "club": "ClubDue", "quotation": 8 },
+  { "name": "Carlo Esempio", "role": "C", "club": "ClubTre", "quotation": 12 },
+  { "name": "Dario Placeholder", "role": "A", "club": "ClubQuattro", "quotation": 20 },
+  { "name": "Elena Sintetica", "role": "P", "club": "ClubCinque", "quotation": 6 },
+  { "name": "Furio Esempio", "role": "C", "club": "ClubSei", "quotation": 15 }
+]

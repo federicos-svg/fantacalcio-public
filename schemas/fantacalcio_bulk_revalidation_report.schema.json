@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fantacalcio_bulk_revalidation_report.schema.json",
+  "title": "FantacalcioBulkRevalidationReport",
+  "description": "Aggregate, redacted outcome of ONE bulk re-validation run over already-acquired raw XLSX vote files (packages/xlsx-adapter/src/bulkRevalidationReport.ts). Prepared to close the FASE2 audit gap: the original per-file reports were deleted per the normalization runbook's cleanup step, leaving the '418/418 valid' claim unauditable. Counts and codes only — NEVER player/team names, file paths, URLs, or secrets. data_promoted stays OFF; this schema describes a report artifact, not a promotion.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run_id",
+    "run_started_at",
+    "run_finished_at",
+    "repo_commit_sha",
+    "script_version",
+    "seasons",
+    "totals",
+    "data_promoted_eligible",
+    "canonical_promoted",
+    "redaction_check"
+  ],
+  "properties": {
+    "run_id": {"type": "string", "minLength": 1, "description": "Redacted run identifier, e.g. a timestamp-derived string. Never a Drive/workflow/execution id."},
+    "run_started_at": {"type": "string", "format": "date-time"},
+    "run_finished_at": {"type": "string", "format": "date-time"},
+    "repo_commit_sha": {"type": "string", "minLength": 1, "description": "Commit of this repo whose pipeline code produced the run (reproducibility)."},
+    "script_version": {"type": "string", "minLength": 1},
+    "seasons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "season",
+          "season_code",
+          "expected_matchdays",
+          "found_matchdays",
+          "missing_matchdays",
+          "valid_count",
+          "warning_count",
+          "invalid_count",
+          "matchdays"
+        ],
+        "properties": {
+          "season": {"type": "string", "pattern": "^[0-9]{4}_[0-9]{2}$"},
+          "season_code": {"type": "string", "pattern": "^(1[0-9]|2[01])$"},
+          "expected_matchdays": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": 38}},
+          "found_matchdays": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": 38}},
+          "missing_matchdays": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": 38}},
+          "valid_count": {"type": "integer", "minimum": 0},
+          "warning_count": {"type": "integer", "minimum": 0},
+          "invalid_count": {"type": "integer", "minimum": 0},
+          "matchdays": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "matchday",
+                "raw_hash",
+                "raw_hash_matches_acquisition_manifest",
+                "pipeline_status",
+                "normalizedRows",
+                "parsedRecords",
+                "playerRecords",
+                "validationErrors",
+                "validationWarnings",
+                "issue_codes"
+              ],
+              "properties": {
+                "matchday": {"type": "integer", "minimum": 1, "maximum": 38},
+                "raw_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+                "raw_hash_matches_acquisition_manifest": {"type": ["boolean", "null"], "description": "null when no FASE1 acquisition raw_hash was supplied for cross-check."},
+                "pipeline_status": {"enum": ["valid", "warning", "invalid"]},
+                "normalizedRows": {"type": ["integer", "null"], "minimum": 0},
+                "parsedRecords": {"type": ["integer", "null"], "minimum": 0},
+                "playerRecords": {"type": ["integer", "null"], "minimum": 0},
+                "validationErrors": {"type": "integer", "minimum": 0},
+                "validationWarnings": {"type": "integer", "minimum": 0},
+                "issue_codes": {
+                  "type": "array",
+                  "description": "Codes only (e.g. 'invalid_season', 'xlsx_decode_error') — never free-text messages.",
+                  "items": {"type": "string", "minLength": 1, "maxLength": 200}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expected", "found", "valid", "warning", "invalid", "missing"],
+      "properties": {
+        "expected": {"type": "integer", "minimum": 0},
+        "found": {"type": "integer", "minimum": 0},
+        "valid": {"type": "integer", "minimum": 0},
+        "warning": {"type": "integer", "minimum": 0},
+        "invalid": {"type": "integer", "minimum": 0},
+        "missing": {"type": "integer", "minimum": 0}
+      }
+    },
+    "data_promoted_eligible": {"const": false, "description": "Always false: a re-validation report never promotes anything."},
+    "canonical_promoted": {"const": false, "description": "Always false: no identity resolution happens here."},
+    "redaction_check": {"const": "ok", "description": "Present only because assertRedacted() passed on this exact report before it was returned."}
+  }
+}

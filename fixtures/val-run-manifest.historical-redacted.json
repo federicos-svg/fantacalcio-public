@@ -1,0 +1,153 @@
+{
+  "manifest_version": "1.0.0",
+  "run_id": {
+    "status": "inferred",
+    "value": "historical-run-2026-07-10-redacted",
+    "basis": "Date and identity are reconstructed from current repository documentation; no original manifest survives.",
+    "confidence": "medium"
+  },
+  "protocol": {
+    "status": "inferred",
+    "value": { "id": "pre-VAL-PROTOCOL-A", "version": null },
+    "basis": "The remembered run predates VAL-PROTOCOL-A@1.0.0.",
+    "confidence": "high"
+  },
+  "source_commit": {
+    "status": "inferred",
+    "value": "06163e84b4285ee28967eb4dba94ab9359ad11eb",
+    "basis": "Observed textual fingerprints: commit title, packages/appeal-index pipeline, rolling-origin validation, final holdout and fixture-only sample report.",
+    "confidence": "high"
+  },
+  "source_commit_status": "inferred",
+  "working_tree": {
+    "status": "missing",
+    "value": null,
+    "basis": "No original git status or dirty-tree record was recovered."
+  },
+  "command": {
+    "status": "missing",
+    "value": null,
+    "basis": "No original invocation was recovered."
+  },
+  "runtime": {
+    "status": "missing",
+    "value": null,
+    "basis": "No original runtime record was recovered."
+  },
+  "dependencies": {
+    "status": "inferred",
+    "value": "Repository lockfile at the inferred source commit, not independently tied to the run.",
+    "basis": "The commit contains package-lock.json, but there is no environment capture for the remembered run.",
+    "confidence": "low"
+  },
+  "seasons": {
+    "status": "inferred",
+    "value": {
+      "from": "2015-16",
+      "to": "2025-26",
+      "expected_seasons": 11,
+      "expected_files_per_season": 38,
+      "expected_files_total": 418,
+      "verification": "external_checkpoint_not_inspected"
+    },
+    "basis": "Expected private corpus recorded by the Phase 1 brief; Google Drive was not inspected in this session.",
+    "confidence": "medium"
+  },
+  "input_manifest_hash": {
+    "status": "missing",
+    "value": null,
+    "basis": "No input manifest or hash was recovered."
+  },
+  "artifact_hashes": {
+    "status": "missing",
+    "value": null,
+    "basis": "No original artifact was recovered."
+  },
+  "targets": {
+    "status": "inferred",
+    "value": ["fantamediaNext", "presenzeNext"],
+    "basis": "These targets are present in the inferred source pipeline; their use by the unrecovered run is not directly observed.",
+    "confidence": "high"
+  },
+  "feature_set": {
+    "status": "inferred",
+    "value": "appeal-index feature set at inferred source commit",
+    "basis": "Feature code is present at the inferred commit; no serialized run configuration survives.",
+    "confidence": "high"
+  },
+  "population": {
+    "status": "inferred",
+    "value": "players present in consecutive historical seasons with a non-null next-season fantamedia",
+    "basis": "This exclusion is implemented by buildFeatureRows at the inferred commit.",
+    "confidence": "high"
+  },
+  "split": {
+    "status": "inferred",
+    "value": "rolling-origin with one final holdout",
+    "basis": "Implemented in packages/appeal-index/src/validation.ts at the inferred commit.",
+    "confidence": "high"
+  },
+  "missingness_pipeline": {
+    "status": "inferred",
+    "value": "legacy null-to-zero fallbacks; not VAL-PROTOCOL-A compliant",
+    "basis": "Observed in packages/appeal-index/src/dataset.ts at the inferred commit.",
+    "confidence": "high"
+  },
+  "candidate_model_id": {
+    "status": "missing",
+    "value": null,
+    "basis": "The original selected candidate and configuration were not recovered."
+  },
+  "seed": {
+    "status": "missing",
+    "value": null,
+    "basis": "No run seed record was recovered."
+  },
+  "determinism": {
+    "status": "inferred",
+    "value": "Code has deterministic fixture tests; the historical environment is unknown.",
+    "basis": "Repository tests are observed, but they do not attest the unrecovered run.",
+    "confidence": "medium"
+  },
+  "metrics": {
+    "status": "missing",
+    "value": null,
+    "basis": "Remembered metrics have no recoverable report and are not operational evidence."
+  },
+  "evidence_status": {
+    "status": "observed",
+    "value": "no_verdict",
+    "basis": "Current canonical documentation records EVIDENZA IRRECUPERABILE and all gates OFF."
+  },
+  "oof_outputs": {
+    "status": "missing",
+    "value": null,
+    "basis": "No OOF output was recovered."
+  },
+  "timestamp": {
+    "status": "inferred",
+    "value": "2026-07-10",
+    "basis": "Remembered date recorded in current repository documentation; no original timestamp survives.",
+    "confidence": "medium"
+  },
+  "sensitivity": {
+    "status": "observed",
+    "value": {
+      "classification": "redacted_provenance_only",
+      "contains_real_player_data": false,
+      "repository_safe": true
+    },
+    "basis": "Fixture inspection: no player names, raw records, private identifiers or real artifacts."
+  },
+  "known_limits": {
+    "status": "observed",
+    "value": [
+      "Source commit is inferred, not proven.",
+      "Original command, inputs, hashes, artifacts, OOF outputs, seed and runtime are missing.",
+      "Private Drive corpus and reports were not inspected.",
+      "The 2025-26 holdout is permanently burned for confirmatory use.",
+      "No algorithm or gate is validated by this reconstruction."
+    ],
+    "basis": "Local repository and recovery record inspected in this session."
+  }
+}

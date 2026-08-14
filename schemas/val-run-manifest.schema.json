@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fantacalcio.local/schemas/val-run-manifest.schema.json",
+  "title": "VAL run provenance manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_version",
+    "run_id",
+    "protocol",
+    "source_commit",
+    "source_commit_status",
+    "working_tree",
+    "command",
+    "runtime",
+    "dependencies",
+    "seasons",
+    "input_manifest_hash",
+    "artifact_hashes",
+    "targets",
+    "feature_set",
+    "population",
+    "split",
+    "missingness_pipeline",
+    "candidate_model_id",
+    "seed",
+    "determinism",
+    "metrics",
+    "evidence_status",
+    "oof_outputs",
+    "timestamp",
+    "sensitivity",
+    "known_limits"
+  ],
+  "properties": {
+    "manifest_version": { "const": "1.0.0" },
+    "run_id": { "$ref": "#/$defs/evidenceValue" },
+    "protocol": { "$ref": "#/$defs/evidenceValue" },
+    "source_commit": { "$ref": "#/$defs/evidenceValue" },
+    "source_commit_status": {
+      "type": "string",
+      "enum": ["observed", "inferred", "missing"]
+    },
+    "working_tree": { "$ref": "#/$defs/evidenceValue" },
+    "command": { "$ref": "#/$defs/evidenceValue" },
+    "runtime": { "$ref": "#/$defs/evidenceValue" },
+    "dependencies": { "$ref": "#/$defs/evidenceValue" },
+    "seasons": { "$ref": "#/$defs/evidenceValue" },
+    "input_manifest_hash": { "$ref": "#/$defs/evidenceValue" },
+    "artifact_hashes": { "$ref": "#/$defs/evidenceValue" },
+    "targets": { "$ref": "#/$defs/evidenceValue" },
+    "feature_set": { "$ref": "#/$defs/evidenceValue" },
+    "population": { "$ref": "#/$defs/evidenceValue" },
+    "split": { "$ref": "#/$defs/evidenceValue" },
+    "missingness_pipeline": { "$ref": "#/$defs/evidenceValue" },
+    "candidate_model_id": { "$ref": "#/$defs/evidenceValue" },
+    "seed": { "$ref": "#/$defs/evidenceValue" },
+    "determinism": { "$ref": "#/$defs/evidenceValue" },
+    "metrics": { "$ref": "#/$defs/evidenceValue" },
+    "evidence_status": {
+      "allOf": [
+        { "$ref": "#/$defs/evidenceValue" },
+        {
+          "properties": {
+            "value": {
+              "type": ["string", "null"],
+              "enum": ["scouting", "advisory", "directive", "no_verdict", null]
+            }
+          }
+        }
+      ]
+    },
+    "oof_outputs": { "$ref": "#/$defs/evidenceValue" },
+    "timestamp": { "$ref": "#/$defs/evidenceValue" },
+    "sensitivity": { "$ref": "#/$defs/evidenceValue" },
+    "known_limits": { "$ref": "#/$defs/evidenceValue" }
+  },
+  "$defs": {
+    "evidenceValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "value", "basis"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["observed", "inferred", "missing"]
+        },
+        "value": {},
+        "basis": { "type": "string", "minLength": 1 },
+        "confidence": {
+          "type": "string",
+          "enum": ["low", "medium", "high"]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "missing" } } },
+          "then": { "properties": { "value": { "type": "null" } } }
+        },
+        {
+          "if": { "properties": { "status": { "const": "inferred" } } },
+          "then": { "required": ["confidence"] }
+        }
+      ]
+    }
+  }
+}

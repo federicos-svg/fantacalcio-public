@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fantacalcio.local/schemas/val-data-readiness-report.schema.json",
+  "title": "VAL Data Readiness Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "corpusIntegrity", "provenance", "hashCoverage",
+    "pipelineValidation", "sourceAlignment", "ruleReadiness",
+    "identityReadiness", "cohortReadiness", "burnedHoldoutAccess",
+    "rd_readiness", "promotional_readiness", "blockers"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "corpusIntegrity": { "type": "object" },
+    "provenance": { "type": "object" },
+    "hashCoverage": { "type": "object" },
+    "pipelineValidation": { "type": "object" },
+    "sourceAlignment": { "enum": ["verified", "limited", "failed"] },
+    "ruleReadiness": { "enum": ["verified", "unverified"] },
+    "identityReadiness": { "type": "object" },
+    "cohortReadiness": { "type": "object" },
+    "burnedHoldoutAccess": { "type": "array" },
+    "rd_readiness": { "enum": ["R&D_READY", "R&D_READY_WITH_LIMITS", "NOT_READY", "BLOCKED_ACCESS"] },
+    "promotional_readiness": { "enum": ["PROMOTIONAL_READY", "PROMOTIONAL_NOT_READY"] },
+    "blockers": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+  }
+}

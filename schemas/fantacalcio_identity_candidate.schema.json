@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fantacalcio_identity_candidate.schema.json",
+  "title": "FantacalcioIdentityCandidate",
+  "description": "Design-only identity candidate for a player or team (Batch 0E). Cross-season canonical ids are NOT assumed stable from the Fantacalcio 'Cod.' (see RISK_REGISTER R1). canonical_*_id stays null until identity is in data_promoted; ambiguous/under-threshold candidates MUST go to manual review, never auto-promoted. NO real data here: fixtures are synthetic.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "identity_candidate_id",
+    "entity_kind",
+    "canonical_player_id",
+    "canonical_team_id",
+    "display_name",
+    "source_name",
+    "normalized_name",
+    "aliases",
+    "season",
+    "season_code",
+    "team_context",
+    "external_ids",
+    "confidence",
+    "match_method",
+    "identity_status",
+    "ambiguity_kind",
+    "manual_review_reason",
+    "provenance",
+    "canonical_promoted"
+  ],
+  "properties": {
+    "identity_candidate_id": {"type": "string", "minLength": 1},
+    "entity_kind": {"enum": ["player", "team"]},
+    "canonical_player_id": {"type": ["string", "null"], "description": "Null until promoted (data_promoted). Set only for entity_kind=player after manual/auto resolution."},
+    "canonical_team_id": {"type": ["string", "null"], "description": "Null until promoted. Set only for entity_kind=team after resolution."},
+    "display_name": {"type": "string", "minLength": 1, "description": "Human-facing name as shown."},
+    "source_name": {"type": "string", "minLength": 1, "description": "Raw name as it appears in the source."},
+    "normalized_name": {"type": "string", "minLength": 1, "description": "Deterministic normalized form: lowercase, accents->ascii, trimmed, spaces collapsed."},
+    "aliases": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "season": {"type": ["string", "null"], "pattern": "^[0-9]{4}_[0-9]{2}$"},
+    "season_code": {"type": ["string", "null"], "pattern": "^(1[0-9]|2[01])$"},
+    "team_context": {"type": ["string", "null"], "description": "Team the player was observed with (null for entity_kind=team or when unknown)."},
+    "external_ids": {
+      "type": "array",
+      "description": "Per-source external ids, e.g. {source_id: fantacalcio_xlsx, external_id: '<Cod.>'}. NOT stable cross-season.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source_id", "external_id"],
+        "properties": {
+          "source_id": {"type": "string", "minLength": 1},
+          "external_id": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "match_method": {"enum": ["exact", "normalized", "fuzzy", "manual", "none"]},
+    "identity_status": {"enum": ["valid", "invalid", "warning", "ambiguous", "requires_manual_review", "rejected"]},
+    "ambiguity_kind": {
+      "type": ["string", "null"],
+      "enum": [
+        "homonym",
+        "team_change",
+        "name_change_suffix",
+        "abbreviation",
+        "special_chars_accents",
+        "new_foreign",
+        "team_naming_variant",
+        null
+      ],
+      "description": "Set when identity_status is ambiguous/requires_manual_review; null otherwise."
+    },
+    "manual_review_reason": {"type": ["string", "null"]},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "acquisition_ref", "observed_in"],
+      "properties": {
+        "source_id": {"type": "string", "minLength": 1},
+        "acquisition_ref": {"type": "string", "minLength": 1, "description": "Reference to the acquisition that surfaced this name (e.g. acquisition_id). No secrets."},
+        "observed_in": {"type": "string", "minLength": 1, "description": "e.g. season+matchday or sheet ref."}
+      }
+    },
+    "canonical_promoted": {"const": false, "description": "Always false in Batch 0E: identities are not promoted here."}
+  }
+}

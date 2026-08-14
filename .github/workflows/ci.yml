@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Cheap lane, always on: guards that read the tree as text.
+  guards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Secret scan
+        run: node scripts/secret-scan.mjs
+      - name: Repo guardrails
+        run: node scripts/repo-guardrails.mjs
+      - name: Publication security gate
+        run: node scripts/publication-gate.mjs
+      - name: Markdown links
+        run: node scripts/check-markdown-links.mjs
+
+      - name: Lint workflows (actionlint)
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          curl --fail --silent --show-error --location --retry 3 --retry-delay 2 \
+            --output "${RUNNER_TEMP}/${archive}" "${url}"
+          echo "${ACTIONLINT_SHA256}  ${RUNNER_TEMP}/${archive}" | sha256sum --check --strict -
+          tar -xzf "${RUNNER_TEMP}/${archive}" -C "${RUNNER_TEMP}" actionlint
+          "${RUNNER_TEMP}/actionlint" -no-color
+
+  # Full lane. Public-repo minutes are free/unlimited on standard runners:
+  # path filtering is a wall-clock nicety here, not a cost control.
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Test
+        run: npm test
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Cache Playwright browsers
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Install Chromium (Playwright)
+        run: npx playwright install --with-deps chromium
+      - name: Build
+        run: npm run build
+      - name: Start preview server
+        run: |
+          nohup npm run preview -- --port 4173 --strictPort --host 127.0.0.1 > preview-server.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sSf http://127.0.0.1:4173/ > /dev/null 2>&1; then exit 0; fi
+            sleep 1
+          done
+          echo "::error::Preview server did not become ready within 30s."
+          cat preview-server.log || true
+          exit 1
+      - name: E2E (Playwright, Chromium-only)
+        run: npm run test:e2e
+      - name: Upload Playwright diagnostics (failure only)
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+

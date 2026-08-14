@@ -1,0 +1,57 @@
+import { expect, test } from "@playwright/test";
+import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
+import { gotoScreen, installSyntheticNetworkGuard, openSettingsSection } from "./helpers.js";
+
+test("the settings menu swaps the right-hand panel and survives a re-render", async ({ page, context }) => {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
+  await page.goto("/");
+  await gotoScreen(page, "Impostazioni");
+
+  // Opens on the area you act on; each menu entry carries its own icon.
+  // Three areas since tranche 2b (#231): teams, riconferme pre-asta, status.
+  await expect(page.locator("#settings-tab-teams")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#settings-tab-riconferme")).toHaveAttribute("aria-selected", "false");
+  await expect(page.locator("#settings-tab-status")).toHaveAttribute("aria-selected", "false");
+  await expect(page.locator("#settings-menu svg")).toHaveCount(3);
+  await expect(page.locator("#new-person-name")).toBeVisible();
+
+  // Only the selected area is built, so the other one is absent from the DOM
+  // entirely — not merely hidden.
+  await expect(page.locator("#shadow-status")).toHaveCount(0);
+
+  await openSettingsSection(page, "status");
+  await expect(page.locator("#shadow-status")).toBeVisible();
+  await expect(page.locator("#new-person-name")).toHaveCount(0);
+  await expect(page.locator("#settings-panel")).toHaveAttribute("aria-labelledby", "settings-tab-status");
+
+  // The regression this design guards against: render() rebuilds the whole
+  // DOM on every keystroke, so a selection living only in the DOM would snap
+  // back. Adding a participant re-renders.
+  await openSettingsSection(page, "teams");
+  await page.locator("#new-person-name").fill("Marco");
+  await page.locator("#add-person").click();
+  await expect(page.locator("#league-people-list input")).toHaveValue("Marco");
+  await expect(page.locator("#settings-tab-teams")).toHaveAttribute("aria-selected", "true");
+
+  // Arrow keys move within the menu, and focus follows across the re-render.
+  // Three stops now (teams -> riconferme -> status -> wraps to teams).
+  await page.locator("#settings-tab-teams").focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.locator("#settings-tab-riconferme")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#settings-tab-riconferme")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.locator("#settings-tab-status")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#settings-tab-status")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.locator("#settings-tab-teams")).toHaveAttribute("aria-selected", "true");
+
+  // Roving tabindex: the menu is a single tab stop, not one per entry.
+  await expect(page.locator("#settings-tab-teams")).toHaveAttribute("tabindex", "0");
+  await expect(page.locator("#settings-tab-riconferme")).toHaveAttribute("tabindex", "-1");
+  await expect(page.locator("#settings-tab-status")).toHaveAttribute("tabindex", "-1");
+
+  // No development placeholder left on this screen.
+  await expect(page.getByText("DEV STATICO")).toHaveCount(0);
+  expect(externalRequests).toEqual([]);
+});

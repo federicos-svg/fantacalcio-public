@@ -1,0 +1,35 @@
+/* Frontend Structure Foundation v1 — layout.css
+   Page-chrome primitives: the outermost app shell and header bar built by
+   main.ts's render()/renderHeader(). These are currently single-use, but
+   moving them out of inline style strings is part of "modular CSS files"
+   (goal 2 of this batch), not just duplicate-reduction (goal 1). */
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 44px;
+  flex: none;
+}
+
+/* Shared "centered, max-width page column" shape between the Asta and Rose
+   screens — padding/gap/flex genuinely differ between the two today
+   (Asta: 20px/24px padding, 18px gap; Rose: 18px/24px padding, 12px gap,
+   flex:1), so each screen keeps that part as a small inline supplement
+   alongside this class rather than forcing a false single value. */
+.screen-container {
+  display: flex;
+  flex-direction: column;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+}

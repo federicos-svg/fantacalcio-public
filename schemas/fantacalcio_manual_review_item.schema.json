@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fantacalcio_manual_review_item.schema.json",
+  "title": "FantacalcioManualReviewItem",
+  "description": "One item in the design-only manual review queue (Batch 0E). A data contract, NOT an implementation: no UI, no DB, no real data. Created when a validation or identity step needs a human decision before proceeding. Blocking items keep data_promoted OFF.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "review_item_id",
+    "created_at",
+    "origin",
+    "origin_ref",
+    "entity_kind",
+    "reason_code",
+    "reason_detail",
+    "candidates",
+    "blocking",
+    "status",
+    "resolution"
+  ],
+  "properties": {
+    "review_item_id": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "format": "date-time"},
+    "origin": {"enum": ["validation", "identity"]},
+    "origin_ref": {"type": "string", "minLength": 1, "description": "validation_id or identity_candidate_id that raised this item."},
+    "entity_kind": {"enum": ["player", "team", "file", "manifest", "vote_record", "none"]},
+    "reason_code": {
+      "enum": [
+        "ambiguous_identity",
+        "homonym",
+        "team_change",
+        "name_change",
+        "abbreviation",
+        "special_chars",
+        "new_foreign",
+        "team_naming_variant",
+        "hash_change_conflict",
+        "schema_violation",
+        "low_confidence",
+        "external_id_reuse",
+        "role_change",
+        "other"
+      ]
+    },
+    "reason_detail": {"type": "string"},
+    "candidates": {
+      "type": "array",
+      "description": "Possible matches to choose from (empty when none).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ref", "score"],
+        "properties": {
+          "ref": {"type": "string", "minLength": 1, "description": "Reference to a candidate identity/record. No secrets."},
+          "score": {"type": "number", "minimum": 0, "maximum": 1},
+          "note": {"type": "string"}
+        }
+      }
+    },
+    "blocking": {"type": "boolean", "description": "True when this item blocks promotion until resolved."},
+    "status": {"enum": ["open", "resolved", "rejected", "deferred"]},
+    "resolution": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["decision", "decided_by", "decided_at"],
+      "description": "Null while open. Set when resolved/rejected.",
+      "properties": {
+        "decision": {"type": "string", "minLength": 1, "description": "e.g. matched:<ref>, new_identity, rejected."},
+        "decided_by": {"type": "string", "minLength": 1, "description": "Symbolic actor (e.g. 'owner'). Not a real account/email/secret."},
+        "decided_at": {"type": "string", "format": "date-time"},
+        "note": {"type": "string"}
+      }
+    },
+    "identity_signals": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional generic FASE 3 identity-comparison evidence for a future human reviewer (packages/identity-policy). Only present for identity-origin review items raised by one of the three review_* outcomes below — never carries a canonical_player_id/canonical_team_id or any real player/team reference.",
+      "required": [
+        "outcome",
+        "confidence_band",
+        "name_token_overlap",
+        "role_same",
+        "team_same",
+        "external_id_same",
+        "external_id_present_a",
+        "external_id_present_b"
+      ],
+      "properties": {
+        "outcome": {
+          "enum": ["review_name_mismatch", "review_external_id_reuse", "review_role_change"],
+          "description": "Restricted to the three identity-candidate outcomes that ever raise a review item (see packages/identity-policy/src/candidateKeyPolicy.ts IDENTITY_CANDIDATE_OUTCOMES)."
+        },
+        "confidence_band": {"enum": ["high", "medium", "low", "not_applicable"]},
+        "name_token_overlap": {"type": "number", "minimum": 0, "maximum": 1},
+        "role_same": {"type": "boolean"},
+        "team_same": {"type": "boolean"},
+        "external_id_same": {"type": "boolean"},
+        "external_id_present_a": {"type": "boolean"},
+        "external_id_present_b": {"type": "boolean"}
+      }
+    }
+  }
+}

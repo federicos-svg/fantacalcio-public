@@ -1,0 +1,549 @@
+/* Frontend Structure Foundation v1 — components.css
+   Reusable primitives extracted from patterns that were byte-identical
+   (verified against the pre-refactor inline style strings) across at least
+   two call sites in src/main.ts and src/ui/views.ts. Each class documents
+   which inline blobs it replaces so a future diff can be checked against
+   this list. Anything that was "close but not identical" was deliberately
+   left inline — see the PR description's "left untouched" section. */
+
+/* ── Panels/cards ─────────────────────────────────────────────────────── */
+
+.panel {
+  background: var(--panel);
+  border-radius: 12px;
+  padding: 20px 24px;
+}
+
+/* Compact filled card — Rose team roster cards. */
+.panel--compact {
+  background: var(--panel);
+  border-radius: 10px;
+  padding: 11px 12px;
+}
+
+/* Outline-only card (no fill) — the Listone Svincolati wrapper. */
+.panel--bordered {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+.panel-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  color: var(--text-sec);
+}
+
+/* ── Forms ────────────────────────────────────────────────────────────── */
+
+.field-label {
+  font-size: 11px;
+  color: var(--text-sec);
+  margin-bottom: 4px;
+}
+
+.field-input {
+  width: 100%;
+  background: var(--panel-inner);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 9px 12px;
+  font-size: 14px;
+  color: var(--text-primary);
+  outline: none;
+}
+
+/* ── Text ─────────────────────────────────────────────────────────────── */
+
+.hint-text {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.kpi-value {
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
+/* ── Badges/chips ─────────────────────────────────────────────────────── */
+
+.badge {
+  display: inline-block;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  flex: none;
+}
+
+.badge--assigned {
+  background: var(--panel-inner);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────── */
+/* Named by role (primary CTA / secondary-ghost / destructive / segmented
+   filter / icon toggle / pagination), each matching an existing, already-
+   consistent visual group — not one-off utility classes. */
+
+.btn {
+  border-radius: 7px;
+  cursor: pointer;
+  border: none;
+}
+
+/* Avvia (enabled) / Registra acquisto — accent CTA. The disabled look
+   (Avvia while the listone selection isn't correlated) is now a real
+   :disabled rule instead of a JS ternary computing bg/color/cursor. */
+.btn--primary {
+  font-size: 13.5px;
+  font-weight: 700;
+  padding: 10px 20px;
+  background: var(--accent);
+  color: white;
+}
+.btn--primary:disabled {
+  background: var(--border);
+  color: var(--text-dim);
+  cursor: not-allowed;
+}
+
+/* Mantieni / Chiudi — ghost/secondary action. */
+.btn--secondary {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-mid);
+}
+
+/* Annulla acquisto — destructive confirm. */
+.btn--danger {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 16px;
+  background: var(--stop-red-dark);
+  color: white;
+}
+
+/* Column-visibility gear toggle. */
+.btn--icon {
+  font-size: 14px;
+  line-height: 1;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-sec);
+}
+.btn--icon.is-active {
+  border-color: var(--accent);
+  background: var(--panel-inner);
+}
+
+/* Listone pagination prev/next. */
+.btn--pagination {
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-sec);
+}
+.btn--pagination:disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+/* ── Overlays ──────────────────────────────────────────────────────────── */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 112px 16px 16px;
+  overflow: auto;
+}
+
+/* The two confirmations that live on the Asta screen open UNDER the sticky
+   `.critical-auction-strip` (z-index 110 vs the 100 above — deliberate: the
+   budget/slot/max_safe accounting must stay readable while a confirmation is
+   up, and e2e/critical-overlays.spec.ts asserts it). They therefore have to
+   start below the strip, or the part that gets covered is the dialog's own
+   heading — which is exactly what tells a "annulla l'ULTIMO acquisto" apart
+   from a "annulla QUESTO acquisto" (LIVE-06).
+
+   112px/154px used to be that clearance and silently stopped being it when
+   the strip absorbed the old BUDGET & ROSA panel (per-role roster bars) and
+   grew — then again when issue #265 item #1 added the per-role budget-plan
+   line (.critical-role-plan) under each role's bar. The values below are the
+   strip's measured bottom edge on the Asta screen — 193px wide-viewport,
+   237.5px at or under 520px, where the strip re-wraps to 2 columns and so
+   pays for the extra line twice (src/styles/asta.css,
+   .critical-auction-strip) — plus a small gap.
+   e2e/critical-overlays.spec.ts now asserts at 390/768/1280 that the heading
+   clears the strip, so this cannot drift back unnoticed.
+
+   Scoped to a modifier rather than `.modal-overlay` itself because the Rose
+   DEV mock modal (renderMockModal) opens on a screen that has no strip and
+   must not be pushed down for a clearance it does not need. */
+.modal-overlay--clears-critical-strip {
+  padding-top: 204px;
+}
+
+.confirmation-dialog {
+  width: min(400px, 100%);
+  max-height: calc(100vh - 128px);
+  overflow: auto;
+  align-self: flex-start;
+  background: var(--panel);
+  border: 1px solid var(--stop-red-dark);
+  border-radius: 12px;
+  padding: 24px 28px;
+}
+.confirmation-dialog h2 {
+  margin-bottom: 10px;
+  color: var(--text-primary);
+  font-size: 16px;
+}
+.confirmation-dialog p {
+  margin-bottom: 20px;
+  color: var(--text-mid);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.confirmation-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+@media (max-width: 520px) {
+  .modal-overlay {
+    padding-top: 154px;
+  }
+  .modal-overlay--clears-critical-strip {
+    padding-top: 249px;
+  }
+  .confirmation-dialog {
+    max-height: calc(100vh - 170px);
+    padding: 18px;
+  }
+}
+/* The dialog is `align-self: flex-start` inside the overlay, so its own
+   max-height has to shrink by whatever the clearance above added — otherwise a
+   tall dialog (the LIVE-06 non-last confirmation is the tallest) can run past
+   the bottom of a short viewport, e.g. 1280x720. */
+.modal-overlay--clears-critical-strip > .confirmation-dialog {
+  max-height: calc(100vh - 220px);
+}
+@media (max-width: 520px) {
+  .modal-overlay--clears-critical-strip > .confirmation-dialog {
+    max-height: calc(100vh - 265px);
+  }
+}
+
+/* App status list (Impostazioni) — three read-on-demand states, dot + label.
+   The dot is decorative: the label and the sentence carry the meaning, so
+   colour is never the only signal. Moved out of the Asta view, where all
+   three were constant and occupied the space the bid ceiling needs. */
+.operating-mode-status {
+  display: grid;
+  gap: 10px;
+}
+.operating-state-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.operating-state {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--panel);
+}
+.operating-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+  align-self: center;
+}
+.operating-state strong {
+  color: currentColor;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+.operating-desc {
+  color: var(--text-sec);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.operating-state--shadow { color: var(--text-sec); }
+.operating-state--no-target { color: var(--accent); }
+.operating-state--online { color: var(--green); }
+.operating-state--offline {
+  color: var(--stop-red);
+  border-color: var(--stop-red);
+}
+@media (max-width: 520px) {
+  .operating-desc {
+    grid-column: 2 / -1;
+  }
+}
+
+/* Participants and seats (Impostazioni). A person's identity is their
+   personId, independent of the seat they occupy; the auction log keys on the
+   stable seat id and never on anything typed here. */
+.league-teams-settings {
+  display: grid;
+  gap: 10px;
+}
+.league-teams-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px 14px;
+  /* Top-aligned: the lock note makes one cell taller than its row-mates, and
+     stretching would drag the other fields' inputs out of line with it. */
+  align-items: start;
+}
+.league-team-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  align-content: start;
+}
+.league-team-field .field-input[aria-invalid="true"] {
+  border-color: var(--accent);
+}
+.league-teams-error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--stop-red);
+}
+.league-team-note {
+  color: var(--text-sec);
+  font-size: 11px;
+  line-height: 1.3;
+}
+.league-team-field--locked .field-input {
+  color: var(--text-sec);
+  background: var(--panel-inner);
+  cursor: not-allowed;
+}
+.league-people-title {
+  margin: 6px 0 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  color: var(--text-sec);
+}
+/* Grid, not flex: the button never shrinks below its label, so a flex row
+   overflows the panel instead of letting the input give way. */
+.league-people-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+@media (max-width: 420px) {
+  .league-people-add {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.league-team-field--locked .field-input,
+.league-team-field--locked select:disabled {
+  color: var(--text-sec);
+  background: var(--panel-inner);
+  cursor: not-allowed;
+}
+
+/* Riconferme pre-asta (Impostazioni, tranche 2b, #231, regolamento di lega
+   §4). One row per seat, up to 3 role slots (D/C/A) each — src/main.ts
+   renderRiconfermeSettings. */
+.riconferme-settings {
+  display: grid;
+  gap: 10px;
+}
+.riconferme-two-seasons-note {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: var(--panel-inner);
+}
+.riconferme-grid {
+  display: grid;
+  gap: 10px;
+}
+.riconferme-seat {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.riconferme-seat__label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.riconferme-seat__slots {
+  display: grid;
+  /* Fix 11 (PX polish, round 2, #285): 190px was too tight to fit role
+     chip + picker + price input + "Conferma" on one line at the settings
+     column's actual desktop width (.settings-layout caps content at
+     minmax(0,1fr) inside a max-width:900px shell), so the button wrapped
+     onto its own line on every slot. Widened so `1fr`'s stretch gives each
+     column enough room in the common 2-per-row desktop case; still wraps
+     gracefully narrower than that (flex-wrap on .riconferme-slot below). */
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 8px 14px;
+}
+.riconferme-slot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+  font-size: 12.5px;
+}
+.riconferme-slot__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-mid);
+}
+.riconferme-slot__price {
+  flex: none;
+  font-family: var(--font-mono);
+  color: var(--text-sec);
+}
+.riconferme-slot__picker {
+  flex: 1 1 120px;
+  min-width: 100px;
+}
+.riconferme-slot__price-input {
+  /* Fix 11 (PX polish, round 2, #285): 72px truncated the "prezzo"
+     placeholder to "prezz" (font-size 14px + 9-12px padding left no room
+     for the last letter). Widened just enough to fit it in full. */
+  flex: 0 0 84px;
+}
+.riconferme-slot__empty {
+  color: var(--text-dim);
+}
+.riconferme-error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--stop-red);
+}
+
+/* Settings: menu on the left, content on the right. Vertical tablist +
+   tabpanel, so the menu is arrow-key navigable and the selected item is
+   announced as selected rather than only coloured. */
+.settings-layout {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  /* width:100% as in .screen-container — without it the horizontal auto
+     margin makes this flex item shrink-to-fit instead of centring at full
+     width, so the menu would slide sideways when a narrower area is picked. */
+  width: 100%;
+  max-width: 900px;
+  margin: 24px auto;
+  padding: 0 24px;
+}
+.settings-menu {
+  display: grid;
+  gap: 2px;
+  position: sticky;
+  top: 16px;
+}
+.settings-menu__item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 11px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-sec);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+.settings-menu__item:hover {
+  background: var(--panel);
+  color: var(--text-primary);
+}
+.settings-menu__item.is-active {
+  background: var(--panel);
+  color: var(--text-primary);
+  font-weight: 700;
+}
+.settings-menu__item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.settings-menu__icon {
+  color: var(--text-dim);
+}
+.settings-menu__item.is-active .settings-menu__icon,
+.settings-menu__item:hover .settings-menu__icon {
+  color: var(--accent);
+}
+.settings-panel {
+  background: var(--panel);
+  border-radius: 12px;
+  padding: 18px 20px;
+  min-width: 0;
+}
+.settings-panel__title {
+  margin: 0 0 14px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-sec);
+}
+/* Menu above the content once a 210px rail would leave the panel too narrow
+   for the seat/participant grid. */
+@media (max-width: 720px) {
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0 16px;
+  }
+  .settings-menu {
+    position: static;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+  }
+  .settings-menu__item {
+    /* Pack icon and label together and centre them as a pair: the auto
+       tracks would otherwise absorb the free space and push them apart. */
+    grid-template-columns: auto auto;
+    justify-content: center;
+    text-align: center;
+  }
+}

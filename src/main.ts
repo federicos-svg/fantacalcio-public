@@ -1,0 +1,3441 @@
+import "./styles/base.css";
+import "./styles/layout.css";
+import "./styles/components.css";
+import "./styles/asta.css";
+import "./styles/listone.css";
+import {
+  type AuctionEvent,
+  type AuctionState,
+  type PoolPlayer,
+  type Role,
+  type TeamState,
+  ROLES,
+  ROSTER_REQUIREMENTS,
+  INITIAL_BUDGET,
+} from "../packages/engine/src/types.js";
+import { reduce } from "../packages/engine/src/reduce.js";
+import { maxSafe, opponentTier1, roleScarcity } from "../packages/engine/src/auction.js";
+import { budgetPlan } from "../packages/engine/src/budget.js";
+import { purchaseFeasibility, recordPurchase, type ProposedPurchase } from "../packages/engine/src/feasibility.js";
+import type { ConfirmationInput } from "../packages/engine/src/confirmations.js";
+import { C, escHtml, roleChipHtml, renderRoleChip } from "./ui/theme.js";
+import { ROLE_LABELS, ROLE_LABEL_SING } from "./ui/labels.js";
+import {
+  addPerson,
+  assignSeat,
+  loadLeagueRoster,
+  PERSON_NAME_MAX,
+  renamePerson,
+  saveLeagueRoster,
+  seatLabel,
+  seatPerson,
+  type LeagueRoster,
+} from "./leagueTeams.js";
+import { requiredRoleError } from "./callGuard.js";
+import { parsePositiveIntegerPrice } from "./price.js";
+import { executeVoidCommand, voidErrorText } from "./voidCommand.js";
+import { rolePriceFacts, roleTopPurchases } from "./nominationContext.js";
+import {
+  executeAssignCommand,
+  resolveAssignCommand,
+  type AssignCommandPlayer,
+  type AssignCommandResolution,
+} from "./assignCommand.js";
+import {
+  renderListoneSvincolati,
+  renderPlayerInsightsBlock,
+  renderMomentInsightsBlock,
+  renderOpponentInterestBlock,
+  renderImpostazioniScreen,
+  SETTINGS_ICONS,
+  type SettingsArea,
+  renderNominationContextPanel,
+  type NominationContextTopEntry,
+  renderRoleScarcityPanel,
+  renderAssignCommandPanel,
+  renderRoseScreen,
+  renderMockModal,
+  renderRecoveryBlockedScreen,
+  renderRecoveryBanner,
+  renderConfirmationsBlockedScreen,
+  renderConfirmationsQuarantineBanner,
+  renderConfirmationsStorageErrorScreen,
+  type RecoveryBlockedProps,
+} from "./ui/views.js";
+import {
+  loadAuctionLog,
+  saveAuctionLog,
+  exportAuctionLog,
+  importAuctionLog,
+  peekPortableLogEnvelope,
+  type LoadLogResult,
+  type SaveLogResult,
+  type StorageLike,
+} from "./logRecovery.js";
+import {
+  loadConfirmations,
+  saveConfirmations,
+  confirmationErrorText,
+  readQuarantinedConfirmations,
+  type LoadConfirmationsResult,
+} from "./confirmationsStore.js";
+import { CONFIRMATION_LIMITS } from "../packages/engine/src/confirmations.js";
+import { renderClubBadge } from "./ui/serieA.js";
+import { activateAccessibleDialog } from "./ui/accessibleDialog.js";
+import {
+  type ListonePlayer,
+  type ListonePoolSource,
+  type ListoneSort,
+  type ListoneStatusFilter,
+  type ResolvedListonePool,
+  validateListonePool,
+  parseListoneJsonText,
+  resolveListonePool,
+  listoneSourceNote,
+  listoneAppealIndexNote,
+  filterListonePool,
+  listonePlayerKey,
+  listonePoolIndex,
+  orphanPlayerIds,
+  resolvePlayerDisplayName,
+  DEFAULT_VISIBLE_COLUMN_KEYS,
+  defaultVisibleColumnKeys,
+  poolHasAppealIndex,
+} from "./ui/listone.js";
+import { roleBudgetPlanHtml } from "./ui/roleBudgetPlan.js";
+
+// Path of the shipped, Cloudflare-Access-gated static listone asset — see
+// docs/data/LISTONE_UI_LOAD_CONTRACT.md for the shape and authorization.
+const LISTONE_STATIC_ASSET_URL = "/data/listone_2025_26.json";
+
+// Same-origin Pages Function serving the current listone from the Factory's
+// private deposit (functions/api/listone.ts). Same Cloudflare Access gate as
+// every other path of this app — no separate host, no token in the client.
+const LISTONE_REMOTE_ENDPOINT = "/api/listone";
+const LISTONE_REMOTE_HEADER_MODIFIED_AT = "x-listone-modified-at";
+// A listone that hasn't arrived in 4s is not worth a blank panel during an
+// auction: the request is abandoned and the static/localStorage copy stands.
+const LISTONE_REMOTE_TIMEOUT_MS = 4000;
+
+// ── League config (MVP: fixed roster, no editing UI) ───────────────────────────
+const SELF_ID = "Io";
+const FANTA_TEAM_IDS: readonly string[] = [
+  "Io", "Squadra2", "Squadra3", "Squadra4", "Squadra5", "Squadra6", "Squadra7", "Squadra8",
+];
+
+// ── Storage keys ───────────────────────────────────────────────────────────────
+// The auction log's own keys (canonical/last-known-good/quarantine) are
+// owned by ./logRecovery.js — see LOG_STORAGE_KEY etc. there. Only the
+// unrelated listone pool cache key lives here.
+const KEY_POOL = "fac_pool";
+
+// ── App state ──────────────────────────────────────────────────────────────────
+type Screen = "asta" | "rose" | "impostazioni";
+type Moment = "chiamata" | "asta";
+
+interface CallState {
+  playerName: string;
+  role: Role | "";
+  club: string;
+  // Set only by clicking a row in the Listone (see selectListonePlayer).
+  // The Avvia CTA requires playerName/role/club to still match this exact
+  // player — editing any of the three after selecting breaks the
+  // correlation and disables Avvia again (see isCallCorrelated).
+  selectedPlayer: ListonePlayer | null;
+}
+
+interface AssignState {
+  fantaTeamId: string;
+  price: string;
+}
+
+// Post-review fix (round 2, #285) — see AppState.riconfermeDraft's own doc
+// comment for why this exists. `playerId`/`priceRaw` are the exact raw
+// strings read from the DOM at the moment of the failed attempt (not the
+// parsed price) — so re-rendering the form can put them back byte-for-byte,
+// including a value that failed to parse as a price at all.
+interface RiconfermeDraft {
+  readonly seatId: string;
+  readonly role: Role;
+  readonly playerId: string;
+  readonly priceRaw: string;
+}
+
+interface MockModal {
+  title: string;
+  body: string;
+}
+
+// ── Recovery UI state (LIVE-02) ──────────────────────────────────────────
+// Mirrors the outcomes of loadAuctionLog() (see ./logRecovery.ts) plus the
+// two states reachable only through user action from "blocked": confirming
+// the destructive "start new log" step, and having done so ("started-new").
+// "none": normal boot, nothing to show. "recovered"/"started-new": a
+// persistent, non-blocking banner (see renderRecoveryBanner). "blocked"/
+// "storage-error": the entire screen is replaced (see
+// renderRecoveryBlockedScreen) until resolved.
+type RecoveryState =
+  | { readonly kind: "none" }
+  | { readonly kind: "recovered"; readonly quarantinedRaw: string; readonly quarantineStored: boolean }
+  | { readonly kind: "started-new"; readonly quarantinedRaw: string; readonly quarantineStored: boolean }
+  | { readonly kind: "blocked"; readonly quarantinedRaw: string; readonly quarantineStored: boolean; readonly confirmingNewLog: boolean }
+  // quarantinedRaw is non-null only when a corrupted canonical was already
+  // read and quarantined before this state was reached: from "blocked" (a
+  // write failure while confirming a new log), or at boot when the recovery
+  // re-persist of the last-known-good copy could not be written/verified.
+  // A boot storage-error where the canonical couldn't even be read has
+  // nothing to quarantine yet, and carries null.
+  | { readonly kind: "storage-error"; readonly message: string; readonly quarantinedRaw: string | null; readonly quarantineStored: boolean };
+
+// ── Riconferme recovery UI state (tranche 2b, #231) ────────────────────
+// Mirrors loadConfirmations()'s outcomes (./confirmationsStore.ts) — a
+// SEPARATE store from the auction log, so its own recovery state is
+// independent of RecoveryState above. "none": normal boot (includes both
+// "no key yet" and "valid"), nothing to show. "blocked": the batch is
+// invalid AND the standing log is non-empty — full-screen block (see
+// renderConfirmationsBlockedScreen), same reasoning as the log's own
+// blocked state but scoped to riconferme only. "banner": the batch is
+// invalid but the log is EMPTY (nothing yet to desync from), or the
+// operator already confirmed restarting without riconferme from the
+// blocked screen — a persistent, non-blocking notice
+// (renderConfirmationsQuarantineBanner). "storage-error": the riconferme
+// key itself could not even be READ (browser storage disabled/unavailable)
+// — a SEPARATE top-level kind, never folded into "blocked", because there
+// is nothing to quarantine/export/restart-without yet, only "try again".
+// Post-review fix (round 2, #285): before this kind existed, a
+// confirmations-only storage-error fell through `result.status !== "invalid"`
+// into "none" — a silent "nessuna riconferma" that looked identical to a
+// device that genuinely never had any, even though real data may exist and
+// simply couldn't be read this time. Always full-screen (never a banner),
+// same posture as RecoveryState's own "storage-error": a browser storage
+// failure is scarier than merely-invalid data and is never downgraded to a
+// dismissible notice.
+type ConfirmationsRecoveryState =
+  | { readonly kind: "none" }
+  | { readonly kind: "banner"; readonly reason: "quarantined-empty-log" | "restarted-without-confirmations"; readonly quarantinedRaw: string; readonly quarantineStored: boolean }
+  | { readonly kind: "blocked"; readonly quarantinedRaw: string; readonly quarantineStored: boolean; readonly confirmingRestart: boolean }
+  | { readonly kind: "storage-error"; readonly message: string };
+
+interface AppState {
+  screen: Screen;
+  moment: Moment;
+  log: AuctionEvent[];
+  recovery: RecoveryState;
+  // Riconferme pre-asta (LEAGUE_RULES.md §4, tranche 2b) — NOT part of the
+  // append-only log (see packages/engine/src/confirmations.ts): a batch
+  // that seeds each team's initial roster before `log` is replayed. Loaded
+  // at boot BEFORE `log` (see bootConfirmations below) because validating
+  // `log` itself now depends on it (a live PURCHASE of an already-confirmed
+  // playerId is invalid — see reduce()'s fail-closed throw, audit fix 3).
+  confirmations: ConfirmationInput[];
+  confirmationsRecovery: ConfirmationsRecoveryState;
+  // Human-readable outcome of the last riconferme panel action (Impostazioni
+  // → Riconferme pre-asta). Cleared on the next successful action, on
+  // navigating away from the current screen/settings tab (post-review fix,
+  // round 2, #285 — a stale refusal must never sit there indefinitely), or
+  // together with `riconfermeDraft` below.
+  riconfermeError: string;
+  // Post-review fix (round 2, #285): the picker/price the operator was
+  // filling in for ONE seat+role slot when the last riconferme action was
+  // REFUSED — render() rebuilds the whole panel from scratch on every call
+  // (see renderRiconfermeSettings), which used to silently wipe an
+  // uncontrolled <select>/<input> back to blank right when the operator
+  // most needed to see (and fix) what they had just typed. Captured only at
+  // the moment of a failed attempt (confirmRiconferma/applyRiconfermeBatch),
+  // never on every keystroke — the rest of this form stays deliberately
+  // uncontrolled (see confirmRiconferma's own doc comment). Cleared on a
+  // successful apply and alongside `riconfermeError` (they are always set/
+  // cleared as a pair).
+  riconfermeDraft: RiconfermeDraft | null;
+  // Set only when a mutation (purchase/void) could not be persisted — a
+  // distinct surface from `error` (assign-form validation) so a storage
+  // failure is never confused with "you typed something wrong", and stays
+  // visible regardless of chiamata/asta moment (see renderAsta()).
+  persistenceError: string;
+  call: CallState;
+  callInteractions: number;
+  // D7 Binario A: the "Contesto chiamata" panel is ON-DEMAND, so it starts
+  // closed and is reopened only by an explicit click. Reset to false whenever
+  // the selected player changes, so the panel never shows a previous player's
+  // context under a new name. See renderNominationContextPanel.
+  nominationContextOpen: boolean;
+  // T13 #231 — the fast-path command line. Raw text exactly as typed; the
+  // interpretation is recomputed from it on every render (resolveAssignCommand
+  // is pure), never cached, so it can never drift from the current log/pool.
+  assignCommand: string;
+  // Human-readable outcome of the LAST attempted command execution. Cleared on
+  // the next keystroke, so a stale refusal never sits under a new line.
+  assignCommandError: string;
+  // True only immediately after entering the "chiamata" moment (boot, the
+  // "← Indietro" link, or right after a completed purchase) — consumed once
+  // by renderMomentoChiamata to focus the search input, so re-renders
+  // triggered by typing/selecting within that same moment never steal focus
+  // back. See #219.
+  chiamataFocusPending: boolean;
+  assign: AssignState;
+  confirmVoidSeq: number | null;
+  confirmVoidLabel: string;
+  // Whether the purchase being confirmed for void is the most recent one still
+  // standing. Only drives the extra warning in the confirmation dialog — the
+  // engine itself voids any target (voidFeasibility/recordVoid are
+  // order-independent, see packages/engine/src/feasibility.ts). LIVE-06.
+  confirmVoidIsLatest: boolean;
+  pendingImportRaw: string | null;
+  error: string;
+  mockModal: MockModal | null;
+  // Listone Svincolati pool — see ui/listone.ts for the auto-load/
+  // localStorage/manual-override priority. Never fed to the decision
+  // engine, never promotes a gate.
+  pool: ListonePlayer[];
+  /** Which source produced `pool` — drives the honest note under the table. */
+  poolSource: ListonePoolSource;
+  /** Drive `modifiedTime` of the remote deposit, only when `poolSource` is
+   *  "remote". Display-only freshness hint, never a data input. */
+  poolModifiedAt: string | null;
+  poolLoadError: string;
+  // What the LAST pool change did that the operator has to know about: an
+  // automatic substitution refused because it would orphan standing purchases
+  // (audit round 2, finding 1), an armed selection disarmed because the new
+  // pool does not contain it (finding 3), a pool that could not be persisted
+  // (finding 4). Events, not derived state — the standing-orphans clause is
+  // recomputed at render instead (see poolOrphanNotice). Distinct from
+  // `poolLoadError`, which is about the file/payload that was refused, and
+  // from `persistenceError`, which is about the auction log itself. Replaced
+  // by the next pool change, never dismissable by the operator.
+  poolNotice: string;
+  poolSort: ListoneSort | null;
+  poolVisibleColumns: string[];
+  poolPage: number;
+  poolColumnPanelOpen: boolean;
+  poolManualOverrideOpen: boolean;
+  poolStatusFilter: ListoneStatusFilter;
+  poolStatusFilterOpen: boolean;
+  offline: boolean;
+  leagueRoster: LeagueRoster;
+  rosterError: string;
+  newPersonName: string;
+  settingsArea: string;
+}
+
+// Fail-closed load result -> (log, recovery UI state), shared by the boot
+// sequence below and by retryRecovery() (see near doAssign). Pure — never
+// touches storage itself, storage.getItem already happened in loadAuctionLog.
+function logFromLoadResult(result: LoadLogResult): AuctionEvent[] {
+  return result.status === "valid" || result.status === "recovered"
+    ? (result.log as AuctionEvent[])
+    : [];
+}
+
+function recoveryFromLoadResult(result: LoadLogResult): RecoveryState {
+  switch (result.status) {
+    case "no-log":
+    case "valid":
+      return { kind: "none" };
+    case "recovered":
+      return { kind: "recovered", quarantinedRaw: result.quarantinedRaw, quarantineStored: result.quarantineStored };
+    case "unrecoverable":
+      return { kind: "blocked", quarantinedRaw: result.quarantinedRaw, quarantineStored: result.quarantineStored, confirmingNewLog: false };
+    case "storage-error":
+      // quarantinedRaw is non-null only for the one storage-error the loader
+      // can raise AFTER quarantining a corrupted canonical (a failed recovery
+      // re-persist); it is passed through so the forensic export stays
+      // available there. A plain unreadable-canonical error still carries null.
+      return {
+        kind: "storage-error",
+        message: result.message,
+        quarantinedRaw: result.quarantinedRaw,
+        quarantineStored: result.quarantineStored,
+      };
+  }
+}
+
+// Riconferme: `LoadConfirmationsResult` -> the confirmations array to
+// actually derive/replay state from. An invalid/storage-error outcome
+// falls back to [] — the SAME fallback "no confirmations" already means
+// pre-2b (see loadConfirmations's own "none" outcome) — while the separate
+// `confirmationsRecoveryFromLoadResult` below decides what (if anything)
+// the operator needs to see about it.
+function confirmationsFromLoadResult(result: LoadConfirmationsResult): ConfirmationInput[] {
+  return result.status === "valid" ? [...result.confirmations] : [];
+}
+
+/**
+ * `logIsEmpty` is the STANDING log's length AFTER its own load/recovery —
+ * what decides whether an invalid riconferme batch needs the full-screen
+ * block (a non-empty log could desync from a silently-dropped batch) or
+ * only a non-blocking banner (an empty log has nothing yet to desync from).
+ */
+function confirmationsRecoveryFromLoadResult(
+  result: LoadConfirmationsResult,
+  logIsEmpty: boolean,
+): ConfirmationsRecoveryState {
+  // Post-review fix (round 2, #285): a storage-error is never routed through
+  // the "invalid" branch's fallback-to-none below — that fallback is for
+  // "there is nothing to report", and a read that THREW is not nothing, it
+  // is unknown. Always blocks, regardless of logIsEmpty (mirrors
+  // RecoveryState's own "storage-error", which is unconditional too).
+  if (result.status === "storage-error") return { kind: "storage-error", message: result.message };
+  if (result.status !== "invalid") return { kind: "none" };
+  return logIsEmpty
+    ? { kind: "banner", reason: "quarantined-empty-log", quarantinedRaw: result.quarantinedRaw, quarantineStored: result.quarantineStored }
+    : { kind: "blocked", quarantinedRaw: result.quarantinedRaw, quarantineStored: result.quarantineStored, confirmingRestart: false };
+}
+
+function acquireBrowserStorage(): StorageLike {
+  try {
+    return window.localStorage;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      getItem: () => { throw new Error(message); },
+      setItem: () => { throw new Error(message); },
+      removeItem: () => { throw new Error(message); },
+    };
+  }
+}
+
+let browserStorage = acquireBrowserStorage();
+
+// Boot-time load — riconferme FIRST: validating the auction log now depends
+// on them (a live PURCHASE of an already-confirmed playerId is invalid —
+// reduce()'s fail-closed throw, audit fix 3), so loadAuctionLog needs the
+// confirmations batch already in hand. Computed once, before `state`
+// exists, so `log`/`recovery`/`confirmations`/`confirmationsRecovery` below
+// all derive from the SAME pair of reads without re-reading storage.
+const bootConfirmationsResult = loadConfirmations(browserStorage, FANTA_TEAM_IDS);
+const bootConfirmations = confirmationsFromLoadResult(bootConfirmationsResult);
+const bootLog = loadAuctionLog(browserStorage, FANTA_TEAM_IDS, bootConfirmations);
+
+// Raw localStorage read for the persisted pool, or null if missing/
+// inaccessible. Silent by design (no error surfaced — this runs on every
+// boot, not in response to a user action). Kept separate from parsing so
+// resolveListonePool (see ui/listone.ts) stays the single place that
+// decides which source wins.
+function readPersistedPoolText(): string | null {
+  try {
+    return browserStorage.getItem(KEY_POOL);
+  } catch {
+    return null;
+  }
+}
+
+// Both writes below are fail-soft and NEVER throw (audit round 2, finding 4).
+// They used to call browserStorage naked — the only storage writes in the
+// project without error handling, while saveLeagueRoster returns a boolean and
+// saveAuctionLog is fail-closed with a SaveLogResult. Their call sites all sit
+// BEFORE render(), so a quota/denied-storage throw skipped the repaint and
+// left the DOM showing a pool the app had already replaced in memory: the
+// panel said "Nessun listone caricato" (or kept the previous table) with no
+// error at all, until the operator happened to touch something else.
+// `false` = the pool is loaded for this session but not persisted; the caller
+// says so in the notice surface instead of the screen quietly lying.
+
+function savePersistedPool(text: string): boolean {
+  try {
+    browserStorage.setItem(KEY_POOL, text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function forgetPersistedPool(): boolean {
+  try {
+    browserStorage.removeItem(KEY_POOL);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Shown whenever the pool on screen could not be written to localStorage. */
+const POOL_NOT_PERSISTED_NOTICE =
+  "Listone caricato per questa sessione ma non salvato in locale (spazio del browser pieno o negato): " +
+  "al prossimo reload tornerà quello automatico.";
+
+/**
+ * One rule for the whole notice surface: the events of a single pool change,
+ * in the order they happened, with the branches that had nothing to say
+ * dropped instead of leaving a stray separator behind.
+ *
+ * Shared by all three call sites (applyResolvedPool, loadPoolFromText,
+ * forgetPool) because they used to disagree: one filtered `!== null`, the
+ * other two `!== ""` on an array that can hold `null` — `disarmSelectionOutsidePool`
+ * returns `null` when there was no armed selection to disarm — so
+ * `[null, NOTICE].join(" ")` came out with a leading space. Cosmetic, but
+ * three lines meant to say the same thing that didn't. `null` and `""` are
+ * the same thing here ("nothing to report"), so both drop; the single-value
+ * sites in loadPoolFromText's two rejection branches use `?? ""`, which is
+ * this same rule for one part.
+ */
+function joinPoolNotices(parts: readonly (string | null)[]): string {
+  return parts.filter((s): s is string => s !== null && s !== "").join(" ");
+}
+
+// Synchronous first paint: localStorage only, since neither the deposit nor
+// the static asset fetch (autoLoadListonePool below) has resolved yet. Either
+// one, once it parses, wins over this — see autoLoadListonePool.
+const bootPool: ResolvedListonePool = resolveListonePool({
+  remoteJsonText: null,
+  staticJsonText: null,
+  localStorageText: readPersistedPoolText(),
+});
+
+const bootLogEvents = logFromLoadResult(bootLog);
+
+const state: AppState = {
+  screen: "asta",
+  moment: "chiamata",
+  log: bootLogEvents,
+  recovery: recoveryFromLoadResult(bootLog),
+  confirmations: bootConfirmations,
+  confirmationsRecovery: confirmationsRecoveryFromLoadResult(bootConfirmationsResult, bootLogEvents.length === 0),
+  riconfermeError: "",
+  riconfermeDraft: null,
+  persistenceError: "",
+  call: { playerName: "", role: "", club: "", selectedPlayer: null },
+  callInteractions: 0,
+  nominationContextOpen: false,
+  assignCommand: "",
+  assignCommandError: "",
+  chiamataFocusPending: true,
+  assign: { fantaTeamId: SELF_ID, price: "" },
+  confirmVoidSeq: null,
+  confirmVoidLabel: "",
+  confirmVoidIsLatest: true,
+  pendingImportRaw: null,
+  error: "",
+  mockModal: null,
+  pool: bootPool.pool,
+  poolSource: bootPool.source,
+  poolModifiedAt: null,
+  poolLoadError: "",
+  poolNotice: "",
+  poolSort: null,
+  poolVisibleColumns: defaultVisibleColumnKeys(bootPool.pool),
+  poolPage: 1,
+  poolColumnPanelOpen: false,
+  poolManualOverrideOpen: false,
+  poolStatusFilter: "available",
+  poolStatusFilterOpen: false,
+  offline: !navigator.onLine,
+  leagueRoster: loadLeagueRoster(browserStorage, FANTA_TEAM_IDS),
+  rosterError: "",
+  newPersonName: "",
+  // Opens on the area you act on; app status is diagnostics, read on demand.
+  settingsArea: "teams",
+};
+
+// Set as soon as the user picks a file manually, so a still-in-flight
+// autoLoadListonePool() fetch that resolves afterwards never clobbers an
+// explicit user action taken while it was loading.
+let manualPoolLoadSinceBoot = false;
+
+// Raw text of the shipped static listone asset (see LISTONE_STATIC_ASSET_URL),
+// or null when it is missing/unreachable. Never throws, never surfaces an
+// error: this runs on every boot, not in response to a user action.
+async function fetchStaticListone(): Promise<string | null> {
+  try {
+    const res = await fetch(LISTONE_STATIC_ASSET_URL);
+    return res.ok ? await res.text() : null;
+  } catch {
+    return null;
+  }
+}
+
+// Raw text served by the private-deposit endpoint plus its freshness header,
+// or null when the endpoint is unavailable, too slow, or answers with anything
+// that isn't JSON. The content-type check is what makes "not deployed yet"
+// deterministic: a static preview/build without Pages Functions answers this
+// path with the SPA's own index.html at status 200, and treating that as data
+// would be a silent default.
+async function fetchRemoteListone(): Promise<{ text: string; modifiedAt: string | null } | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LISTONE_REMOTE_TIMEOUT_MS);
+  try {
+    const res = await fetch(LISTONE_REMOTE_ENDPOINT, {
+      signal: controller.signal,
+      headers: { accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    const contentType = (res.headers.get("content-type") ?? "").toLowerCase();
+    if (!contentType.includes("application/json")) return null;
+    return { text: await res.text(), modifiedAt: res.headers.get(LISTONE_REMOTE_HEADER_MODIFIED_AT) };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// ── Listone ⇄ log identity reconciliation (audit round 2, findings 1 and 3) ──
+// The event log's `playerId` IS a `listonePlayerKey` of the row that was
+// clicked (see doAssign), so the log's identities are only as stable as the
+// pool that produced them. Nothing used to compare the two: when the pool was
+// replaced — a deposit that becomes reachable, a different season's file, the
+// same player spelled differently — every id already written silently stopped
+// resolving. The purchased player came back as free and clickable, the
+// "Assegnato" badge and the Assegnati filter lost him, `roleScarcity` counted
+// him as available again, and the engine accepted the second purchase because
+// `duplicate-player` compares playerIds, not physical players: budget and slot
+// counted twice, in silence, after a plain page reload.
+
+/** How many orphan names a notice spells out before summarising the rest. */
+const POOL_NOTICE_NAME_LIMIT = 6;
+
+/**
+ * playerIds of the purchases still standing (a PURCHASE with no VOID against
+ * its seq), PLUS every current riconferma's playerId — the same two sources
+ * `reduce()` merges to build `purchasedPlayerIds` (see its own doc comment:
+ * a riconferma seeds a team's INITIAL roster and is never itself logged as
+ * an AuctionEvent, so it would otherwise be invisible here).
+ *
+ * Escalation (post-#285): `state.confirmations` did not exist when this
+ * function was first written against the log alone, so a riconfermato
+ * player orphaned by a pool swap (identical failure mode to finding 1 —
+ * different spelling, different season's file, a deposit that comes back
+ * reachable under new names) went undetected — the swap applied instead of
+ * being refused, and the riconfermato came back free and re-purchasable.
+ *
+ * Deliberately a pure read of `state.log`/`state.confirmations` rather than
+ * `deriveAuctionState()`: this runs on the asynchronous pool-load path,
+ * where a `reduce()` throw would skip `render()` — the exact failure shape
+ * finding 4 closes below. `state.confirmations` is read as-is, unvalidated
+ * here on purpose: this function only needs the playerIds, and both
+ * `loadConfirmations` (boot) and `saveConfirmations` (every write) already
+ * enforce structural + semantic validity before anything reaches `state`.
+ */
+function standingPurchasedPlayerIds(): string[] {
+  const voided = new Set<number>();
+  for (const e of state.log) {
+    if (e.type === "VOID") voided.add(e.targetSeq);
+  }
+  const fromLog = state.log.flatMap((e) => (e.type === "PURCHASE" && !voided.has(e.seq) ? [e.playerId] : []));
+  const fromConfirmations = state.confirmations.map((c) => c.playerId);
+  return [...fromLog, ...fromConfirmations];
+}
+
+/** "Alfa Uno, Beta Due e altri 3" — names read from the pool that still
+ *  resolves them, or reconstructed from the id when none does. */
+function playerIdListLabel(ids: readonly string[], index: ReadonlyMap<string, ListonePlayer>): string {
+  const named = ids.slice(0, POOL_NOTICE_NAME_LIMIT).map((id) => resolvePlayerDisplayName(id, index));
+  const rest = ids.length - named.length;
+  return rest > 0 ? `${named.join(", ")} e altri ${rest}` : named.join(", ");
+}
+
+/**
+ * The standing purchases the pool CURRENTLY on screen cannot account for.
+ *
+ * Derived at render time and never stored: it must stop being shown the moment
+ * it stops being true — when the listone the log was written against is loaded
+ * back, or when the orphaned purchases are voided — instead of leaving a
+ * warning on screen that no longer describes anything.
+ */
+function poolOrphanNotice(): string {
+  // Orphans resolve nowhere by definition, so the names below are the
+  // reconstruction from the stored id — which is exactly all the app still
+  // knows about them.
+  const index = listonePoolIndex(state.pool);
+  const orphans = orphanPlayerIds(standingPurchasedPlayerIds(), index);
+  if (orphans.length === 0) return "";
+  const subject =
+    orphans.length === 1
+      ? "1 acquisto dello storico non corrisponde"
+      : `${orphans.length} acquisti dello storico non corrispondono`;
+  return (
+    `Attenzione: ${subject} a nessuna riga del listone attualmente caricato ` +
+    `(${playerIdListLabel(orphans, index)}). ` +
+    "Quei giocatori risultano di nuovo liberi e possono essere ri-acquistati per errore: " +
+    "budget e slot verrebbero contati due volte. Ricarica il listone da cui è nato lo storico prima di continuare."
+  );
+}
+
+/**
+ * Disarms a selection the new pool no longer contains (finding 3) and returns
+ * the sentence that says so, or null when there was nothing to disarm.
+ *
+ * `isCallCorrelated` compares three strings against `state.call`, never
+ * membership of the current pool, and neither loader used to touch
+ * `state.call`: after the pool was wiped or swapped, "Avvia" stayed enabled on
+ * a player no listone on screen contains, and the purchase went through — into
+ * a log entry no screen could ever show as "Assegnato" again.
+ */
+function disarmSelectionOutsidePool(index: ReadonlyMap<string, ListonePlayer>): string | null {
+  const selected = state.call.selectedPlayer;
+  if (selected === null || index.has(listonePlayerKey(selected))) return null;
+  const wasInAsta = state.moment === "asta";
+  state.call = { playerName: "", role: "", club: "", selectedPlayer: null };
+  state.callInteractions = 0;
+  state.nominationContextOpen = false;
+  // An assignment form still pointed at a player who is no longer in any
+  // listone is worse than no form: back to the call moment, same shape as
+  // "← Indietro".
+  if (wasInAsta) {
+    state.moment = "chiamata";
+    state.chiamataFocusPending = true;
+    state.assign = { fantaTeamId: SELF_ID, price: "" };
+    state.error = "";
+  }
+  const head = wasInAsta ? "Selezione annullata e asta in corso interrotta" : "Selezione annullata";
+  return `${head}: ${selected.name} non è più nel listone caricato.`;
+}
+
+// Applies a resolved pool to the screen, unless the user has meanwhile loaded
+// a file by hand (that explicit action always wins for the session). Persists
+// the raw text it came from, so the freshest automatic source also becomes the
+// offline copy — exactly what the static asset already did on its own.
+//
+// Fail-closed against the identity orphaning above: an AUTOMATIC substitution
+// that would stop resolving purchases the pool on screen still resolves is
+// REFUSED, not performed with a warning. This is the stronger of the two
+// directions the audit gave, and the one coherent with the rest of the app's
+// posture — the operator keeps a listone that agrees with the standing log
+// instead of one that silently re-offers players already bought. The escape
+// hatch is the explicit one that already exists: "✕ dimentica il listone
+// salvato" empties the pool (nothing left to lose) and re-runs this load,
+// which then applies — and the notice below names that path.
+function applyResolvedPool(
+  resolved: ResolvedListonePool,
+  rawText: string | null,
+  modifiedAt: string | null,
+): void {
+  if (manualPoolLoadSinceBoot) return;
+  const currentIndex = listonePoolIndex(state.pool);
+  const nextIndex = listonePoolIndex(resolved.pool);
+  const standing = standingPurchasedPlayerIds();
+  const lost = orphanPlayerIds(standing, nextIndex).filter((id) => currentIndex.has(id));
+  if (lost.length > 0) {
+    const missing =
+      lost.length === 1
+        ? "non contiene 1 giocatore già acquistato"
+        : `non contiene ${lost.length} giocatori già acquistati`;
+    state.poolNotice =
+      `Sostituzione automatica del listone rifiutata: il listone in arrivo ${missing} ` +
+      `(${playerIdListLabel(lost, currentIndex)}). ` +
+      "Applicarlo li renderebbe di nuovo liberi e ri-acquistabili, con budget e slot contati due volte. " +
+      "Resta caricato il listone attuale, coerente con lo storico. " +
+      "Per sostituirlo comunque: «Caricamento manuale (debug/override) → ✕ dimentica il listone salvato», " +
+      "oppure carica a mano il file corretto.";
+    render();
+    return;
+  }
+  state.pool = resolved.pool;
+  state.poolSource = resolved.source;
+  state.poolModifiedAt = modifiedAt;
+  state.poolLoadError = "";
+  state.poolSort = null;
+  state.poolVisibleColumns = defaultVisibleColumnKeys(resolved.pool);
+  state.poolPage = 1;
+  const notices = [disarmSelectionOutsidePool(nextIndex)];
+  // Never persist a raw payload that resolves to zero rows (finding 5): the
+  // saved copy is the offline defence for auction day, and a degraded source
+  // must not be allowed to overwrite it.
+  if (rawText !== null && resolved.pool.length > 0 && (resolved.source === "remote" || resolved.source === "static")) {
+    if (!savePersistedPool(rawText)) notices.push(POOL_NOT_PERSISTED_NOTICE);
+  }
+  state.poolNotice = joinPoolNotices(notices);
+  render();
+}
+
+// Boot (and post-"dimentica", see forgetPool) load, in the priority order of
+// docs/data/LISTONE_UI_LOAD_CONTRACT.md: private deposit, then static asset,
+// then localStorage, then the empty state. Both requests start together and
+// the locally-available one is painted as soon as it lands, so a slow or
+// unreachable deposit can never leave the panel blank for its whole timeout;
+// the deposit still overrides it the moment it arrives valid. Never blocks the
+// initial render and never surfaces an error — a missing source just leaves
+// the next one down in charge.
+async function autoLoadListonePool(): Promise<void> {
+  const remotePending = fetchRemoteListone();
+  const staticText = await fetchStaticListone();
+  applyResolvedPool(
+    resolveListonePool({
+      remoteJsonText: null,
+      staticJsonText: staticText,
+      localStorageText: readPersistedPoolText(),
+    }),
+    staticText,
+    null,
+  );
+
+  const remote = await remotePending;
+  if (remote === null) return;
+  const resolved = resolveListonePool({
+    remoteJsonText: remote.text,
+    staticJsonText: null,
+    localStorageText: null,
+  });
+  // An unparsable deposit payload is not allowed to clear what is already on
+  // screen — same fail-closed posture as a rejected file.
+  if (resolved.source !== "remote") return;
+  applyResolvedPool(resolved, remote.text, remote.modifiedAt);
+}
+
+// Parses a locally-selected JSON file's text into the listone pool. Never
+// touches the network; the file is read client-side only (see
+// ui/listone.ts renderListoneLoader). Malformed JSON/shape sets a visible
+// error instead of throwing or silently keeping stale data. Every load
+// (success or failure) resets sort/column-visibility too, so a stale sort
+// key or extra-column selection from a previous file never lingers. Always
+// overrides whatever is currently shown for this session — static asset
+// included — and marks manualPoolLoadSinceBoot so a slower in-flight
+// autoLoadListonePool() fetch can't clobber this explicit user action.
+//
+// Unlike the automatic path above this one does NOT refuse a pool that orphans
+// standing purchases: loading this file is an explicit operator action, and
+// refusing it would leave no way to change listone at all. The consequence is
+// stated instead (poolOrphanNotice, recomputed at render), and the armed
+// selection is disarmed here — on the two rejection paths too, since a file
+// that empties the pool leaves the CTA pointing at a player no listone
+// contains, which is how PROBE F recorded a purchase into a log no screen
+// could ever show again.
+function loadPoolFromText(text: string): void {
+  manualPoolLoadSinceBoot = true;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    state.pool = [];
+    state.poolSource = "none";
+    state.poolModifiedAt = null;
+    state.poolLoadError = "File non valido: non è JSON leggibile.";
+    state.poolNotice = disarmSelectionOutsidePool(listonePoolIndex(state.pool)) ?? "";
+    state.poolSort = null;
+    state.poolVisibleColumns = [...DEFAULT_VISIBLE_COLUMN_KEYS];
+    render();
+    return;
+  }
+  const validation = validateListonePool(parsed);
+  if (!validation.ok) {
+    state.pool = [];
+    state.poolSource = "none";
+    state.poolModifiedAt = null;
+    state.poolLoadError = validation.reason === "gated-field"
+      ? "File rifiutato: contiene campi decisionali non autorizzati. Nessuna riga è stata caricata."
+      : validation.reason === "ambiguous-identity"
+      ? "Identità ambigua: due righe hanno lo stesso nome e club senza proxyId distinti. Nessuna riga è stata caricata."
+      : validation.reason === "duplicate-identity"
+        ? "Identificatore duplicato: ogni proxyId deve essere unico. Nessuna riga è stata caricata."
+        : validation.reason === "inconsistent-appeal-index"
+          ? "Indice incoerente: le righe portano versioni diverse della ricetta. Nessuna riga è stata caricata."
+          : "Formato non valido: attesa una lista di { proxyId?, name, role, club, quotation? } con role ∈ P/D/C/A (più eventuali colonne extra).";
+    state.poolNotice = disarmSelectionOutsidePool(listonePoolIndex(state.pool)) ?? "";
+    state.poolSort = null;
+    state.poolVisibleColumns = [...DEFAULT_VISIBLE_COLUMN_KEYS];
+    render();
+    return;
+  }
+  const pool = validation.pool;
+  state.pool = pool;
+  state.poolSource = "manual";
+  state.poolModifiedAt = null;
+  state.poolLoadError = "";
+  state.poolSort = null;
+  state.poolVisibleColumns = defaultVisibleColumnKeys(pool);
+  state.poolPage = 1;
+  const notices = [disarmSelectionOutsidePool(listonePoolIndex(pool))];
+  if (!savePersistedPool(text)) notices.push(POOL_NOT_PERSISTED_NOTICE);
+  state.poolNotice = joinPoolNotices(notices);
+  render();
+}
+
+// Clears the pool from both the current view and localStorage, then re-runs
+// the automatic load — "dimentica" un-does a manual override, it doesn't have
+// to mean "go blank" if the private deposit or the static asset can still
+// answer. Falls through to the empty state only if both also fail.
+function forgetPool(): void {
+  state.pool = [];
+  state.poolSource = "none";
+  state.poolModifiedAt = null;
+  state.poolLoadError = "";
+  state.poolSort = null;
+  state.poolVisibleColumns = [...DEFAULT_VISIBLE_COLUMN_KEYS];
+  state.poolPage = 1;
+  // Empty pool: nothing left for an automatic source to orphan, which is
+  // exactly what makes this the explicit way past a refused substitution
+  // (see applyResolvedPool). The selection is still disarmed if it pointed
+  // at a row that has just gone away, and the standing log is announced as
+  // unmatched until a listone that covers it is loaded again.
+  const notices = [disarmSelectionOutsidePool(listonePoolIndex(state.pool))];
+  if (!forgetPersistedPool()) {
+    notices.push("Copia locale del listone non cancellata (spazio del browser negato): potrebbe riapparire al reload.");
+  }
+  state.poolNotice = joinPoolNotices(notices);
+  manualPoolLoadSinceBoot = false;
+  render();
+  void autoLoadListonePool();
+}
+
+function sortListoneByColumn(key: string): void {
+  const current = state.poolSort;
+  const direction: "asc" | "desc" =
+    current && current.key === key && current.direction === "asc" ? "desc" : "asc";
+  state.poolSort = { key, direction };
+  state.poolPage = 1; // a new sort order starts back at the top, not wherever the old order left off
+  render();
+}
+
+function toggleListoneColumn(key: string): void {
+  const idx = state.poolVisibleColumns.indexOf(key);
+  if (idx === -1) {
+    state.poolVisibleColumns = [...state.poolVisibleColumns, key];
+  } else {
+    state.poolVisibleColumns = state.poolVisibleColumns.filter((k) => k !== key);
+  }
+  render();
+}
+
+function changePoolPage(page: number): void {
+  state.poolPage = page;
+  render();
+}
+
+function toggleListoneColumnPanel(): void {
+  state.poolColumnPanelOpen = !state.poolColumnPanelOpen;
+  render();
+}
+
+function toggleListoneManualOverride(): void {
+  state.poolManualOverrideOpen = !state.poolManualOverrideOpen;
+  render();
+}
+
+function setPoolStatusFilter(status: ListoneStatusFilter): void {
+  state.poolStatusFilter = status;
+  state.poolStatusFilterOpen = false;
+  state.poolPage = 1;
+  render();
+  // Focus lands back on the trigger, which now carries the new value: after
+  // picking from a menu the option that had focus no longer exists.
+  focusAfterRender("listone-status-filter-trigger");
+}
+
+function togglePoolStatusFilter(): void {
+  state.poolStatusFilterOpen = !state.poolStatusFilterOpen;
+  render();
+  if (state.poolStatusFilterOpen) {
+    focusAfterRender(`listone-status-filter-option-${state.poolStatusFilter}`);
+  }
+}
+
+// Dismissal for the status-filter menu, installed once rather than per
+// render(): render() rebuilds the DOM on every keystroke, so a listener
+// attached during rendering would pile up copies. A click inside the control
+// is ignored here — the trigger and the options handle their own.
+document.addEventListener("click", (e) => {
+  if (!state.poolStatusFilterOpen) return;
+  // closest() on the event target, NOT contains() from the live element: the
+  // trigger's own handler has already re-rendered by the time this runs, so
+  // the clicked node is detached and the fresh control never contains it —
+  // which closed the menu on the very click that opened it. The detached
+  // subtree keeps its ancestors, so closest() still identifies the origin.
+  if (e.target instanceof Element && e.target.closest("#listone-status-filter")) return;
+  state.poolStatusFilterOpen = false;
+  render();
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || !state.poolStatusFilterOpen) return;
+  state.poolStatusFilterOpen = false;
+  render();
+  focusAfterRender("listone-status-filter-trigger");
+});
+
+// Clicking a (non-assigned) Listone row: this is the only way to arm the
+// Avvia CTA — see isCallCorrelated. Populates the search bar's three fields
+// with this exact player so the search visibly "agrees" with the listone.
+function selectListonePlayer(p: ListonePlayer): void {
+  state.callInteractions += 1;
+  state.call.playerName = p.name;
+  state.call.role = p.role;
+  state.call.club = p.club;
+  state.call.selectedPlayer = p;
+  state.poolPage = 1;
+  // A new selection means a new subject: the context panel goes back to its
+  // on-demand closed state instead of silently re-pointing at another player.
+  state.nominationContextOpen = false;
+  state.chiamataFocusPending = true;
+  render();
+}
+
+function toggleNominationContext(): void {
+  state.nominationContextOpen = !state.nominationContextOpen;
+  render();
+  // Keyboard stays on the control that now carries the new value — render()
+  // rebuilds the whole tree, so the button the user pressed is gone.
+  focusAfterRender("nomination-context-toggle");
+}
+
+// True only when the search bar's three fields still exactly match the
+// player last clicked in the Listone — editing playerName/role/club after
+// selecting breaks this until another row is clicked. Gates both the Avvia
+// CTA (see renderMomentoChiamata) and launchAsta itself (defense-in-depth
+// against a stray Enter keypress).
+function isCallCorrelated(call: CallState): boolean {
+  const sp = call.selectedPlayer;
+  return sp !== null && sp.name === call.playerName && sp.role === call.role && sp.club === call.club;
+}
+
+// Undoes a wrong/stale listone selection: clears the search bar and the
+// selected-player correlation (Avvia goes back to disabled) and restores
+// the listone to its default "Liberi" view. Pure client-side UI state —
+// touches only `call`/`poolStatusFilter`/`poolPage`, never `state.log`, so
+// it never creates an event, and has no effect on budget/roster/void state.
+function resetListoneSearch(): void {
+  state.call = { playerName: "", role: "", club: "", selectedPlayer: null };
+  state.callInteractions = 0;
+  state.nominationContextOpen = false;
+  state.poolStatusFilter = "available";
+  state.poolPage = 1;
+  state.chiamataFocusPending = true;
+  render();
+}
+
+// ── Derived state helpers ──────────────────────────────────────────────────────
+// `state.confirmations` (tranche 2b) seeds the initial roster before `log`
+// is replayed — see reduce()'s own doc comment. Every screen derives its
+// AuctionState through here, so a riconferma is reflected everywhere
+// (budget/slots/purchasedPlayerIds) without a single other call site
+// touching reduce() directly. render() guards this exact call against a
+// confirmations/live-log conflict throw (audit fix 3) before any screen is
+// built — see the render() comment "Fix 3 (#283) fail-closed guard".
+function deriveAuctionState(): AuctionState {
+  return reduce(state.log, FANTA_TEAM_IDS, state.confirmations);
+}
+
+function myTeam(aState: AuctionState): TeamState | undefined {
+  return aState.teams[SELF_ID];
+}
+
+// Historical purchases of players that were only ever in the manual-scouting
+// registry (removed) resolve through legacyPlayerIdDisplayName instead: a
+// reconstruction from the stored id, not a crash.
+function auctionDisplayPool(): ListonePlayer[] {
+  return [...state.pool];
+}
+
+/**
+ * The same pool as an index by playerId, for the panels that resolve MANY ids
+ * at once (audit round 2, finding 2).
+ *
+ * Built once per panel, not once per id: `resolvePlayerDisplayName` used to be
+ * a linear scan that recomputed `listonePlayerKey` for every row it walked,
+ * and STORICO calls it for every standing purchase on every render — and
+ * render() rebuilds the whole DOM on every keystroke of the player search. A
+ * complete auction (224 purchases) against a real listone (532 rows) cost
+ * ~140 ms per keystroke, on the critical path of a call, growing exactly as
+ * the auction went on.
+ */
+function auctionDisplayIndex(): ReadonlyMap<string, ListonePlayer> {
+  return listonePoolIndex(state.pool);
+}
+
+// The engine's roleScarcity() counts remaining supply per role over a
+// PoolPlayer[]. Listone rows already carry the same identity the event log
+// stores (listonePlayerKey), so this mapping is lossless for the only two
+// fields scarcity reads — playerId and role. Nothing from the quotation (or
+// any other listone column) crosses into the engine here.
+function scarcityPool(): PoolPlayer[] {
+  return state.pool.map((p) => ({ playerId: listonePlayerKey(p), role: p.role, name: p.name }));
+}
+
+// ── Command line di inserimento (T13 #231) ───────────────────────────────────
+// The resolver is pure and cheap, so the interpretation is recomputed from the
+// raw text on every render instead of being cached in state: it can never go
+// stale against a log or a pool that changed under it.
+
+/** The listone rows the command line can address, keyed exactly like the log. */
+function assignCommandPool(): AssignCommandPlayer[] {
+  return state.pool.map((p) => ({
+    playerId: listonePlayerKey(p),
+    name: p.name,
+    club: p.club,
+    role: p.role,
+  }));
+}
+
+/** `null` while the line is empty — there is nothing to interpret yet. */
+function assignCommandResolution(aState: AuctionState): AssignCommandResolution | null {
+  if (state.assignCommand.trim() === "") return null;
+  return resolveAssignCommand(state.assignCommand, {
+    seats: FANTA_TEAM_IDS.map((id) => ({ fantaTeamId: id, label: displayTeamLabel(id) })),
+    pool: assignCommandPool(),
+    assignedPlayerIds: new Set(aState.purchasedPlayerIds),
+  });
+}
+
+function onAssignCommandInput(value: string): void {
+  state.assignCommand = value;
+  // A refusal belongs to the line that produced it, never to the next one.
+  state.assignCommandError = "";
+  render();
+}
+
+function submitAssignCommand(aState: AuctionState): void {
+  const resolution = assignCommandResolution(aState);
+  // Inert unless the line resolves to exactly one purchase. The preview
+  // already says why it does not, and picking a "best" match is precisely
+  // what this path must never do.
+  if (resolution === null || !resolution.ok) return;
+  const resolved = resolution.resolved;
+
+  const result = executeAssignCommand(
+    browserStorage,
+    state.log,
+    aState,
+    resolved,
+    new Date().toISOString(),
+    FANTA_TEAM_IDS,
+    state.confirmations,
+  );
+
+  if (!result.ok) {
+    if (result.reason === "not-feasible") {
+      state.assignCommandError = feasibilityErrorText(result.violations, resolved.role);
+    } else if (result.reason === "application-error") {
+      state.assignCommandError = result.message;
+    } else {
+      // Storage failures are app-wide fail-closed state (LIVE-02), not a
+      // command-line message: the in-memory log stays where it was.
+      handleSaveFailure(result);
+      render();
+      return;
+    }
+    render();
+    focusAfterRender("assign-command-input");
+    return;
+  }
+
+  state.log = result.events as AuctionEvent[];
+  state.persistenceError = "";
+  state.assignCommand = "";
+  state.assignCommandError = "";
+  // A command purchase leaves the call surfaces exactly as an ordinary one
+  // does — nothing stays pointing at the player just bought.
+  state.call = { playerName: "", role: "", club: "", selectedPlayer: null };
+  state.callInteractions = 0;
+  state.nominationContextOpen = false;
+  state.error = "";
+  render();
+  // Straight back on the line, ready for the next call.
+  focusAfterRender("assign-command-input");
+}
+
+// How many already-assigned top-of-role purchases the "Contesto chiamata"
+// panel lists. Small on purpose: it is a factual recap of what the role has
+// already cost, not a leaderboard.
+const NOMINATION_CONTEXT_TOP_LIMIT = 5;
+
+/** Top-of-role purchases already registered, resolved to display names. */
+function nominationContextTopAssigned(role: Role): NominationContextTopEntry[] {
+  const poolIndex = auctionDisplayIndex();
+  return roleTopPurchases(state.log, role, NOMINATION_CONTEXT_TOP_LIMIT).map((entry) => ({
+    playerName: resolvePlayerDisplayName(entry.playerId, poolIndex),
+    teamLabel: displayTeamLabel(entry.fantaTeamId),
+    price: entry.price,
+  }));
+}
+
+// ── Render entry point ────────────────────────────────────────────────────────
+// Every render() rebuilds the whole DOM tree (app.innerHTML = ""), which
+// would normally drop focus/cursor position on every keystroke in a live
+// text input (e.g. the Listone name search). To keep typing feeling live
+// without a dedicated partial-update path, we snapshot the focused
+// element's id + text selection before tearing the DOM down and restore
+// both afterwards.
+/** Restores focus after a full-screen blocked render, same rule in every
+ *  branch that replaces the whole app: keep whatever had focus if it still
+ *  exists, otherwise land on the screen's own heading. */
+function focusBlockedScreen(focusId: string | null, fallbackHeadingId: string): void {
+  if (focusId) {
+    const el = document.getElementById(focusId);
+    if (el instanceof HTMLElement) el.focus({ preventScroll: true });
+  } else {
+    document.getElementById(fallbackHeadingId)?.focus({ preventScroll: true });
+  }
+}
+
+function render(): void {
+  const app = document.getElementById("app");
+  if (!app) return;
+
+  const active = document.activeElement;
+  let focusId: string | null = null;
+  let selStart: number | null = null;
+  let selEnd: number | null = null;
+  if (active instanceof HTMLElement && active.id && app.contains(active)) {
+    focusId = active.id;
+    if (active instanceof HTMLInputElement && (active.type === "text" || active.type === "search")) {
+      selStart = active.selectionStart;
+      selEnd = active.selectionEnd;
+    }
+  }
+
+  app.innerHTML = "";
+
+  // A blocked/storage-error recovery state replaces the ENTIRE app: no
+  // header, no nav, no Rose/Impostazioni — those all derive from the same
+  // (potentially fabricated) log, and normal mutations must not be
+  // reachable until this is resolved. See LIVE-02.
+  if (state.recovery.kind === "blocked" || state.recovery.kind === "storage-error") {
+    app.appendChild(renderRecoveryBlockedScreen(recoveryBlockedProps(state.recovery), recoveryBlockedHandlers));
+    focusBlockedScreen(focusId, "recovery-heading");
+    return;
+  }
+
+  // Post-review fix (round 2, #285): the riconferme storage key itself could
+  // not be READ (not merely invalid — see ConfirmationsRecoveryState's own
+  // doc comment). Checked right alongside the log's own blocked/storage-error
+  // branch above, for the same reason: never let a real read failure
+  // masquerade as "no confirmations".
+  if (state.confirmationsRecovery.kind === "storage-error") {
+    app.appendChild(
+      renderConfirmationsStorageErrorScreen(
+        { message: state.confirmationsRecovery.message },
+        { onRetry: retryRecovery },
+      ),
+    );
+    focusBlockedScreen(focusId, "confirmations-storage-error-heading");
+    return;
+  }
+
+  // Tranche 2b (#231): riconferme pre-asta invalid AND the standing log is
+  // non-empty — same full-app-replace posture as the log's own blocked
+  // state above, but a SEPARATE store (src/confirmationsStore.ts) with its
+  // own recovery family (see ConfirmationsRecoveryState). Checked second:
+  // the log's own blocked state already has nothing else to show regardless.
+  if (state.confirmationsRecovery.kind === "blocked") {
+    app.appendChild(
+      renderConfirmationsBlockedScreen(
+        {
+          quarantinedRaw: state.confirmationsRecovery.quarantinedRaw,
+          quarantineStored: state.confirmationsRecovery.quarantineStored,
+          confirmingRestart: state.confirmationsRecovery.confirmingRestart,
+        },
+        confirmationsBlockedHandlers,
+      ),
+    );
+    focusBlockedScreen(focusId, "confirmations-recovery-heading");
+    return;
+  }
+
+  // Fix 3 (#283) fail-closed guard: reduce() throws when the standing log
+  // and the riconferme batch conflict (a live PURCHASE of an already-
+  // confirmed playerId — packages/engine/src/reduce.ts). Structurally
+  // excluded by the normal single-tab flow (purchaseFeasibility already
+  // treats a confirmed player as duplicate-player via
+  // aState.purchasedPlayerIds, and the riconferme panel is read-only once
+  // the log is non-empty — see renderRiconfermeSettings), but reachable via
+  // a multi-tab race after this tab already booted successfully: boot's own
+  // validateAuctionLog gate (logRecovery.ts) only protects state computed
+  // AT boot time, not a divergence introduced afterwards by another tab.
+  // Checked HERE, once per render, before ANY screen calls
+  // deriveAuctionState() — never a crash; degrades into the SAME governed
+  // "storage-error" blocked screen the log's own persistence failures use.
+  // Deliberate minimal-scope choice, declared in the PR body: no dedicated
+  // UI for this specific conflict — "Riprova" (which reloads both stores
+  // fresh) is the recovery path.
+  try {
+    reduce(state.log, FANTA_TEAM_IDS, state.confirmations);
+  } catch (err) {
+    state.recovery = {
+      kind: "storage-error",
+      message: `Le riconferme pre-asta salvate non sono coerenti con lo storico asta (${err instanceof Error ? err.message : String(err)}). Probabile scrittura concorrente da un'altra scheda: usa "Riprova lettura storage" per rileggere lo stato aggiornato.`,
+      quarantinedRaw: null,
+      quarantineStored: false,
+    };
+    app.appendChild(renderRecoveryBlockedScreen(recoveryBlockedProps(state.recovery), recoveryBlockedHandlers));
+    focusBlockedScreen(focusId, "recovery-heading");
+    return;
+  }
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "app-shell";
+
+  wrapper.appendChild(renderHeader());
+
+  if (state.recovery.kind === "recovered" || state.recovery.kind === "started-new") {
+    wrapper.appendChild(
+      renderRecoveryBanner(
+        { kind: state.recovery.kind, quarantineStored: state.recovery.quarantineStored },
+        { onExport: exportQuarantinedLog },
+      ),
+    );
+  }
+
+  if (state.confirmationsRecovery.kind === "banner") {
+    wrapper.appendChild(
+      renderConfirmationsQuarantineBanner(
+        { reason: state.confirmationsRecovery.reason, quarantineStored: state.confirmationsRecovery.quarantineStored },
+        { onExport: exportQuarantinedConfirmations },
+      ),
+    );
+  }
+
+  if (state.screen === "rose") {
+    const roseState = deriveAuctionState();
+    wrapper.appendChild(
+      renderRoseScreen(
+        roseState,
+        FANTA_TEAM_IDS,
+        SELF_ID,
+        auctionDisplayPool(),
+        openMock,
+        seatLabelMap(),
+        // Tier-1 accounting lives HERE, not on the Asta screen — see the UI
+        // invariant in docs/FRONTEND_STRUCTURE.md and renderOpponentTier1Panel.
+        opponentTier1(roseState, SELF_ID),
+      ),
+    );
+  } else if (state.screen === "impostazioni") {
+    wrapper.appendChild(
+      renderImpostazioniScreen(SETTINGS_AREAS, state.settingsArea, (id) => {
+        state.settingsArea = id;
+        // Fix 7 (PX, round 2, #285): a riconferme refusal must not sit there
+        // sticky forever — switching settings tabs (away from riconferme OR
+        // back onto it) is a "next render" the operator clearly asked for,
+        // so it is exactly where the stale error/draft gets cleared.
+        state.riconfermeError = "";
+        state.riconfermeDraft = null;
+        render();
+        // Keep the keyboard where it was: arrow-key navigation re-renders.
+        focusAfterRender(`settings-tab-${id}`);
+      }),
+    );
+  } else {
+    wrapper.appendChild(renderAsta());
+  }
+
+  app.appendChild(wrapper);
+
+  if (state.pendingImportRaw !== null) {
+    app.appendChild(renderImportConfirm());
+    return;
+  }
+
+  // Mock modal takes priority over everything else on screen.
+  if (state.mockModal) {
+    app.appendChild(renderMockModal(state.mockModal.title, state.mockModal.body, closeMock));
+    return;
+  }
+
+  if (focusId) {
+    const el = document.getElementById(focusId);
+    if (el instanceof HTMLElement) {
+      el.focus({ preventScroll: true });
+      if (selStart !== null && el instanceof HTMLInputElement) el.setSelectionRange(selStart, selEnd ?? selStart);
+    }
+  } else if (state.screen === "asta" && state.moment === "asta") {
+    // Restore focus to price input on first entry into the asta moment.
+    // preventScroll: true so this doesn't fight the scroll-to-top done on
+    // the chiamata/asta transition.
+    const priceInput = document.getElementById("assign-price") as HTMLInputElement | null;
+    if (priceInput) priceInput.focus({ preventScroll: true });
+  }
+}
+
+function openMock(title: string, body: string): void {
+  state.mockModal = { title, body };
+  render();
+}
+
+function closeMock(): void {
+  state.mockModal = null;
+  render();
+}
+
+// ── Recovery handlers (LIVE-02) ──────────────────────────────────────────
+
+function recoveryBlockedProps(
+  recovery: Extract<RecoveryState, { kind: "blocked" | "storage-error" }>,
+): RecoveryBlockedProps {
+  if (recovery.kind === "storage-error") {
+    return {
+      reason: "storage-error",
+      quarantinedRaw: recovery.quarantinedRaw,
+      quarantineStored: recovery.quarantineStored,
+      storageErrorMessage: recovery.message,
+      confirmingNewLog: false,
+    };
+  }
+  return {
+    reason: "invalid-log",
+    quarantinedRaw: recovery.quarantinedRaw,
+    quarantineStored: recovery.quarantineStored,
+    storageErrorMessage: null,
+    confirmingNewLog: recovery.confirmingNewLog,
+  };
+}
+
+const recoveryBlockedHandlers = {
+  onRetry: () => retryRecovery(),
+  onExport: () => exportQuarantinedLog(),
+  onRequestStartNew: () => requestStartNewLog(),
+  onConfirmStartNew: () => confirmStartNewLog(),
+  onCancelStartNew: () => cancelStartNewLog(),
+};
+
+const confirmationsBlockedHandlers = {
+  onRetry: () => retryRecovery(),
+  onExport: () => exportQuarantinedConfirmations(),
+  onRequestRestart: () => requestRestartWithoutConfirmations(),
+  onConfirmRestart: () => confirmRestartWithoutConfirmations(),
+  onCancelRestart: () => cancelRestartWithoutConfirmations(),
+};
+
+/** "Riprova": a fresh read+validate of BOTH stores, nothing more — same
+ *  fail-closed logic as boot, just re-run on demand (e.g. after fixing
+ *  storage externally, or to pick up a change made from another tab).
+ *  Riconferme are re-read FIRST for the same reason boot does: the log's
+ *  own validation depends on them. */
+function retryRecovery(): void {
+  browserStorage = acquireBrowserStorage();
+  const confirmationsResult = loadConfirmations(browserStorage, FANTA_TEAM_IDS);
+  const confirmations = confirmationsFromLoadResult(confirmationsResult);
+  const result = loadAuctionLog(browserStorage, FANTA_TEAM_IDS, confirmations);
+  const logEvents = logFromLoadResult(result);
+  state.log = logEvents;
+  state.recovery = recoveryFromLoadResult(result);
+  state.confirmations = confirmations;
+  state.confirmationsRecovery = confirmationsRecoveryFromLoadResult(confirmationsResult, logEvents.length === 0);
+  render();
+}
+
+/** Downloads the exact quarantined text as-is — never parsed, never
+ *  normalized, so a non-JSON payload still exports byte-for-byte. */
+function exportQuarantinedLog(): void {
+  const recovery = state.recovery;
+  const raw = "quarantinedRaw" in recovery ? recovery.quarantinedRaw : null;
+  if (raw === null) {
+    state.persistenceError = "Export non disponibile: il payload non valido non è presente in memoria.";
+    render();
+    return;
+  }
+  const blob = new Blob([raw], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `fac_log_quarantine_${Date.now()}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/** Same idea as exportQuarantinedLog, for the riconferme store's own
+ *  quarantine key — never parsed, never normalized. */
+function exportQuarantinedConfirmations(): void {
+  const recovery = state.confirmationsRecovery;
+  const raw = "quarantinedRaw" in recovery ? recovery.quarantinedRaw : null;
+  if (raw === null) {
+    state.riconfermeError = "Export non disponibile: il payload non valido non è presente in memoria.";
+    render();
+    return;
+  }
+  const blob = new Blob([raw], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `fac_confirmations_quarantine_${Date.now()}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function requestRestartWithoutConfirmations(): void {
+  if (state.confirmationsRecovery.kind !== "blocked") return;
+  state.confirmationsRecovery = { ...state.confirmationsRecovery, confirmingRestart: true };
+  render();
+}
+
+function cancelRestartWithoutConfirmations(): void {
+  if (state.confirmationsRecovery.kind !== "blocked") return;
+  state.confirmationsRecovery = { ...state.confirmationsRecovery, confirmingRestart: false };
+  render();
+}
+
+/**
+ * The only destructive confirmations-recovery action: persists a brand-new
+ * EMPTY riconferme batch (never a "repair" of the corrupted one) after
+ * explicit confirmation — mirrors confirmStartNewLog()'s posture for the
+ * log, but touches ONLY the confirmations store, never `state.log`. The
+ * quarantined payload is never touched here — it stays exportable from the
+ * banner that follows. A write failure escalates to the SAME app-wide
+ * "storage-error" the log's own confirmStartNewLog uses on the same kind of
+ * failure: an empty batch that cannot be written means the browser storage
+ * itself is not currently usable, which is a bigger problem than riconferme.
+ */
+function confirmRestartWithoutConfirmations(): void {
+  if (state.confirmationsRecovery.kind !== "blocked") return;
+  const { quarantinedRaw, quarantineStored } = state.confirmationsRecovery;
+  const saveResult = saveConfirmations(browserStorage, [], FANTA_TEAM_IDS);
+  if (!saveResult.ok) {
+    const message =
+      saveResult.reason === "storage-write-error" || saveResult.reason === "partial-write"
+        ? saveResult.message
+        : "salvataggio rifiutato";
+    state.recovery = {
+      kind: "storage-error",
+      message: `Impossibile salvare riconferme vuote (${message}). Riprova.`,
+      quarantinedRaw: null,
+      quarantineStored: false,
+    };
+    render();
+    return;
+  }
+  state.confirmations = [];
+  state.confirmationsRecovery = {
+    kind: "banner",
+    reason: "restarted-without-confirmations",
+    quarantinedRaw,
+    quarantineStored,
+  };
+  render();
+}
+
+function downloadAuctionLog(raw: string): void {
+  const blob = new Blob([raw], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "fantacalcio-auction-log.v2.json";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportCurrentLog(): void {
+  const result = exportAuctionLog(state.log, FANTA_TEAM_IDS, state.confirmations);
+  if (!result.ok) {
+    state.persistenceError = "Export rifiutato: lo storico corrente non supera la validazione.";
+    render();
+    return;
+  }
+  downloadAuctionLog(result.raw);
+}
+
+/**
+ * Post-review fix (round 2, #285): the confirm dialog used to gate only on
+ * `state.log.length > 0`. On a device with an EMPTY log but real riconferme
+ * already entered (the ordinary pre-asta state — the panel is only editable
+ * while the log is empty), importing skipped the dialog entirely and
+ * silently replaced those riconferme: a v1 file overwrites them with
+ * whatever WAS in storage when import ran (no-op, harmless), but a v2
+ * file's own `confirmations` field replaces them outright — real riconferme
+ * lost with no confirmation step at all. Gating on confirmations too closes
+ * that hole; the two conditions are independent (either non-empty is
+ * enough), and pendingImportRaw's copy (renderImportConfirm) says exactly
+ * what will be replaced once the raw is classified.
+ */
+function importRequiresConfirmation(): boolean {
+  return state.log.length > 0 || state.confirmations.length > 0;
+}
+
+async function importCurrentLog(file: File): Promise<void> {
+  let raw: string;
+  try {
+    raw = await file.text();
+  } catch (err) {
+    state.persistenceError = `Impossibile leggere il file selezionato (${err instanceof Error ? err.message : String(err)}).`;
+    render();
+    return;
+  }
+  if (importRequiresConfirmation()) {
+    state.pendingImportRaw = raw;
+    render();
+    return;
+  }
+  applyImportedRaw(raw);
+}
+
+/**
+ * `importAuctionLog` (tranche 2b) now also carries the confirmations paired
+ * with the imported log: a v2 file's own batch (already persisted by
+ * importAuctionLog via saveConfirmations, atomic-with-rollback against the
+ * log — see logRecovery.ts), or the device's unchanged batch for a v1
+ * legacy file. Either way `state.confirmations` is updated to match exactly
+ * what is now on disk, so state never drifts from storage after an import.
+ */
+function applyImportedRaw(raw: string): void {
+  const result = importAuctionLog(browserStorage, state.log, raw, FANTA_TEAM_IDS, true, state.confirmations);
+  if (!result.ok) {
+    if (result.reason === "storage-write-error" || result.reason === "partial-write") {
+      handleSaveFailure(result);
+    } else if (result.reason === "incompatible-version") {
+      state.persistenceError = "Import rifiutato: versione del file non compatibile. Nessuna modifica applicata.";
+    } else if (result.reason === "invalid-log") {
+      state.persistenceError = "Import rifiutato: il log non è semanticamente valido (o non coerente con le riconferme correnti). Nessuna modifica applicata.";
+    } else {
+      state.persistenceError = "Import rifiutato: file malformato. Nessuna modifica applicata.";
+    }
+    render();
+    return;
+  }
+  state.log = [...result.events];
+  state.confirmations = [...result.confirmations];
+  // Post-review fix (round 2, #285): explicit post-import feedback that
+  // names exactly what changed — a v2 file replaces both stores, a v1
+  // legacy file only ever touches the log (see the v1 branch in
+  // parseAuctionLogImport). `raw` was already accepted above, so this
+  // classification cannot land on "unknown" — peekPortableLogEnvelope uses
+  // the SAME envelope-shape checks parseAuctionLogImport itself used.
+  state.persistenceError =
+    peekPortableLogEnvelope(raw) === "v2"
+      ? "Import completato: storico e riconferme aggiornati dal file importato."
+      : "Import completato: storico aggiornato. Le riconferme restano quelle del dispositivo, validate contro il file importato.";
+  state.error = "";
+  render();
+}
+
+function focusAfterRender(id: string): void {
+  requestAnimationFrame(() => document.getElementById(id)?.focus({ preventScroll: true }));
+}
+
+function cancelPendingImport(): void {
+  state.pendingImportRaw = null;
+  state.persistenceError = "Import annullato: nessuna modifica applicata (storico e riconferme invariati).";
+  render();
+  focusAfterRender("auction-log-import");
+}
+
+function renderImportConfirm(): HTMLElement {
+  const overlay = document.createElement("div");
+  // Opens on the Asta screen, under the sticky critical strip — see the
+  // modifier's comment in src/styles/components.css.
+  overlay.className = "modal-overlay modal-overlay--clears-critical-strip";
+  overlay.id = "import-confirm-overlay";
+
+  const modal = document.createElement("div");
+  modal.className = "confirmation-dialog";
+  modal.setAttribute("aria-labelledby", "import-confirm-title");
+
+  // Post-review fix (round 2, #285): the copy must declare EXACTLY what
+  // this import will replace — a v2 file carries its OWN riconferme batch
+  // (replaces both stores), a v1 legacy file carries none (the device's
+  // riconferme survive, the imported log is only checked against them).
+  // "unknown" (malformed/unrecognised envelope) falls back to the more
+  // cautious wording rather than assert a version the peek cannot confirm —
+  // applyImportedRaw's own validation is still what actually decides
+  // accept/reject once confirmed.
+  const importKind = state.pendingImportRaw !== null ? peekPortableLogEnvelope(state.pendingImportRaw) : "unknown";
+
+  const title = document.createElement("h2");
+  title.id = "import-confirm-title";
+  title.textContent = "Sostituire lo storico corrente?";
+  const body = document.createElement("p");
+  body.id = "import-confirm-body";
+  body.textContent =
+    importKind === "v2"
+      ? "Il file importato sostituirà storico E riconferme, solo dopo validazione e persistenza completate."
+      : importKind === "v1"
+        ? "Il file importato sostituirà solo lo storico: le riconferme del dispositivo restano e il log importato verrà validato contro di esse, solo dopo validazione e persistenza completate."
+        : "L'import sostituirà lo storico corrente (ed eventuali riconferme incluse nel file) solo dopo validazione e persistenza completate.";
+  const actions = document.createElement("div");
+  actions.className = "confirmation-dialog__actions";
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.id = "import-confirm-cancel";
+  cancelBtn.type = "button";
+  cancelBtn.className = "btn btn--secondary";
+  cancelBtn.textContent = "Mantieni storico";
+  cancelBtn.dataset.dialogInitialFocus = "";
+  cancelBtn.addEventListener("click", cancelPendingImport);
+
+  const confirmBtn = document.createElement("button");
+  confirmBtn.id = "import-confirm-apply";
+  confirmBtn.type = "button";
+  confirmBtn.className = "btn btn--danger";
+  confirmBtn.textContent = "Sostituisci con import";
+  confirmBtn.addEventListener("click", () => {
+    const raw = state.pendingImportRaw;
+    if (raw === null || confirmBtn.disabled) return;
+    confirmBtn.disabled = true;
+    cancelBtn.disabled = true;
+    state.pendingImportRaw = null;
+    applyImportedRaw(raw);
+    focusAfterRender("critical-auction-strip");
+  });
+
+  actions.append(cancelBtn, confirmBtn);
+  modal.append(title, body, actions);
+  overlay.appendChild(modal);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) cancelPendingImport();
+  });
+  activateAccessibleDialog(overlay, modal, cancelPendingImport);
+  return overlay;
+}
+
+function requestStartNewLog(): void {
+  if (state.recovery.kind !== "blocked") return;
+  state.recovery = { ...state.recovery, confirmingNewLog: true };
+  render();
+}
+
+function cancelStartNewLog(): void {
+  if (state.recovery.kind !== "blocked") return;
+  state.recovery = { ...state.recovery, confirmingNewLog: false };
+  render();
+}
+
+/** The only destructive recovery action: persists a brand-new EMPTY log
+ *  (never a "repair" of the old one) after explicit confirmation. The
+ *  quarantined payload is never touched here — it stays available for
+ *  export in the "started-new" banner that follows. */
+function confirmStartNewLog(): void {
+  if (state.recovery.kind !== "blocked") return;
+  const quarantinedRaw = state.recovery.quarantinedRaw;
+  const quarantineStored = state.recovery.quarantineStored;
+  const saveResult = saveAuctionLog(browserStorage, [], FANTA_TEAM_IDS, undefined, state.confirmations);
+  if (!saveResult.ok) {
+    // Saving `[]` is always structurally valid against ANY confirmations
+    // batch (an empty log has no PURCHASE to conflict with one) — a
+    // failure here means the browser genuinely can't write right now. Stay
+    // fail-closed rather than pretend a new log started.
+    state.recovery = {
+      kind: "storage-error",
+      message: persistenceErrorMessage(saveResult),
+      quarantinedRaw,
+      quarantineStored,
+    };
+    render();
+    return;
+  }
+  state.log = [];
+  state.recovery = { kind: "started-new", quarantinedRaw, quarantineStored };
+  render();
+}
+
+// Simple, reliable scroll reset for the main view transitions (nav between
+// screens, moment switches). Deliberately not hooked into every render() —
+// only into the transitions that actually change "which page you're on",
+// so opening a mock modal or Undo confirm doesn't lose your scroll spot.
+function scrollToTop(): void {
+  window.scrollTo(0, 0);
+}
+
+// ── Header — persistent nav across the 3 shell screens ───────────────────────
+function renderHeader(): HTMLElement {
+  const header = document.createElement("div");
+  header.className = "topbar";
+
+  const logo = document.createElement("span");
+  logo.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.08em;color:${C.textSec};`;
+  logo.textContent = "FANTACALCIO COPILOT";
+
+  const nav = document.createElement("nav");
+  nav.style.cssText = `display:flex;gap:20px;font-size:13px;`;
+
+  const items: Array<{ label: string; screen: Screen }> = [
+    { label: "Asta", screen: "asta" },
+    { label: "Rose", screen: "rose" },
+    { label: "Impostazioni", screen: "impostazioni" },
+  ];
+  for (const item of items) {
+    const link = document.createElement("span");
+    link.textContent = item.label;
+    const active = state.screen === item.screen;
+    link.style.cssText = `cursor:pointer;font-weight:${active ? "700" : "400"};color:${active ? C.textPrimary : C.textSec};`;
+    link.tabIndex = 0;
+    link.setAttribute("role", "button");
+    link.addEventListener("click", () => {
+      state.screen = item.screen;
+      // Fix 7 (PX, round 2, #285): see the settingsArea callback's own
+      // comment above — a top-level screen switch is the same kind of
+      // "next render the operator asked for" that clears a sticky
+      // riconferme refusal, not just a successful save.
+      state.riconfermeError = "";
+      state.riconfermeDraft = null;
+      scrollToTop();
+      render();
+    });
+    link.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        link.click();
+      }
+    });
+    nav.appendChild(link);
+  }
+
+  header.appendChild(logo);
+  header.appendChild(nav);
+  return header;
+}
+
+// ── Asta screen ───────────────────────────────────────────────────────────────
+function renderAsta(): HTMLElement {
+  const aState = deriveAuctionState();
+  const team = myTeam(aState);
+
+  const wrap = document.createElement("div");
+  wrap.className = "screen-container";
+  wrap.style.cssText = `padding:20px 24px;gap:18px;`;
+
+  // A mutation (purchase/void) that could not be persisted — distinct from
+  // `state.error` (assign-form validation) and visible regardless of
+  // chiamata/asta moment, since a void can fail from either. See LIVE-02.
+  if (state.persistenceError) {
+    const persistErr = document.createElement("div");
+    persistErr.setAttribute("role", "alert");
+    persistErr.style.cssText = `font-size:13px;line-height:1.5;color:${C.stopRed};border:1px solid ${C.stopRedDark};border-radius:8px;padding:10px 14px;`;
+    persistErr.textContent = state.persistenceError;
+    wrap.appendChild(persistErr);
+  }
+
+  // Listone ⇄ log reconciliation (audit round 2, findings 1/3/4). Rendered
+  // here, next to the persistence error and above the critical strip, for the
+  // same reason: it is about the trustworthiness of the accounting on screen,
+  // it must be visible in BOTH moments (a pool can change while an asta is
+  // open — the deposit lands on its own), and it is never dismissable.
+  //
+  // Two halves, deliberately: the standing-orphans clause is DERIVED here, so
+  // it disappears by itself once it stops being true, while `state.poolNotice`
+  // carries what happened at the last pool change (a refused substitution, a
+  // disarmed selection, a pool that could not be saved) — events, which no
+  // recomputation could recover.
+  const poolNoticeText = [poolOrphanNotice(), state.poolNotice].filter((s) => s !== "").join(" ");
+  if (poolNoticeText) {
+    const poolNotice = document.createElement("div");
+    poolNotice.id = "pool-notice";
+    poolNotice.setAttribute("role", "alert");
+    poolNotice.style.cssText = `font-size:13px;line-height:1.5;color:${C.stopRed};border:1px solid ${C.stopRedDark};border-radius:8px;padding:10px 14px;`;
+    poolNotice.textContent = poolNoticeText;
+    wrap.appendChild(poolNotice);
+  }
+
+  // Keep the critical accounting rendered above every confirmation.
+  wrap.appendChild(renderCriticalAuctionStrip(team));
+
+  // Confirm void overlay
+  if (state.confirmVoidSeq !== null) {
+    wrap.appendChild(renderVoidConfirm());
+    return wrap;
+  }
+
+  // Zone 1
+  wrap.appendChild(renderZona1(aState, team));
+
+  // League teams (read-only list)
+  wrap.appendChild(renderTeamsPanel(aState));
+
+  // Zone 4
+  wrap.appendChild(renderZona4(aState));
+
+  return wrap;
+}
+
+// Persistent, constraint-only accounting: budget/slots/max_safe come from the
+// engine and never expose gated ranking, target-band or FTM fields.
+// Absorbs what the separate BUDGET & ROSA panel used to show further down the
+// page: residuo/spesi and the per-role roster progress. They answer the same
+// question as the ceiling ("how much room is left, and where"), so splitting
+// them across a sticky strip and a panel you had to scroll to meant reading
+// two places for one answer.
+function renderCriticalAuctionStrip(team: TeamState | undefined): HTMLElement {
+  const strip = document.createElement("section");
+  strip.id = "critical-auction-strip";
+  strip.className = "critical-auction-strip";
+  strip.tabIndex = -1;
+  strip.setAttribute("aria-label", "Budget, rosa e vincoli critici asta");
+
+  if (!team) {
+    strip.innerHTML = `<div class="critical-metric critical-metric--bid critical-bid--stop"><span>Max bid sicuro</span><strong>— <em>stato squadra non disponibile</em></strong></div>`;
+    return strip;
+  }
+
+  const plan = budgetPlan(team);
+  // One ceiling, not four. maxSafe() is role-independent by construction
+  // (budget_residual − (slot_rimanenti − 1) × COST_FLOOR); the role acts only
+  // as a switch that zeroes a full department, and a full department is not
+  // one you are bidding on — nor a stable state, since a void frees the slot
+  // again. So any role with a free slot yields THE ceiling.
+  const openRole = ROLES.find((role) => team.slotsRemaining[role] > 0);
+  const bid = openRole ? maxSafe(team, openRole) : null;
+
+  // The old standalone HARD STOP badge restated `max_safe >= COST_FLOOR` as a
+  // boolean; it is folded into this number's state instead. Amber is the case
+  // the badge could not express: alive but locked at the floor.
+  let bidState: string;
+  let bidValue: string;
+  let bidNote: string;
+  if (!bid) {
+    bidState = "critical-bid--done";
+    bidValue = "—";
+    bidNote = "rosa completa";
+  } else if (!plan.isCompletable) {
+    bidState = "critical-bid--stop";
+    bidValue = `${bid.maxSafe} cr`;
+    bidNote = `rosa non completabile · deficit ${plan.budgetShortfall} cr`;
+  } else if (plan.freeBudget === 0) {
+    bidState = "critical-bid--locked";
+    bidValue = `${bid.maxSafe} cr`;
+    bidNote = "budget bloccato · solo al minimo";
+  } else {
+    bidState = "critical-bid--open";
+    bidValue = `${bid.maxSafe} cr`;
+    bidNote = "";
+  }
+
+  // Roster progress per role. `filled/total` is roster completion; the "Slot"
+  // metric above stays because it is the aggregate that drives the ceiling
+  // (max_safe = budget − slot + 1) and is not readable off these four bars
+  // without summing four subtractions.
+  // Per-role structural budget envelope — plan.perRole, already computed
+  // above via budgetPlan() but never rendered until now (issue #265 item
+  // #1, matrice UI §3 "Contabilità: budget, slot, hard_reserve, max_safe,
+  // violazioni | Visibile | Nessuno"). Read-only off the engine's output:
+  // no new calculation, no recommendation.
+  const roster = ROLES.map((role) => {
+    const filled = team.filled[role] ?? 0;
+    const total = ROSTER_REQUIREMENTS[role] ?? 0;
+    const pct = total > 0 ? Math.round((filled / total) * 100) : 0;
+    const complete = total > 0 && filled >= total;
+    const envelope = plan.perRole[role];
+    return `
+      <div class="critical-role${complete ? " critical-role--complete" : ""}">
+        <span class="critical-role-head">
+          ${roleChipHtml(role)}
+          <em>${filled}/${total}${complete ? " ✓" : ""}</em>
+        </span>
+        <span class="critical-role-bar" role="progressbar"
+              aria-label="${ROLE_LABELS[role]}"
+              aria-valuenow="${filled}" aria-valuemin="0" aria-valuemax="${total}">
+          <i style="width:${pct}%"></i>
+        </span>
+        <span class="critical-role-plan" id="critical-role-plan-${role}"
+              aria-label="Piano budget ${ROLE_LABELS[role]}: ${envelope.slotsRemaining} slot residui, riserva minima ${envelope.minReserve} cr, massimo allocabile ${envelope.maxAllocatable} cr">
+          ${roleBudgetPlanHtml(envelope)}
+        </span>
+      </div>`;
+  }).join("");
+
+  strip.innerHTML = `
+    <div class="critical-metric">
+      <span>Budget</span>
+      <strong id="critical-budget">${team.budgetResidual} cr</strong>
+    </div>
+    <div class="critical-metric">
+      <span>Spesi</span>
+      <strong id="critical-spent">${team.spent} cr</strong>
+    </div>
+    <div class="critical-metric">
+      <span>Slot</span>
+      <strong id="critical-slots">${team.totalSlotsRemaining}</strong>
+    </div>
+    <div class="critical-metric critical-metric--bid ${bidState}"
+         id="critical-max-bid" role="status" aria-live="polite">
+      <span>Max bid sicuro</span>
+      <strong>${bidValue}${bidNote ? ` <em>${bidNote}</em>` : ""}</strong>
+    </div>
+    <div class="critical-roster" id="critical-roster">${roster}</div>
+  `;
+  return strip;
+}
+
+// App status, NOT auction state. These three are constants or near-constants
+// (SHADOW and NO TARGET never change while the gates are closed; connectivity
+// changes without any operational consequence once the pool is loaded), so
+// they earn no room in the Asta view, where the only question per call is how
+// high you can go. They live in Impostazioni and are read on demand.
+// Rendered here rather than in views.ts because connectivity reads app state.
+/** Display name for a seat: its occupant, or the seat id while free. */
+function displayTeamLabel(id: string): string {
+  return seatLabel(state.leagueRoster, id);
+}
+
+// The Impostazioni areas. Bodies are thunks so only the selected one is
+// built — an unselected area costs nothing to list.
+const SETTINGS_AREAS: readonly SettingsArea[] = [
+  {
+    id: "teams",
+    title: "Partecipanti e squadre",
+    icon: SETTINGS_ICONS.people,
+    body: () => renderLeagueTeamsSettings(),
+  },
+  {
+    id: "riconferme",
+    title: "Riconferme pre-asta",
+    icon: SETTINGS_ICONS.confirm,
+    body: () => renderRiconfermeSettings(),
+  },
+  {
+    id: "status",
+    title: "Stato app",
+    icon: SETTINGS_ICONS.status,
+    body: () => renderOperatingModeStatus(),
+  },
+];
+
+/** Seat -> display name, for views that render many seats at once. */
+function seatLabelMap(): Record<string, string> {
+  return Object.fromEntries(FANTA_TEAM_IDS.map((id) => [id, displayTeamLabel(id)]));
+}
+
+function persistRoster(next: LeagueRoster): void {
+  state.leagueRoster = next;
+  state.rosterError = saveLeagueRoster(browserStorage, FANTA_TEAM_IDS, next)
+    ? ""
+    : "Modifica non salvata: la memoria locale ha rifiutato la scrittura. Le altre funzioni non sono toccate.";
+}
+
+const ROSTER_ERRORS: Record<string, string> = {
+  "name-required": "Serve un nome.",
+  "duplicate-name": "C'è già un partecipante con questo nome.",
+  "unknown-person": "Partecipante non trovato: ricarica la pagina.",
+};
+
+// League participants and who sits where. Two distinct operations, because
+// they mean different things: renaming a PERSON fixes a label and keeps their
+// identity (and everything that will hang off it), while reassigning a SEAT
+// means somebody else is playing that team. Only the second is blocked once
+// the seat has bought — the log records fantaTeamId at write time and is
+// append-only, so those purchases can never follow a new occupant.
+// People are archived and never deleted: whoever leaves stays pickable, so a
+// returning participant is the same person and not a fresh one.
+// Lives in main.ts (not views.ts) because it reads and mutates app state.
+function renderLeagueTeamsSettings(): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "league-teams-settings";
+  panel.className = "league-teams-settings";
+  panel.setAttribute("aria-label", "Partecipanti e squadre");
+
+  const intro = document.createElement("p");
+  intro.className = "hint-text";
+  intro.textContent =
+    "I partecipanti esistono a prescindere dalla squadra che occupano: chi è Squadra2 quest'anno può essere Squadra3 il prossimo, e resta la stessa persona. Chi lascia la lega non viene cancellato, resta selezionabile e al rientro è di nuovo se stesso.";
+  panel.appendChild(intro);
+
+  const aState = deriveAuctionState();
+
+  const seats = document.createElement("div");
+  seats.className = "league-teams-grid";
+  for (const id of FANTA_TEAM_IDS) {
+    const field = document.createElement("label");
+    field.className = "league-team-field";
+
+    const caption = document.createElement("span");
+    caption.className = "field-label";
+    caption.textContent = id === SELF_ID ? `${id} (io)` : id;
+    field.appendChild(caption);
+
+    // A seat that has bought is claimed: swapping its occupant now would
+    // hand those purchases to somebody who never made them.
+    const purchases = aState.teams[id]?.roster.length ?? 0;
+    const locked = purchases > 0;
+    if (locked) field.classList.add("league-team-field--locked");
+
+    const select = document.createElement("select");
+    select.id = `seat-person-${id}`;
+    select.className = "field-input";
+    const occupant = seatPerson(state.leagueRoster, id);
+
+    const free = document.createElement("option");
+    free.value = "";
+    free.textContent = "— libero —";
+    if (!occupant) free.selected = true;
+    select.appendChild(free);
+
+    // Everyone is listed, seated elsewhere included: picking them here moves
+    // them, rather than forcing you to free the other seat first.
+    for (const person of state.leagueRoster.people) {
+      const opt = document.createElement("option");
+      opt.value = person.id;
+      const elsewhere = FANTA_TEAM_IDS.find(
+        (other) => other !== id && state.leagueRoster.seats[other] === person.id,
+      );
+      opt.textContent = elsewhere ? `${person.name} (ora ${elsewhere})` : person.name;
+      if (occupant?.id === person.id) opt.selected = true;
+      select.appendChild(opt);
+    }
+
+    if (locked) {
+      select.disabled = true;
+      select.setAttribute("aria-describedby", `seat-person-note-${id}`);
+    } else {
+      select.addEventListener("change", (e) => {
+        const value = (e.target as HTMLSelectElement).value;
+        const result = assignSeat(state.leagueRoster, id, value === "" ? null : value);
+        if (!result.ok) {
+          state.rosterError = ROSTER_ERRORS[result.reason] ?? "Operazione rifiutata.";
+          render();
+          return;
+        }
+        persistRoster(result.roster);
+        render();
+      });
+    }
+    field.appendChild(select);
+
+    if (locked) {
+      const note = document.createElement("span");
+      note.className = "league-team-note";
+      note.id = `seat-person-note-${id}`;
+      note.textContent = `Posto assegnato: ${purchases} acquist${purchases === 1 ? "o" : "i"} registrat${purchases === 1 ? "o" : "i"}. Si libera annullandoli.`;
+      field.appendChild(note);
+    }
+
+    seats.appendChild(field);
+  }
+  panel.appendChild(seats);
+
+  const peopleTitle = document.createElement("h3");
+  peopleTitle.className = "league-people-title";
+  peopleTitle.textContent = "ARCHIVIO PARTECIPANTI";
+  panel.appendChild(peopleTitle);
+
+  const people = document.createElement("div");
+  people.className = "league-teams-grid";
+  people.id = "league-people-list";
+  for (const person of state.leagueRoster.people) {
+    const field = document.createElement("label");
+    field.className = "league-team-field";
+
+    const seatOf = FANTA_TEAM_IDS.find((id) => state.leagueRoster.seats[id] === person.id);
+    const caption = document.createElement("span");
+    caption.className = "field-label";
+    caption.textContent = seatOf ?? "senza squadra";
+    field.appendChild(caption);
+
+    // Renaming a person is always allowed, seat lock or not: it corrects a
+    // label, it does not put a different human in the seat.
+    const input = document.createElement("input");
+    input.id = `person-name-${person.id}`;
+    input.className = "field-input";
+    input.maxLength = PERSON_NAME_MAX;
+    input.value = person.name;
+    input.addEventListener("input", (e) => {
+      const result = renamePerson(state.leagueRoster, person.id, (e.target as HTMLInputElement).value);
+      if (!result.ok) {
+        // Keep what was typed visible; only refuse to persist it.
+        state.rosterError = ROSTER_ERRORS[result.reason] ?? "Nome rifiutato.";
+        return;
+      }
+      state.rosterError = "";
+      persistRoster(result.roster);
+    });
+    field.appendChild(input);
+    people.appendChild(field);
+  }
+  panel.appendChild(people);
+
+  if (state.leagueRoster.people.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "hint-text";
+    empty.id = "league-people-empty";
+    empty.textContent = "Nessun partecipante ancora inserito.";
+    panel.appendChild(empty);
+  }
+
+  const addRow = document.createElement("div");
+  addRow.className = "league-people-add";
+  const addInput = document.createElement("input");
+  addInput.id = "new-person-name";
+  addInput.className = "field-input";
+  addInput.maxLength = PERSON_NAME_MAX;
+  addInput.placeholder = "Nome del partecipante";
+  addInput.value = state.newPersonName;
+  addInput.addEventListener("input", (e) => {
+    state.newPersonName = (e.target as HTMLInputElement).value;
+  });
+  const addButton = document.createElement("button");
+  addButton.type = "button";
+  addButton.id = "add-person";
+  addButton.className = "btn btn--secondary";
+  addButton.textContent = "Aggiungi partecipante";
+  const submitNewPerson = (): void => {
+    const result = addPerson(state.leagueRoster, state.newPersonName);
+    if (!result.ok) {
+      state.rosterError = ROSTER_ERRORS[result.reason] ?? "Partecipante non aggiunto.";
+      render();
+      return;
+    }
+    state.rosterError = "";
+    state.newPersonName = "";
+    persistRoster(result.roster);
+    render();
+    focusAfterRender("new-person-name");
+  };
+  addButton.addEventListener("click", submitNewPerson);
+  addInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      submitNewPerson();
+    }
+  });
+  addRow.append(addInput, addButton);
+  panel.appendChild(addRow);
+
+  if (state.rosterError) {
+    const error = document.createElement("p");
+    error.id = "league-teams-error";
+    error.className = "league-teams-error";
+    error.setAttribute("role", "alert");
+    error.textContent = state.rosterError;
+    panel.appendChild(error);
+  }
+
+  return panel;
+}
+
+// ── Riconferme pre-asta (LEAGUE_RULES.md §4, tranche 2b, #231) ─────────────
+// Editable ONLY while state.log.length === 0: once the live auction has
+// started, a riconferma is an accounting fact fixed at t=0 (reduce() seeds
+// it BEFORE the log replays — packages/engine/src/reduce.ts), and changing
+// it mid-asta would be an out-of-band mutation the append-only log exists
+// to prevent. If Owner ever wants a mid-asta correction, that is a new
+// business rule (fascia C) — not anticipated here, only declared.
+//
+// Picker is DAL LISTONE only (playerId = listonePlayerKey): with an empty
+// pool there is nothing to pick from, and this panel does not offer a
+// manual-id fallback — a deliberate limit, not an oversight (a hand-typed
+// id could not be cross-checked against the player's real role or against
+// a duplicate purchase later).
+//
+// The "due stagioni di fila" constraint (LEAGUE_RULES.md §4) needs last
+// SEASON's confirmations, which this app has no source for — the archived
+// design's proposal (c): NOT enforced, declared with a fixed, non-blocking
+// notice below rather than silently ignored. From this season on, the
+// persisted batch makes the constraint checkable starting next season
+// (`previouslyConfirmedPlayerIds` as a future engine extension) — not built
+// here.
+const RICONFERME_ROLES: readonly Role[] = (Object.keys(CONFIRMATION_LIMITS) as Role[]).filter(
+  (role) => CONFIRMATION_LIMITS[role] > 0,
+);
+
+function renderRiconfermeSettings(): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "riconferme-settings";
+  panel.className = "riconferme-settings";
+  panel.setAttribute("aria-label", "Riconferme pre-asta");
+
+  const intro = document.createElement("p");
+  intro.className = "hint-text";
+  intro.textContent =
+    "Riconferme pre-asta (regolamento di lega, §4): fino a un difensore, un centrocampista e un attaccante per squadra, al prezzo pagato la scorsa stagione. Non sono acquisti: vengono sottratte al budget iniziale e a uno slot per ruolo PRIMA che l'asta cominci.";
+  panel.appendChild(intro);
+
+  const twoSeasonsNote = document.createElement("p");
+  twoSeasonsNote.id = "riconferme-two-seasons-note";
+  twoSeasonsNote.className = "hint-text riconferme-two-seasons-note";
+  twoSeasonsNote.textContent =
+    'Vincolo "due stagioni di fila" (regolamento di lega, §4) NON applicato automaticamente: l\'app non dispone dello storico della stagione precedente. Verifica manualmente prima di confermare.';
+  panel.appendChild(twoSeasonsNote);
+
+  const editable = state.log.length === 0;
+  if (editable) {
+    // Fix 8 (PX polish, round 2, #285): a fixed, always-visible warning that
+    // this editability is temporary — same idiom as twoSeasonsNote above,
+    // not a dismissible banner, so it cannot be missed-then-forgotten.
+    const lockNote = document.createElement("p");
+    lockNote.id = "riconferme-lock-note";
+    lockNote.className = "hint-text riconferme-two-seasons-note";
+    lockNote.textContent =
+      "Al primo acquisto live lo storico asta smette di essere vuoto: da quel momento questo pannello diventa di sola lettura e le riconferme non sono più modificabili.";
+    panel.appendChild(lockNote);
+  }
+  if (!editable) {
+    const readonlyNote = document.createElement("p");
+    readonlyNote.id = "riconferme-readonly-note";
+    readonlyNote.setAttribute("role", "note");
+    readonlyNote.className = "hint-text";
+    readonlyNote.textContent =
+      "Sola lettura: lo storico asta non è vuoto. Le riconferme fissano il budget e la rosa iniziali di ogni squadra a t=0 e non si modificano a partita iniziata.";
+    panel.appendChild(readonlyNote);
+  }
+
+  const poolAvailable = state.pool.length > 0;
+  if (editable && !poolAvailable) {
+    const emptyListoneNote = document.createElement("p");
+    emptyListoneNote.id = "riconferme-empty-listone-note";
+    emptyListoneNote.className = "hint-text";
+    emptyListoneNote.textContent =
+      "Carica il listone (Asta → Ricerca giocatore) per selezionare i giocatori da riconfermare: qui non è previsto un inserimento manuale dell'identificativo.";
+    panel.appendChild(emptyListoneNote);
+  }
+
+  // purchasedPlayerIds already includes every riconferma (reduce() seeds
+  // them, see deriveAuctionState()'s own comment) — with the log empty in
+  // the only state this panel is editable, it is EXACTLY the set of
+  // already-confirmed players, so it doubles as "not selectable again"
+  // without a second source of truth.
+  const aState = deriveAuctionState();
+  const usedPlayerIds = new Set(aState.purchasedPlayerIds);
+  const pool = auctionDisplayPool();
+  // resolvePlayerDisplayName takes the O(1) index (audit r2 D2 refactor,
+  // post-#285): #285 built the riconferme panel against the pre-refactor
+  // array signature, so this call site needs the index form alongside the
+  // array `pool` above, which the eligible-players filter below still uses.
+  const poolIndex = auctionDisplayIndex();
+
+  const grid = document.createElement("div");
+  grid.className = "riconferme-grid";
+  grid.id = "riconferme-grid";
+
+  for (const seatId of FANTA_TEAM_IDS) {
+    const seatRow = document.createElement("div");
+    seatRow.className = "riconferme-seat";
+    seatRow.id = `riconferme-seat-${seatId}`;
+
+    const seatLabelEl = document.createElement("div");
+    seatLabelEl.className = "riconferme-seat__label";
+    seatLabelEl.textContent = displayTeamLabel(seatId);
+    seatRow.appendChild(seatLabelEl);
+
+    const slots = document.createElement("div");
+    slots.className = "riconferme-seat__slots";
+
+    for (const role of RICONFERME_ROLES) {
+      const slot = document.createElement("div");
+      slot.className = "riconferme-slot";
+      slot.id = `riconferme-slot-${seatId}-${role}`;
+      slot.appendChild(renderRoleChip(role));
+
+      const existing = state.confirmations.find((c) => c.fantaTeamId === seatId && c.role === role);
+      if (existing) {
+        const display = resolvePlayerDisplayName(existing.playerId, poolIndex);
+        const name = document.createElement("span");
+        name.className = "riconferme-slot__name";
+        name.textContent = display;
+        name.title = display;
+        slot.appendChild(name);
+
+        const price = document.createElement("span");
+        price.className = "riconferme-slot__price";
+        price.textContent = `${existing.price} cr`;
+        slot.appendChild(price);
+
+        if (editable) {
+          const removeBtn = document.createElement("button");
+          removeBtn.type = "button";
+          removeBtn.id = `riconferme-remove-${seatId}-${role}`;
+          removeBtn.className = "btn btn--icon";
+          removeBtn.textContent = "✕";
+          // Fix 5 (a11y, round 2, #285): `title` alone is a weak accessible
+          // name (tooltip-only for most AT, absent on touch) — aria-label is
+          // the real accessible name here, kept byte-identical to the
+          // tooltip so the two never say different things.
+          removeBtn.title = `Rimuovi la riconferma di ${display}`;
+          removeBtn.setAttribute("aria-label", removeBtn.title);
+          removeBtn.addEventListener("click", () => removeRiconferma(seatId, role));
+          slot.appendChild(removeBtn);
+        }
+      } else if (editable && poolAvailable) {
+        // Role-filtered: "ruolo derivato non editabile" — the operator
+        // never picks a role separately, only a player already of the role
+        // this slot/column represents. Already-used players (confirmed
+        // elsewhere in this batch) are excluded, never shown as pickable.
+        const eligible = pool.filter((p) => p.role === role && !usedPlayerIds.has(listonePlayerKey(p)));
+
+        // Fix 6 (PX, round 2, #285): the last REFUSED attempt for exactly
+        // this slot, if any — see AppState.riconfermeDraft's own doc
+        // comment. render() rebuilds this <select>/<input> from scratch on
+        // every call, so without this the operator's picks silently vanish
+        // right when the error message tells them to fix something.
+        const draft =
+          state.riconfermeDraft && state.riconfermeDraft.seatId === seatId && state.riconfermeDraft.role === role
+            ? state.riconfermeDraft
+            : null;
+
+        const seatLabelText = displayTeamLabel(seatId);
+        const roleLabelText = ROLE_LABEL_SING[role];
+
+        const select = document.createElement("select");
+        select.id = `riconferme-picker-${seatId}-${role}`;
+        select.className = "field-input riconferme-slot__picker";
+        select.setAttribute("aria-label", `Riconferma ${roleLabelText} per ${seatLabelText}`);
+        const emptyOpt = document.createElement("option");
+        emptyOpt.value = "";
+        emptyOpt.textContent = eligible.length === 0 ? "— nessun giocatore disponibile —" : "— seleziona —";
+        select.appendChild(emptyOpt);
+        for (const p of eligible) {
+          const opt = document.createElement("option");
+          opt.value = listonePlayerKey(p);
+          opt.textContent = p.club ? `${p.name} (${p.club})` : p.name;
+          select.appendChild(opt);
+        }
+        select.disabled = eligible.length === 0;
+        if (draft && eligible.some((p) => listonePlayerKey(p) === draft.playerId)) {
+          select.value = draft.playerId;
+        }
+        slot.appendChild(select);
+
+        const priceInput = document.createElement("input");
+        priceInput.id = `riconferme-price-${seatId}-${role}`;
+        priceInput.type = "number";
+        priceInput.min = "1";
+        priceInput.step = "1";
+        priceInput.setAttribute("inputmode", "numeric");
+        priceInput.placeholder = "prezzo";
+        priceInput.title = "Prezzo pagato per questo giocatore la scorsa stagione (crediti interi).";
+        priceInput.setAttribute("aria-label", `Prezzo riconferma ${roleLabelText} per ${seatLabelText}`);
+        priceInput.className = "field-input riconferme-slot__price-input";
+        priceInput.disabled = eligible.length === 0;
+        if (draft) priceInput.value = draft.priceRaw;
+        slot.appendChild(priceInput);
+
+        const confirmBtn = document.createElement("button");
+        confirmBtn.type = "button";
+        confirmBtn.id = `riconferme-confirm-${seatId}-${role}`;
+        confirmBtn.className = "btn btn--secondary";
+        confirmBtn.textContent = "Conferma";
+        confirmBtn.setAttribute("aria-label", `Conferma riconferma ${roleLabelText} per ${seatLabelText}`);
+        confirmBtn.disabled = eligible.length === 0;
+        confirmBtn.addEventListener("click", () => confirmRiconferma(seatId, role));
+        slot.appendChild(confirmBtn);
+      } else {
+        const empty = document.createElement("span");
+        empty.className = "riconferme-slot__empty";
+        empty.textContent = "—";
+        slot.appendChild(empty);
+      }
+
+      slots.appendChild(slot);
+    }
+
+    seatRow.appendChild(slots);
+    grid.appendChild(seatRow);
+  }
+  panel.appendChild(grid);
+
+  if (state.riconfermeError) {
+    const error = document.createElement("p");
+    error.id = "riconferme-error";
+    error.className = "riconferme-error";
+    error.setAttribute("role", "alert");
+    error.textContent = state.riconfermeError;
+    panel.appendChild(error);
+  }
+
+  return panel;
+}
+
+/**
+ * Fix 6 (PX, round 2, #285): renders a riconferme-panel failure and then
+ * scrolls `#riconferme-error` into view — the panel can be tall enough
+ * (up to 8 seats × 3 slots) that an error appended at the very bottom lands
+ * off-screen from wherever the operator was editing, and role="alert" alone
+ * only guarantees it is ANNOUNCED, not that it is visible. `render()` is
+ * synchronous (direct DOM rebuild, no framework tick), so the element is
+ * already in the document by the time this call returns.
+ */
+function renderRiconfermeFailure(): void {
+  render();
+  document.getElementById("riconferme-error")?.scrollIntoView({ block: "nearest" });
+}
+
+/**
+ * Reads the pending pick straight from the DOM at click time (same
+ * uncontrolled-input style as the rest of this file's forms — e.g.
+ * renderMomentoAsta's priceInput) rather than tracking it in AppState:
+ * nothing here re-renders while the operator is choosing, so the browser's
+ * own input value already IS the source of truth until this click.
+ */
+function confirmRiconferma(seatId: string, role: Role): void {
+  const select = document.getElementById(`riconferme-picker-${seatId}-${role}`) as HTMLSelectElement | null;
+  const priceInput = document.getElementById(`riconferme-price-${seatId}-${role}`) as HTMLInputElement | null;
+  if (!select || !priceInput) return;
+
+  const playerId = select.value;
+  const priceRaw = priceInput.value;
+  const draft: RiconfermeDraft = { seatId, role, playerId, priceRaw };
+  if (!playerId) {
+    state.riconfermeError = "Seleziona un giocatore dal listone prima di confermare.";
+    state.riconfermeDraft = draft;
+    renderRiconfermeFailure();
+    return;
+  }
+  const price = parsePositiveIntegerPrice(priceRaw);
+  if (price === null) {
+    state.riconfermeError = "Prezzo non valido: inserisci un numero intero positivo (l'importo pagato la scorsa stagione).";
+    state.riconfermeDraft = draft;
+    renderRiconfermeFailure();
+    return;
+  }
+
+  // "ogni azione ricompone il batch" — replace this seat+role's entry (if
+  // any) and re-submit the WHOLE batch, never a partial/incremental update.
+  const next = [
+    ...state.confirmations.filter((c) => !(c.fantaTeamId === seatId && c.role === role)),
+    { fantaTeamId: seatId, playerId, role, price },
+  ];
+  applyRiconfermeBatch(next, draft);
+}
+
+function removeRiconferma(seatId: string, role: Role): void {
+  const next = state.confirmations.filter((c) => !(c.fantaTeamId === seatId && c.role === role));
+  applyRiconfermeBatch(next);
+}
+
+/**
+ * validate-prima-di-scrivere -> saveConfirmations, humanized errors in the
+ * panel (confirmationErrorText for the engine's 7 violation codes).
+ * `draftOnFailure` (fix 6, round 2, #285) is the form values to restore into
+ * state on a REFUSED attempt — omitted by removeRiconferma, which has no
+ * picker/price of its own to preserve.
+ */
+function applyRiconfermeBatch(next: readonly ConfirmationInput[], draftOnFailure?: RiconfermeDraft): void {
+  const result = saveConfirmations(browserStorage, next, FANTA_TEAM_IDS);
+  if (!result.ok) {
+    state.riconfermeDraft = draftOnFailure ?? null;
+    state.riconfermeError =
+      result.reason === "invalid-semantic"
+        ? confirmationErrorText(result.issues.map((issue) => issue.violation))
+        : result.reason === "invalid-schema"
+          ? "Dati non validi: riprova la selezione."
+          : `Impossibile salvare (${result.message}).`;
+    renderRiconfermeFailure();
+    return;
+  }
+  state.confirmations = [...next];
+  state.riconfermeError = "";
+  state.riconfermeDraft = null;
+  render();
+}
+
+function renderOperatingModeStatus(): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "operating-mode-status";
+  panel.className = "operating-mode-status";
+  panel.setAttribute("aria-label", "Stato app");
+  panel.innerHTML = `
+    <ul class="operating-state-list">
+      <li id="shadow-status" class="operating-state operating-state--shadow">
+        <span class="operating-dot" aria-hidden="true"></span>
+        <strong>SHADOW</strong>
+        <span class="operating-desc">Solo registrazione tecnica; nessun output di modello è operativo.</span>
+      </li>
+      <li id="no-target-status" class="operating-state operating-state--no-target">
+        <span class="operating-dot" aria-hidden="true"></span>
+        <strong>NO TARGET</strong>
+        <span class="operating-desc">Nessuna evidenza autorizzata: usa soltanto i vincoli contabili.</span>
+      </li>
+      <li id="connectivity-status" class="operating-state ${state.offline ? "operating-state--offline" : "operating-state--online"}"
+          role="status" aria-live="polite">
+        <span class="operating-dot" aria-hidden="true"></span>
+        <strong>${state.offline ? "OFFLINE" : "CLIENT LOCALE"}</strong>
+        <span class="operating-desc">${state.offline ? "Rete assente; il core già caricato resta disponibile." : "Core locale pronto; nessun backend richiesto."}</span>
+      </li>
+    </ul>
+  `;
+  return panel;
+}
+
+// ── League teams — read-only list of all configured teams ─────────────────────
+// Vista d'insieme di sola lettura: budget residuo + slot residui per ogni
+// squadra (incluso "Io"), derivati dall'engine. Nessun editing, nessun
+// add/rename/remove, nessuna reintroduzione di Impostazioni/team management.
+function renderTeamsPanel(aState: AuctionState): HTMLElement {
+  const panel = document.createElement("div");
+  panel.className = "panel";
+
+  const title = document.createElement("div");
+  title.className = "panel-title";
+  title.style.marginBottom = "12px";
+  title.textContent = "SQUADRE (LEGA)";
+  panel.appendChild(title);
+
+  // Responsive breakpoints (1/2/4 per row) live in src/styles/asta.css
+  // (.teams-grid) — inline styles can't express @media, see that file.
+  const grid = document.createElement("div");
+  grid.className = "teams-grid";
+
+  for (const tid of FANTA_TEAM_IDS) {
+    const t = aState.teams[tid];
+    const residuo = t?.budgetResidual ?? INITIAL_BUDGET;
+    const slotsLeft = t?.totalSlotsRemaining ?? 0;
+    const isSelf = tid === SELF_ID;
+
+    const card = document.createElement("div");
+    card.style.cssText = `background:${C.panelInner};border:1px solid ${isSelf ? C.accent : C.border};border-radius:10px;padding:14px 16px;`;
+    const slotStr = ROLES.map((r) => `${roleChipHtml(r)}<span style="font-family:${C.mono};margin-left:3px;margin-right:10px;">${t?.slotsRemaining[r] ?? ROSTER_REQUIREMENTS[r] ?? 0}</span>`).join("");
+    card.innerHTML = `<div style="font-size:14px;font-weight:600;color:${C.textPrimary};margin-bottom:6px;">${escHtml(displayTeamLabel(tid))}${isSelf ? ` <span style="font-size:11px;font-weight:700;color:${C.accent};">● io</span>` : ""}</div>` +
+      `<div class="kpi-value" style="font-size:22px;color:${C.green};">${residuo} <span style="font-size:13px;font-weight:600;color:${C.textSec};">cr</span></div>` +
+      `<div style="font-size:12.5px;color:${C.textSec};margin-top:6px;">slot residui: <span class="kpi-value" style="color:${C.textPrimary};">${slotsLeft}</span></div>` +
+      `<div style="font-size:13px;color:${C.textSec};margin-top:8px;display:flex;align-items:center;flex-wrap:wrap;">${slotStr}</div>`;
+    grid.appendChild(card);
+  }
+
+  panel.appendChild(grid);
+  return panel;
+}
+
+// ── Zone 1: Chiamata panel ────────────────────────────────────────────────────
+function renderZona1(aState: AuctionState, team: TeamState | undefined): HTMLElement {
+  const panel = document.createElement("div");
+  panel.className = "panel";
+  panel.style.cssText = `padding:24px;border:1px solid ${C.border};`;
+
+  if (state.moment === "chiamata") {
+    panel.appendChild(renderMomentoChiamata(aState));
+  } else {
+    panel.appendChild(renderMomentoAsta(aState, team));
+  }
+
+  return panel;
+}
+
+function renderMomentoChiamata(aState: AuctionState): HTMLElement {
+  const wrap = document.createElement("div");
+
+  // Suggested player block — design slot "CHI CHIAMARE ORA".
+  // Honest placeholder: there is NO suggestion engine yet (richiede dati reali +
+  // gate non attivi). Mostriamo il blocco in modo stabile, senza fingere una
+  // predizione. Non è una raccomandazione.
+  const suggested = document.createElement("div");
+  suggested.style.cssText = `background:${C.panelInner};border:1px solid ${C.border};border-radius:8px;padding:12px 16px;margin-bottom:18px;`;
+  const suggestedEyebrow = document.createElement("div");
+  suggestedEyebrow.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.06em;color:${C.textSec};margin-bottom:4px;`;
+  suggestedEyebrow.textContent = "GIOCATORE SUGGERITO — CHI CHIAMARE ORA";
+  const suggestedBody = document.createElement("div");
+  suggestedBody.style.cssText = `font-size:13px;line-height:1.5;color:${C.textMid};`;
+  suggestedBody.textContent = "Nessun suggerimento automatico attivo: il motore richiede dati reali, non ancora abilitati. Inserisci manualmente il giocatore chiamato qui sotto. (Non è una predizione.)";
+  suggested.appendChild(suggestedEyebrow);
+  suggested.appendChild(suggestedBody);
+  wrap.appendChild(suggested);
+
+  // T13 #231 — the fast path, first: one line records a purchase without
+  // walking the select -> Avvia -> prezzo -> conferma sequence below, which
+  // stays exactly as it was for every other case.
+  wrap.appendChild(
+    renderAssignCommandPanel(
+      {
+        value: state.assignCommand,
+        resolution: assignCommandResolution(aState),
+        error: state.assignCommandError,
+      },
+      { onInput: onAssignCommandInput, onSubmit: () => submitAssignCommand(aState) },
+    ),
+  );
+
+  // Remaining supply per role — deterministic, from the event log (slots) and
+  // the loaded listone row count (availability). See renderRoleScarcityPanel.
+  const scarcity = roleScarcity(aState, scarcityPool());
+  wrap.appendChild(renderRoleScarcityPanel(scarcity, state.pool.length > 0));
+
+  const eyebrow = document.createElement("div");
+  eyebrow.className = "panel-title";
+  eyebrow.style.marginBottom = "14px";
+  eyebrow.textContent = "RICERCA GIOCATORE";
+  wrap.appendChild(eyebrow);
+
+  // Search row
+  const row = document.createElement("div");
+  row.className = "form-row";
+
+  // Player name input
+  const nameGroup = document.createElement("div");
+  nameGroup.style.cssText = `flex:2;min-width:200px;`;
+  const nameLabel = document.createElement("div");
+  nameLabel.className = "field-label";
+  nameLabel.textContent = "Nome giocatore";
+  const nameInput = document.createElement("input");
+  nameInput.id = "search-player";
+  nameInput.name = "search-player";
+  nameInput.type = "text";
+  nameInput.placeholder = "es. Strefezza";
+  nameInput.value = state.call.playerName;
+  nameInput.className = "field-input";
+  nameInput.addEventListener("input", (e) => {
+    // Live-updates the Listone below as you type (see filterListonePool in
+    // renderListoneSvincolati call below) — cursor position is preserved
+    // across the re-render, see render().
+    state.call.playerName = (e.target as HTMLInputElement).value;
+    state.callInteractions += 1;
+    state.poolPage = 1;
+    render();
+  });
+  nameInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") launchAsta();
+  });
+  nameGroup.appendChild(nameLabel);
+  nameGroup.appendChild(nameInput);
+
+  // Role selector
+  const roleGroup = document.createElement("div");
+  roleGroup.style.cssText = `flex:1;min-width:130px;`;
+  const roleLabel = document.createElement("div");
+  roleLabel.className = "field-label";
+  roleLabel.textContent = "Ruolo";
+  const roleSelect = document.createElement("select");
+  roleSelect.id = "search-role";
+  roleSelect.name = "search-role";
+  roleSelect.className = "field-input";
+  const optAll = document.createElement("option");
+  optAll.value = "";
+  optAll.textContent = "Tutti";
+  roleSelect.appendChild(optAll);
+  for (const r of ROLES) {
+    const opt = document.createElement("option");
+    opt.value = r;
+    opt.textContent = `${r} — ${ROLE_LABEL_SING[r]}`;
+    if (state.call.role === r) opt.selected = true;
+    roleSelect.appendChild(opt);
+  }
+  roleSelect.addEventListener("change", (e) => {
+    state.call.role = (e.target as HTMLSelectElement).value as Role | "";
+    state.callInteractions += 1;
+    state.poolPage = 1;
+    render();
+  });
+  roleGroup.appendChild(roleLabel);
+  roleGroup.appendChild(roleSelect);
+
+  // Club selector — populated from the clubs actually present in the
+  // currently loaded pool (deduped, sorted), NOT from the hardcoded
+  // SERIE_A_CLUBS_2026_27 season list. Audit #231 round 2, finding D7: the
+  // hardcoded list left up to 85/532 real-listone players unfilterable by
+  // club whenever the loaded pool's clubs diverged from that fixed set
+  // (promotions/relegations, a stale season, a private deposit). serieA.ts
+  // stays the source for club logos only (renderClubBadge/clubBadgeHtml
+  // elsewhere in this file) — never for this filter's option list.
+  const clubGroup = document.createElement("div");
+  clubGroup.style.cssText = `flex:1;min-width:150px;`;
+  const clubLabel = document.createElement("div");
+  clubLabel.className = "field-label";
+  clubLabel.textContent = "Squadra (Serie A)";
+  const clubSelect = document.createElement("select");
+  clubSelect.id = "search-club";
+  clubSelect.name = "search-club";
+  clubSelect.className = "field-input";
+  const optAllClubs = document.createElement("option");
+  optAllClubs.value = "";
+  optAllClubs.textContent = "Tutte";
+  clubSelect.appendChild(optAllClubs);
+  const poolClubs = [...new Set(state.pool.map((p) => p.club))].sort((a, b) => a.localeCompare(b, "it"));
+  for (const club of poolClubs) {
+    const opt = document.createElement("option");
+    opt.value = club;
+    opt.textContent = club;
+    if (state.call.club === club) opt.selected = true;
+    clubSelect.appendChild(opt);
+  }
+  // A selected club no longer present in the currently loaded pool (e.g. the
+  // pool was reloaded/replaced after the filter was set) still needs to show
+  // correctly here, not silently fall back to "Tutte" — otherwise the
+  // visible select would desync from state.call.club.
+  if (state.call.club && !poolClubs.includes(state.call.club)) {
+    const opt = document.createElement("option");
+    opt.value = state.call.club;
+    opt.textContent = state.call.club;
+    opt.selected = true;
+    clubSelect.appendChild(opt);
+  }
+  clubSelect.addEventListener("change", (e) => {
+    state.call.club = (e.target as HTMLSelectElement).value;
+    state.callInteractions += 1;
+    state.poolPage = 1;
+    render();
+  });
+  clubGroup.appendChild(clubLabel);
+  clubGroup.appendChild(clubSelect);
+
+  // Avvia button — disabled until the search bar exactly matches a player
+  // clicked in the Listone below (see isCallCorrelated): the search can
+  // only "start" from a listone player, never from free-typed text alone.
+  const correlated = isCallCorrelated(state.call);
+  const avviaBtn = document.createElement("button");
+  avviaBtn.textContent = "Avvia →";
+  avviaBtn.disabled = !correlated;
+  avviaBtn.className = "btn btn--primary";
+  avviaBtn.style.flex = "none";
+  avviaBtn.title = correlated
+    ? ""
+    : "Seleziona un giocatore cliccandolo nel listone qui sotto per abilitare l'avvio.";
+  avviaBtn.addEventListener("click", launchAsta);
+
+  // Reset — clears a wrong/stale selection (search fields + selectedPlayer +
+  // status filter) without touching the event log/budget/roster. Always
+  // available, not just when something is set: a no-op reset is harmless.
+  const resetBtn = document.createElement("button");
+  resetBtn.type = "button";
+  resetBtn.textContent = "✕ Reset";
+  resetBtn.title = "Cancella ricerca e selezione corrente (nessuna azione sullo storico acquisti)";
+  resetBtn.style.cssText = `background:transparent;color:${C.textDim};font-size:12.5px;font-weight:600;padding:10px 14px;border-radius:7px;border:1px solid ${C.border};cursor:pointer;flex:none;`;
+  resetBtn.addEventListener("click", resetListoneSearch);
+
+  row.appendChild(nameGroup);
+  row.appendChild(roleGroup);
+  row.appendChild(clubGroup);
+  row.appendChild(avviaBtn);
+  row.appendChild(resetBtn);
+  wrap.appendChild(row);
+
+  const hint = document.createElement("div");
+  hint.className = "hint-text";
+  hint.style.marginTop = "8px";
+  const roleError = state.call.selectedPlayer ? requiredRoleError(state.call.role) : null;
+  if (roleError) {
+    hint.setAttribute("role", "alert");
+    hint.style.color = C.stopRed;
+    hint.textContent = roleError;
+  } else if (correlated && state.call.selectedPlayer) {
+    hint.style.color = C.green;
+    hint.textContent = `✓ Selezionato dal listone: ${state.call.selectedPlayer.name} (${state.call.selectedPlayer.role} — ${state.call.selectedPlayer.club}). Premi Avvia o Invio.`;
+  } else {
+    hint.textContent =
+      "Filtra per nome/ruolo/squadra, poi clicca il giocatore nel listone qui sotto per selezionarlo: solo così l'asta può partire.";
+  }
+  wrap.appendChild(hint);
+
+  const interactionCount = document.createElement("div");
+  interactionCount.id = "call-interaction-count";
+  interactionCount.className = "hint-text";
+  interactionCount.textContent = `Interazioni chiamata: ${state.callInteractions}`;
+  wrap.appendChild(interactionCount);
+
+  // D7 Binario A — "Contesto chiamata": read-only, on-demand, and only for a
+  // player Owner has already selected. No selection, no panel: there is no
+  // subject to give context for, and offering one would edge towards
+  // suggesting whom to call.
+  const selected = state.call.selectedPlayer;
+  if (selected) {
+    wrap.appendChild(
+      renderNominationContextPanel(
+        {
+          playerName: selected.name,
+          club: selected.club,
+          role: selected.role,
+          open: state.nominationContextOpen,
+          scarcity: scarcity[selected.role],
+          poolLoaded: state.pool.length > 0,
+          opponents: opponentTier1(aState, SELF_ID),
+          teamLabels: seatLabelMap(),
+          priceFacts: rolePriceFacts(state.log, selected.role),
+          topAssigned: nominationContextTopAssigned(selected.role),
+        },
+        toggleNominationContext,
+      ),
+    );
+  }
+
+  const listoneWrap = document.createElement("div");
+  listoneWrap.style.cssText = `margin-top:18px;`;
+  const assignedKeys = new Set(aState.purchasedPlayerIds);
+  const displayPool = filterListonePool(
+    state.pool,
+    { text: state.call.playerName, role: state.call.role, club: state.call.club, status: state.poolStatusFilter },
+    assignedKeys,
+  );
+  listoneWrap.appendChild(
+    renderListoneSvincolati(
+      {
+        pool: state.pool,
+        displayPool,
+        loadError: state.poolLoadError,
+        sourceNote: listoneSourceNote(
+          state.poolSource, state.poolModifiedAt, poolHasAppealIndex(state.pool),
+        ),
+        appealIndexNote: listoneAppealIndexNote(state.pool),
+        sort: state.poolSort,
+        visibleColumnKeys: state.poolVisibleColumns,
+        page: state.poolPage,
+        columnPanelOpen: state.poolColumnPanelOpen,
+        manualOverrideOpen: state.poolManualOverrideOpen,
+        assignedKeys,
+        statusFilter: state.poolStatusFilter,
+        statusFilterOpen: state.poolStatusFilterOpen,
+        selectedKey: state.call.selectedPlayer ? listonePlayerKey(state.call.selectedPlayer) : null,
+      },
+      {
+        onFileText: loadPoolFromText,
+        onSortColumn: sortListoneByColumn,
+        onToggleColumn: toggleListoneColumn,
+        onForget: forgetPool,
+        onChangePage: changePoolPage,
+        onToggleColumnPanel: toggleListoneColumnPanel,
+        onToggleManualOverride: toggleListoneManualOverride,
+        onStatusFilterChange: setPoolStatusFilter,
+        onToggleStatusFilter: togglePoolStatusFilter,
+        onSelectPlayer: selectListonePlayer,
+      },
+    ),
+  );
+  wrap.appendChild(listoneWrap);
+
+  // Focus the search input only on the first render after entering this
+  // moment (boot, "← Indietro", or right after a completed purchase) — never
+  // on a re-render triggered by typing/selecting here, which would otherwise
+  // steal focus back from whatever the user is doing on every keystroke.
+  // Reuses the same focusAfterRender() helper the rest of the file uses for
+  // one-shot post-render focus. See #219.
+  if (state.chiamataFocusPending) {
+    state.chiamataFocusPending = false;
+    focusAfterRender("search-player");
+  }
+
+  return wrap;
+}
+
+function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): HTMLElement {
+  const wrap = document.createElement("div");
+
+  // Back link
+  const back = document.createElement("div");
+  back.style.cssText = `font-size:12.5px;font-weight:600;color:${C.accent};cursor:pointer;margin-bottom:14px;`;
+  back.textContent = "← Indietro alla ricerca";
+  back.tabIndex = 0;
+  back.setAttribute("role", "button");
+  back.addEventListener("click", () => {
+    state.moment = "chiamata";
+    state.chiamataFocusPending = true;
+    state.error = "";
+    scrollToTop();
+    render();
+  });
+  back.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      back.click();
+    }
+  });
+  wrap.appendChild(back);
+
+  // Player info + maxSafe row
+  const topRow = document.createElement("div");
+  topRow.style.cssText = `display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:18px;`;
+
+  const playerInfo = document.createElement("div");
+  const callLabel = document.createElement("div");
+  callLabel.className = "field-label";
+  callLabel.textContent = "Giocatore chiamato";
+  const callName = document.createElement("div");
+  callName.style.cssText = `font-size:20px;font-weight:700;color:${C.textPrimary};display:flex;align-items:center;gap:8px;flex-wrap:wrap;`;
+  callName.append(state.call.playerName || "—");
+  if (state.call.role) {
+    const roleSpan = document.createElement("span");
+    roleSpan.style.cssText = `font-size:14px;font-weight:400;color:${C.textSec};display:inline-flex;align-items:center;gap:5px;`;
+    roleSpan.append("— ", renderRoleChip(state.call.role), ` ${ROLE_LABEL_SING[state.call.role as Role]}`);
+    callName.appendChild(roleSpan);
+  }
+  if (state.call.club) {
+    const clubSpan = document.createElement("span");
+    clubSpan.style.cssText = `font-size:14px;font-weight:400;color:${C.textSec};display:inline-flex;align-items:center;gap:5px;`;
+    clubSpan.append("· ", renderClubBadge(state.call.club), ` ${state.call.club}`);
+    callName.appendChild(clubSpan);
+  }
+  playerInfo.appendChild(callLabel);
+  playerInfo.appendChild(callName);
+
+  // maxSafe display — must reflect the team actually selected in the
+  // "Assegna a" form below (state.assign.fantaTeamId), not always "my" team:
+  // registering an opponent's purchase has to show their own ceiling.
+  // purchaseFeasibility (doAssign) already keys off this same id — only this
+  // display previously used Owner's team unconditionally. See #219.
+  const maxSafeWrap = document.createElement("div");
+  maxSafeWrap.style.cssText = `text-align:right;`;
+  const assignTeam = aState.teams[state.assign.fantaTeamId] ?? team;
+  if (assignTeam && state.call.role) {
+    const ms = maxSafe(assignTeam, state.call.role as Role);
+    const priceLabel = document.createElement("div");
+    priceLabel.className = "field-label";
+    priceLabel.textContent = "Prezzo da pagare";
+    const priceDisplay = document.createElement("div");
+    priceDisplay.id = "price-display";
+    priceDisplay.className = "kpi-value";
+    priceDisplay.style.cssText = `font-size:32px;color:${C.textPrimary};background:${C.panelInner};border-radius:7px;padding:6px 16px;display:inline-block;`;
+    priceDisplay.textContent = state.assign.price ? `${state.assign.price} cr` : "— cr";
+    const maxSafeNote = document.createElement("div");
+    maxSafeNote.style.cssText = `font-size:11.5px;color:${C.textSec};margin-top:5px;`;
+    maxSafeNote.textContent = `max per completare la rosa di ${displayTeamLabel(state.assign.fantaTeamId)}: ${ms.biddable ? ms.maxSafe + " cr" : "n/d"}`;
+    maxSafeWrap.appendChild(priceLabel);
+    maxSafeWrap.appendChild(priceDisplay);
+    maxSafeWrap.appendChild(maxSafeNote);
+  }
+
+  topRow.appendChild(playerInfo);
+  topRow.appendChild(maxSafeWrap);
+  wrap.appendChild(topRow);
+
+  wrap.appendChild(renderPlayerInsightsBlock());
+
+  const suggestionsGrid = document.createElement("div");
+  suggestionsGrid.style.cssText = `display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;margin-bottom:16px;`;
+  suggestionsGrid.appendChild(renderMomentInsightsBlock());
+  suggestionsGrid.appendChild(renderOpponentInterestBlock());
+  wrap.appendChild(suggestionsGrid);
+
+  // Assign form
+  const divider = document.createElement("div");
+  divider.style.cssText = `border-top:1px solid ${C.border};padding-top:18px;`;
+
+  const assignLabel = document.createElement("div");
+  assignLabel.className = "panel-title";
+  assignLabel.style.marginBottom = "14px";
+  assignLabel.textContent = "ASSEGNA A";
+  divider.appendChild(assignLabel);
+
+  const formRow = document.createElement("div");
+  formRow.className = "form-row";
+
+  // Team selector
+  const teamGroup = document.createElement("div");
+  teamGroup.style.cssText = `flex:1;min-width:160px;`;
+  const teamLabel = document.createElement("div");
+  teamLabel.className = "field-label";
+  teamLabel.textContent = "Squadra fantacalcio";
+  const teamSelect = document.createElement("select");
+  teamSelect.id = "assign-team";
+  teamSelect.name = "assign-team";
+  teamSelect.className = "field-input";
+  for (const tid of FANTA_TEAM_IDS) {
+    const opt = document.createElement("option");
+    opt.value = tid;
+    opt.textContent = tid === SELF_ID ? `${displayTeamLabel(tid)} (io)` : displayTeamLabel(tid);
+    if (state.assign.fantaTeamId === tid) opt.selected = true;
+    teamSelect.appendChild(opt);
+  }
+  teamSelect.addEventListener("change", (e) => {
+    state.assign.fantaTeamId = (e.target as HTMLSelectElement).value;
+    // The "max per completare la rosa" note below reads the selected team,
+    // not always "my" team — it must reflect the switch. See #219.
+    render();
+  });
+  teamGroup.appendChild(teamLabel);
+  teamGroup.appendChild(teamSelect);
+
+  // Price input
+  const priceGroup = document.createElement("div");
+  priceGroup.style.cssText = `flex:0 0 120px;`;
+  const priceLabel = document.createElement("div");
+  priceLabel.className = "field-label";
+  priceLabel.textContent = "Prezzo (cr)";
+  const priceInput = document.createElement("input");
+  priceInput.id = "assign-price";
+  priceInput.name = "assign-price";
+  priceInput.type = "number";
+  priceInput.min = "1";
+  priceInput.step = "1";
+  priceInput.setAttribute("inputmode", "numeric");
+  priceInput.placeholder = "es. 25";
+  priceInput.title = "Prezzo in crediti: solo numero intero positivo.";
+  priceInput.value = state.assign.price;
+  priceInput.className = "field-input";
+  priceInput.addEventListener("input", (e) => {
+    state.assign.price = (e.target as HTMLInputElement).value;
+    // live-update maxSafe price display without full re-render
+    const pd = wrap.querySelector("#price-display");
+    if (pd) pd.textContent = state.assign.price ? `${state.assign.price} cr` : "— cr";
+  });
+  priceInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") doAssign(aState);
+  });
+  priceGroup.appendChild(priceLabel);
+  priceGroup.appendChild(priceInput);
+
+  // Submit button
+  const submitBtn = document.createElement("button");
+  submitBtn.textContent = "Registra acquisto";
+  submitBtn.className = "btn btn--primary";
+  submitBtn.style.flex = "none";
+  submitBtn.addEventListener("click", () => doAssign(aState));
+
+  formRow.appendChild(teamGroup);
+  formRow.appendChild(priceGroup);
+  formRow.appendChild(submitBtn);
+  divider.appendChild(formRow);
+
+  if (state.error) {
+    const errEl = document.createElement("div");
+    errEl.style.cssText = `font-size:13px;color:${C.stopRed};margin-top:10px;`;
+    errEl.textContent = state.error;
+    divider.appendChild(errEl);
+  }
+
+  const note = document.createElement("div");
+  note.className = "hint-text";
+  note.style.marginTop = "10px";
+  note.textContent = "Il prezzo viene registrato nello storico; il piano rosa viene rivalutato subito dopo.";
+  divider.appendChild(note);
+
+  wrap.appendChild(divider);
+  return wrap;
+}
+
+function launchAsta(): void {
+  // CTA is disabled in the UI for this exact condition (see renderMomentoChiamata) —
+  // this guard is defense-in-depth against a stray Enter keypress.
+  if (!isCallCorrelated(state.call)) return;
+  state.callInteractions += 1;
+  state.moment = "asta";
+  if (!state.assign.fantaTeamId) {
+    state.assign.fantaTeamId = SELF_ID;
+  }
+  state.assign.price = "";
+  state.error = "";
+  scrollToTop();
+  render();
+}
+
+/**
+ * Human-readable rendering of a refused purchase. Shared by the assignment
+ * form and the command line so the SAME violation never gets two different
+ * explanations depending on which input path produced it.
+ */
+function feasibilityErrorText(violations: readonly string[], role: Role): string {
+  const msgs: Record<string, string> = {
+    "unknown-team": "Squadra sconosciuta.",
+    "role-full": `Nessuno slot ${ROLE_LABEL_SING[role]} disponibile per questa squadra.`,
+    "duplicate-player": "Questo giocatore è già stato assegnato.",
+    // Unreachable from the UI (both input paths parse the price with
+    // parsePositiveIntegerPrice first), kept so a non-integer price surfaces
+    // as Italian rather than as a raw violation code — same defense-in-depth
+    // posture as voidErrorText's structural messages.
+    "price-invalid": "Il prezzo deve essere un numero intero.",
+    "price-below-floor": "Il prezzo deve essere almeno 1 cr.",
+    "insufficient-budget": "Budget insufficiente per questa squadra.",
+    "breaks-hard-reserve": "Questo acquisto renderebbe impossibile completare la rosa (hard reserve violata).",
+  };
+  return violations.map((v) => msgs[v] ?? v).join(" ");
+}
+
+function doAssign(aState: AuctionState): void {
+  const selectedPlayer = state.call.selectedPlayer;
+  if (!selectedPlayer) {
+    // Unreachable via the UI (launchAsta already requires correlation and
+    // nothing clears selectedPlayer during the asta moment) — kept as a
+    // type-safety guard, not a real user-facing path.
+    state.error = "Nessun giocatore selezionato dal listone.";
+    render();
+    return;
+  }
+  const price = parsePositiveIntegerPrice(state.assign.price);
+  if (price === null) {
+    state.error = "Prezzo non valido: inserisci un numero intero positivo.";
+    render();
+    return;
+  }
+  const playerId = listonePlayerKey(selectedPlayer);
+  const role = selectedPlayer.role;
+  const proposed: ProposedPurchase = {
+    playerId,
+    role,
+    fantaTeamId: state.assign.fantaTeamId,
+    price,
+  };
+
+  const feasibility = purchaseFeasibility(aState, proposed);
+  if (!feasibility.ok) {
+    state.error = feasibilityErrorText(feasibility.violations, role);
+    render();
+    return;
+  }
+
+  try {
+    const newLog = recordPurchase(state.log, aState, proposed, new Date().toISOString());
+    // `state.log` is the baseline this purchase was computed FROM — the form
+    // path is separate from the command-line one (executeAssignCommand), so
+    // it needs the same optimistic-concurrency guard (audit fix 1).
+    const saveResult = saveAuctionLog(browserStorage, newLog, FANTA_TEAM_IDS, state.log, state.confirmations);
+    if (!saveResult.ok) {
+      // Fail-closed: the in-memory log is never advanced past what was
+      // actually persisted — no false "saved" state, no silent data loss
+      // risk if the browser reloads right after this.
+      handleSaveFailure(saveResult);
+      render();
+      return;
+    }
+    state.log = newLog as AuctionEvent[];
+    state.persistenceError = "";
+    state.moment = "chiamata";
+    state.chiamataFocusPending = true;
+    state.call = { playerName: "", role: "", club: "", selectedPlayer: null };
+    state.callInteractions = 0;
+    state.nominationContextOpen = false;
+    state.assign = { fantaTeamId: SELF_ID, price: "" };
+    state.error = "";
+    render();
+  } catch (err) {
+    state.error = err instanceof Error ? err.message : "Errore sconosciuto.";
+    render();
+  }
+}
+
+/** Human-readable, non-alarmist explanation of a failed save — always
+ *  paired with an explicit statement that nothing was applied, per
+ *  LIVE-02's "mai dichiarare falsamente un salvataggio avvenuto". */
+function persistenceErrorMessage(result: Extract<SaveLogResult, { ok: false }>): string {
+  if (result.reason === "partial-write") {
+    return `Persistenza in stato indeterminato (${result.message}). Le azioni sono bloccate: usa Riprova per rileggere lo stato effettivo.`;
+  }
+  if (result.reason === "invalid-log") {
+    return "Salvataggio rifiutato: l'operazione non ha superato la validazione interna dello storico. Nessuna modifica applicata.";
+  }
+  if (result.reason === "divergent-log") {
+    return "Un'altra scheda ha modificato lo storico: ricarica la pagina prima di continuare. La modifica NON è stata applicata.";
+  }
+  return `Impossibile salvare nel browser (${result.message}). La modifica NON è stata applicata.`;
+}
+
+function handleSaveFailure(result: Extract<SaveLogResult, { ok: false }>): void {
+  const message = persistenceErrorMessage(result);
+  if (result.reason === "partial-write") {
+    state.recovery = {
+      kind: "storage-error",
+      message,
+      quarantinedRaw: null,
+      quarantineStored: false,
+    };
+    state.persistenceError = "";
+    return;
+  }
+  state.persistenceError = message;
+}
+
+// ── Budget & Rosa — full-width panel (own row, no longer a 3-column grid
+// alongside Violazioni/Avversari — Violazioni was removed outright (the old
+// computeViolations/STOP badge panel); Avversari still exists but moved into
+// the per-call suggestions grid inside renderMomentoAsta, so it is no longer
+// laid out next to this panel) ─────────────────────────────────────────────
+
+// ── Zone 4: Event log ─────────────────────────────────────────────────────────
+function renderZona4(aState: AuctionState): HTMLElement {
+  const panel = document.createElement("div");
+  panel.className = "panel";
+
+  const header = document.createElement("div");
+  header.style.cssText = `display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;`;
+  const title = document.createElement("div");
+  title.className = "panel-title";
+  title.textContent = "STORICO ACQUISTI";
+  const actions = document.createElement("div");
+  actions.style.cssText = "display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;";
+  const exportBtn = document.createElement("button");
+  exportBtn.id = "auction-log-export";
+  exportBtn.type = "button";
+  exportBtn.className = "btn btn--secondary";
+  exportBtn.textContent = "Esporta";
+  exportBtn.addEventListener("click", exportCurrentLog);
+  const importBtn = document.createElement("button");
+  importBtn.id = "auction-log-import";
+  importBtn.type = "button";
+  importBtn.className = "btn btn--secondary";
+  importBtn.textContent = "Importa";
+  const fileInput = document.createElement("input");
+  fileInput.id = "auction-log-import-file";
+  fileInput.type = "file";
+  fileInput.accept = "application/json,.json";
+  fileInput.hidden = true;
+  importBtn.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", () => {
+    const file = fileInput.files?.[0];
+    fileInput.value = "";
+    if (file) void importCurrentLog(file);
+  });
+  actions.appendChild(exportBtn);
+  actions.appendChild(importBtn);
+  actions.appendChild(fileInput);
+  header.appendChild(title);
+  header.appendChild(actions);
+  panel.appendChild(header);
+
+  // Build visible entries from log (PURCHASE only, not voided)
+  const voided = new Set<number>();
+  for (const e of state.log) {
+    if (e.type === "VOID") voided.add(e.targetSeq);
+  }
+  const entries = state.log
+    .filter((e) => e.type === "PURCHASE" && !voided.has(e.seq))
+    .reverse();
+
+  if (entries.length === 0) {
+    const empty = document.createElement("div");
+    empty.style.cssText = `font-size:14px;color:${C.textDim};padding:10px 0;`;
+    empty.textContent = "Nessun acquisto registrato.";
+    panel.appendChild(empty);
+    return panel;
+  }
+
+  // ONE index for the whole panel (audit round 2, finding 2): every entry
+  // below resolves its display name through it in O(1), instead of each one
+  // copying `state.pool` and scanning it while recomputing listonePlayerKey
+  // per row.
+  const poolIndex = auctionDisplayIndex();
+
+  entries.forEach((entry, idx) => {
+    if (entry.type !== "PURCHASE") return;
+    const isLatest = idx === 0;
+    const time = entry.ts ? new Date(entry.ts).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }) : "";
+    const row = document.createElement("div");
+    row.style.cssText = `display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid ${C.border};font-size:14px;`;
+
+    const left = document.createElement("div");
+    left.style.cssText = `display:flex;align-items:center;gap:14px;color:${C.textMid};flex-wrap:wrap;`;
+    left.innerHTML = `
+      <span style="font-family:${C.mono};color:${C.textDim};">${escHtml(time)}</span>
+      <span style="font-weight:600;">${escHtml(resolvePlayerDisplayName(entry.playerId, poolIndex))}</span>
+      ${roleChipHtml(entry.role)}
+      <span style="font-family:${C.mono};">${entry.price} cr</span>
+      <span style="color:${C.textDim};">${escHtml(displayTeamLabel(entry.fantaTeamId))}</span>
+    `;
+    row.appendChild(left);
+
+    // LIVE-06: any standing purchase can be voided, not only the most recent
+    // one. The engine already supported it — voidFeasibility()/recordVoid()
+    // accept any target seq and reduce() replays the whole log, so the derived
+    // state is order-independent (packages/engine/src/feasibility.ts,
+    // packages/engine/src/reduce.ts). Only this UI restricted it. The
+    // confirmation below is explicit and states which purchase it is.
+    const undoLink = document.createElement("span");
+    undoLink.id = `undo-purchase-${entry.seq}`;
+    undoLink.tabIndex = 0;
+    undoLink.setAttribute("role", "button");
+    undoLink.style.cssText = `font-size:12.5px;font-weight:600;color:${C.accent};cursor:pointer;white-space:nowrap;`;
+    undoLink.textContent = "Annulla";
+    undoLink.title = isLatest
+      ? "Annulla questo acquisto (l'ultimo registrato)"
+      : "Annulla questo acquisto (non è l'ultimo registrato)";
+    undoLink.addEventListener("click", () => {
+      // Rebuilt on the click, not captured from the render above: the label in
+      // the confirmation must name the player as the pool CURRENTLY on screen
+      // does, exactly as before this panel got its index.
+      const playerDisplay = resolvePlayerDisplayName(entry.playerId, auctionDisplayIndex());
+      state.confirmVoidSeq = entry.seq;
+      state.confirmVoidLabel = `${playerDisplay} – ${entry.price} cr – ${displayTeamLabel(entry.fantaTeamId)}`;
+      state.confirmVoidIsLatest = isLatest;
+      render();
+    });
+    undoLink.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        undoLink.click();
+      }
+    });
+    row.appendChild(undoLink);
+
+    panel.appendChild(row);
+  });
+
+  return panel;
+}
+
+// ── Void confirm overlay ──────────────────────────────────────────────────────
+function renderVoidConfirm(): HTMLElement {
+  const overlay = document.createElement("div");
+  // Opens on the Asta screen, under the sticky critical strip — see the
+  // modifier's comment in src/styles/components.css. Without it the heading
+  // that distinguishes the non-last void from the ordinary one is covered.
+  overlay.className = "modal-overlay modal-overlay--clears-critical-strip";
+  overlay.id = "void-confirm-overlay";
+
+  const modal = document.createElement("div");
+  modal.className = "confirmation-dialog";
+  modal.setAttribute("aria-labelledby", "void-confirm-title");
+
+  const title = document.createElement("h2");
+  title.id = "void-confirm-title";
+  title.style.cssText = `font-size:16px;font-weight:700;color:${C.textPrimary};margin-bottom:10px;`;
+  title.textContent = state.confirmVoidIsLatest
+    ? "Annullare l'ultimo acquisto?"
+    : "Annullare questo acquisto?";
+
+  const body = document.createElement("div");
+  body.style.cssText = `font-size:13px;line-height:1.55;color:${C.textMid};margin-bottom:${state.confirmVoidIsLatest ? "20px" : "12px"};`;
+  body.textContent = `${state.confirmVoidLabel} — l'acquisto verrà rimosso dallo storico e il budget/slot ripristinati.`;
+
+  // LIVE-06: voiding a purchase that is not the most recent one is legitimate
+  // and safe (a VOID only relaxes constraints, and reduce() replays the whole
+  // log), but it is not what the operator does by reflex — so it is never
+  // silent. The later purchases are explicitly stated to be untouched.
+  const nonLatestNote = document.createElement("div");
+  nonLatestNote.id = "void-confirm-non-latest-note";
+  nonLatestNote.setAttribute("role", "note");
+  nonLatestNote.style.cssText = `font-size:12.5px;line-height:1.5;color:${C.textSec};border-left:2px solid ${C.accent};padding-left:10px;margin-bottom:20px;`;
+  nonLatestNote.textContent =
+    "Non è l'ultimo acquisto registrato. Gli acquisti successivi restano validi: lo stato di budget e slot viene ricalcolato sull'intero storico.";
+
+  const btnRow = document.createElement("div");
+  btnRow.style.cssText = `display:flex;gap:10px;justify-content:flex-end;`;
+
+  const keepBtn = document.createElement("button");
+  keepBtn.id = "void-confirm-cancel";
+  keepBtn.textContent = "Mantieni";
+  keepBtn.className = "btn btn--secondary";
+  keepBtn.dataset.dialogInitialFocus = "";
+  keepBtn.addEventListener("click", () => {
+    const returnId = state.confirmVoidSeq === null ? "critical-auction-strip" : `undo-purchase-${state.confirmVoidSeq}`;
+    state.confirmVoidSeq = null;
+    state.confirmVoidLabel = "";
+    render();
+    focusAfterRender(returnId);
+  });
+
+  const voidBtn = document.createElement("button");
+  voidBtn.id = "void-confirm-apply";
+  voidBtn.textContent = "Annulla acquisto";
+  voidBtn.className = "btn btn--danger";
+  voidBtn.addEventListener("click", () => {
+    if (state.confirmVoidSeq === null || voidBtn.disabled) return;
+    voidBtn.disabled = true;
+    keepBtn.disabled = true;
+    const result = executeVoidCommand(
+      browserStorage,
+      state.log,
+      state.confirmVoidSeq,
+      new Date().toISOString(),
+      FANTA_TEAM_IDS,
+      state.confirmations,
+    );
+    if (result.ok) {
+      state.log = [...result.events];
+      state.persistenceError = "";
+      state.error = "";
+    } else if (result.reason === "not-feasible") {
+      // Structural refusal from voidFeasibility() — humanized the same way
+      // feasibilityErrorText() does for purchases (issue #265 item #4).
+      // Defense-in-depth: unreachable via the UI today (only a non-voided
+      // PURCHASE row exposes "Annulla"), kept here for correctness.
+      state.persistenceError = voidErrorText(result.violations);
+    } else if (result.reason === "application-error") {
+      state.persistenceError = `Impossibile annullare l'acquisto (${result.message}). Nessuna modifica applicata.`;
+    } else {
+      handleSaveFailure(result);
+    }
+    state.confirmVoidSeq = null;
+    state.confirmVoidLabel = "";
+    render();
+    focusAfterRender("critical-auction-strip");
+  });
+
+  btnRow.appendChild(keepBtn);
+  btnRow.appendChild(voidBtn);
+  modal.appendChild(title);
+  modal.appendChild(body);
+  if (!state.confirmVoidIsLatest) modal.appendChild(nonLatestNote);
+  modal.appendChild(btnRow);
+  overlay.appendChild(modal);
+
+  // Close on backdrop click
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) {
+      state.confirmVoidSeq = null;
+      state.confirmVoidLabel = "";
+      render();
+      focusAfterRender("critical-auction-strip");
+    }
+  });
+
+  activateAccessibleDialog(overlay, modal, () => {
+    const returnId = state.confirmVoidSeq === null ? "critical-auction-strip" : `undo-purchase-${state.confirmVoidSeq}`;
+    state.confirmVoidSeq = null;
+    state.confirmVoidLabel = "";
+    render();
+    focusAfterRender(returnId);
+  });
+  return overlay;
+}
+
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
+render();
+void autoLoadListonePool();
+
+window.addEventListener("offline", () => {
+  state.offline = true;
+  render();
+});
+window.addEventListener("online", () => {
+  state.offline = false;
+  render();
+});
