@@ -88,7 +88,10 @@ jobs:
         run: |
           nohup npm run preview -- --port 4173 --strictPort --host 127.0.0.1 > preview-server.log 2>&1 &
           for i in $(seq 1 30); do
-            if curl -sSf http://127.0.0.1:4173/ > /dev/null 2>&1; then exit 0; fi
+            if curl -sSf http://127.0.0.1:4173/ > /dev/null 2>&1; then
+              echo "Preview server is up (after ${i}s)."
+              exit 0
+            fi
             sleep 1
           done
           echo "::error::Preview server did not become ready within 30s."
