@@ -5,22 +5,17 @@
 // 2025/26 roster. No scraping — verified via web search against independent
 // sports-news sources, not the single Google link Owner mentioned.
 //
-// Logos (2026-07-03 update — see docs/data/LISTONE_UI_LOAD_CONTRACT.md
-// "Club logos"): Owner gave a written, scoped authorization to use real club
-// logo images as *local assets of this Cloudflare-Access-protected app*,
-// sourced only from football-logos.cc (the single authorized source — no
-// crawling, explicit URLs only). The 20 clubs above are covered by SVGs Owner
-// downloaded himself from football-logos.cc and handed to the session
-// directly; the 3 clubs that are in the 2025/26 listone but not in the
-// 2026/27 list above (Cremonese, Pisa, Verona) are covered by small 64x64
-// PNGs fetched from the same site via a Cloudflare Worker relay (this
-// session's sandbox has no direct network route to football-logos.cc, so a
-// disposable Worker fetched the assets and handed them back through
-// Cloudflare KV — same authorized source, same explicit-URL approach, no
-// crawling). Mixed extensions are intentional, not a bug: see
-// CLUB_LOGO_EXTENSION_OVERRIDES below. Any club without a downloaded file
-// automatically falls back to the text-initials badge — nothing here
-// assumes the image exists.
+// Logos: this public core ships NO logo image. Club artwork is a private
+// overlay of the deployed app, used under a written, scoped authorization
+// from a single named source — which source, and how those files were
+// obtained, is recorded in the private repository and deliberately not here:
+// naming a data source in a public tree is exactly what the boundary rules
+// forbid. What matters for this file is only the shape: some clubs ship as
+// SVG and some as PNG, so mixed extensions are intentional rather than a bug
+// (see CLUB_LOGO_EXTENSION_OVERRIDES below), and any club whose image is
+// absent — which, in this repository, is every one of them — falls back
+// automatically to the text-initials badge. Nothing here assumes the image
+// exists.
 
 import { C, escHtml } from "./theme.js";
 

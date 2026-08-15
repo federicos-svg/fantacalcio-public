@@ -1,17 +1,48 @@
 {
   "purpose": "sha256 fingerprints of banned private identifiers",
-  "note": "Cleartext values live only in the private repository and in the owner's own request that generated this file — they are never written here or anywhere else in this tree. Each entry is sha256(hex) of one banned identifier plus a generic type label (never anything that identifies which specific value it is). scripts/publication-gate-core.mjs hashes candidate tokens extracted from tracked file content and fails the gate on any match, reporting only the first 8 hex characters of the matched hash.",
+  "note": "Cleartext values live only in the private repository and in the owner's own request that generated this file \u2014 they are never written here or anywhere else in this tree. Each entry is sha256(hex) of one banned identifier plus a generic type label (never anything that identifies which specific value it is). scripts/publication-gate-core.mjs hashes candidate tokens extracted from tracked file content and fails the gate on any match, reporting only the first 8 hex characters of the matched hash.",
   "algorithm": "sha256",
   "encoding": "hex",
   "fingerprints": [
-    { "type": "email", "hash": "18458b372354c80bcd4d318693d604f71a7c898befdbf800576324d63011d7e6" },
-    { "type": "hex32", "hash": "589444a6cd7b3570d18f2e504981497ce799afc69ae121ea986a1cbfd98cc9e6" },
-    { "type": "uuid", "hash": "9d23a24963c21e0eec8341d5622a93ac45851c7ddf23c6e5f506b791f36d239f" },
-    { "type": "uuid", "hash": "0fbaa6e7231cd498fbbe590a7374171592ed8c1927546d2aa84196412f0d0edd" },
-    { "type": "domain", "hash": "590c2f6848ffd2e880bc8fa56cc7ff20cb68890b7538d079e520049bab6f41ea" },
-    { "type": "token", "hash": "1acf69ed694d04bb8f22d19659a88f33e68a79365fa5e05164b877e1cc8759c8" },
-    { "type": "domain", "hash": "7fffb8f1494c317306f5aca850c8d783161f7269b104ae1f7b884984af8c8119" },
-    { "type": "domain", "hash": "ccb9531d97e9d1002b8ff9304d8376ee264e1641790f39aed0f420abae2d4c45" },
-    { "type": "domain", "hash": "133c9334c651db828ee738a4bbed1eecb99e0f954da63e51d27d00cf8bb56232" }
+    {
+      "type": "email",
+      "hash": "18458b372354c80bcd4d318693d604f71a7c898befdbf800576324d63011d7e6"
+    },
+    {
+      "type": "hex32",
+      "hash": "589444a6cd7b3570d18f2e504981497ce799afc69ae121ea986a1cbfd98cc9e6"
+    },
+    {
+      "type": "uuid",
+      "hash": "9d23a24963c21e0eec8341d5622a93ac45851c7ddf23c6e5f506b791f36d239f"
+    },
+    {
+      "type": "uuid",
+      "hash": "0fbaa6e7231cd498fbbe590a7374171592ed8c1927546d2aa84196412f0d0edd"
+    },
+    {
+      "type": "domain",
+      "hash": "590c2f6848ffd2e880bc8fa56cc7ff20cb68890b7538d079e520049bab6f41ea"
+    },
+    {
+      "type": "token",
+      "hash": "1acf69ed694d04bb8f22d19659a88f33e68a79365fa5e05164b877e1cc8759c8"
+    },
+    {
+      "type": "domain",
+      "hash": "7fffb8f1494c317306f5aca850c8d783161f7269b104ae1f7b884984af8c8119"
+    },
+    {
+      "type": "domain",
+      "hash": "ccb9531d97e9d1002b8ff9304d8376ee264e1641790f39aed0f420abae2d4c45"
+    },
+    {
+      "type": "domain",
+      "hash": "133c9334c651db828ee738a4bbed1eecb99e0f954da63e51d27d00cf8bb56232"
+    },
+    {
+      "type": "hostname",
+      "hash": "1381dde4e8eb147365d9c4ac5207f2e28fb5d29b6b4ce95284f92d7b3c6eb28a"
+    }
   ]
 }
