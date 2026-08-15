@@ -40,6 +40,19 @@ import {
   warBoardFullHtml,
   warBoardMiniHtml,
 } from "./warBoard.js";
+import type { ResidualPressure } from "../../packages/engine/src/anchors.js";
+import type { CompetitorSet } from "../../packages/engine/src/competitors.js";
+import {
+  MOMENT_FACTS_NOTE,
+  OPPONENT_REACH_NOTE,
+  OPPONENT_REACH_NO_ROLE,
+  OPPONENT_REACH_TITLE,
+  type ReachThresholdSource,
+  competitorReachHeadline,
+  competitorReachHtml,
+  marketPressureHtml,
+  momentScarcityHtml,
+} from "./liveFacts.js";
 
 export interface ListonePanelState {
   /** Full loaded listone, unfiltered — drives column discovery and the "N giocatori caricati" note. */
@@ -971,6 +984,18 @@ export function renderAssignCommandPanel(
 }
 
 // ── Insight giocatore (Asta moment) ───────────────────────────────────────────
+// STILL a devStaticPanel, on purpose, while the two blocks below it stopped
+// being one. Every PLAYER-LEVEL measured fact the engine can produce today
+// needs the anchor book (`AnchorBook`, packages/engine/src/anchors.ts): the
+// current anchor, the cliff to the next available player of the role, the
+// tension band — all three take `book` as a required input, and the book is
+// built from the listone's Qt.A, which this app does not yet declare. The
+// only player-level fact reachable without it is "is he still available",
+// which in this moment is a tautology (the moment is open on him).
+// The listone quotation cannot fill the gap either: the UI matrix
+// (docs/AUCTION_2026_EXECUTION_PLAN.md §3) admits it display-only and
+// forbids deriving scarcity, ranking or any suggestion from it.
+// An honest empty block beats a number nobody measured — so this one waits.
 export function renderPlayerInsightsBlock(): HTMLElement {
   return devStaticPanel(
     "INSIGHT GIOCATORE",
@@ -979,32 +1004,153 @@ export function renderPlayerInsightsBlock(): HTMLElement {
   );
 }
 
-// ── Suggerimenti sul momento (Asta moment) ────────────────────────────────────
-export function renderMomentInsightsBlock(): HTMLElement {
-  return devStaticPanel(
-    "MOMENTO DELL'ASTA",
-    "Richiede osservazioni derivate dallo storico (es. scarsità ruolo), non implementate.",
-    "Nessun suggerimento sul momento disponibile.",
-  );
+// ── Momento dell'asta (Asta moment) ──────────────────────────────────────────
+// Was a devStaticPanel whose own note named the source it was waiting for
+// ("osservazioni derivate dallo storico, es. scarsità ruolo"). That source
+// exists and was already wired — but only to the `chiamata` moment
+// (renderRoleScarcityPanel above). This block brings it to the live screen,
+// where "how many of this role are left on the table" is the question, and
+// adds the second half of the same census: how many credits and how many
+// slots the table still has (`residualPressure`, packages/engine/src/
+// anchors.ts). Both are derived from the event log alone.
+//
+// The DEV STATICO marker is gone because the block is no longer non-operative
+// — that marker means exactly "questo blocco non fa nulla di reale"
+// (src/ui/devStatic.ts), and keeping it over real numbers would be the same
+// dishonesty in the opposite direction. Nothing that was displayed here has
+// been dropped: the placeholder displayed one sentence saying it had nothing.
+
+export interface MomentFactsProps {
+  readonly scarcity: Readonly<Record<Role, RoleScarcity>>;
+  /** False when no listone is loaded — availability shows `n/d`, never 0. */
+  readonly poolLoaded: boolean;
+  /** The called player's role, marked in the grid. `""` marks nothing. */
+  readonly calledRole: Role | "";
+  readonly pressure: ResidualPressure;
 }
 
-// ── Avversari interessati / non interessati (Asta moment) ────────────────────
-export function renderOpponentInterestBlock(): HTMLElement {
-  const wrap = document.createElement("div");
-  const interested = document.createElement("div");
-  interested.style.cssText = `font-size:13px;color:${C.textDim};margin-bottom:10px;`;
-  interested.innerHTML = `<div style="font-size:11px;font-weight:700;color:${C.textSec};margin-bottom:4px;">POTENZIALMENTE INTERESSATI</div>Nessuno tra quelli tracciati.`;
-  const notInterested = document.createElement("div");
-  notInterested.style.cssText = `font-size:13px;color:${C.textDim};`;
-  notInterested.innerHTML = `<div style="font-size:11px;font-weight:700;color:${C.textSec};margin-bottom:4px;">PROBABILMENTE NON INTERESSATI</div>Nessuno.`;
-  wrap.appendChild(interested);
-  wrap.appendChild(notInterested);
+export function renderMomentInsightsBlock(props: MomentFactsProps): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "moment-facts-panel";
+  panel.className = "panel moment-facts";
+  panel.setAttribute("aria-label", "Momento dell'asta: scarsità per ruolo e mercato");
 
-  return devStaticPanel(
-    "AVVERSARI — INTERESSE SUL GIOCATORE",
-    "Richiede una logica derivata (slot mancanti + budget avversario), non implementata.",
-    wrap,
+  const title = document.createElement("div");
+  title.className = "panel-title";
+  title.textContent = "MOMENTO DELL'ASTA";
+  panel.appendChild(title);
+
+  const grid = document.createElement("div");
+  grid.id = "moment-scarcity-grid";
+  grid.className = "moment-scarcity__grid";
+  grid.innerHTML = momentScarcityHtml(props.scarcity, props.poolLoaded, props.calledRole);
+  panel.appendChild(grid);
+
+  const market = document.createElement("div");
+  market.innerHTML = marketPressureHtml(props.pressure);
+  panel.appendChild(market);
+
+  const note = document.createElement("p");
+  note.className = "hint-text";
+  note.id = "moment-facts-note";
+  note.textContent = MOMENT_FACTS_NOTE;
+  panel.appendChild(note);
+
+  return panel;
+}
+
+// ── Avversari: chi può arrivare alla cifra (Asta moment) ─────────────────────
+// Was a devStaticPanel with two empty lists ("POTENZIALMENTE INTERESSATI:
+// nessuno tra quelli tracciati" / "PROBABILMENTE NON INTERESSATI: nessuno")
+// and a note naming the missing logic: "slot mancanti + budget avversario".
+// That is exactly `competitorSet()` (packages/engine/src/competitors.ts),
+// whose inputs — AuctionState, role, threshold — are all already on this
+// screen. Both groups survive, in the same order and the same place; what
+// changes is that they now carry the eight teams' real numbers instead of a
+// placeholder, and their headings state the basis that actually produced them
+// ("può arrivarci", a hard constraint) rather than an interest the engine
+// explicitly refuses to infer (§D9: no behavioural score, no declared intent).
+//
+// The PANEL TITLE follows the same rule as the headings, and for the same
+// reason. It used to read "AVVERSARI — INTERESSE SUL GIOCATORE", inherited
+// from the placeholder: an assertion about intent that `competitorSet` does
+// not compute and §D9 forbids inferring. It now names what is actually
+// measured — arithmetic reachability. The disclaimer in OPPONENT_REACH_NOTE
+// («può arrivarci non significa lo vuole») stays: with the title corrected it
+// is no longer a rebuttal of the panel's own heading, but it still guards the
+// reading of the numbers, and a precision that costs one line does no harm.
+
+export interface OpponentReachProps {
+  /** `null` when the moment carries no role — see OPPONENT_REACH_NO_ROLE. */
+  readonly set: CompetitorSet | null;
+  readonly teamLabels: Readonly<Record<string, string>>;
+  readonly thresholdSource: ReachThresholdSource;
+}
+
+export function renderOpponentInterestBlock(props: OpponentReachProps): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "opponent-reach-panel";
+  panel.className = "panel opponent-reach";
+  // The visible title is short on purpose — it sits on the tightest screen of
+  // the app, must stay on one line down to 390px, and echoes the two group
+  // headings word for word so title, headline and groups read as one
+  // statement. The aria-label carries the same fact spelled out in full,
+  // where there is no width to fight for.
+  panel.setAttribute(
+    "aria-label",
+    "Avversari: chi può ancora arrivare alla cifra, per solo vincolo duro",
   );
+
+  const title = document.createElement("div");
+  title.className = "panel-title";
+  title.textContent = OPPONENT_REACH_TITLE;
+  panel.appendChild(title);
+
+  const headline = document.createElement("p");
+  headline.id = "opponent-reach-headline";
+  headline.className = "opponent-reach__headline";
+  // aria-live: mid-auction this line changes as the price is typed, without a
+  // full re-render (see updateOpponentReach in main.ts), so the change has to
+  // be announced rather than only repainted.
+  headline.setAttribute("role", "status");
+  headline.setAttribute("aria-live", "polite");
+  panel.appendChild(headline);
+
+  const body = document.createElement("div");
+  body.id = "opponent-reach-body";
+  body.className = "opponent-reach__body";
+  panel.appendChild(body);
+
+  fillOpponentReach(panel, props);
+
+  const note = document.createElement("p");
+  note.className = "hint-text";
+  note.id = "opponent-reach-note";
+  note.textContent = OPPONENT_REACH_NOTE;
+  panel.appendChild(note);
+
+  return panel;
+}
+
+/**
+ * Writes the headline + the two groups into an already-mounted panel. Split
+ * out of the builder above because the live screen updates this block WITHOUT
+ * re-rendering: the price field deliberately does not call render() (it would
+ * lose focus and caret mid-auction — see main.ts), so the same in-place patch
+ * idiom `#price-display` already uses is what keeps the threshold shown here
+ * equal to the figure actually typed.
+ */
+export function fillOpponentReach(root: ParentNode, props: OpponentReachProps): void {
+  const headline = root.querySelector("#opponent-reach-headline");
+  const body = root.querySelector("#opponent-reach-body");
+  if (headline === null || body === null) return;
+  if (props.set === null) {
+    headline.textContent = OPPONENT_REACH_NO_ROLE;
+    body.innerHTML = "";
+    return;
+  }
+  headline.textContent = competitorReachHeadline(props.set, props.thresholdSource);
+  body.innerHTML = competitorReachHtml(props.set, props.teamLabels);
 }
 
 // ── Impostazioni — left menu, content on the right ──────────────────────────

@@ -1,15 +1,37 @@
 import { defineConfig, devices } from "@playwright/test";
+import { resolveE2ePort } from "./scripts/lib/e2ePreviewServer.js";
 
-// Fixed, deterministic port for the Vite *preview* server this suite drives
-// — never the dev server, so E2E always exercises the same static build CI
-// and Cloudflare Pages ship (see CI-01, docs/AUCTION_2026_EXECUTION_PLAN.md
+// Deterministic port for the Vite *preview* server this suite drives — never
+// the dev server, so E2E always exercises the same static build CI and
+// Cloudflare Pages ship (see CI-01, docs/AUCTION_2026_EXECUTION_PLAN.md
 // TEST-HARNESS-01). --strictPort fails the run fast on a port collision
 // instead of silently binding elsewhere and drifting from baseURL.
-const PORT = 4173;
+//
+// The port is no longer HARDCODED, only DEFAULTED: `E2E_PORT` moves it, and
+// with it `baseURL`, the readiness url and the preview command — one constant,
+// no second copy anywhere in the suite (a spec that needs the origin takes the
+// `baseURL` fixture, see e2e/critical-readability.spec.ts). The default stays
+// 4173, so `npm run test:e2e`, the documented commands and
+// .github/workflows/ci.yml keep working literally unchanged.
+//
+// Why it had to become movable: several worktrees of this repository run in
+// parallel on the same machine (delegated workers, rehearsals, file-disjoint
+// corsie), and a hardcoded port plus `reuseExistingServer: true` made one of
+// them silently test ANOTHER tree's build and report green. `E2E_PORT` is the
+// way out of the collision; `globalSetup` below is what makes the collision
+// impossible to ignore when it happens anyway.
+const PORT = resolveE2ePort(process.env);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 export default defineConfig({
   testDir: "./e2e",
+  // Identity check of whatever is serving BASE_URL, run once before the first
+  // test: same tree -> proceed (and say so), foreign tree -> stop the run with
+  // an explicit error. This is the guard that makes `reuseExistingServer`
+  // below safe to keep: reuse stays available (the CI job depends on it — it
+  // starts the preview server itself as an explicit, diagnosable step), but a
+  // reused server can no longer pass itself off as this tree's.
+  globalSetup: "./e2e/harness/global-setup.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
@@ -57,6 +79,14 @@ export default defineConfig({
     // at `url`, Playwright reuses it and never re-spawns here at all. On a
     // clean local run with nothing listening yet, this command still spawns
     // it exactly as before.
+    //
+    // Reuse is kept — removing it would break the CI job above and take away
+    // a legitimate local workflow (`npm run preview` in one terminal, the
+    // suite in another). What changed is that it is no longer BLIND: the
+    // `globalSetup` declared at the top of this config verifies that whatever
+    // answers at `url` is serving THIS tree's `dist/`, and stops the run with
+    // an explicit error when it is not. Reuse of your own server: unchanged.
+    // Reuse of somebody else's: now impossible to do quietly.
     reuseExistingServer: true,
     // 120s, not 60s: a cold CI runner doing `vite build` + `vite preview`
     // back-to-back needs real headroom beyond a warm local re-run.
