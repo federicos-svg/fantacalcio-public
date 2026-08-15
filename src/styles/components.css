@@ -294,7 +294,7 @@
   line-height: 1.35;
 }
 .operating-state--shadow { color: var(--text-sec); }
-.operating-state--no-target { color: var(--accent); }
+.operating-state--no-target { color: var(--text-accent); }
 .operating-state--online { color: var(--green); }
 .operating-state--offline {
   color: var(--stop-red);
@@ -511,7 +511,7 @@
 }
 .settings-menu__item.is-active .settings-menu__icon,
 .settings-menu__item:hover .settings-menu__icon {
-  color: var(--accent);
+  color: var(--text-accent);
 }
 .settings-panel {
   background: var(--panel);

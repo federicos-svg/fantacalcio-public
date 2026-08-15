@@ -8,11 +8,19 @@ export const C = {
   border: "oklch(0.32 0.012 270)",
   accent: "oklch(0.55 0.13 250)",
   accentDim: "oklch(0.35 0.06 250)",
+  // Rampa del testo: ogni livello ≥ 4,5:1 (WCAG AA) su ogni sfondo su cui
+  // compare davvero. Lo sfondo peggiore è panelInner (0.28), che impone
+  // L ≥ 0.6493. Su panelInner: dim 4,69:1, sec 6,33:1, mid 8,36:1,
+  // primary 13,00:1. La copia normativa e la motivazione stanno in
+  // src/styles/base.css — questi due elenchi si tengono allineati a mano.
   textPrimary: "oklch(0.96 0.005 270)",
-  textSec: "oklch(0.62 0.01 270)",
+  textSec: "oklch(0.74 0.01 270)",
   textMid: "oklch(0.82 0.006 270)",
-  textDim: "oklch(0.5 0.01 270)",
-  stopRed: "oklch(0.66 0.19 25)",
+  textDim: "oklch(0.66 0.01 270)",
+  // L'accent come TESTO (5,09:1 su panelInner); `accent` resta il colore di
+  // fondi, bordi e focus ring e non cambia.
+  textAccent: "oklch(0.68 0.13 250)",
+  stopRed: "oklch(0.7 0.19 25)",
   stopRedDark: "oklch(0.5 0.16 25)",
   green: "oklch(0.65 0.15 145)",
   mono: "ui-monospace,'SF Mono',Menlo,Consolas,monospace",

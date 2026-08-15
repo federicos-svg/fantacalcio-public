@@ -451,7 +451,7 @@
   margin-right: 3px;
 }
 .critical-bid--open > strong { color: var(--green); }
-.critical-bid--locked > strong { color: var(--accent); }
+.critical-bid--locked > strong { color: var(--text-accent); }
 .critical-bid--stop > strong { color: var(--stop-red); }
 .critical-bid--done > strong { color: var(--text-sec); }
 @media (max-width: 520px) {
@@ -478,11 +478,14 @@
    the DEV badge (devStatic.ts) rather than a loud color: it marks
    provenance, not a warning.
    Fix 9 (PX polish, round 2, #285): the plain --accent (oklch(0.55 0.13
-   250)) on --panel measures ~3.4:1 against .panel--compact's fill — below
+   250)) on --panel measures 3,40:1 against .panel--compact's fill — below
    WCAG AA's 4.5:1 for text this small (9.5px, nowhere near the "large
    text" 3:1 exception). Lightened to oklch(0.68 0.13 250) — same hue/
    chroma (still reads as "the accent color", still quiet, no fill/no loud
-   color swap like the DEV badge's) — which measures ~5.7:1 on --panel. */
+   color swap like the DEV badge's) — which measures 5,74:1 on --panel.
+   Quel valore ad hoc ora è il token --text-accent (base.css): stesso
+   colore, una definizione sola, condivisa con gli altri usi testuali
+   dell'accent. */
 .roster-badge-confirmed {
   flex: none;
   display: inline-flex;
@@ -491,8 +494,8 @@
   width: 15px;
   height: 15px;
   border-radius: 4px;
-  border: 1px solid oklch(0.68 0.13 250);
-  color: oklch(0.68 0.13 250);
+  border: 1px solid var(--text-accent);
+  color: var(--text-accent);
   font-size: 9.5px;
   font-weight: 700;
   line-height: 1;
@@ -511,9 +514,10 @@
    modo in cui questa striscia verrebbe usata male in asta. */
 
 .war-board-bid--open { color: var(--text-primary); }
-/* Stesso accent schiarito del badge riconferma (fix 9, #285): il --accent
-   pieno su --panel-inner resta sotto 4.5:1 a queste dimensioni di testo. */
-.war-board-bid--locked { color: oklch(0.68 0.13 250); }
+/* Stesso accent schiarito del badge riconferma (fix 9, #285), ora il token
+   --text-accent: il --accent pieno su --panel-inner sta a 3,02:1, sotto AA a
+   queste dimensioni di testo; --text-accent ci sta a 5,09:1. */
+.war-board-bid--locked { color: var(--text-accent); }
 .war-board-bid--done { color: var(--text-sec); }
 
 /* MINI (momento asta): una striscia sola, due cifre per squadra. Le celle
@@ -565,9 +569,11 @@
   font-size: 14px;
 }
 /* Le due micro-etichette (bdg/max) sono l'unica cosa che distingue le due
-   cifre a occhio: --text-sec, non --text-dim, perché a 9px il contrasto di
-   --text-dim su --panel-inner non regge. Il significato esteso sta nella nota
-   sotto la striscia e nell'aria-label di ogni cella. */
+   cifre a occhio: --text-sec, non --text-dim. La rampa schiarita di base.css
+   rende conformi entrambi su --panel-inner (6,33:1 e 4,69:1), ma a 9px la
+   scelta resta --text-sec: queste due sigle sono l'unico disambiguatore delle
+   cifre e non devono stare sul gradino più basso. Il significato esteso sta
+   nella nota sotto la striscia e nell'aria-label di ogni cella. */
 .war-board-mini__nums em {
   color: var(--text-sec);
   font-family: inherit;
@@ -610,7 +616,7 @@
   white-space: nowrap;
 }
 .war-board__self {
-  color: oklch(0.68 0.13 250);
+  color: var(--text-accent);
   font-size: 11px;
   font-style: normal;
   font-weight: 700;
@@ -781,7 +787,7 @@
   white-space: nowrap;
 }
 .moment-scarcity__called {
-  color: var(--accent);
+  color: var(--text-accent);
   flex: none;
   font-size: 9px;
   font-weight: 800;
@@ -946,9 +952,10 @@
    a 1,99:1, sotto qualunque soglia leggibile e sotto la stessa banda che
    --text-dim tiene altrove nell'app. Tolta l'opacità, ogni cifra e ogni
    parola di questa riga risale: il motivo passa a 8,36:1, le micro-etichette
-   max/slot a 4,01:1 (esattamente il valore che .war-board-mini__nums em ha
-   già), i numeri a 13:1. Il bordo neutro tiene anche l'allineamento
-   identico a quello della riga eleggibile, che ha il proprio da 2px. */
+   max/slot a 6,33:1 (esattamente il valore che .war-board-mini__nums em ha
+   già, dopo la schiaritura AA della rampa in base.css), i numeri a 13:1. Il
+   bordo neutro tiene anche l'allineamento identico a quello della riga
+   eleggibile, che ha il proprio da 2px. */
 .opponent-reach__row--excluded { border-left: 2px solid var(--border); }
 .opponent-reach__name {
   color: var(--text-mid);
@@ -980,9 +987,11 @@
   margin-right: 3px;
 }
 /* --text-mid, non --text-dim e nemmeno --text-sec: a 10px serve AA pieno
-   (4,5:1) e su --panel-inner --text-dim dà 2,43:1, --text-sec 4,01:1, --text-mid
-   8,36:1. È il motivo per cui un rivale è fuori — «RUOLO PIENO», «SOTTO LA
-   SOGLIA» — e non deve leggersi peggio dei numeri che ha accanto. */
+   (4,5:1). Con la rampa schiarita di base.css tutti e tre lo superano su
+   --panel-inner (--text-dim 4,69:1, --text-sec 6,33:1, --text-mid 8,36:1),
+   ma questo resta --text-mid: è il motivo per cui un rivale è fuori —
+   «RUOLO PIENO», «SOTTO LA SOGLIA» — e non deve leggersi peggio dei numeri
+   che ha accanto. La scelta ora è di gerarchia, non più di sola conformità. */
 .opponent-reach__reason {
   color: var(--text-mid);
   flex: none;

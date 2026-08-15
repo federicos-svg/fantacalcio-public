@@ -157,3 +157,170 @@ export async function expectAssignedEffectsVisible(
   const assignedRow = page.locator(".listone-row", { hasText: playerName });
   await expect(assignedRow).toContainText("Assegnato");
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+   CONTRASTO DEL TESTO, MISURATO SUL DOM VIVO
+   ────────────────────────────────────────────────────────────────────────────
+   Stava dentro e2e/live-facts.spec.ts, che l'aveva introdotto per i pannelli
+   degli avversari. È qui perché ora lo usa anche e2e/text-contrast-aa.spec.ts,
+   che estende la stessa misura a tutta l'app: una funzione sola, non due copie
+   che possono divergere proprio sul calcolo che deve fare da guardia.
+
+   Colore e sfondo si leggono da getComputedStyle e si convertono via canvas
+   (che sa risolvere `oklch()` come lo risolve il browser), poi si compone
+   l'eventuale `opacity` degli antenati contro lo sfondo che sta sotto il
+   gruppo di composizione, esattamente come fa il compositore.
+
+   Serve perché la regressione che questo test blocca era invisibile al codice:
+   `--text-dim` di per sé è un token accettato altrove, ma dentro una riga con
+   `opacity: 0.78` diventava 1,99:1 — sotto qualunque soglia leggibile. Un test
+   sul solo nome del token non l'avrebbe mai vista.
+
+   La soglia è 4,5:1: WCAG AA per il testo normale. Il testo attenuato di
+   questa app è quasi tutto sotto i 14px, quindi l'eccezione "large text"
+   (3:1) non si applica da nessuna parte in cui la usiamo. */
+export const AA_NORMAL_TEXT = 4.5;
+
+/** Il calcolo, iniettato nella pagina una volta sola e riusato dalle due
+ *  funzioni pubbliche qui sotto. */
+const CONTRAST_IN_PAGE = `(el) => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1; canvas.height = 1;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const parse = (color) => {
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, 1, 1);
+    const d = ctx.getImageData(0, 0, 1, 1).data;
+    return [d[0], d[1], d[2], d[3] / 255];
+  };
+  const mix = (src, dst, alpha) => [0,1,2,3].map((i) => alpha * src[i] + (1 - alpha) * dst[i]);
+  const luminance = (c) => {
+    const [r, g, b] = [c[0], c[1], c[2]].map((v) => {
+      const s = v / 255;
+      return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const chain = [];
+  for (let node = el; node !== null; node = node.parentElement) chain.push(node);
+  const alphas = chain.map((node) => Number(getComputedStyle(node).opacity));
+  const cumulative = alphas.reduce((acc, a) => acc * a, 1);
+  let groupTop = -1;
+  alphas.forEach((a, i) => { if (a < 1) groupTop = i; });
+  const bgAt = (from) => {
+    for (let i = from; i < chain.length; i++) {
+      const bg = parse(getComputedStyle(chain[i]).backgroundColor);
+      if (bg[3] > 0) return bg;
+    }
+    return [255, 255, 255, 1];
+  };
+  const backdrop = bgAt(groupTop + 1);
+  const own = bgAt(0);
+  const fg = mix(parse(getComputedStyle(el).color), backdrop, cumulative);
+  const bg = mix(own, backdrop, cumulative);
+  const hex = (c) => "#" + [0,1,2].map((i) => Math.round(c[i]).toString(16).padStart(2, "0")).join("");
+  const [hi, lo] = [luminance(fg), luminance(bg)].sort((a, b) => b - a);
+  return { ratio: (hi + 0.05) / (lo + 0.05), fg: hex(fg), bg: hex(bg), opacity: cumulative };
+}`;
+
+/** Contrasto REALE del testo di un elemento, misurato sul DOM vivo. */
+export async function textContrast(page: Page, selector: string): Promise<number> {
+  return page.evaluate(
+    ([sel, body]) => {
+      const el = document.querySelector(sel as string);
+      if (el === null) throw new Error(`contrasto: nessun elemento per ${sel}`);
+      // eslint-disable-next-line no-new-func
+      return (new Function(`return ${body}`)() as (e: Element) => { ratio: number })(el).ratio;
+    },
+    [selector, CONTRAST_IN_PAGE] as const,
+  );
+}
+
+/** Una misura per OGNI elemento che porta testo proprio e visibile. Serve alla
+ *  spazzata d'insieme: non un elenco di selettori scelti a mano, ma tutto ciò
+ *  che è davvero a schermo in quel momento. */
+export type MeasuredText = {
+  readonly ratio: number;
+  readonly fg: string;
+  readonly bg: string;
+  readonly opacity: number;
+  readonly fontSize: number;
+  readonly label: string;
+  readonly disabled: boolean;
+};
+export async function measureAllText(page: Page): Promise<MeasuredText[]> {
+  return page.evaluate((body) => {
+    // eslint-disable-next-line no-new-func
+    const measure = new Function(`return ${body}`)() as (
+      e: Element,
+    ) => { ratio: number; fg: string; bg: string; opacity: number };
+    const out: MeasuredText[] = [];
+    for (const el of Array.from(document.querySelectorAll("*"))) {
+      const ownText = Array.from(el.childNodes)
+        .filter((n) => n.nodeType === 3)
+        .map((n) => (n.textContent ?? "").trim())
+        .join(" ")
+        .trim();
+      if (ownText === "") continue;
+      const cs = getComputedStyle(el);
+      if (cs.visibility === "hidden" || cs.display === "none") continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) continue;
+      const m = measure(el);
+      const cls = typeof el.className === "string" ? el.className : "";
+      out.push({
+        ratio: m.ratio,
+        fg: m.fg,
+        bg: m.bg,
+        opacity: m.opacity,
+        fontSize: parseFloat(cs.fontSize),
+        label: `${el.tagName.toLowerCase()}${el.id ? "#" + el.id : ""}${
+          cls ? "." + cls.split(/\s+/).join(".") : ""
+        } «${ownText.slice(0, 34)}»`,
+        disabled: el.closest("[disabled]") !== null || el.closest(":disabled") !== null,
+      });
+    }
+    return out;
+  }, CONTRAST_IN_PAGE) as Promise<MeasuredText[]>;
+}
+
+/**
+ * I colori della rampa del testo COME LI RISOLVE IL BROWSER ADESSO, letti da
+ * `:root` e passati per lo stesso canvas che risolve `oklch()`.
+ *
+ * Letti a runtime e non scritti a mano in una costante: una costante di colori
+ * attesi rende la spazzata cieca proprio quando serve. Se qualcuno riporta
+ * `--text-dim` al valore vecchio, gli elementi che lo usano cambiano colore e
+ * NON corrispondono più a un elenco fisso — la spazzata li salta e resta verde
+ * mentre l'app è tornata illeggibile (verificato: succedeva davvero).
+ * Risolvendo i token dal documento, la spazzata segue il token ovunque vada e
+ * misura sempre gli stessi elementi.
+ */
+export async function resolveTokenColors(
+  page: Page,
+  tokens: readonly string[],
+): Promise<Record<string, string>> {
+  return page.evaluate((names) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+    const root = getComputedStyle(document.documentElement);
+    const out: Record<string, string> = {};
+    for (const name of names) {
+      const raw = root.getPropertyValue(name).trim();
+      if (raw === "") continue;
+      ctx.clearRect(0, 0, 1, 1);
+      ctx.fillStyle = raw;
+      ctx.fillRect(0, 0, 1, 1);
+      const d = ctx.getImageData(0, 0, 1, 1).data;
+      out[name] =
+        "#" +
+        [d[0]!, d[1]!, d[2]!]
+          .map((v) => Math.round(v).toString(16).padStart(2, "0"))
+          .join("");
+    }
+    return out;
+  }, tokens);
+}
