@@ -53,30 +53,51 @@ interface Harness {
   readonly failures: IntegrityFailureReport[];
 }
 
+/**
+ * A route that accepts the connection and never answers — the captive-portal
+ * shape. It rejects only when the caller's AbortSignal fires, so a gate without
+ * a timeout hangs here exactly as it would in a hotel wifi.
+ */
+function hangsForever(): (init?: RequestInit) => Promise<Response> {
+  return (init) =>
+    new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal;
+      if (!signal) return; // no timeout wired: hang forever, which is the bug under test
+      if (signal.aborted) return reject(new DOMException("Aborted", "AbortError"));
+      signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+    });
+}
+
 /** `routes` maps a pathname to the response the network gives; anything not
  *  listed answers 404, exactly like a path that was never deployed. */
 function harness(options: {
-  routes: Record<string, () => Response>;
+  routes: Record<string, (init?: RequestInit) => Response | Promise<Response>>;
   productionBuild?: boolean;
   digest?: { digest(algorithm: string, data: ArrayBuffer): Promise<ArrayBuffer> } | null;
+  policyTimeoutMs?: number;
+  policyAttempts?: number;
 }): Harness {
   const requested: string[] = [];
   const statuses: Array<{ status: IntegrityStatus; detail: string }> = [];
   const failures: IntegrityFailureReport[] = [];
 
   const gate = createIntegrityGate({
-    fetchImpl: async (input) => {
+    fetchImpl: async (input, init) => {
       const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, ORIGIN);
       requested.push(url.pathname);
       const route = options.routes[url.pathname];
       if (route === undefined) return new Response("not found", { status: 404 });
-      return route();
+      return route(init);
     },
     origin: ORIGIN,
     digest: options.digest === undefined ? webcrypto.subtle : options.digest,
     productionBuild: options.productionBuild ?? true,
     onStatus: (status, detail) => statuses.push({ status, detail }),
     onFailure: (report) => failures.push(report),
+    // Short but real: the fake never resolves, so the outcome depends on the
+    // timeout existing, never on how fast the machine is.
+    policyTimeoutMs: options.policyTimeoutMs ?? 25,
+    policyAttempts: options.policyAttempts,
   });
 
   return { gate, requested, statuses, failures };
@@ -342,6 +363,89 @@ describe("the policy itself", () => {
     const res = await h.gate.fetch(`${ORIGIN}/index.html`);
     expect(res.ok).toBe(true);
     expect(h.failures).toEqual([]);
+  });
+
+  it("gives up on a network that never answers, and says exactly that", async () => {
+    // The captive-portal case, on a FIRST visit: no cache, no service worker,
+    // nothing on screen. Without the timeout this test never finishes — which
+    // is precisely the failure it exists to prevent.
+    const h = harness({
+      routes: { [APP_INTEGRITY_POLICY_URL]: hangsForever(), [ASSET]: () => bundleResponse() },
+      policyTimeoutMs: 25,
+    });
+
+    const res = await h.gate.fetch(`${ORIGIN}${ASSET}`);
+    expect(res.status).toBe(503);
+    expect(h.failures).toHaveLength(1);
+    expect(h.failures[0]?.code).toBe("integrity-policy-unreachable");
+    // The message must point at the network, not at rebuilding the app.
+    expect(h.failures[0]?.text).toContain("25 ms");
+    expect(h.failures[0]?.text.toLowerCase()).toContain("captive");
+    expect(h.failures[0]?.text).not.toContain("npm run build");
+  });
+
+  it("retries a network that never answers, exactly as many times as declared", async () => {
+    const h = harness({
+      routes: { [APP_INTEGRITY_POLICY_URL]: hangsForever(), [ASSET]: () => bundleResponse() },
+      policyTimeoutMs: 15,
+      policyAttempts: 3,
+    });
+    await h.gate.fetch(`${ORIGIN}${ASSET}`);
+    expect(h.requested.filter((path) => path === APP_INTEGRITY_POLICY_URL)).toHaveLength(3);
+    expect(h.failures[0]?.text).toContain("3 tentativi");
+  });
+
+  it("recovers when the retry succeeds: a transient blip must not block the app", async () => {
+    let attempt = 0;
+    const h = harness({
+      routes: {
+        [APP_INTEGRITY_POLICY_URL]: (init) => {
+          attempt += 1;
+          return attempt === 1 ? hangsForever()(init) : jsonResponse(policyJson(true));
+        },
+        [ASSET]: () => bundleResponse(),
+        [MANIFEST]: () => jsonResponse(manifestJson()),
+      },
+      policyTimeoutMs: 15,
+    });
+
+    const res = await h.gate.fetch(`${ORIGIN}${ASSET}`);
+    expect(res.ok).toBe(true);
+    expect(await res.text()).toBe(BUNDLE_TEXT);
+    expect(h.failures).toEqual([]);
+    expect(h.statuses.at(-1)?.status).toBe("verified");
+    expect(attempt).toBe(2);
+  });
+
+  it("does not retry a server that answered: a 404 is a verdict, not a blip", async () => {
+    const h = harness({ routes: { [ASSET]: () => bundleResponse() } });
+    await h.gate.fetch(`${ORIGIN}${ASSET}`);
+    expect(h.requested.filter((path) => path === APP_INTEGRITY_POLICY_URL)).toHaveLength(1);
+    expect(h.failures[0]?.code).toBe("integrity-policy-unusable");
+  });
+
+  it("names both possible causes when the server answers without a policy", async () => {
+    const h = harness({ routes: { [ASSET]: () => bundleResponse() } });
+    await h.gate.fetch(`${ORIGIN}${ASSET}`);
+    const text = h.failures[0]?.text ?? "";
+    // A blip behind a proxy and a genuinely incomplete artifact both produce
+    // this state; the operator must be told both, not just the second.
+    expect(text.toLowerCase()).toContain("portale captive");
+    expect(text).toContain("npm run build");
+    expect(text.toLowerCase()).toContain("ricaricare");
+  });
+
+  it("treats a policy served as unparseable JSON as malformed, not unreachable", async () => {
+    const h = harness({
+      routes: {
+        [APP_INTEGRITY_POLICY_URL]: () =>
+          new Response("{ broken", { status: 200, headers: { "content-type": "application/json" } }),
+        [ASSET]: () => bundleResponse(),
+      },
+    });
+    await h.gate.fetch(`${ORIGIN}${ASSET}`);
+    expect(h.failures[0]?.code).toBe("integrity-policy-unusable");
+    expect(h.requested.filter((path) => path === APP_INTEGRITY_POLICY_URL)).toHaveLength(1);
   });
 
   it("fetches the policy once, however many assets are gated", async () => {

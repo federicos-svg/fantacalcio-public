@@ -33,11 +33,18 @@ import {
 
 const subtle = webcrypto.subtle;
 
+// Deliberately NOT ASCII. A hash comparison between two implementations is
+// trivially green on ASCII and diverges at the first accent if either side
+// re-encodes the text instead of hashing the bytes it was given — and this is
+// an Italian listone: accents are the normal case, not an edge case. The four
+// rows below cover 2-byte Latin-1 accents, an eszett, a cedilla and a 4-byte
+// astral character (surrogate pair in UTF-16, one code point in UTF-8), so a
+// UTF-16-length-based size or a lossy re-encode cannot pass unnoticed.
 const ROWS = [
-  { name: "Alpha Sintetico", role: "P", club: "Club Uno", quotation: 4 },
-  { name: "Beta Sintetico", role: "D", club: "Club Due", quotation: 7 },
-  { name: "Gamma Sintetico", role: "C", club: "Club Tre", quotation: 9 },
-  { name: "Delta Sintetico", role: "A", club: "Club Quattro", quotation: 12 },
+  { name: "Niccolò Barattù", role: "P", club: "Città Sintetica", quotation: 4 },
+  { name: "François Père", role: "D", club: "Müller Straße", quotation: 7 },
+  { name: "Gámma Sintético", role: "C", club: "Club Tré", quotation: 9 },
+  { name: "Delta 𝔘nicode", role: "A", club: "Club Quattro", quotation: 12 },
 ] as const;
 
 const CANDIDATE_TEXT = JSON.stringify(ROWS, null, 2) + "\n";
@@ -100,13 +107,38 @@ describe("build-time <-> runtime hash compatibility", () => {
     expect(verdict.sha256).toBe(built.bundleManifest.bundle_sha256);
     expect(verdict.sha256).toBe(createHash("sha256").update(built.bundleText, "utf8").digest("hex"));
     expect(verdict.manifest.total_records).toBe(ROWS.length);
+    // The fixture really is multi-byte: more UTF-8 bytes than UTF-16 code
+    // units. Without this the test above could silently degrade to ASCII the
+    // day someone "tidies up" the names.
+    expect(built.bundleManifest.bundle_size_bytes).toBeGreaterThan(built.bundleText.length);
   });
 
-  it("rejects the real builder's manifest against a bundle with one byte changed", async () => {
+  it("hashes bytes, not code units: an accented bundle survives the whole round trip", async () => {
     const built = buildListoneLiveBundle(builderInput());
-    const tampered = built.bundleText.replace("Alpha Sintetico", "Alpha Sintetica");
+    // Every non-ASCII form in the fixture must still be there, unchanged, in
+    // the bytes that were hashed and then verified.
+    for (const needle of ["Niccolò Barattù", "François Père", "Müller Straße", "Delta 𝔘nicode"]) {
+      expect(built.bundleText).toContain(needle);
+    }
+    const bytes = utf8(built.bundleText);
+    expect(bytes.byteLength).toBe(built.bundleManifest.bundle_size_bytes);
+    const verdict = await verifyListoneBundle({
+      bytes,
+      manifestJson: JSON.parse(built.bundleManifestText),
+      digest: subtle,
+    });
+    expect(verdict.ok).toBe(true);
+    if (!verdict.ok) return;
+    expect(verdict.sha256).toBe(built.bundleManifest.bundle_sha256);
+  });
+
+  it("rejects the real builder's manifest against a bundle with one accent changed", async () => {
+    const built = buildListoneLiveBundle(builderInput());
+    // `ò` -> `à`: same UTF-8 byte length, different bytes. The size check
+    // cannot catch this one, so the hash has to.
+    const tampered = built.bundleText.replace("Niccolò", "Niccolà");
     expect(tampered).not.toBe(built.bundleText);
-    expect(tampered.length).toBe(built.bundleText.length);
+    expect(Buffer.byteLength(tampered, "utf8")).toBe(Buffer.byteLength(built.bundleText, "utf8"));
 
     const verdict = await verifyListoneBundle({
       bytes: utf8(tampered),
@@ -209,6 +241,9 @@ describe("declaredOnGate", () => {
 describe("verifyListoneBundle fail-closed matrix", () => {
   const bundleText = JSON.stringify(ROWS, null, 2) + "\n";
   const bundleBytes = utf8(bundleText);
+  // Same guard as above, for this block's own fixture: multi-byte content, so
+  // `bundle_size_bytes` is a byte count and never a string length.
+  expect(bundleBytes.byteLength).toBeGreaterThan(bundleText.length);
   const goodManifest = {
     manifest_version: LISTONE_LIVE_BUNDLE_MANIFEST_VERSION,
     bundle_version: LISTONE_LIVE_BUNDLE_VERSION,

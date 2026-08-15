@@ -45,11 +45,13 @@ async function servedBuildId(page: Page): Promise<string> {
 /**
  * Refuses to prove anything about the wrong tree.
  *
- * `playwright.config.ts` reuses whatever is already listening on its port, and
- * that server may belong to another checkout entirely — a cold-start proof run
- * against someone else's build would be indistinguishable from a real one. The
- * build id is a sha256 over every built file (scripts/build-service-worker.mjs),
- * so comparing the served one with the one on disk settles it in one assertion.
+ * The suite's own harness (e2e/harness/global-setup.ts) is the primary guard
+ * and runs first: it compares the served `index.html` with this tree's and
+ * stops the whole run against a foreign server. This assertion is the
+ * per-artifact complement, and covers what a once-per-run check cannot: the
+ * `app-integrity.json` this feature actually depends on, re-read inside the
+ * test — so a dist rebuilt underneath a running suite, or a policy answered
+ * from a stale cache, is caught where it would corrupt the evidence.
  */
 async function expectServingThisTree(page: Page): Promise<string> {
   const served = await servedBuildId(page);

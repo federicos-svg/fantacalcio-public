@@ -66,7 +66,21 @@ export type BundleIntegrityFailure =
   /** A manifest that declares a project gate ON is refused outright (docs/NO_GO.md). */
   | { readonly kind: "gate-declared-on"; readonly gate: string }
   /** The build itself did not serve a readable integrity policy — see integrityGate.ts. */
-  | { readonly kind: "integrity-policy-unusable"; readonly errors: readonly string[] };
+  | { readonly kind: "integrity-policy-unusable"; readonly errors: readonly string[] }
+  /**
+   * The integrity policy never answered: the request timed out or the network
+   * failed, on every attempt. Kept separate from `integrity-policy-unusable`
+   * because the cause is different and so is what the operator should do — a
+   * hostile network (captive portal, hotspot that accepts the connection and
+   * never replies) is not a broken artifact, and telling someone to rebuild
+   * the app when their wifi is the problem is a wrong instruction, not a
+   * conservative one.
+   */
+  | {
+      readonly kind: "integrity-policy-unreachable";
+      readonly timeoutMs: number;
+      readonly attempts: number;
+    };
 
 export type BundleIntegrityVerdict =
   | { readonly ok: true; readonly sha256: string; readonly manifest: RuntimeBundleManifest }
@@ -294,7 +308,19 @@ export function bundleIntegrityFailureText(assetUrl: string, failure: BundleInte
       return (
         "Questa build non serve una policy di integrità leggibile " +
         `(${failure.errors.join("; ")}), quindi non può dichiarare cosa si aspetta da ${assetUrl}. ` +
-        "Nessun payload dati viene caricato. Ricostruisci l'artefatto con `npm run build` e ricarica."
+        "Nessun payload dati viene caricato. Due cause possibili, entrambe da escludere prima " +
+        "dell'asta: una richiesta intercettata o riscritta dalla rete (proxy, portale captive, " +
+        "cache intermedia) — in quel caso basta ricaricare da una rete che risponde; oppure un " +
+        "artefatto servito incompleto — in quel caso va ricostruito con `npm run build` e ripubblicato."
+      );
+    case "integrity-policy-unreachable":
+      return (
+        "La policy di integrità non ha risposto entro " +
+        `${failure.timeoutMs} ms su ${failure.attempts} tentativi, quindi non è possibile stabilire ` +
+        `cosa questa build si aspetta da ${assetUrl}. Nessun payload dati viene caricato. ` +
+        "Tipico di una rete che accetta la connessione e non risponde (portale captive, hotspot " +
+        "saturo): ricarica la pagina appena la rete risponde, oppure disconnettiti dalla rete — " +
+        "da offline l'app riparte dalla copia in cache."
       );
   }
 }

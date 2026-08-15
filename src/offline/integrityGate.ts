@@ -74,12 +74,19 @@ export interface IntegrityGateDeps {
   readonly onFailure: (report: IntegrityFailureReport) => void;
   /** Overridable only for tests. */
   readonly policyUrl?: string;
+  /** Per-attempt timeout for the policy fetch. Overridable only for tests. */
+  readonly policyTimeoutMs?: number;
+  /** How many times the policy fetch is attempted when the network never answers. */
+  readonly policyAttempts?: number;
 }
 
 type PolicyState =
   | { readonly kind: "ready"; readonly policy: AppIntegrityPolicy }
+  /** The server answered, and what it serves at that path is not a policy (404, wrong body). */
   | { readonly kind: "absent" }
-  | { readonly kind: "malformed"; readonly errors: readonly string[] };
+  | { readonly kind: "malformed"; readonly errors: readonly string[] }
+  /** Nobody answered in time — network failure or timeout, on every attempt. */
+  | { readonly kind: "unreachable" };
 
 export interface IntegrityGate {
   /** Drop-in replacement for `window.fetch`. */
@@ -114,8 +121,22 @@ function urlOf(input: RequestInfo | URL, origin: string): URL | null {
   }
 }
 
+/**
+ * Per-attempt bound on the policy fetch. Deliberately the same figure as the
+ * service worker's navigation timeout (src/offline/swPolicy.ts
+ * NAVIGATION_NETWORK_TIMEOUT_MS): both answer the same question — how long the
+ * app waits for a network that may never answer — and two different numbers
+ * would mean two different beliefs about the same hostile network.
+ */
+export const POLICY_FETCH_TIMEOUT_MS = 2500;
+
+/** Attempts before the policy is declared unreachable (one retry). */
+export const POLICY_FETCH_ATTEMPTS = 2;
+
 export function createIntegrityGate(deps: IntegrityGateDeps): IntegrityGate {
   const policyUrl = deps.policyUrl ?? APP_INTEGRITY_POLICY_URL;
+  const policyTimeoutMs = deps.policyTimeoutMs ?? POLICY_FETCH_TIMEOUT_MS;
+  const policyAttempts = Math.max(1, deps.policyAttempts ?? POLICY_FETCH_ATTEMPTS);
   let reported = false;
 
   const report = (assetUrl: string, failure: BundleIntegrityFailure): void => {
@@ -128,17 +149,58 @@ export function createIntegrityGate(deps: IntegrityGateDeps): IntegrityGate {
     deps.onFailure({ code: bundleIntegrityFailureCode(failure), assetUrl, text });
   };
 
-  const loadPolicy = async (): Promise<PolicyState> => {
+  /**
+   * One attempt at the policy, abandoned — not merely awaited — after
+   * `timeoutMs`. Same `AbortController` pattern the service worker uses for
+   * navigations (src/offline/sw.ts fetchWithTimeout), and for the same reason:
+   * the auction-day network that is WORSE than no network is the one that
+   * accepts the connection and never answers. Without this bound the gate
+   * waits forever on the first visit — no cache, no worker, nothing on screen
+   * and nothing to read — which is the one failure mode this whole batch
+   * exists to remove.
+   */
+  const fetchPolicyOnce = async (timeoutMs: number): Promise<PolicyState> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     let raw: unknown;
     try {
-      const res = await deps.fetchImpl(policyUrl);
+      const res = await deps.fetchImpl(policyUrl, { signal: controller.signal });
+      // The server answered: whatever it said, this is no longer a network
+      // problem. A non-OK status is "no policy here", not "unreachable".
       if (!res.ok) return { kind: "absent" };
-      raw = await res.json();
+      try {
+        raw = await res.json();
+      } catch {
+        return { kind: "malformed", errors: ["la policy servita non è JSON leggibile"] };
+      }
     } catch {
-      return { kind: "absent" };
+      return { kind: "unreachable" };
+    } finally {
+      clearTimeout(timer);
     }
     const parsed = parseAppIntegrityPolicy(raw);
     return parsed.ok ? { kind: "ready", policy: parsed.policy } : { kind: "malformed", errors: parsed.errors };
+  };
+
+  /**
+   * Retries ONLY what a retry can fix.
+   *
+   * `unreachable` is transient by nature — a dropped packet, a hotspot waking
+   * up, a portal that has just let the client through — and one extra local
+   * request costs nothing. `absent` and `malformed` are deterministic answers
+   * from a server that DID reply: retrying them would just spend the operator's
+   * time twice before showing the same screen, so the verdict stands on the
+   * first answer. The total wait is therefore bounded by
+   * `attempts × timeoutMs`, and it always ends in something readable on screen
+   * rather than in an open-ended wait.
+   */
+  const loadPolicy = async (): Promise<PolicyState> => {
+    let last: PolicyState = { kind: "unreachable" };
+    for (let attempt = 0; attempt < policyAttempts; attempt += 1) {
+      last = await fetchPolicyOnce(policyTimeoutMs);
+      if (last.kind !== "unreachable") return last;
+    }
+    return last;
   };
 
   // Started immediately, at construction: the wrapper awaits this promise
@@ -170,10 +232,14 @@ export function createIntegrityGate(deps: IntegrityGateDeps): IntegrityGate {
       // The in-flight request is abandoned, not awaited: its bytes are refused
       // either way, and an unobserved rejection must not surface as an error.
       void responsePromise.catch(() => undefined);
-      const failure: BundleIntegrityFailure = {
-        kind: "integrity-policy-unusable",
-        errors: state.kind === "absent" ? [`${policyUrl} non è stato servito da questa build`] : state.errors,
-      };
+      const failure: BundleIntegrityFailure =
+        state.kind === "unreachable"
+          ? { kind: "integrity-policy-unreachable", timeoutMs: policyTimeoutMs, attempts: policyAttempts }
+          : {
+              kind: "integrity-policy-unusable",
+              errors:
+                state.kind === "absent" ? [`${policyUrl} non è stato servito da questa build`] : state.errors,
+            };
       report(url.pathname, failure);
       return refusedResponse(bundleIntegrityFailureCode(failure));
     }

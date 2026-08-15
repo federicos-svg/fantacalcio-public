@@ -22,11 +22,16 @@ const ASSET_PATH = "/data/listone_2025_26.json";
 const MANIFEST_PATH = "/data/listone_2025_26.manifest.json";
 const POLICY_PATH = "/app-integrity.json";
 
+// Accented on purpose (see src/offline/bundleIntegrity.test.ts for the full
+// reasoning): node's `createHash(...).update(text, "utf8")` at build time and
+// `crypto.subtle.digest` over the served bytes in the browser agree trivially
+// on ASCII. If either side re-encoded the payload, these rows would diverge —
+// and this is an Italian listone, where accents are the normal case.
 const ROWS = [
-  { name: "Aldo Prova", role: "P", club: "ClubUno", quotation: 5 },
-  { name: "Beatrice Fittizia", role: "D", club: "ClubDue", quotation: 8 },
-  { name: "Carlo Esempio", role: "C", club: "ClubTre", quotation: 12 },
-  { name: "Dario Placeholder", role: "A", club: "ClubQuattro", quotation: 20 },
+  { name: "Niccolò Barattù", role: "P", club: "Città Sintetica", quotation: 5 },
+  { name: "Beatrice Fittizià", role: "D", club: "Müller Straße", quotation: 8 },
+  { name: "François Père", role: "C", club: "ClubTré", quotation: 12 },
+  { name: "Dario 𝔘nicode", role: "A", club: "ClubQuattro", quotation: 20 },
 ] as const;
 
 const CANDIDATE_TEXT = JSON.stringify(ROWS, null, 2) + "\n";
@@ -170,8 +175,9 @@ test.describe("BUNDLE-01 — runtime hash verification", () => {
 
   test("a divergent hash blocks the app, names both hashes, and loads nothing", async ({ page, context }) => {
     const externalRequests: string[] = [];
-    // One character different, identical length: the hash is what refuses it.
-    const tampered = BUILT.bundleText.replace("Aldo Prova", "Alda Prova");
+    // One ACCENT different, identical UTF-8 byte length: the size check cannot
+    // catch it, so this really exercises the digest in the browser.
+    const tampered = BUILT.bundleText.replace("Niccolò", "Niccolà");
     expect(tampered).not.toBe(BUILT.bundleText);
     await installBundleRoutes(context, externalRequests, { bundleText: tampered });
     await page.goto("/");
@@ -185,7 +191,7 @@ test.describe("BUNDLE-01 — runtime hash verification", () => {
 
     // Fail-closed: neither the tampered row nor the original one was loaded,
     // and nothing was written to the local pool copy.
-    await expect(page.getByText("Alda Prova", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Niccolà Barattù", { exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => window.localStorage.getItem("fac_pool"))).toBeNull();
     expect(await integrityStatus(page)).toBe("failed");
     expect(externalRequests).toEqual([]);
@@ -255,7 +261,7 @@ test.describe("BUNDLE-01 — runtime hash verification", () => {
     await page.goto("/");
 
     await expect(page.locator("#critical-budget")).toHaveText("500 cr");
-    await expect(page.getByText("Aldo Prova", { exact: true })).toBeVisible();
+    await expect(page.getByText("Aldo Prova", { exact: true })).toBeVisible(); // the real shipped asset
     await expect(blockingScreen(page)).toHaveCount(0);
     await expect.poll(() => integrityStatus(page)).toBe("unverified");
     expect(externalRequests).toEqual([]);
