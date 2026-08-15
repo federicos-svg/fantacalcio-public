@@ -2,7 +2,15 @@
 // sw.ts itself only exists inside a ServiceWorkerGlobalScope, so every rule it
 // applies lives in swPolicy.ts and is exercised here.
 import { describe, expect, it } from "vitest";
-import { classifySwRequest, navigationFallbackPath, type SwRequestFacts } from "./swPolicy.js";
+import {
+  classifySwRequest,
+  navigationFallbackPath,
+  DATA_ASSET_NETWORK_TIMEOUT_MS,
+  NAVIGATION_NETWORK_TIMEOUT_MS,
+  SHELL_ASSET_NETWORK_TIMEOUT_MS,
+  type SwRequestFacts,
+} from "./swPolicy.js";
+import { ASSET_FETCH_TIMEOUT_MS } from "./integrityGate.js";
 
 const ORIGIN = "https://asta.example";
 const PRECACHED = new Set(["/", "/index.html", "/app-integrity.json", "/assets/index-abc.js", "/data/listone.json"]);
@@ -74,5 +82,20 @@ describe("navigationFallbackPath", () => {
   });
   it("returns null when there is no shell to serve", () => {
     expect(navigationFallbackPath(new Set(["/assets/index-abc.js"]))).toBeNull();
+  });
+});
+
+describe("stacked timeouts", () => {
+  it("keeps the service worker's data bound strictly inside the gate's own bound", () => {
+    // The ordering invariant, asserted so it cannot drift: the gate wraps the
+    // worker on the same request, so the worker must be the one that gives up
+    // first — it is the layer holding the cached copy. Equal figures were the
+    // original bug (the gate aborted the request whose fallback was about to
+    // succeed); see ASSET_FETCH_TIMEOUT_MS in src/offline/integrityGate.ts.
+    expect(ASSET_FETCH_TIMEOUT_MS).toBeGreaterThan(DATA_ASSET_NETWORK_TIMEOUT_MS);
+    // And the data payload gets a looser bound than a document, because it is
+    // not the same size class.
+    expect(DATA_ASSET_NETWORK_TIMEOUT_MS).toBeGreaterThan(NAVIGATION_NETWORK_TIMEOUT_MS);
+    expect(SHELL_ASSET_NETWORK_TIMEOUT_MS).toBe(NAVIGATION_NETWORK_TIMEOUT_MS);
   });
 });

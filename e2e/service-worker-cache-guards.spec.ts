@@ -92,6 +92,113 @@ test.describe("service worker cache lookup — regression guards", () => {
     expect(served.body).toBe(PRECACHED_MARKER);
   });
 
+  test("a network that hangs falls back to the cached listone instead of waiting forever", async ({
+    page,
+    context,
+  }) => {
+    // THE auction-day case, and the one an unbounded `fetch` inside
+    // `handleDataAsset` would lose: the listone path is network-first even with
+    // a warm cache, so a network that accepts the connection and never answers
+    // leaves the promise neither resolved nor rejected — the `catch` that does
+    // the cache fallback is never reached, and the app hangs WHILE HOLDING a
+    // perfectly good copy. Nothing about this needs the device to be offline.
+    await page.goto("/");
+    await waitForServiceWorkerControl(page);
+    const cacheName = await currentCacheName(page);
+
+    // A marker in the cache, so the assertion can tell "answered from cache"
+    // from "the network answered after all" — a hang that is not really a hang
+    // would otherwise pass silently.
+    await page.evaluate(
+      async ([name, path, body]) => {
+        const cache = await caches.open(name!);
+        await cache.put(
+          new Request(path!),
+          new Response(body!, { status: 200, headers: { "content-type": "application/json" } }),
+        );
+      },
+      [cacheName, LISTONE_PATH, PRECACHED_MARKER] as const,
+    );
+
+    // The network accepts the request and never answers it. The route handler
+    // deliberately never calls fulfill/continue/abort.
+    let hungRequests = 0;
+    await context.route(`**${LISTONE_PATH}`, () => {
+      hungRequests += 1;
+    });
+
+    const outcome = await page.evaluate(async (path) => {
+      const startedAt = performance.now();
+      try {
+        const res = await fetch(path);
+        return { settled: true, body: await res.text(), ms: performance.now() - startedAt };
+      } catch (error) {
+        return { settled: false, body: `THREW: ${String(error)}`, ms: performance.now() - startedAt };
+      }
+    }, LISTONE_PATH);
+
+    // The request really was intercepted and left hanging: otherwise this test
+    // proves nothing about timeouts.
+    expect(hungRequests, "the network request must have been intercepted and left pending").toBeGreaterThan(0);
+    // It settled — bounded — and it settled with the CACHED copy.
+    expect(outcome.settled).toBe(true);
+    expect(outcome.body).toBe(PRECACHED_MARKER);
+    // Bounded by the service worker's data-asset timeout, not by luck.
+    expect(outcome.ms).toBeLessThan(15_000);
+
+    // And the app itself stays usable throughout.
+    await expect(page.locator("#critical-budget")).toHaveText("500 cr");
+  });
+
+  test("a shell asset missing from the cache fails fast instead of hanging", async ({ page, context }) => {
+    // The cache-first path's own version of the same hazard. Reaching the
+    // network here means the precache did not answer, so there is nothing to
+    // fall back to — but "nothing to fall back to" must arrive as a failure in
+    // bounded time, not as a subresource that stays pending and hangs whatever
+    // needed it. Nothing wraps this one: no integrity gate, no outer bound, so
+    // the worker's own timeout is the only thing standing between the page and
+    // an unbounded wait.
+    await page.goto("/");
+    await waitForServiceWorkerControl(page);
+    const cacheName = await currentCacheName(page);
+
+    const shellAssetUrl = await page.evaluate(async () => {
+      const policy = (await (await fetch("/app-integrity.json")).json()) as {
+        files: Array<{ url: string }>;
+      };
+      return policy.files.map((file) => file.url).find((url) => url.endsWith(".js")) ?? null;
+    });
+    expect(shellAssetUrl, "the build must ship a hashed JS asset").not.toBeNull();
+
+    // Hole in the cache + a network that accepts and never answers.
+    await page.evaluate(
+      async ([name, url]) => {
+        const cache = await caches.open(name!);
+        await cache.delete(url!);
+      },
+      [cacheName, shellAssetUrl] as const,
+    );
+    let hungRequests = 0;
+    await context.route(`**${shellAssetUrl}`, () => {
+      hungRequests += 1;
+    });
+
+    const outcome = await page.evaluate(async (url) => {
+      const startedAt = performance.now();
+      try {
+        const res = await fetch(url!);
+        return { settled: true, ok: res.ok, ms: performance.now() - startedAt };
+      } catch {
+        return { settled: true, ok: false, ms: performance.now() - startedAt };
+      }
+    }, shellAssetUrl);
+
+    expect(hungRequests, "the network request must have been intercepted and left pending").toBeGreaterThan(0);
+    expect(outcome.settled).toBe(true);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.ms).toBeLessThan(15_000);
+  });
+
   test("a foreign cache is never consulted, even when this build's cache has a hole", async ({ page, context }) => {
     await page.goto("/");
     await waitForServiceWorkerControl(page);

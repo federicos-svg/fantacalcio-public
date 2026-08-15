@@ -56,6 +56,32 @@ export const NETWORK_ONLY_PREFIX = "/api/";
 /** How long a navigation waits for the network before falling back to the cached shell. */
 export const NAVIGATION_NETWORK_TIMEOUT_MS = 2500;
 
+/**
+ * How long a shipped data payload waits for the network before the cached copy
+ * takes over.
+ *
+ * 4000 and not 2500 because the payload is not the same size class: the shell
+ * documents are a few kB, the real listone is orders of magnitude larger, and a
+ * bound tight enough for an HTML document would abandon a download that was
+ * simply still arriving. The figure is not invented here either — it is the one
+ * the app itself already applies to the same payload from the other direction
+ * (`LISTONE_REMOTE_TIMEOUT_MS` in src/main.ts, "a listone that hasn't arrived in
+ * 4s is not worth a blank panel during an auction"). Two different numbers for
+ * the same object would be two different beliefs about the same auction.
+ */
+export const DATA_ASSET_NETWORK_TIMEOUT_MS = 4000;
+
+/**
+ * How long a cache MISS on a shell asset waits for the network.
+ *
+ * Same bound as a navigation, and for the same reason: a shell asset that is
+ * not in the cache is a document-sized file on the critical rendering path.
+ * Reaching this code at all already means the precache did not answer, so the
+ * only choice left is between failing fast and hanging — and hanging a
+ * subresource hangs the page that needs it.
+ */
+export const SHELL_ASSET_NETWORK_TIMEOUT_MS = NAVIGATION_NETWORK_TIMEOUT_MS;
+
 export function classifySwRequest(facts: SwRequestFacts): SwRouteKind {
   if (facts.method !== "GET") return "passthrough";
 

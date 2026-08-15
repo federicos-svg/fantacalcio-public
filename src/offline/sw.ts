@@ -21,7 +21,9 @@
 import {
   classifySwRequest,
   navigationFallbackPath,
+  DATA_ASSET_NETWORK_TIMEOUT_MS,
   NAVIGATION_NETWORK_TIMEOUT_MS,
+  SHELL_ASSET_NETWORK_TIMEOUT_MS,
 } from "./swPolicy.js";
 import { shellCacheName, staleShellCacheNames } from "./appIntegrityPolicy.js";
 
@@ -166,14 +168,27 @@ async function handleNavigation(request: Request): Promise<Response> {
 async function handleShellAsset(request: Request): Promise<Response> {
   const cached = await matchInCache(request);
   if (cached) return cached;
-  const fresh = await fetch(request);
+  // Bounded like every other network call in this file. Cache-first makes this
+  // the rarer path, not a safe one: a subresource left pending on a network
+  // that never answers hangs the page just as thoroughly as a pending
+  // navigation, and here there is no cached copy to fall back to — so failing
+  // fast (the request rejects, the browser reports it) is the only honest
+  // outcome, and it must arrive in bounded time.
+  const fresh = await fetchWithTimeout(request, SHELL_ASSET_NETWORK_TIMEOUT_MS);
   if (fresh.ok) await putInCache(request, fresh.clone());
   return fresh;
 }
 
 async function handleDataAsset(request: Request): Promise<Response> {
   try {
-    const fresh = await fetch(request);
+    // THE bound that matters on auction day. This path is network-first even
+    // with a warm cache, so an unbounded fetch here does not merely slow the
+    // first visit down: on a network that accepts the connection and never
+    // answers, the promise neither resolves nor rejects, the `catch` below is
+    // never reached, and the app hangs WHILE HOLDING a perfectly good cached
+    // listone. The timeout is what turns that into the fallback this function
+    // was written to perform.
+    const fresh = await fetchWithTimeout(request, DATA_ASSET_NETWORK_TIMEOUT_MS);
     if (fresh.ok) {
       await putInCache(request, fresh.clone());
       return fresh;

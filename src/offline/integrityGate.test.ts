@@ -76,6 +76,7 @@ function harness(options: {
   digest?: { digest(algorithm: string, data: ArrayBuffer): Promise<ArrayBuffer> } | null;
   policyTimeoutMs?: number;
   policyAttempts?: number;
+  assetTimeoutMs?: number;
 }): Harness {
   const requested: string[] = [];
   const statuses: Array<{ status: IntegrityStatus; detail: string }> = [];
@@ -98,6 +99,7 @@ function harness(options: {
     // timeout existing, never on how fast the machine is.
     policyTimeoutMs: options.policyTimeoutMs ?? 25,
     policyAttempts: options.policyAttempts,
+    assetTimeoutMs: options.assetTimeoutMs ?? 40,
   });
 
   return { gate, requested, statuses, failures };
@@ -327,6 +329,128 @@ describe("pass-through", () => {
     });
     expect((await h.gate.fetch(new Request(`${ORIGIN}${ASSET}`))).ok).toBe(true);
     expect((await h.gate.fetch(new URL(`${ORIGIN}${ASSET}`))).ok).toBe(true);
+    expect(h.failures).toEqual([]);
+  });
+});
+
+describe("a payload that never arrives", () => {
+  // The combination the first round left uncovered: the POLICY answers
+  // normally, so the gate gets past its own metadata bound, and then the
+  // BUNDLE hangs. Without a bound on the payload fetch the gate never settles
+  // — and, unlike the policy case, this one is not confined to a first visit:
+  // it is the auction-day network that accepts the connection and stops
+  // talking, with a perfectly good local copy sitting right there.
+  it("gives up on a bundle that never arrives instead of hanging forever", async () => {
+    const h = harness({
+      routes: {
+        [APP_INTEGRITY_POLICY_URL]: () => jsonResponse(policyJson(true)),
+        [ASSET]: hangsForever(),
+        [MANIFEST]: () => jsonResponse(manifestJson()),
+      },
+      assetTimeoutMs: 30,
+    });
+
+    const res = await h.gate.fetch(`${ORIGIN}${ASSET}`);
+    expect(res.ok).toBe(false);
+    expect(JSON.parse(await res.text()).code).toBe("asset-fetch-timeout");
+    // A slow network is not a corrupted bundle: no blocking screen.
+    expect(h.failures).toEqual([]);
+    expect(h.statuses.at(-1)?.status).toBe("unverified");
+    expect(h.statuses.at(-1)?.detail).toContain("30 ms");
+  });
+
+  it("gives up on a body that stalls after the headers arrive", async () => {
+    // Same hang, one layer down: the response head is delivered and the body
+    // never completes. The bound has to survive until the last byte, or
+    // `arrayBuffer()` waits forever with the timer already cleared.
+    const h = harness({
+      routes: {
+        [APP_INTEGRITY_POLICY_URL]: () => jsonResponse(policyJson(true)),
+        [ASSET]: (init) =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode("["));
+                init?.signal?.addEventListener("abort", () => controller.error(new Error("aborted")));
+                // ...and never closes.
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+        [MANIFEST]: () => jsonResponse(manifestJson()),
+      },
+      assetTimeoutMs: 30,
+    });
+
+    const res = await h.gate.fetch(`${ORIGIN}${ASSET}`);
+    expect(res.ok).toBe(false);
+    expect(h.failures).toEqual([]);
+  });
+
+  it("refuses, and says the network is the reason, when a required manifest never arrives", async () => {
+    const h = harness({
+      routes: {
+        [APP_INTEGRITY_POLICY_URL]: () => jsonResponse(policyJson(true)),
+        [ASSET]: () => bundleResponse(),
+        [MANIFEST]: hangsForever(),
+      },
+      policyTimeoutMs: 30,
+    });
+
+    const res = await h.gate.fetch(`${ORIGIN}${ASSET}`);
+    // The bundle arrived but cannot be verified: fail-closed stands.
+    expect(res.status).toBe(503);
+    expect(h.failures).toHaveLength(1);
+    expect(h.failures[0]?.code).toBe("integrity-policy-unreachable");
+    expect(h.failures[0]?.assetUrl).toBe(MANIFEST);
+    expect(h.failures[0]?.text).not.toContain("npm run build");
+  });
+
+  it("does not block when the manifest that never arrives was never packaged", async () => {
+    const h = harness({
+      routes: {
+        [APP_INTEGRITY_POLICY_URL]: () => jsonResponse(policyJson(false)),
+        [ASSET]: () => bundleResponse(),
+        [MANIFEST]: hangsForever(),
+      },
+      policyTimeoutMs: 30,
+    });
+
+    const res = await h.gate.fetch(`${ORIGIN}${ASSET}`);
+    expect(res.ok).toBe(true);
+    expect(await res.text()).toBe(BUNDLE_TEXT);
+    expect(h.statuses.at(-1)?.status).toBe("unverified");
+    expect(h.failures).toEqual([]);
+  });
+
+  it("never shortens a deadline the caller set, and never removes it", async () => {
+    // Pass-through requests must stay exactly the request the caller made:
+    // the gate arms its own timer only for the assets it is responsible for.
+    // The caller's abort still works through the wrapper.
+    const h = harness({
+      routes: { [APP_INTEGRITY_POLICY_URL]: () => jsonResponse(policyJson(true)), "/api/listone": hangsForever() },
+      assetTimeoutMs: 10_000,
+    });
+    const controller = new AbortController();
+    const pending = h.gate.fetch(`${ORIGIN}/api/listone`, { signal: controller.signal });
+    controller.abort();
+    await expect(pending).rejects.toThrow();
+  });
+
+  it("lets the caller's abort win over the gate's own timer on a gated asset", async () => {
+    const h = harness({
+      routes: {
+        [APP_INTEGRITY_POLICY_URL]: () => jsonResponse(policyJson(true)),
+        [ASSET]: hangsForever(),
+        [MANIFEST]: () => jsonResponse(manifestJson()),
+      },
+      assetTimeoutMs: 10_000,
+    });
+    const controller = new AbortController();
+    const pending = h.gate.fetch(`${ORIGIN}${ASSET}`, { signal: controller.signal });
+    setTimeout(() => controller.abort(), 10);
+    const res = await pending;
+    expect(res.ok).toBe(false);
     expect(h.failures).toEqual([]);
   });
 });

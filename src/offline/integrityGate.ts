@@ -44,7 +44,7 @@ import {
   type BundleIntegrityFailure,
   type DigestLike,
 } from "./bundleIntegrity.js";
-import { DATA_ASSET_PREFIX } from "./swPolicy.js";
+import { DATA_ASSET_NETWORK_TIMEOUT_MS, DATA_ASSET_PREFIX } from "./swPolicy.js";
 
 export type IntegrityStatus = "verified" | "unverified" | "failed";
 
@@ -74,10 +74,21 @@ export interface IntegrityGateDeps {
   readonly onFailure: (report: IntegrityFailureReport) => void;
   /** Overridable only for tests. */
   readonly policyUrl?: string;
-  /** Per-attempt timeout for the policy fetch. Overridable only for tests. */
+  /**
+   * Per-attempt timeout for the integrity METADATA fetches — the policy and
+   * the per-asset manifest. One knob for both because they are the same kind
+   * of object: a few hundred bytes of JSON that either arrive at once or are
+   * not coming. Overridable only for tests.
+   */
   readonly policyTimeoutMs?: number;
   /** How many times the policy fetch is attempted when the network never answers. */
   readonly policyAttempts?: number;
+  /**
+   * Timeout for the PAYLOAD fetch (the bundle itself). Separate from the
+   * metadata bound above because the sizes are not comparable — see
+   * ASSET_FETCH_TIMEOUT_MS.
+   */
+  readonly assetTimeoutMs?: number;
 }
 
 type PolicyState =
@@ -111,6 +122,28 @@ function methodOf(input: RequestInfo | URL, init?: RequestInit): string {
   return input.method.toUpperCase();
 }
 
+/**
+ * A controller that also fires when the CALLER's own signal fires.
+ *
+ * The gate must be able to abandon a request, but it must never take away the
+ * caller's ability to abandon it first: `fetchRemoteListone` in src/main.ts
+ * passes its own `AbortSignal`, and silently dropping it would extend a
+ * deliberately short request into a long one. Forwarding keeps both aborts
+ * live, whichever comes first.
+ */
+function controllerLinkedTo(signal: AbortSignal | null | undefined): AbortController {
+  const controller = new AbortController();
+  if (!signal) return controller;
+  if (signal.aborted) controller.abort();
+  else signal.addEventListener("abort", () => controller.abort(), { once: true });
+  return controller;
+}
+
+/** `init` with our signal substituted in. Never mutates the caller's object. */
+function withSignal(init: RequestInit | undefined, signal: AbortSignal): RequestInit {
+  return { ...(init ?? {}), signal };
+}
+
 function urlOf(input: RequestInfo | URL, origin: string): URL | null {
   try {
     if (typeof input === "string") return new URL(input, origin);
@@ -133,10 +166,39 @@ export const POLICY_FETCH_TIMEOUT_MS = 2500;
 /** Attempts before the policy is declared unreachable (one retry). */
 export const POLICY_FETCH_ATTEMPTS = 2;
 
+/**
+ * Bound on the gated PAYLOAD fetch — and it is deliberately LOOSER than the
+ * service worker's own bound on the same file.
+ *
+ * These two timeouts are stacked on one request: the page calls this gate, the
+ * gate calls `fetch`, and the service worker answers it. The inner bound has to
+ * expire FIRST, because the inner layer is the one holding the cached listone:
+ * when the network hangs, the worker's `DATA_ASSET_NETWORK_TIMEOUT_MS` fires,
+ * its `catch` serves the cached copy, and the gate — still waiting — verifies
+ * and forwards it. Set the two equal (the first version of this constant was
+ * 4000, same as the worker's) and the outer one wins the race often enough to
+ * ABORT the very request whose fallback was about to succeed: measured, not
+ * feared — e2e/service-worker-cache-guards.spec.ts caught exactly that and
+ * received `asset-fetch-timeout` where the cached bundle should have been.
+ *
+ * Derived rather than typed out, so the ordering cannot drift if either figure
+ * is revisited; the margin covers the worker's own cache lookup after its
+ * timeout fires.
+ *
+ * Note what this bound does and does NOT mean. A payload that never arrives is
+ * the app's existing "source unavailable" case — the loader already falls back
+ * to the local copy — so timing out here returns an error response and NOTHING
+ * else: no blocking screen, no integrity verdict. A slow network is not a
+ * corrupted bundle, and treating it as one would block an auction over a bad
+ * wifi.
+ */
+export const ASSET_FETCH_TIMEOUT_MS = DATA_ASSET_NETWORK_TIMEOUT_MS + 2000;
+
 export function createIntegrityGate(deps: IntegrityGateDeps): IntegrityGate {
   const policyUrl = deps.policyUrl ?? APP_INTEGRITY_POLICY_URL;
   const policyTimeoutMs = deps.policyTimeoutMs ?? POLICY_FETCH_TIMEOUT_MS;
   const policyAttempts = Math.max(1, deps.policyAttempts ?? POLICY_FETCH_ATTEMPTS);
+  const assetTimeoutMs = deps.assetTimeoutMs ?? ASSET_FETCH_TIMEOUT_MS;
   let reported = false;
 
   const report = (assetUrl: string, failure: BundleIntegrityFailure): void => {
@@ -219,7 +281,14 @@ export function createIntegrityGate(deps: IntegrityGateDeps): IntegrityGate {
     // consulted about the RESPONSE, not about whether to send the request, so
     // the two run in parallel and the gate costs no added latency on the path
     // that matters (the listone at boot).
-    const responsePromise = deps.fetchImpl(input, init);
+    //
+    // The request carries the gate's controller from the start, but the TIMER
+    // is armed only once the policy says this asset is gated (below). That
+    // ordering is what keeps a pass-through request byte-for-byte the request
+    // the caller made: the gate never shortens somebody else's deadline, it
+    // only bounds the waits it is itself responsible for.
+    const assetController = controllerLinkedTo(init?.signal);
+    const responsePromise = deps.fetchImpl(input, withSignal(init, assetController.signal));
     const state = await ready;
 
     if (state.kind !== "ready") {
@@ -249,9 +318,15 @@ export function createIntegrityGate(deps: IntegrityGateDeps): IntegrityGate {
 
     // Also parallel: the manifest is fetched while the bundle's body is still
     // arriving. Both are local, both are needed, neither has to wait.
+    let manifestTimedOut = false;
     const manifestPromise = (async (): Promise<unknown | typeof MANIFEST_ABSENT> => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => {
+        manifestTimedOut = true;
+        controller.abort();
+      }, policyTimeoutMs);
       try {
-        const manifestRes = await deps.fetchImpl(asset.manifestUrl);
+        const manifestRes = await deps.fetchImpl(asset.manifestUrl, { signal: controller.signal });
         // The content-type check is what makes "not deployed" deterministic,
         // and it is the same rule main.ts already applies to /api/listone: a
         // static host with an SPA fallback answers an unknown path with
@@ -270,19 +345,48 @@ export function createIntegrityGate(deps: IntegrityGateDeps): IntegrityGate {
         return MANIFEST_ABSENT;
       } catch {
         return MANIFEST_ABSENT;
+      } finally {
+        clearTimeout(timer);
       }
     })();
 
-    const response = await responsePromise;
-    // A source that failed to answer is the app's existing "unavailable" path
-    // (fetchStaticListone returns null): nothing was served, so there is
-    // nothing to verify and nothing to block.
-    if (!response.ok) {
+    // From here the gate owns the wait, so from here it is bounded — and it
+    // stays bounded until the LAST byte is in hand, not just until the headers
+    // are. A response whose head arrives and whose body then stalls is the same
+    // hang wearing a different hat: `arrayBuffer()` would wait on it forever
+    // with the timer already cleared.
+    const assetTimer = setTimeout(() => assetController.abort(), assetTimeoutMs);
+    let response: Response;
+    let bytes: ArrayBuffer;
+    try {
+      response = await responsePromise;
+      // A source that failed to answer is the app's existing "unavailable" path
+      // (fetchStaticListone returns null): nothing was served, so there is
+      // nothing to verify and nothing to block.
+      if (!response.ok) {
+        void manifestPromise.catch(() => undefined);
+        return response;
+      }
+      bytes = await response.arrayBuffer();
+    } catch (error) {
+      // Aborted (by our timer or by the caller) or a plain network failure.
+      // Either way no complete payload was served: this is the app's existing
+      // "source unavailable" case, NOT an integrity verdict — no blocking
+      // screen, and the loader falls back to its local copy exactly as it does
+      // offline. A slow network is not a corrupted bundle.
       void manifestPromise.catch(() => undefined);
-      return response;
+      const aborted = error instanceof Error && error.name === "AbortError";
+      deps.onStatus(
+        "unverified",
+        aborted
+          ? `${url.pathname}: nessuna risposta completa entro ${assetTimeoutMs} ms, richiesta abbandonata`
+          : `${url.pathname}: richiesta fallita prima di ricevere il payload completo`,
+      );
+      return refusedResponse(aborted ? "asset-fetch-timeout" : "asset-fetch-failed");
+    } finally {
+      clearTimeout(assetTimer);
     }
 
-    const bytes = await response.arrayBuffer();
     const manifestJson = await manifestPromise;
 
     if (manifestJson === MANIFEST_ABSENT && !asset.manifestRequired) {
@@ -298,6 +402,19 @@ export function createIntegrityGate(deps: IntegrityGateDeps): IntegrityGate {
         statusText: response.statusText,
         headers: response.headers,
       });
+    }
+
+    if (manifestJson === MANIFEST_ABSENT && manifestTimedOut) {
+      // The bundle arrived, its manifest did not. Verification is impossible,
+      // so the bytes are refused — but the reason is the network, and the
+      // message has to say that instead of blaming the artifact.
+      const failure: BundleIntegrityFailure = {
+        kind: "integrity-policy-unreachable",
+        timeoutMs: policyTimeoutMs,
+        attempts: 1,
+      };
+      report(asset.manifestUrl, failure);
+      return refusedResponse(bundleIntegrityFailureCode(failure));
     }
 
     const verdict = await verifyListoneBundle({ bytes, manifestJson, digest: deps.digest });
