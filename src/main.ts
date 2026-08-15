@@ -12,9 +12,12 @@ import {
   ROLES,
   ROSTER_REQUIREMENTS,
   INITIAL_BUDGET,
+  COST_FLOOR,
 } from "../packages/engine/src/types.js";
 import { reduce } from "../packages/engine/src/reduce.js";
 import { maxSafe, opponentTier1, roleScarcity, warBoardRows } from "../packages/engine/src/auction.js";
+import { competitorSet } from "../packages/engine/src/competitors.js";
+import { residualPressure } from "../packages/engine/src/anchors.js";
 import { budgetPlan } from "../packages/engine/src/budget.js";
 import { purchaseFeasibility, recordPurchase, type ProposedPurchase } from "../packages/engine/src/feasibility.js";
 import type { ConfirmationInput } from "../packages/engine/src/confirmations.js";
@@ -51,6 +54,8 @@ import {
   type SettingsArea,
   renderNominationContextPanel,
   type NominationContextTopEntry,
+  fillOpponentReach,
+  type OpponentReachProps,
   renderRoleScarcityPanel,
   renderWarBoardFull,
   renderWarBoardMini,
@@ -1039,6 +1044,35 @@ function auctionDisplayIndex(): ReadonlyMap<string, ListonePlayer> {
 // any other listone column) crosses into the engine here.
 function scarcityPool(): PoolPlayer[] {
   return state.pool.map((p) => ({ playerId: listonePlayerKey(p), role: p.role, name: p.name }));
+}
+
+/**
+ * Inputs of the AVVERSARI block on the live screen (competitorSet, via
+ * views.ts renderOpponentInterestBlock).
+ *
+ * THRESHOLD. The figure the reach is measured against is the price being
+ * typed in the assignment form. While nothing valid has been typed the
+ * question degrades to the honest weaker one — who can still enter at the
+ * minimum bid of LEAGUE_RULES §3-bis (`min_bid_increment: 1`, i.e.
+ * COST_FLOOR) — instead of a figure nobody said out loud. Which of the two is
+ * on screen is declared in the headline, never left to be guessed.
+ *
+ * SELF. `SELF_ID` is excluded, like opponentTier1() does: the panel asks who
+ * ELSE can get there, and counting my own team among the rivals would inflate
+ * it by one. The assignment form's team selector deliberately does NOT change
+ * this — that selector says whose purchase is being recorded, while this
+ * block is always read from Owner's seat.
+ */
+function opponentReachProps(aState: AuctionState): OpponentReachProps {
+  const role = state.call.role;
+  const teamLabels = seatLabelMap();
+  if (role === "") return { set: null, teamLabels, thresholdSource: "floor" };
+  const typed = parsePositiveIntegerPrice(state.assign.price);
+  return {
+    set: competitorSet(aState, role, typed ?? COST_FLOOR, SELF_ID),
+    teamLabels,
+    thresholdSource: typed === null ? "floor" : "price",
+  };
 }
 
 // ── Command line di inserimento (T13 #231) ───────────────────────────────────
@@ -2972,10 +3006,32 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
 
   wrap.appendChild(renderPlayerInsightsBlock());
 
+  // The two blocks below used to be DEV STATICO placeholders on the tightest
+  // screen of the app. They now carry the facts the engine already knew:
+  //  - MOMENTO DELL'ASTA: roleScarcity() — the same panel the chiamata moment
+  //    shows, brought to the live screen where the role's remaining supply is
+  //    what the next bid is decided against — plus residualPressure(), the
+  //    census of credits and slots still on the table (anchors.ts);
+  //  - AVVERSARI: competitorSet() — who can still reach the figure being
+  //    typed, by hard constraint only (competitors.ts).
+  // Both are pure functions of the reduced AuctionState (+ the listone row
+  // count for availability): no model field, no network, no receipt needed —
+  // docs/AUCTION_2026_EXECUTION_PLAN.md §3, rows "Scarsità" and "Contabilità".
+  // The grid keeps its two columns and gains a stacking breakpoint (see
+  // .moment-blocks-grid in src/styles/asta.css): two dense panels side by side
+  // stop being readable on a phone well before they stop fitting.
   const suggestionsGrid = document.createElement("div");
-  suggestionsGrid.style.cssText = `display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;margin-bottom:16px;`;
-  suggestionsGrid.appendChild(renderMomentInsightsBlock());
-  suggestionsGrid.appendChild(renderOpponentInterestBlock());
+  suggestionsGrid.className = "moment-blocks-grid";
+  suggestionsGrid.appendChild(
+    renderMomentInsightsBlock({
+      scarcity: roleScarcity(aState, scarcityPool()),
+      poolLoaded: state.pool.length > 0,
+      calledRole: state.call.role,
+      pressure: residualPressure(aState),
+    }),
+  );
+  const opponentReach = renderOpponentInterestBlock(opponentReachProps(aState));
+  suggestionsGrid.appendChild(opponentReach);
   wrap.appendChild(suggestionsGrid);
 
   // Assign form
@@ -3039,6 +3095,11 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
     // live-update maxSafe price display without full re-render
     const pd = wrap.querySelector("#price-display");
     if (pd) pd.textContent = state.assign.price ? `${state.assign.price} cr` : "— cr";
+    // Same reason, same idiom, for the AVVERSARI block: it answers "who can
+    // still reach THIS figure", so it has to follow the figure as it is typed.
+    // A full render() here would take focus and caret out of the price field
+    // mid-auction, which is exactly why this input never calls it.
+    fillOpponentReach(opponentReach, opponentReachProps(aState));
   });
   priceInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") doAssign(aState);
