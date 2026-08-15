@@ -70,8 +70,12 @@ interface RouteOptions {
   readonly bundleText?: string;
   /** Manifest body, or `null` to serve none (404). Defaults to the builder's. */
   readonly manifestText?: string | null;
-  /** Set to `null` to serve no integrity policy at all. */
-  readonly policy?: null;
+  /**
+   * `null` serves no integrity policy at all (404 — a broken artifact).
+   * `"hang"` accepts the request and never answers it, which is the captive
+   * portal at boot: a different failure, and a different instruction.
+   */
+  readonly policy?: null | "hang";
 }
 
 /**
@@ -92,6 +96,11 @@ async function installBundleRoutes(
     if (url.pathname === POLICY_PATH) {
       if (options.policy === null) {
         return route.fulfill({ status: 404, contentType: "application/json", body: '{"error":"not_found"}' });
+      }
+      if (options.policy === "hang") {
+        // Accepted and never answered. No fulfill, no abort — the request just
+        // stays pending, exactly like a hall portal that swallows traffic.
+        return;
       }
       const response = await route.fetch();
       const policy = (await response.json()) as {
@@ -241,6 +250,54 @@ test.describe("BUNDLE-01 — runtime hash verification", () => {
     await expect(blockingScreen(page)).toHaveAttribute("data-integrity-code", "integrity-policy-unusable");
     expect(await page.evaluate(() => window.localStorage.getItem("fac_pool"))).toBeNull();
     expect(externalRequests).toEqual([]);
+  });
+
+  test("a network that swallows the policy blocks the app WITHOUT telling anyone to rebuild it", async ({
+    page,
+    context,
+  }) => {
+    // The captive portal at boot, and the one case where the screen used to
+    // contradict itself: the detail paragraph correctly said «ricarica appena la
+    // rete risponde, oppure disconnettiti — da offline l'app riparte dalla copia
+    // in cache», and the paragraph under it added «Ricostruisci o riscarica il
+    // bundle e il suo manifest». Nothing was ever hashed here, so there is no
+    // artifact to rebuild — and at the auction table nobody could rebuild one
+    // anyway. Reproduced live in review; this is the guard.
+    const externalRequests: string[] = [];
+    await installBundleRoutes(context, externalRequests, { policy: "hang" });
+    await page.goto("/");
+
+    // ~5s: POLICY_FETCH_ATTEMPTS attempts of POLICY_FETCH_TIMEOUT_MS each.
+    await expect(blockingScreen(page)).toBeVisible({ timeout: 15_000 });
+    await expect(blockingScreen(page)).toHaveAttribute("data-integrity-code", "integrity-policy-unreachable");
+
+    // The remedy that IS right for this failure is on screen...
+    const detail = await page.locator("#bundle-integrity-detail").innerText();
+    expect(detail).toContain("appena la rete risponde");
+    // ...and the one that is wrong for it is nowhere on the screen at all.
+    const screenText = await blockingScreen(page).innerText();
+    expect(screenText).not.toContain("Ricostruisci");
+    expect(screenText).not.toContain("riscarica il bundle");
+    await expect(page.locator("#bundle-integrity-next-steps")).toHaveCount(0);
+
+    // Fail-closed is untouched: still a block, still nothing loaded.
+    expect(await page.evaluate(() => window.localStorage.getItem("fac_pool"))).toBeNull();
+    expect(await integrityStatus(page)).toBe("failed");
+    expect(externalRequests).toEqual([]);
+  });
+
+  test("a broken artifact still says how to fix the artifact", async ({ page, context }) => {
+    // The other side of the same rule, so the fix cannot be "delete the advice":
+    // a hash that does not match IS an artifact problem, and the screen must
+    // still say what to do about it.
+    const externalRequests: string[] = [];
+    const tampered = BUILT.bundleText.replace("Niccolò", "Niccolà");
+    await installBundleRoutes(context, externalRequests, { bundleText: tampered });
+    await page.goto("/");
+
+    await expect(blockingScreen(page)).toBeVisible();
+    await expect(blockingScreen(page)).toHaveAttribute("data-integrity-code", "hash-mismatch");
+    await expect(page.locator("#bundle-integrity-next-steps")).toContainText("Ricostruisci o riscarica il bundle");
   });
 
   test("the shipped build, which packages no manifest yet, loads exactly as before", async ({ page, context }) => {

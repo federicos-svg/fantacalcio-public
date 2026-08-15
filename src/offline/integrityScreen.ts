@@ -17,12 +17,55 @@
 // The wording matters as much as the block: "cosa non torna" is spelled out by
 // bundleIntegrityFailureText (src/offline/bundleIntegrity.ts) — which asset,
 // what was expected, what was actually served.
+//
+// And a third rule, learned from a defect: this screen adds no advice of its
+// own on top of a failure that already carries the right one. See
+// integrityNextStepsText below.
 
 import type { IntegrityFailureReport, IntegrityStatus } from "./integrityGate.js";
 
 export const INTEGRITY_SCREEN_ID = "bundle-integrity-blocked";
 export const INTEGRITY_STATUS_ATTRIBUTE = "data-fac-bundle-integrity";
 export const INTEGRITY_HEADING_ID = "bundle-integrity-heading";
+export const INTEGRITY_NEXT_STEPS_ID = "bundle-integrity-next-steps";
+
+/**
+ * The failures whose own sentence already tells the operator what to do, so the
+ * generic instruction below must NOT be added under it.
+ *
+ * Both are policy-level: the app never got as far as computing a hash, because
+ * it never learned what this build expects. `integrity-policy-unreachable` is
+ * the captive portal at boot — the network accepts and never answers — and
+ * `integrity-policy-unusable` is the policy that arrived unreadable, which
+ * bundleIntegrityFailureText already splits into its two causes and their two
+ * different remedies.
+ *
+ * This exists because the screen used to append "Ricostruisci o riscarica il
+ * bundle e il suo manifest" unconditionally, under a first paragraph that for
+ * the captive-portal case correctly said the opposite («ricarica appena la rete
+ * risponde, oppure disconnettiti»). Reproduced live in review. Two instructions
+ * that contradict each other are worse than one, and at the auction table the
+ * generic one cannot even be carried out: there is no artifact to rebuild, only
+ * a network that is not answering.
+ */
+const SELF_EXPLAINING_FAILURE_CODES: ReadonlySet<string> = new Set([
+  "integrity-policy-unreachable",
+  "integrity-policy-unusable",
+]);
+
+/**
+ * The "what now" paragraph, or `null` when `report.text` already covers it.
+ *
+ * Pure and exported so the rule is testable without a DOM: the screen renders
+ * whatever this returns and adds nothing of its own.
+ */
+export function integrityNextStepsText(code: string): string | null {
+  if (SELF_EXPLAINING_FAILURE_CODES.has(code)) return null;
+  return (
+    "Nessun dato di questo bundle è stato caricato. Ricostruisci o riscarica il bundle e il suo manifest, " +
+    "poi ricarica la pagina. Finché l'hash non corrisponde, l'app resta bloccata di proposito."
+  );
+}
 
 /**
  * Publishes the current verdict on <html> so it is observable without scraping
@@ -84,18 +127,24 @@ export function showIntegrityBlockingScreen(doc: Document, report: IntegrityFail
   body.textContent = report.text;
   body.style.cssText = "margin:0 0 12px;line-height:1.5;font-size:1rem";
 
+  const nextStepsText = integrityNextStepsText(report.code);
+
   const code = doc.createElement("p");
   code.id = "bundle-integrity-code";
   code.textContent = `Codice: ${report.code} — asset: ${report.assetUrl}`;
-  code.style.cssText = "margin:0 0 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.85rem;color:#c8ccd6;word-break:break-all";
+  // Last element when there is no "what now" paragraph, so it carries no
+  // trailing margin then.
+  code.style.cssText = `margin:0 0 ${nextStepsText === null ? "0" : "12px"};font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.85rem;color:#c8ccd6;word-break:break-all`;
 
-  const next = doc.createElement("p");
-  next.textContent =
-    "Nessun dato di questo bundle è stato caricato. Ricostruisci o riscarica il bundle e il suo manifest, " +
-    "poi ricarica la pagina. Finché l'hash non corrisponde, l'app resta bloccata di proposito.";
-  next.style.cssText = "margin:0;line-height:1.5;font-size:0.95rem;color:#c8ccd6";
+  panel.append(heading, body, code);
 
-  panel.append(heading, body, code, next);
+  if (nextStepsText !== null) {
+    const next = doc.createElement("p");
+    next.id = INTEGRITY_NEXT_STEPS_ID;
+    next.textContent = nextStepsText;
+    next.style.cssText = "margin:0;line-height:1.5;font-size:0.95rem;color:#c8ccd6";
+    panel.append(next);
+  }
   overlay.appendChild(panel);
   doc.body.appendChild(overlay);
   // The page underneath must not scroll behind the block, and focus moves to

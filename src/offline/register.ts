@@ -1,11 +1,19 @@
 // The single import BUNDLE-01 adds to src/main.ts.
 //
-// Import order is the mechanism, not a detail: an ES module's imports are
-// evaluated before the importing module's own body, so putting this file first
-// in main.ts means the fetch gate is installed and the service worker
-// registration is under way BEFORE `autoLoadListonePool()` — the app's first
-// network call — exists, let alone runs. That is what makes the gate
-// unbypassable without a single line of coupling inside the loader.
+// Module evaluation order is the mechanism, not a detail: an ES module's
+// imports are all evaluated before the importing module's own body, so
+// importing this file from main.ts means the fetch gate is installed and the
+// service worker registration is under way BEFORE `autoLoadListonePool()` —
+// the app's first network call — exists, let alone runs. That is what makes
+// the gate unbypassable without a single line of coupling inside the loader,
+// and it holds from any position in main.ts's import list (verified by moving
+// this import last: the offline E2E suite stayed green).
+//
+// What that does NOT cover, and no test does either: a sibling import listed
+// ABOVE this one in main.ts that fetches, registers a connectivity listener or
+// touches `navigator.serviceWorker` at its own top level. Siblings evaluate in
+// source order, so such a module runs before this one and is not gated. Hence
+// the convention of keeping this import first — see the comment there.
 //
 // Everything here is wiring: the decisions live in integrityGate.ts (what to
 // verify), bundleIntegrity.ts (how), integrityScreen.ts (how the refusal is
@@ -58,14 +66,20 @@ function connectNetworkTruth(truth: NetworkTruth): void {
  * allowed to act on until it has been verified.
  *
  * This is the one place it CAN be done. src/main.ts registers its own
- * `online`/`offline` listeners at the bottom of its module body — and this
- * module is main.ts's first import, so its listeners are registered first.
+ * `online`/`offline` listeners at the BOTTOM of its module body, and every
+ * import of main.ts — this one included, wherever it sits in that list — is
+ * evaluated before that body runs. So these listeners are registered first.
  * Listeners on the same target run in registration order, which makes
  * `stopImmediatePropagation()` here decisive: the app's own handler, which
  * would set `state.offline = false` on the spot, never sees an unverified
  * claim. Without this the whole layer is one-directional — measured: with a
  * captive portal armed BEFORE reconnecting, the banner went back to «Core
  * locale pronto» instantly, with the log of attempted requests empty.
+ *
+ * The ordering that would actually break this is a sibling module, imported by
+ * main.ts above this one, registering its own `online` listener at ITS top
+ * level: it would run before this interceptor and see the raw claim. Nothing
+ * in the suite guards that; the import-order convention in main.ts does.
  *
  * `isTrusted` is the discriminator, and it cannot be forged from script: the
  * browser's own events carry `true`, the ones this layer re-dispatches after a

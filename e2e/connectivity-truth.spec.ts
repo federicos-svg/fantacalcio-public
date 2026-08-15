@@ -204,8 +204,28 @@ test.describe("connectivity is reported from evidence, not from an optimistic fl
     await page.goto("/");
     await waitForServiceWorkerControl(page);
 
+    // Two preconditions, both learned by measuring a ~11-27% flake in this very
+    // test — it failed with `reachable: true`, never with "no answer", so the
+    // retention mechanism was never the thing breaking.
+    //
+    // The worker keeps ONE standing verdict, and every request it handles
+    // successfully replaces it. So the window between forming the verdict below
+    // and asking for it has to be free of successful requests, and boot alone
+    // is not: instrumenting the channel showed the app's own late arrivals
+    // (`/data/listone_2025_26.manifest.json`, the club logo SVGs) still landing
+    // with `reachable: true` after `waitForServiceWorkerControl` returned, and
+    // more of them right after the offline re-render.
+    //
+    // 1. wait for the page to stop making requests, so nothing already in
+    //    flight can land after the verdict (a route installed later cannot
+    //    catch a request already sent);
+    await page.waitForLoadState("networkidle");
+    // 2. then cut EVERYTHING, not just the listone. Any same-origin request
+    //    that still succeeds — including the ones the offline re-render starts
+    //    — overwrites the verdict this test is about.
+    await context.route("**/*", () => {});
+
     // A request the network swallows, so the worker forms a verdict.
-    await context.route("**/data/listone_2025_26.json", () => {});
     await page.evaluate(async () => {
       await fetch("/data/listone_2025_26.json").catch(() => undefined);
     });
