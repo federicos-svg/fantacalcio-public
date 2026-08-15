@@ -88,7 +88,15 @@ function isSearchSafe(pool: readonly ListonePlayer[], name: string): boolean {
   return matches.length === 1;
 }
 
-function findUniqueRoleATarget(pool: readonly ListonePlayer[]): ListonePlayer {
+/**
+ * Exported ONLY so it can be exercised by a committed, CI-run unit test
+ * (scripts/lib/shippedListoneTargetSelection.test.ts — vitest excludes
+ * `e2e/**`, so a test living in this directory would never actually run).
+ * Not meant to be imported by app or spec code beyond that: `SHIPPED_TARGET`
+ * below, computed from the real shipped asset, remains the one export specs
+ * should use.
+ */
+export function findUniqueRoleATarget(pool: readonly ListonePlayer[]): ListonePlayer {
   const nameCounts = new Map<string, number>();
   for (const p of pool) nameCounts.set(p.name, (nameCounts.get(p.name) ?? 0) + 1);
   const exactUniqueRoleA = pool.filter((p) => p.role === "A" && nameCounts.get(p.name) === 1);
