@@ -3140,6 +3140,37 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   formRow.appendChild(submitBtn);
   divider.appendChild(formRow);
 
+  // Terzo portiere a 0 — LEAGUE_RULES.md §6 (decisione Pico, 2026-08-15).
+  // Rendered ONLY when this purchase is structurally the selected team's
+  // third (last) portiere slot — same condition purchaseFeasibility()
+  // checks server-side, kept in sync here only to decide whether to SHOW
+  // the gesture; the engine call below is still the sole authority on
+  // whether it is actually admitted. Everywhere else this button does not
+  // exist, so there is nothing to misclick into recording a 0.
+  //
+  // ONE gesture, not two: this click both DECLARES (that the table-level
+  // facts the engine cannot see — same real club as a portiere already on
+  // the roster, no other participant interested — hold right now) AND
+  // commits the purchase at price 0, in the same action. No modal, no
+  // field, no second confirm — see registerThirdGoalkeeperZero below.
+  if (state.call.role === "P" && assignTeam && assignTeam.slotsRemaining.P === 1) {
+    const zeroWrap = document.createElement("div");
+    zeroWrap.style.cssText = `margin-top:12px;padding:10px 12px;border:1px dashed ${C.accent};border-radius:7px;background:${C.panelInner};display:flex;align-items:center;gap:12px;flex-wrap:wrap;`;
+    const zeroNote = document.createElement("div");
+    zeroNote.style.cssText = `font-size:12px;color:${C.textSec};flex:1;min-width:220px;`;
+    zeroNote.textContent = `Terzo portiere di ${displayTeamLabel(state.assign.fantaTeamId)}: se stesso club di un portiere già in rosa e nessun altro interessato (LEAGUE_RULES §6) → registralo a 0 cr.`;
+    const zeroBtn = document.createElement("button");
+    zeroBtn.textContent = "Dichiaro e registro a 0 cr";
+    zeroBtn.className = "btn btn--secondary";
+    zeroBtn.style.flex = "none";
+    zeroBtn.title =
+      "Un solo click: dichiara che le condizioni del regolamento sono soddisfatte adesso e registra l'acquisto a 0 crediti. La dichiarazione resta nello storico.";
+    zeroBtn.addEventListener("click", () => registerThirdGoalkeeperZero(aState));
+    zeroWrap.appendChild(zeroNote);
+    zeroWrap.appendChild(zeroBtn);
+    divider.appendChild(zeroWrap);
+  }
+
   if (state.error) {
     const errEl = document.createElement("div");
     errEl.style.cssText = `font-size:13px;color:${C.stopRed};margin-top:10px;`;
@@ -3194,31 +3225,16 @@ function feasibilityErrorText(violations: readonly string[], role: Role): string
   return violations.map((v) => msgs[v] ?? v).join(" ");
 }
 
-function doAssign(aState: AuctionState): void {
-  const selectedPlayer = state.call.selectedPlayer;
-  if (!selectedPlayer) {
-    // Unreachable via the UI (launchAsta already requires correlation and
-    // nothing clears selectedPlayer during the asta moment) — kept as a
-    // type-safety guard, not a real user-facing path.
-    state.error = "Nessun giocatore selezionato dal listone.";
-    render();
-    return;
-  }
-  const price = parsePositiveIntegerPrice(state.assign.price);
-  if (price === null) {
-    state.error = "Prezzo non valido: inserisci un numero intero positivo.";
-    render();
-    return;
-  }
-  const playerId = listonePlayerKey(selectedPlayer);
-  const role = selectedPlayer.role;
-  const proposed: ProposedPurchase = {
-    playerId,
-    role,
-    fantaTeamId: state.assign.fantaTeamId,
-    price,
-  };
-
+/**
+ * Shared commit path for every purchase-entry gesture on this screen: the
+ * typed-price form (doAssign) and the one-click third-portiere-at-0
+ * declaration (registerThirdGoalkeeperZero) below — same shape as
+ * executeAssignCommand's role for the command-line fast path. Runs the SAME
+ * purchaseFeasibility() -> recordPurchase() -> saveAuctionLog() sequence
+ * regardless of which gesture produced `proposed`, so `max_safe`/hard
+ * reserve stay non-overridable no matter which UI path is used.
+ */
+function commitPurchase(aState: AuctionState, proposed: ProposedPurchase, role: Role): void {
   const feasibility = purchaseFeasibility(aState, proposed);
   if (!feasibility.ok) {
     state.error = feasibilityErrorText(feasibility.violations, role);
@@ -3254,6 +3270,66 @@ function doAssign(aState: AuctionState): void {
     state.error = err instanceof Error ? err.message : "Errore sconosciuto.";
     render();
   }
+}
+
+function doAssign(aState: AuctionState): void {
+  const selectedPlayer = state.call.selectedPlayer;
+  if (!selectedPlayer) {
+    // Unreachable via the UI (launchAsta already requires correlation and
+    // nothing clears selectedPlayer during the asta moment) — kept as a
+    // type-safety guard, not a real user-facing path.
+    state.error = "Nessun giocatore selezionato dal listone.";
+    render();
+    return;
+  }
+  const price = parsePositiveIntegerPrice(state.assign.price);
+  if (price === null) {
+    state.error = "Prezzo non valido: inserisci un numero intero positivo.";
+    render();
+    return;
+  }
+  const playerId = listonePlayerKey(selectedPlayer);
+  const role = selectedPlayer.role;
+  const proposed: ProposedPurchase = {
+    playerId,
+    role,
+    fantaTeamId: state.assign.fantaTeamId,
+    price,
+  };
+  commitPurchase(aState, proposed, role);
+}
+
+/**
+ * One-gesture declaration path for LEAGUE_RULES.md §6's third-portiere
+ * exception (Pico, 2026-08-15). Only reachable by clicking the button
+ * renderMomentoAsta shows exclusively when this IS the selected team's
+ * third portiere slot — this function does not re-derive that gate, it
+ * defers entirely to purchaseFeasibility() (via commitPurchase) as the
+ * single source of truth, same as every other purchase path. The click
+ * itself is both the operator's declaration that the table-level facts
+ * (same real club as a portiere already on the roster; no other
+ * participant interested) hold right now, AND the commit — no second step,
+ * no field to fill in. `commitPurchase` -> `recordPurchase` writes that
+ * declaration onto the event (`thirdGoalkeeperZeroDeclared: true`), so the
+ * log explains the 0 on replay.
+ */
+function registerThirdGoalkeeperZero(aState: AuctionState): void {
+  const selectedPlayer = state.call.selectedPlayer;
+  if (!selectedPlayer) {
+    state.error = "Nessun giocatore selezionato dal listone.";
+    render();
+    return;
+  }
+  const playerId = listonePlayerKey(selectedPlayer);
+  const role = selectedPlayer.role;
+  const proposed: ProposedPurchase = {
+    playerId,
+    role,
+    fantaTeamId: state.assign.fantaTeamId,
+    price: 0,
+    declareThirdGoalkeeperZero: true,
+  };
+  commitPurchase(aState, proposed, role);
 }
 
 /** Human-readable, non-alarmist explanation of a failed save — always

@@ -80,6 +80,129 @@ describe("purchaseFeasibility — hard-safe admission", () => {
   });
 });
 
+describe("purchaseFeasibility — third portiere at 0 (LEAGUE_RULES.md §6, declared-only)", () => {
+  // "psg" with its first two P slots already filled -> the next P purchase
+  // for psg IS the team's third (last) portiere slot.
+  const twoGoalkeepersLog: AuctionEvent[] = [
+    { type: "PURCHASE", seq: 0, ts: TS, playerId: "P1", role: "P", fantaTeamId: "psg", price: 10 },
+    { type: "PURCHASE", seq: 1, ts: TS, playerId: "P2", role: "P", fantaTeamId: "psg", price: 5 },
+  ];
+  // "psg" with only ONE P slot filled -> the next P purchase is the SECOND,
+  // not the third — the structural condition must not fire here.
+  const oneGoalkeeperLog: AuctionEvent[] = [
+    { type: "PURCHASE", seq: 0, ts: TS, playerId: "P1", role: "P", fantaTeamId: "psg", price: 10 },
+  ];
+
+  it("THE critical negative: price 0 on the actual third-portiere slot is still rejected without the declaration", () => {
+    const s = reduce(twoGoalkeepersLog, TEAMS);
+    expect(s.teams.psg!.slotsRemaining.P).toBe(1); // confirms this IS the 3rd slot
+    const r = purchaseFeasibility(s, { playerId: "P3", role: "P", fantaTeamId: "psg", price: 0 });
+    expect(r.ok).toBe(false);
+    expect(r.violations).toContain("price-below-floor");
+  });
+
+  it("accepts price 0 on the third portiere slot ONLY when explicitly declared", () => {
+    const s = reduce(twoGoalkeepersLog, TEAMS);
+    const r = purchaseFeasibility(s, {
+      playerId: "P3",
+      role: "P",
+      fantaTeamId: "psg",
+      price: 0,
+      declareThirdGoalkeeperZero: true,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.violations).toEqual([]);
+  });
+
+  it("declaring is inert (not yet the third slot): price 0 on the SECOND portiere is still rejected even when declared", () => {
+    const s = reduce(oneGoalkeeperLog, TEAMS);
+    expect(s.teams.psg!.slotsRemaining.P).toBe(2); // this purchase would be the 2nd, not the 3rd
+    const r = purchaseFeasibility(s, {
+      playerId: "P2",
+      role: "P",
+      fantaTeamId: "psg",
+      price: 0,
+      declareThirdGoalkeeperZero: true,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.violations).toContain("price-below-floor");
+  });
+
+  it("declaring is inert (wrong role): price 0 on a non-portiere role is still rejected even when declared", () => {
+    const s = reduce(twoGoalkeepersLog, TEAMS); // psg's P slots are irrelevant here — role is D
+    const r = purchaseFeasibility(s, {
+      playerId: "D9",
+      role: "D",
+      fantaTeamId: "psg",
+      price: 0,
+      declareThirdGoalkeeperZero: true,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.violations).toContain("price-below-floor");
+  });
+
+  it("the exception is exactly price 0 — a declared third portiere at a negative price is still rejected", () => {
+    const s = reduce(twoGoalkeepersLog, TEAMS);
+    const r = purchaseFeasibility(s, {
+      playerId: "P3",
+      role: "P",
+      fantaTeamId: "psg",
+      price: -1,
+      declareThirdGoalkeeperZero: true,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.violations).toContain("price-below-floor");
+  });
+
+  it("every OTHER team's every OTHER floor case is unaffected: floor stays 1 everywhere else", () => {
+    const s = reduce([], TEAMS);
+    for (const role of ["P", "D", "C", "A"] as const) {
+      const r = purchaseFeasibility(s, { playerId: `x-${role}`, role, fantaTeamId: "psg", price: 0 });
+      expect(r.violations).toContain("price-below-floor");
+    }
+  });
+});
+
+describe("recordPurchase — third portiere at 0 is logged as an explicit declaration", () => {
+  const twoGoalkeepersLog: AuctionEvent[] = [
+    { type: "PURCHASE", seq: 0, ts: TS, playerId: "P1", role: "P", fantaTeamId: "psg", price: 10 },
+    { type: "PURCHASE", seq: 1, ts: TS, playerId: "P2", role: "P", fantaTeamId: "psg", price: 5 },
+  ];
+
+  it("writes thirdGoalkeeperZeroDeclared: true on the appended event, so the log explains the 0 on replay", () => {
+    const s = reduce(twoGoalkeepersLog, TEAMS);
+    const next = recordPurchase(
+      twoGoalkeepersLog,
+      s,
+      { playerId: "P3", role: "P", fantaTeamId: "psg", price: 0, declareThirdGoalkeeperZero: true },
+      TS,
+    );
+    const ev = next[next.length - 1]!;
+    expect(ev).toMatchObject({ type: "PURCHASE", price: 0, thirdGoalkeeperZeroDeclared: true });
+
+    // The declaration is not just decorative: replay must reflect price 0.
+    const after = reduce(next, TEAMS).teams.psg!;
+    expect(after.spent).toBe(15); // 10 + 5 + 0
+    expect(after.filled.P).toBe(3);
+    expect(after.slotsRemaining.P).toBe(0);
+  });
+
+  it("never writes the field on an ordinary purchase, even one made by the same team/role", () => {
+    const log = syntheticLog();
+    const s = reduce(log, TEAMS);
+    const next = recordPurchase(log, s, { playerId: "P9", role: "P", fantaTeamId: "psg", price: 3 }, TS);
+    const ev = next[next.length - 1]!;
+    expect("thirdGoalkeeperZeroDeclared" in ev).toBe(false);
+  });
+
+  it("throws — and appends nothing — for price 0 on the third portiere without the declaration", () => {
+    const s = reduce(twoGoalkeepersLog, TEAMS);
+    expect(() =>
+      recordPurchase(twoGoalkeepersLog, s, { playerId: "P3", role: "P", fantaTeamId: "psg", price: 0 }, TS),
+    ).toThrow(/infeasible purchase/);
+  });
+});
+
 describe("recordPurchase — manual-input contract", () => {
   it("appends a correctly-sequenced event for a feasible purchase", () => {
     const log = syntheticLog();

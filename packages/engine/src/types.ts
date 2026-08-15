@@ -25,6 +25,21 @@ export interface PurchaseEvent {
   readonly role: Role;
   readonly fantaTeamId: string;
   readonly price: number;
+  /**
+   * Present, and always `true`, ONLY on the single narrow exception to
+   * `price >= COST_FLOOR`: LEAGUE_RULES.md §6 lets a team's third (i.e.
+   * last) portiere slot complete at 0 credits, but only when the operator
+   * explicitly declared — at the table, in the same gesture that recorded
+   * this purchase — that the rule's conditions hold (same real club as a
+   * portiere already on the roster; no other participant interested). The
+   * engine cannot observe either condition itself (see competitors.ts's
+   * deliberate refusal to model "interest"), so this field is the operator's
+   * declaration, not the engine's inference — see feasibility.ts's
+   * `purchaseFeasibility`/`recordPurchase`. Reading the log back later, this
+   * field is what explains a 0 next to every other price obeying
+   * COST_FLOOR. Absent (never `false`) on every other purchase.
+   */
+  readonly thirdGoalkeeperZeroDeclared?: true;
 }
 
 /** A compensating event that voids a prior purchase (undo / correction).
