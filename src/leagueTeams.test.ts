@@ -64,7 +64,7 @@ describe("addPerson", () => {
 
 describe("renamePerson", () => {
   it("keeps the id, so the seat assignment survives the rename", () => {
-    const roster = withPeople("Marcoo");
+    const roster = withPeople("Brunoo");
     const person = roster.people[0]!;
     const seated = assignSeat(roster, "Squadra2", person.id);
     expect(seated.ok).toBe(true);
@@ -91,15 +91,15 @@ describe("renamePerson", () => {
 describe("assignSeat", () => {
   it("moves a person between seats instead of duplicating them", () => {
     const roster = withPeople("Bruno");
-    const marco = roster.people[0]!;
-    const first = assignSeat(roster, "Squadra2", marco.id);
+    const bruno = roster.people[0]!;
+    const first = assignSeat(roster, "Squadra2", bruno.id);
     expect(first.ok).toBe(true);
     if (!first.ok) return;
-    const moved = assignSeat(first.roster, "Squadra3", marco.id);
+    const moved = assignSeat(first.roster, "Squadra3", bruno.id);
     expect(moved.ok).toBe(true);
     if (!moved.ok) return;
     // Same person, different seat, and the old seat is free again.
-    expect(moved.roster.seats).toEqual({ Io: null, Squadra2: null, Squadra3: marco.id });
+    expect(moved.roster.seats).toEqual({ Io: null, Squadra2: null, Squadra3: bruno.id });
     expect(seatLabel(moved.roster, "Squadra3")).toBe("Bruno");
     expect(seatLabel(moved.roster, "Squadra2")).toBe("Squadra2");
   });
@@ -128,7 +128,7 @@ describe("seatPerson / seatLabel / unseatedPeople", () => {
     expect(seated.ok).toBe(true);
     if (!seated.ok) return;
     expect(unseatedPeople(seated.roster).map((p) => p.name)).toEqual(["Giulia"]);
-    // Marco leaves the league: still archived, pickable again later.
+    // Bruno leaves the league: still archived, pickable again later.
     const freed = assignSeat(seated.roster, "Squadra2", null);
     expect(freed.ok && unseatedPeople(freed.roster).map((p) => p.name)).toEqual(["Bruno", "Giulia"]);
   });

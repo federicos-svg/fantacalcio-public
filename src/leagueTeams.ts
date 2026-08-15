@@ -64,7 +64,7 @@ export type RosterResult =
   | { readonly ok: false; readonly reason: RosterError };
 
 /** Case- and accent-folded, whitespace-trimmed — same rule used for manual
- *  scouting duplicates, so "Marco" and " marco " are one person. */
+ *  scouting duplicates, so "Bruno" and " bruno " are one person. */
 function identityPart(value: string): string {
   return value.normalize("NFKC").trim().toLocaleLowerCase("it");
 }
