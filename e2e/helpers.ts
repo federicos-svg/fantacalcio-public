@@ -3,6 +3,7 @@
 // self-assign+reload spec and the LIVE-02 recovery specs. Extracted only
 // because the duplication across those specs was real, not speculative.
 import { type BrowserContext, type Page, expect } from "@playwright/test";
+import { LISTONE_PAGE_SIZE } from "../src/ui/listone.js";
 
 export const LISTONE_ASSET_PATH = "/data/listone_2025_26.json";
 export const LISTONE_REMOTE_PATH = "/api/listone";
@@ -156,6 +157,55 @@ export async function expectAssignedEffectsVisible(
   await selectStatusFilter(page, "assigned");
   const assignedRow = page.locator(".listone-row", { hasText: playerName });
   await expect(assignedRow).toContainText("Assegnato");
+}
+
+/**
+ * Asserts the CONTENT, ORDER and EXACTNESS of the listone rows currently
+ * rendered on screen: `.listone-row > div:first-child` is always the player
+ * name — the first entry of `CORE_COLUMNS` in src/ui/listone.ts (not exported,
+ * so this relies on the render order in src/ui/views.ts instead of importing
+ * the list directly, same posture as the rest of this suite). `toHaveText` on
+ * a multi-element locator fails on any extra row, missing row, or reordering —
+ * a strictly stronger check than asserting individual names are present
+ * somewhere on the page.
+ */
+export async function expectListoneRows(page: Page, names: readonly string[]): Promise<void> {
+  await expect(page.locator(".listone-row > div:first-child")).toHaveText([...names]);
+}
+
+/**
+ * Asserts that the WHOLE shipped pool is on screen, unfiltered: the note
+ * under the table reads "N giocatori caricati" (src/ui/views.ts — only shown
+ * when the displayed pool equals the full loaded pool, i.e. no search/status
+ * filter is narrowing it) and the pagination indicator reads
+ * "Pagina 1 di ⌈N / LISTONE_PAGE_SIZE⌉". `LISTONE_PAGE_SIZE` is imported from
+ * src/ui/listone.ts, never hand-copied, so the expected page count tracks the
+ * real constant if it ever changes.
+ */
+export async function expectListoneWholePoolLoaded(page: Page, total: number): Promise<void> {
+  const totalPages = Math.max(1, Math.ceil(total / LISTONE_PAGE_SIZE));
+  const listonePanel = page.locator(".panel--bordered", { hasText: "LISTONE SVINCOLATI" });
+  await expect(listonePanel).toContainText(`${total} giocatori caricati.`);
+  await expect(listonePanel).toContainText(`Pagina 1 di ${totalPages}`);
+}
+
+/**
+ * Selects a listone row by player name through the REAL search flow instead
+ * of clicking on text that happens to be visible: fills `#search-player`,
+ * which filters the table live and resets it to page 1 (see the `input`
+ * listener in src/main.ts), waits for the filter to narrow the table to
+ * exactly one row, then clicks it.
+ *
+ * Required on a real (paginated) listone: `getByText(name).click()` only
+ * works when the target row already happens to be on the currently-rendered
+ * page, which a large real listone does not guarantee — the whole reason this
+ * helper exists (see e2e/shipped-listone.ts).
+ */
+export async function selectListoneRowByName(page: Page, name: string): Promise<void> {
+  await page.locator("#search-player").fill(name);
+  const rows = page.locator(".listone-row");
+  await expect(rows).toHaveCount(1);
+  await rows.first().click();
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

@@ -17,15 +17,14 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { SHIPPED_LISTONE, SHIPPED_LISTONE_FIRST_PAGE, SHIPPED_TARGET } from "./shipped-listone.js";
+import { expectListoneRows, expectListoneWholePoolLoaded, selectListoneRowByName } from "./helpers.js";
 
-// The listone that actually ships in the build. Synthetic content (see
-// public/data/listone_2025_26.json), read here so the assertions follow the
-// asset instead of hardcoding a copy of it.
-const SHIPPED_LISTONE = JSON.parse(
-  readFileSync(fileURLToPath(new URL("../public/data/listone_2025_26.json", import.meta.url)), "utf8"),
-) as ReadonlyArray<{ name: string; role: string; club: string; quotation: number }>;
-
-const TARGET = SHIPPED_LISTONE.find((row) => row.role === "A") ?? SHIPPED_LISTONE[0]!;
+// The listone that actually ships in the build (public/data/listone_2025_26.json),
+// validated and read by identity, not by hardcoded content — see
+// e2e/shipped-listone.ts. This follows the real asset whether it is the
+// public repo's 6-row synthetic fixture or the private repo's real listone.
+const TARGET = SHIPPED_TARGET;
 const PRICE = 17;
 /** The shipped listone asset — boot-critical: offline it must come from cache. */
 const LISTONE_ASSET_PATH = "/data/listone_2025_26.json";
@@ -93,7 +92,7 @@ async function waitForServiceWorkerControl(page: Page): Promise<void> {
 }
 
 async function assignTarget(page: Page): Promise<void> {
-  await page.getByText(TARGET.name, { exact: true }).click();
+  await selectListoneRowByName(page, TARGET.name);
   const avvia = page.getByRole("button", { name: /^Avvia/ });
   await expect(avvia).toBeEnabled();
   await avvia.click();
@@ -112,7 +111,11 @@ test.describe("BUNDLE-01 — network-free cold start", () => {
     const warm = await context.newPage();
     await warm.goto("/");
     await expect(warm.locator("#critical-budget")).toHaveText("500 cr");
-    await expect(warm.getByText(TARGET.name, { exact: true })).toBeVisible();
+    // The real shipped asset, by identity not by hardcoded content (see
+    // e2e/shipped-listone.ts): page 1 content, order and exactness, plus
+    // confirmation the WHOLE pool loaded.
+    await expectListoneRows(warm, SHIPPED_LISTONE_FIRST_PAGE.map((row) => row.name));
+    await expectListoneWholePoolLoaded(warm, SHIPPED_LISTONE.length);
     await waitForServiceWorkerControl(warm);
 
     // The shell really is in Cache Storage, under a cache named for THIS
@@ -135,9 +138,10 @@ test.describe("BUNDLE-01 — network-free cold start", () => {
     // ── 3. The app is there, with its listone, with no network at all.
     await expect(cold.locator("#critical-budget")).toHaveText("500 cr");
     await expect(cold.locator("#critical-max-bid")).toContainText("473 cr");
-    for (const row of SHIPPED_LISTONE) {
-      await expect(cold.getByText(row.name, { exact: true })).toBeVisible();
-    }
+    // Page 1 content, order and exactness, plus confirmation the WHOLE pool
+    // loaded — offline, from cache, exactly as the warm visit above.
+    await expectListoneRows(cold, SHIPPED_LISTONE_FIRST_PAGE.map((row) => row.name));
+    await expectListoneWholePoolLoaded(cold, SHIPPED_LISTONE.length);
     // Offline is *recognised*, not merely survived (UI-FIX-03 state).
     await cold.locator("nav").getByText("Impostazioni", { exact: true }).click();
     await cold.locator("#settings-tab-status").click();
