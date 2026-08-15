@@ -26,6 +26,7 @@ import {
   SHELL_ASSET_NETWORK_TIMEOUT_MS,
 } from "./swPolicy.js";
 import { shellCacheName, staleShellCacheNames } from "./appIntegrityPolicy.js";
+import { NETWORK_TRUTH_MESSAGE, NETWORK_TRUTH_QUERY } from "./networkTruth.js";
 
 declare const __FAC_BUILD_ID__: string;
 declare const __FAC_PRECACHE__: readonly string[];
@@ -43,13 +44,24 @@ interface FetchEventLike extends ExtendableEventLike {
   readonly request: Request;
   respondWith(response: Response | Promise<Response>): void;
 }
+interface ClientLike {
+  postMessage(message: unknown): void;
+}
+interface MessageEventLike {
+  readonly data: unknown;
+  readonly source: ClientLike | null;
+}
 interface ServiceWorkerGlobalScopeLike {
   readonly location: { readonly origin: string };
   readonly caches: CacheStorage;
-  readonly clients: { claim(): Promise<void> };
+  readonly clients: {
+    claim(): Promise<void>;
+    matchAll(options?: { includeUncontrolled?: boolean; type?: "window" }): Promise<ClientLike[]>;
+  };
   skipWaiting(): Promise<void>;
   addEventListener(type: "install" | "activate", listener: (event: ExtendableEventLike) => void): void;
   addEventListener(type: "fetch", listener: (event: FetchEventLike) => void): void;
+  addEventListener(type: "message", listener: (event: MessageEventLike) => void): void;
 }
 
 const sw = self as unknown as ServiceWorkerGlobalScopeLike;
@@ -95,6 +107,39 @@ sw.addEventListener("activate", (event) => {
       await sw.clients.claim();
     })(),
   );
+});
+
+/**
+ * The worker's standing verdict on whether the ORIGIN is answering, and the
+ * channel that carries it to the page.
+ *
+ * This is the evidence `navigator.onLine` cannot provide: a network that
+ * accepts connections and never replies still reads as "online" to the browser,
+ * while every request handled here fails or times out. The page turns these
+ * observations into the standard connectivity events the app already listens
+ * for (src/offline/networkTruth.ts).
+ *
+ * The verdict is also retained, not only pushed: on a cold start the earliest
+ * failures happen before the document exists, so a page that arrives later asks
+ * for the last one instead of inheriting a silence it cannot distinguish from
+ * "everything is fine".
+ */
+let lastReachable: boolean | null = null;
+
+async function reportNetwork(reachable: boolean, url: string): Promise<void> {
+  lastReachable = reachable;
+  try {
+    const clients = await sw.clients.matchAll({ includeUncontrolled: true, type: "window" });
+    for (const client of clients) client.postMessage({ type: NETWORK_TRUTH_MESSAGE, reachable, url });
+  } catch {
+    /* a page that went away is not a failure worth propagating */
+  }
+}
+
+sw.addEventListener("message", (event) => {
+  if ((event.data as { type?: unknown } | null)?.type !== NETWORK_TRUTH_QUERY) return;
+  if (lastReachable === null || event.source === null) return;
+  event.source.postMessage({ type: NETWORK_TRUTH_MESSAGE, reachable: lastReachable, url: "(retained)" });
 });
 
 /** A network fetch that is abandoned — not merely slow — after `ms`. */
@@ -143,12 +188,14 @@ async function putInCache(request: Request, response: Response): Promise<void> {
 async function handleNavigation(request: Request): Promise<Response> {
   try {
     const fresh = await fetchWithTimeout(request, NAVIGATION_NETWORK_TIMEOUT_MS);
+    void reportNetwork(true, request.url);
     if (fresh.ok) {
       await putInCache(request, fresh.clone());
       return fresh;
     }
   } catch {
     /* offline, timed out, or refused — fall through to the cached shell */
+    void reportNetwork(false, request.url);
   }
   const fallbackPath = navigationFallbackPath(PRECACHED_PATHS);
   if (fallbackPath !== null) {
@@ -174,9 +221,15 @@ async function handleShellAsset(request: Request): Promise<Response> {
   // navigation, and here there is no cached copy to fall back to — so failing
   // fast (the request rejects, the browser reports it) is the only honest
   // outcome, and it must arrive in bounded time.
-  const fresh = await fetchWithTimeout(request, SHELL_ASSET_NETWORK_TIMEOUT_MS);
-  if (fresh.ok) await putInCache(request, fresh.clone());
-  return fresh;
+  try {
+    const fresh = await fetchWithTimeout(request, SHELL_ASSET_NETWORK_TIMEOUT_MS);
+    void reportNetwork(true, request.url);
+    if (fresh.ok) await putInCache(request, fresh.clone());
+    return fresh;
+  } catch (error) {
+    void reportNetwork(false, request.url);
+    throw error;
+  }
 }
 
 async function handleDataAsset(request: Request): Promise<Response> {
@@ -189,6 +242,7 @@ async function handleDataAsset(request: Request): Promise<Response> {
     // listone. The timeout is what turns that into the fallback this function
     // was written to perform.
     const fresh = await fetchWithTimeout(request, DATA_ASSET_NETWORK_TIMEOUT_MS);
+    void reportNetwork(true, request.url);
     if (fresh.ok) {
       await putInCache(request, fresh.clone());
       return fresh;
@@ -198,6 +252,9 @@ async function handleDataAsset(request: Request): Promise<Response> {
     const cachedOnError = await matchInCache(request);
     return cachedOnError ?? fresh;
   } catch {
+    // The observation that matters most: this is the path a hanging network
+    // takes, and the app has no other way to learn about it.
+    void reportNetwork(false, request.url);
     const cached = await matchInCache(request);
     if (cached) return cached;
     throw new Error("data asset unavailable offline and not cached");

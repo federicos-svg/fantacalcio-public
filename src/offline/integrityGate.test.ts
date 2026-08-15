@@ -77,6 +77,7 @@ function harness(options: {
   policyTimeoutMs?: number;
   policyAttempts?: number;
   assetTimeoutMs?: number;
+  onNetworkObservation?: (reachable: boolean, url: string) => void;
 }): Harness {
   const requested: string[] = [];
   const statuses: Array<{ status: IntegrityStatus; detail: string }> = [];
@@ -100,6 +101,7 @@ function harness(options: {
     policyTimeoutMs: options.policyTimeoutMs ?? 25,
     policyAttempts: options.policyAttempts,
     assetTimeoutMs: options.assetTimeoutMs ?? 40,
+    onNetworkObservation: options.onNetworkObservation,
   });
 
   return { gate, requested, statuses, failures };
@@ -421,6 +423,48 @@ describe("a payload that never arrives", () => {
     expect(await res.text()).toBe(BUNDLE_TEXT);
     expect(h.statuses.at(-1)?.status).toBe("unverified");
     expect(h.failures).toEqual([]);
+  });
+
+  it("reports the network as unreachable when it abandons a request, and reachable when it answers", async () => {
+    // The structured signal the connectivity state is rebuilt from — never a
+    // human sentence parsed by a consumer.
+    const observations: Array<{ reachable: boolean; url: string }> = [];
+    const hanging = harness({
+      routes: {
+        [APP_INTEGRITY_POLICY_URL]: () => jsonResponse(policyJson(true)),
+        [ASSET]: hangsForever(),
+        [MANIFEST]: () => jsonResponse(manifestJson()),
+      },
+      assetTimeoutMs: 30,
+      onNetworkObservation: (reachable, url) => observations.push({ reachable, url }),
+    });
+    await hanging.gate.fetch(`${ORIGIN}${ASSET}`);
+    expect(observations).toContainEqual({ reachable: true, url: APP_INTEGRITY_POLICY_URL });
+    expect(observations).toContainEqual({ reachable: false, url: ASSET });
+
+    const answering: Array<{ reachable: boolean; url: string }> = [];
+    const ok = harness({
+      routes: {
+        [APP_INTEGRITY_POLICY_URL]: () => jsonResponse(policyJson(true)),
+        [ASSET]: () => bundleResponse(),
+        [MANIFEST]: () => jsonResponse(manifestJson()),
+      },
+      onNetworkObservation: (reachable, url) => answering.push({ reachable, url }),
+    });
+    await ok.gate.fetch(`${ORIGIN}${ASSET}`);
+    expect(answering.every((entry) => entry.reachable)).toBe(true);
+    expect(answering).toContainEqual({ reachable: true, url: ASSET });
+  });
+
+  it("reports the network as unreachable when the policy itself never answers", async () => {
+    const observations: Array<{ reachable: boolean; url: string }> = [];
+    const h = harness({
+      routes: { [APP_INTEGRITY_POLICY_URL]: hangsForever(), [ASSET]: () => bundleResponse() },
+      policyTimeoutMs: 15,
+      onNetworkObservation: (reachable, url) => observations.push({ reachable, url }),
+    });
+    await h.gate.fetch(`${ORIGIN}${ASSET}`);
+    expect(observations.some((entry) => !entry.reachable && entry.url === APP_INTEGRITY_POLICY_URL)).toBe(true);
   });
 
   it("never shortens a deadline the caller set, and never removes it", async () => {

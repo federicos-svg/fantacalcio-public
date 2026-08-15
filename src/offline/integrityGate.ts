@@ -72,6 +72,14 @@ export interface IntegrityGateDeps {
   readonly onStatus: (status: IntegrityStatus, detail: string) => void;
   /** Called once per failure — the blocking screen. */
   readonly onFailure: (report: IntegrityFailureReport) => void;
+  /**
+   * Called whenever this gate learns something about whether the ORIGIN is
+   * answering: `false` when a request it owns was abandoned or failed at the
+   * network level, `true` when one came back. Structured on purpose — the
+   * consumer must never have to infer connectivity by reading a human
+   * sentence. Optional: the gate works exactly the same without a listener.
+   */
+  readonly onNetworkObservation?: (reachable: boolean, url: string) => void;
   /** Overridable only for tests. */
   readonly policyUrl?: string;
   /**
@@ -199,6 +207,7 @@ export function createIntegrityGate(deps: IntegrityGateDeps): IntegrityGate {
   const policyTimeoutMs = deps.policyTimeoutMs ?? POLICY_FETCH_TIMEOUT_MS;
   const policyAttempts = Math.max(1, deps.policyAttempts ?? POLICY_FETCH_ATTEMPTS);
   const assetTimeoutMs = deps.assetTimeoutMs ?? ASSET_FETCH_TIMEOUT_MS;
+  const observeNetwork = (reachable: boolean, url: string): void => deps.onNetworkObservation?.(reachable, url);
   let reported = false;
 
   const report = (assetUrl: string, failure: BundleIntegrityFailure): void => {
@@ -229,6 +238,7 @@ export function createIntegrityGate(deps: IntegrityGateDeps): IntegrityGate {
       const res = await deps.fetchImpl(policyUrl, { signal: controller.signal });
       // The server answered: whatever it said, this is no longer a network
       // problem. A non-OK status is "no policy here", not "unreachable".
+      observeNetwork(true, policyUrl);
       if (!res.ok) return { kind: "absent" };
       try {
         raw = await res.json();
@@ -236,6 +246,7 @@ export function createIntegrityGate(deps: IntegrityGateDeps): IntegrityGate {
         return { kind: "malformed", errors: ["la policy servita non è JSON leggibile"] };
       }
     } catch {
+      observeNetwork(false, policyUrl);
       return { kind: "unreachable" };
     } finally {
       clearTimeout(timer);
@@ -360,6 +371,8 @@ export function createIntegrityGate(deps: IntegrityGateDeps): IntegrityGate {
     let bytes: ArrayBuffer;
     try {
       response = await responsePromise;
+      // The origin answered — whatever the status says.
+      observeNetwork(true, url.pathname);
       // A source that failed to answer is the app's existing "unavailable" path
       // (fetchStaticListone returns null): nothing was served, so there is
       // nothing to verify and nothing to block.
@@ -376,6 +389,7 @@ export function createIntegrityGate(deps: IntegrityGateDeps): IntegrityGate {
       // offline. A slow network is not a corrupted bundle.
       void manifestPromise.catch(() => undefined);
       const aborted = error instanceof Error && error.name === "AbortError";
+      observeNetwork(false, url.pathname);
       deps.onStatus(
         "unverified",
         aborted
