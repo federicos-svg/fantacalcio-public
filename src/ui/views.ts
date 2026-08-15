@@ -46,6 +46,7 @@ import {
   MOMENT_FACTS_NOTE,
   OPPONENT_REACH_NOTE,
   OPPONENT_REACH_NO_ROLE,
+  OPPONENT_REACH_TITLE,
   type ReachThresholdSource,
   competitorReachHeadline,
   competitorReachHtml,
@@ -1069,6 +1070,15 @@ export function renderMomentInsightsBlock(props: MomentFactsProps): HTMLElement 
 // placeholder, and their headings state the basis that actually produced them
 // ("può arrivarci", a hard constraint) rather than an interest the engine
 // explicitly refuses to infer (§D9: no behavioural score, no declared intent).
+//
+// The PANEL TITLE follows the same rule as the headings, and for the same
+// reason. It used to read "AVVERSARI — INTERESSE SUL GIOCATORE", inherited
+// from the placeholder: an assertion about intent that `competitorSet` does
+// not compute and §D9 forbids inferring. It now names what is actually
+// measured — arithmetic reachability. The disclaimer in OPPONENT_REACH_NOTE
+// («può arrivarci non significa lo vuole») stays: with the title corrected it
+// is no longer a rebuttal of the panel's own heading, but it still guards the
+// reading of the numbers, and a precision that costs one line does no harm.
 
 export interface OpponentReachProps {
   /** `null` when the moment carries no role — see OPPONENT_REACH_NO_ROLE. */
@@ -1081,11 +1091,19 @@ export function renderOpponentInterestBlock(props: OpponentReachProps): HTMLElem
   const panel = document.createElement("section");
   panel.id = "opponent-reach-panel";
   panel.className = "panel opponent-reach";
-  panel.setAttribute("aria-label", "Avversari: chi può arrivare alla cifra");
+  // The visible title is short on purpose — it sits on the tightest screen of
+  // the app, must stay on one line down to 390px, and echoes the two group
+  // headings word for word so title, headline and groups read as one
+  // statement. The aria-label carries the same fact spelled out in full,
+  // where there is no width to fight for.
+  panel.setAttribute(
+    "aria-label",
+    "Avversari: chi può ancora arrivare alla cifra, per solo vincolo duro",
+  );
 
   const title = document.createElement("div");
   title.className = "panel-title";
-  title.textContent = "AVVERSARI — INTERESSE SUL GIOCATORE";
+  title.textContent = OPPONENT_REACH_TITLE;
   panel.appendChild(title);
 
   const headline = document.createElement("p");

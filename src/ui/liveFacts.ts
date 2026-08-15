@@ -4,8 +4,8 @@
 //  - MOMENTO DELL'ASTA: how tight the table is right now — remaining supply
 //    per role (`roleScarcity`, already wired in the `chiamata` moment) plus
 //    the census of credits and slots still on the table (`residualPressure`);
-//  - AVVERSARI — INTERESSE SUL GIOCATORE: who, by HARD CONSTRAINT ONLY, can
-//    still reach the figure being typed (`competitorSet`).
+//  - AVVERSARI: CHI PUÒ ARRIVARCI: who, by HARD CONSTRAINT ONLY, can still
+//    reach the figure being typed (`competitorSet`).
 //
 // PROVENANCE (docs/AUCTION_2026_EXECUTION_PLAN.md §3, "regola dei tre
 // ingredienti" of docs/DECISIONS.md §D9). Every number below is either a
@@ -297,6 +297,39 @@ export function competitorReachHtml(
     )
   );
 }
+
+/**
+ * Titolo del pannello. Dice la quantità che il pannello MISURA —
+ * raggiungibilità aritmetica — e non quella che non calcola: il titolo
+ * ereditato dal segnaposto diceva «INTERESSE SUL GIOCATORE», cioè
+ * un'intenzione, che `competitorSet` rifiuta per costruzione (`basis:
+ * "hard-constraints"`) e che §D9 vieta di inferire.
+ *
+ * Perché questa formulazione e non un'altra:
+ *  - il SOGGETTO resta «AVVERSARI»: a essere sbagliato era il predicato, non
+ *    di chi parla il pannello, e rinominare il soggetto avrebbe introdotto un
+ *    secondo termine per la stessa cosa accanto ad «AVVERSARI TIER-1» (Rose);
+ *  - «PUÒ» è il verbo portante e non è negoziabile: è possibilità aritmetica,
+ *    non previsione. «CHI ARRIVA» sarebbe una predizione;
+ *  - «ARRIVARCI» è la stessa parola delle due intestazioni interne («PUÒ
+ *    ARRIVARE A N CR» / «NON PUÒ ARRIVARCI»), così titolo, riga di sintesi e
+ *    gruppi si leggono come una frase sola invece che come tre affermazioni;
+ *  - il «-ci» ha il suo antecedente una riga sotto, nella riga di sintesi
+ *    («N rivali su M possono arrivare a X cr»), e per intero nell'aria-label
+ *    del pannello, dove non c'è larghezza da contendere.
+ *
+ * I due punti al posto del trattone di «TAVOLO — BUDGET E MAX BID» sono una
+ * scelta di larghezza, misurata e non stimata: a 390px il titolo ha 244px, e
+ * questo pannello vive sulla schermata più stretta dell'app, in asta.
+ *   AVVERSARI — INTERESSE SUL GIOCATORE   312px  (andava a capo: 2 righe)
+ *   AVVERSARI — CHI PUÒ ARRIVARCI         254px  (andrebbe a capo)
+ *   AVVERSARI: CHI PUÒ ARRIVARCI          242px  (una riga, margine 2px)
+ * Il margine è sottile: se un giorno un altro font lo fa andare a capo, il
+ * titolo torna su due righe come ci stava quello vecchio — nessun overflow,
+ * nessuno scroll orizzontale. Per questo l'E2E pretende una riga sola a 768 e
+ * 1280 e si limita a vietare il traboccamento a 390.
+ */
+export const OPPONENT_REACH_TITLE = "AVVERSARI: CHI PUÒ ARRIVARCI";
 
 export const OPPONENT_REACH_NOTE =
   "Solo vincolo duro, dal log dell'asta: uno slot del ruolo ancora libero e un max bid sicuro (budget − minimo necessario per gli slot obbligatori che restano) che arriva alla soglia. «Può arrivarci» non significa «lo vuole»: nessun profilo avversario, nessuna intenzione dichiarata, nessun indice comportamentale entra in questo conteggio. La tua squadra è esclusa: la domanda è chi ALTRO può arrivarci.";

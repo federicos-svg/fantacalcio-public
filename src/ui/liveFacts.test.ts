@@ -3,6 +3,7 @@ import {
   MOMENT_FACTS_NOTE,
   OPPONENT_REACH_NOTE,
   OPPONENT_REACH_NO_ROLE,
+  OPPONENT_REACH_TITLE,
   competitorBlockerDetail,
   competitorBlockerLabel,
   competitorReachHeadline,
@@ -358,6 +359,25 @@ describe("no directive output reaches the live blocks", () => {
     expect(OPPONENT_REACH_NOTE).toContain("Solo vincolo duro");
     expect(OPPONENT_REACH_NOTE).toContain("non significa «lo vuole»");
     expect(OPPONENT_REACH_NOTE).toContain("nessun indice comportamentale");
+  });
+
+  it("titles the opponent block by what it measures, never by an intent", () => {
+    // Il titolo ereditato dal segnaposto affermava un interesse che
+    // `competitorSet` non calcola (`basis: "hard-constraints"`) e che §D9
+    // vieta di inferire. Deve dire raggiungibilità, e col verbo modale: «chi
+    // arriva» sarebbe una previsione, «chi PUÒ arrivare» è aritmetica.
+    expect(OPPONENT_REACH_TITLE).toBe("AVVERSARI: CHI PUÒ ARRIVARCI");
+    expect(OPPONENT_REACH_TITLE).not.toMatch(/interess/i);
+    expect(OPPONENT_REACH_TITLE).toMatch(/PUÒ/);
+    // Il soggetto resta quello: a essere sbagliato era il predicato.
+    expect(OPPONENT_REACH_TITLE).toMatch(/^AVVERSARI/);
+    // Più corto della stringa che sostituisce: non può traboccare dove quella
+    // non traboccava, a nessuna delle tre larghezze.
+    expect(OPPONENT_REACH_TITLE.length).toBeLessThan("AVVERSARI — INTERESSE SUL GIOCATORE".length);
+    // Stessa parola delle intestazioni dei due gruppi: una frase sola.
+    const html = competitorReachHtml(competitorSet(freshState(), "P", 30, "Io"), LABELS);
+    expect(html).toContain("PUÒ ARRIVARE A 30 CR");
+    expect(html).toContain("NON PUÒ ARRIVARCI");
   });
 
   it("states the two provenances of the moment block", () => {
