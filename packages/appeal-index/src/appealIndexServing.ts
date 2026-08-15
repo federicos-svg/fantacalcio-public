@@ -66,10 +66,15 @@ const MODEL_BACKED_COMPONENTS: readonly AppealIndexComponentName[] = ["appetibil
  * Identity of the composition recipe, frozen as a whole.
  *
  * `formulaFreezeDate` is the operational rule agreed for the 2026/27 auction:
- * the formula may change up to and including that date, and from then on only
- * the data moves. A change to any field here (or to the component formulas it
- * points at) must bump `recipeVersion` — `appealIndexRecipeHash()` is pinned by
- * a regression test precisely so a silent formula edit fails the suite.
+ * the formula may change up to and including that instant, and from then on
+ * only the data moves. A change to any field here (or to the component formulas
+ * it points at) must bump `recipeVersion` — `appealIndexRecipeHash()` is pinned
+ * by a regression test precisely so a silent formula edit fails the suite.
+ *
+ * The value is declarative: nothing here parses it, compares it or builds a
+ * `Date` from it. It is serialized into `appealIndexRecipeHash()` and read by
+ * humans, which is why it can carry a wall-clock instant with an explicit UTC
+ * offset instead of a bare day.
  */
 export const APPEAL_INDEX_RECIPE = {
   // 1.1.0: the composition formula is unchanged, but the recipe points at
@@ -82,8 +87,16 @@ export const APPEAL_INDEX_RECIPE = {
   // this recipe composes come from a differently-specified model, so a
   // consumer must be able to tell a 1.1.0 payload from a 1.2.0 one without
   // reading the package behind it.
-  recipeVersion: "APPEAL-INDEX-RECIPE@1.2.0",
-  formulaFreezeDate: "2026-08-30",
+  //
+  // 1.3.0: the composition formula is unchanged again, but `formulaFreezeDate`
+  // moves from 2026-08-30 to 2026-09-02T12:00:00+02:00 (Pico's decision of
+  // 2026-08-15). The freeze is now an instant, not a day: the rule this recipe
+  // declares is materially different, and the package's own contract says a
+  // change to *any* field here bumps the version. Same reason as above, applied
+  // without discretion — a consumer must be able to tell a 1.2.0 payload from a
+  // 1.3.0 one without reading the package behind it.
+  recipeVersion: "APPEAL-INDEX-RECIPE@1.3.0",
+  formulaFreezeDate: "2026-09-02T12:00:00+02:00",
   phase4Protocol: PHASE4_PROTOCOL,
   phase5Protocol: PHASE5_PROTOCOL,
   scoreComponent: APPEAL_INDEX_SCORE_COMPONENT,

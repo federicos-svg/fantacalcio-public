@@ -41,10 +41,13 @@ describe("APPEAL_INDEX_RECIPE", () => {
   it("is frozen: any formula change has to bump the version deliberately", () => {
     // Pinned on purpose. A silent edit to the recipe (or to what it points at)
     // fails here instead of quietly changing what the site shows.
-    expect(APPEAL_INDEX_RECIPE.recipeVersion).toBe("APPEAL-INDEX-RECIPE@1.2.0");
-    expect(APPEAL_INDEX_RECIPE.formulaFreezeDate).toBe("2026-08-30");
+    expect(APPEAL_INDEX_RECIPE.recipeVersion).toBe("APPEAL-INDEX-RECIPE@1.3.0");
+    // The freeze is an instant, not a day: 2026-09-02 at 12:00 Europe/Rome,
+    // written with an explicit offset so it is unambiguous without a timezone
+    // database. Moved from 2026-08-30 by Pico's decision of 2026-08-15.
+    expect(APPEAL_INDEX_RECIPE.formulaFreezeDate).toBe("2026-09-02T12:00:00+02:00");
     expect(appealIndexRecipeHash()).toBe(
-      "sha256:5d72503e088bf502214f8c21c8108ae62c9bb199ebb79a818a4dd72b8ad3919a",
+      "sha256:14dcf2103f8ea4bc053e4aafa558a628efc9f1b692640adbcbe31519fb424d32",
     );
   });
 
