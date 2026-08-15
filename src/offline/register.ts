@@ -14,6 +14,7 @@
 // browser (so importing it from a Node test is inert).
 
 import { createIntegrityGate } from "./integrityGate.js";
+import { probeOrigin } from "./networkProbe.js";
 import { setIntegrityStatus, showIntegrityBlockingScreen } from "./integrityScreen.js";
 import {
   createNetworkTruth,
@@ -36,8 +37,8 @@ function connectNetworkTruth(truth: NetworkTruth): void {
 
   container.addEventListener("message", (event: MessageEvent) => {
     if (!isNetworkTruthMessage(event.data)) return;
-    if (event.data.reachable) truth.observeReachable(event.data.url);
-    else truth.observeUnreachable(event.data.url);
+    if (event.data.reachable) truth.observeReachable();
+    else truth.observeUnreachable();
   });
 
   // A cold start's earliest failures happen before this document exists, so the
@@ -52,13 +53,68 @@ function connectNetworkTruth(truth: NetworkTruth): void {
   });
 }
 
+/**
+ * Turns the browser's `online` announcement into a hypothesis the app is not
+ * allowed to act on until it has been verified.
+ *
+ * This is the one place it CAN be done. src/main.ts registers its own
+ * `online`/`offline` listeners at the bottom of its module body — and this
+ * module is main.ts's first import, so its listeners are registered first.
+ * Listeners on the same target run in registration order, which makes
+ * `stopImmediatePropagation()` here decisive: the app's own handler, which
+ * would set `state.offline = false` on the spot, never sees an unverified
+ * claim. Without this the whole layer is one-directional — measured: with a
+ * captive portal armed BEFORE reconnecting, the banner went back to «Core
+ * locale pronto» instantly, with the log of attempted requests empty.
+ *
+ * `isTrusted` is the discriminator, and it cannot be forged from script: the
+ * browser's own events carry `true`, the ones this layer re-dispatches after a
+ * successful probe carry `false` and are let through untouched. Specs that
+ * simulate connectivity with a synthetic event keep working exactly as before,
+ * for the same reason.
+ *
+ * `offline` is NOT intercepted. A browser reporting no interface is
+ * conclusive, and the app should react to it immediately.
+ */
+function interceptBrowserConnectivityClaims(truth: NetworkTruth): void {
+  window.addEventListener("online", (event) => {
+    if (!event.isTrusted) return;
+    event.stopImmediatePropagation();
+    void truth.handleBrowserOnlineClaim();
+  });
+  window.addEventListener("offline", (event) => {
+    if (!event.isTrusted) return;
+    truth.handleBrowserOffline();
+  });
+}
+
 function bootOfflineLayer(): void {
   const originalFetch = window.fetch.bind(window);
+
+  // Learned from the integrity policy the gate loads at boot; until then, and
+  // on a dev server that ships none, the probe falls back to checking that the
+  // answer is at least a well-formed policy of our own schema.
+  let expectedBuildId: string | null = null;
+  let probeCounter = 0;
 
   const networkTruth = createNetworkTruth({
     dispatch: (event) => window.dispatchEvent(new Event(event)),
     isBrowserOnline: () => navigator.onLine,
+    probe: async () => {
+      const verdict = await probeOrigin({
+        // The UNWRAPPED fetch on purpose: the probe must reach the network, not
+        // be answered by the gate's own bookkeeping.
+        fetchImpl: originalFetch,
+        expectedBuildId,
+        nonce: () => String((probeCounter += 1)),
+      });
+      return verdict.reachable;
+    },
+    schedule: (run, ms) => window.setTimeout(run, ms),
+    cancel: (handle) => window.clearTimeout(handle),
   });
+
+  interceptBrowserConnectivityClaims(networkTruth);
 
   const gate = createIntegrityGate({
     fetchImpl: originalFetch,
@@ -85,15 +141,21 @@ function bootOfflineLayer(): void {
     // So the rule is single-authority: with a controller, only the worker's own
     // observations count; without one (a first visit, or a browser where
     // registration failed), the gate is the only witness there is.
-    onNetworkObservation: (reachable, url) => {
+    onNetworkObservation: (reachable) => {
       if (navigator.serviceWorker?.controller) return;
-      if (reachable) networkTruth.observeReachable(url);
-      else networkTruth.observeUnreachable(url);
+      if (reachable) networkTruth.observeReachable();
+      else networkTruth.observeUnreachable();
     },
     onFailure: (report) => showIntegrityBlockingScreen(document, report),
   });
 
   window.fetch = gate.fetch as typeof window.fetch;
+
+  void gate.ready
+    .then((state) => {
+      if (state.kind === "ready") expectedBuildId = state.policy.build_id;
+    })
+    .catch(() => undefined);
 
   // Registration is deliberately NOT awaited and deliberately not followed by
   // an automatic reload on `controllerchange`: a page that reloads itself
