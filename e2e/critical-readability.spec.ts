@@ -6,10 +6,24 @@ const VIEWPORTS = [
   { width: 1280, height: 720 },
 ] as const;
 
-test("budget, slots and the safe bid ceiling stay visible in rehearsal viewports", async ({ page, context }) => {
+// `baseURL` is Playwright's own fixture, fed by `use.baseURL` in
+// playwright.config.ts — the single place the suite's port is decided (and
+// the single place `E2E_PORT` moves it). This spec used to hardcode
+// `http://127.0.0.1:4173` in its network filter, which made it the only
+// non-portable spec of the suite: on any other port every request, including
+// the app's own, was aborted. Deriving the origin here keeps the filter
+// exactly as strict — same-origin continues, everything else aborts — while
+// removing the second source of truth about the port.
+test("budget, slots and the safe bid ceiling stay visible in rehearsal viewports", async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  if (baseURL === undefined) throw new Error("baseURL non configurato: vedi playwright.config.ts");
+  const appOrigin = new URL(baseURL).origin;
   await context.route("**/*", async (route) => {
     const url = new URL(route.request().url());
-    if (url.origin === "http://127.0.0.1:4173") await route.continue();
+    if (url.origin === appOrigin) await route.continue();
     else await route.abort();
   });
 
