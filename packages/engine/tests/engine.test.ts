@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync, readdirSync } from "node:fs";
 import {
   reduce,
   appendEvent,
@@ -164,13 +165,263 @@ describe("role scarcity & opponent Tier-1", () => {
   });
 });
 
-describe("12. Sprint-1 scope guard — no value/fair-to-me symbols exist", () => {
-  it("engine exports contain no value/modifier/fairToMe API", async () => {
+// ---------------------------------------------------------------------------
+// 12. Scope guard sui simboli di valore.
+//
+// La guardia nasce nello Sprint 1, quando NESSUN simbolo di valore poteva
+// esistere nel motore. Dal 2026-08-14 `docs/DECISIONS.md` §D9 perimetro 1 e la
+// matrice UI di `docs/AUCTION_2026_EXECUTION_PLAN.md` §3 autorizzano
+// esplicitamente UNA famiglia e una sola: i numeri «derivati dai valori
+// dichiarati di Owner» (issue #233, strato 3 del copilota). Tutto il resto —
+// valore model-derived, FTM model-derived, banda/stretch di modello, modifier,
+// Spearman — resta fuori dal motore e dietro receipt e gate.
+//
+// La guardia è quindi RISTRETTA, non rimossa, e conserva i denti: i simboli
+// autorizzati sono elencati uno per uno qui sotto e confrontati per nome
+// ESATTO. Un nuovo export che contenga «value» e non sia in questa lista fa
+// fallire il test, e aggiungercelo è un atto deliberato che passa da una
+// review — che è esattamente ciò che la guardia deve costare.
+// ---------------------------------------------------------------------------
+describe("12. scope guard — solo i simboli di valore autorizzati da §D9", () => {
+  /** Autorizzati da §D9 perimetro 1 + matrice UI §3 (declaredValues.ts, #233). */
+  const DECLARED_VALUE_ALLOWLIST: readonly string[] = [
+    "DECLARED_VALUE_PROVENANCE",
+    "VALUE_PROFILES",
+    "declaredValueBook",
+    "declaredValueOf",
+    "validateDeclaredValues",
+  ];
+
+  /** Sorgenti del motore, lette dal disco: la guardia non si fida del barrel. */
+  const SRC_DIR = new URL("../src/", import.meta.url);
+  const SRC_FILES = readdirSync(SRC_DIR).filter((f) => f.endsWith(".ts"));
+  const sourceOf = (file: string): string =>
+    readFileSync(new URL(file, SRC_DIR), "utf8");
+
+  /**
+   * Toglie commenti e stringhe: dentro un commento «§4.2» e dentro una stringa
+   * «0,30» non sono costanti del programma, e contarli renderebbe la guardia
+   * rumorosa al punto da farla disattivare.
+   */
+  function stripCommentsAndStrings(src: string): string {
+    return src
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/(^|[^:])\/\/[^\n]*/g, "$1 ")
+      .replace(/`(?:[^`\\]|\\.)*`/g, '""')
+      .replace(/"(?:[^"\\]|\\.)*"/g, '""')
+      .replace(/'(?:[^'\\]|\\.)*'/g, '""');
+  }
+
+  it("nessun simbolo di valore fuori dall'allowlist §D9", async () => {
     const mod = await import("../src/index.js");
-    const banned = ["value", "fairToMe", "targetBand", "stretchCap", "modifier", "spearman"];
-    const keys = Object.keys(mod).map((k) => k.toLowerCase());
-    for (const b of banned) {
-      expect(keys.some((k) => k.includes(b.toLowerCase()))).toBe(false);
+    const banned = ["value", "fairtome", "targetband", "stretchcap", "modifier", "spearman"];
+    const offenders = Object.keys(mod).filter(
+      (key) =>
+        !DECLARED_VALUE_ALLOWLIST.includes(key) &&
+        banned.some((b) => key.toLowerCase().includes(b)),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("l'allowlist non contiene voci morte: ogni nome è davvero esportato", async () => {
+    const mod = await import("../src/index.js");
+    const keys = Object.keys(mod);
+    for (const allowed of DECLARED_VALUE_ALLOWLIST) expect(keys).toContain(allowed);
+  });
+
+  // -------------------------------------------------------------------------
+  // Bypass 1 provato da una review avversariale: un produttore di fair-to-me
+  // model-derived (`modelFairToMe`, pesi inventati per ruolo) esportato dal
+  // barrel SOTTO un nome dell'allowlist:
+  //     export { modelFairToMe as declaredValueOf } from "./__evil.js";
+  // I tre controlli precedenti passavano tutti — l'allowlist aveva trasformato
+  // un divieto sul nome in una licenza permanente su cinque nomi. Da qui in poi
+  // l'allowlist certifica l'IDENTITÀ del binding, non l'etichetta.
+  // -------------------------------------------------------------------------
+  it("i nomi in allowlist sono i binding di declaredValues.ts, non alias di altro", async () => {
+    const mod = (await import("../src/index.js")) as Record<string, unknown>;
+    const declared = (await import("../src/declaredValues.js")) as Record<string, unknown>;
+    for (const allowed of DECLARED_VALUE_ALLOWLIST) {
+      expect(declared[allowed], `${allowed} deve nascere in declaredValues.ts`).toBeDefined();
+      // `Object.is` sul binding: un re-export con rinomina fallisce qui, perché
+      // l'oggetto esportato non è più quello del modulo autorizzato.
+      expect(
+        Object.is(mod[allowed], declared[allowed]),
+        `${allowed} nel barrel non è il binding di declaredValues.ts`,
+      ).toBe(true);
     }
+  });
+
+  it("declaredValues.ts non contiene costanti numeriche oltre gli α preregistrati", () => {
+    // Chiusa la strada dell'alias, l'attacco si sposta dentro il modulo
+    // autorizzato: pesi cablati in un file che l'allowlist copre. Le uniche
+    // costanti ammesse sono gli α di §4.2 (0,85 · 1,0 · 1,15) e i due valori
+    // strutturali 0/1 dei confronti di validazione.
+    const ALLOWED_NUMERIC_LITERALS = new Set(["0", "1", "0.85", "1.0", "1.15"]);
+    const code = stripCommentsAndStrings(sourceOf("declaredValues.ts"));
+    const literals = [...code.matchAll(/(?<![\w.$])\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi)].map(
+      (m) => m[0],
+    );
+    const unexpected = [...new Set(literals)].filter((n) => !ALLOWED_NUMERIC_LITERALS.has(n));
+    expect(unexpected).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Bypass 2, peggiore: la coppia ADDITIVA. Nessuno dei nomi contiene una
+  // parola bandita, quindi niente reagiva:
+  //     export function stopPriceFor(...): number            // FTM model-derived
+  //     export function priceRangeFor(...): { lo: number; hi: number }
+  // Il secondo è per di più il divieto di FORMA di §D9 perimetro 2 («nessun
+  // intervallo di prezzo per giocatore»). Un divieto di forma si controlla
+  // sulla forma: qui si guarda il TIPO restituito e la SHAPE dichiarata, non
+  // il nome — così un rename non basta più ad aggirarlo.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Coppie di estremi riconosciute. Il confronto è sul RESTO del nome dopo il
+   * prefisso: `minPrice`/`maxPrice` è un intervallo (resto «price» uguale),
+   * `minReserve`/`maxAllocatable` no (resti diversi) — ed è la distinzione che
+   * evita di scambiare per una banda di prezzo l'inviluppo contabile di
+   * `budgetPlan`, che è invece esattamente ciò che il progetto vuole mostrare.
+   */
+  const BOUND_PAIRS: readonly (readonly [string, string])[] = [
+    ["min", "max"],
+    ["lo", "hi"],
+    ["low", "high"],
+    ["lower", "upper"],
+    ["from", "to"],
+    ["start", "end"],
+    ["floor", "ceiling"],
+    ["bottom", "top"],
+  ];
+
+  /** True se il testo di un tipo dichiara due estremi numerici della stessa grandezza. */
+  function declaresNumericRange(typeText: string): boolean {
+    if (/\[\s*number\s*,\s*number\s*\]/.test(typeText)) return true;
+    const numericFields = [...typeText.matchAll(/(\w+)\s*\??\s*:\s*number\b/g)].map((m) =>
+      m[1]!.toLowerCase(),
+    );
+    for (const [a, b] of BOUND_PAIRS) {
+      const restsA = numericFields.filter((f) => f.startsWith(a)).map((f) => f.slice(a.length));
+      const restsB = numericFields.filter((f) => f.startsWith(b)).map((f) => f.slice(b.length));
+      if (restsA.some((r) => restsB.includes(r))) return true;
+    }
+    return false;
+  }
+
+  it("nessuna funzione esportata restituisce un intervallo (divieto di forma §D9 perimetro 2)", () => {
+    const offenders: string[] = [];
+    for (const file of SRC_FILES) {
+      const code = stripCommentsAndStrings(sourceOf(file));
+      // Il tipo di ritorno si cattura fino alla graffa che apre il CORPO, cioè
+      // l'ultima della riga: un `([\s\S]*?)\{` pigro si fermerebbe alla prima,
+      // che per un ritorno inline (`): { lo: number; hi: number } {`) è la
+      // graffa del tipo stesso — e la sonda passerebbe indisturbata.
+      for (const m of code.matchAll(
+        /export function (\w+)\s*\(([\s\S]*?)\)\s*:\s*([^\n]*?)\s*\{[ \t]*$/gm,
+      )) {
+        if (declaresNumericRange(m[3]!)) offenders.push(`${file}:${m[1]}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("nessun tipo esportato dichiara una coppia di estremi numerici", () => {
+    const offenders: string[] = [];
+    for (const file of SRC_FILES) {
+      const code = stripCommentsAndStrings(sourceOf(file));
+      for (const m of code.matchAll(/export (?:interface|type) (\w+)[^{]*\{([^}]*)\}/g)) {
+        if (declaresNumericRange(m[2]!)) offenders.push(`${file}:${m[1]}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("nessuna tabella di pesi per ruolo nel motore (§D9: parametri comportamentali fittati)", () => {
+    // Terza sonda della review: `stopPriceFor(quotation, role)` restituisce uno
+    // SCALARE con un nome innocuo, quindi né il controllo sui nomi né quello
+    // sulla forma possono vederlo. Ma un fair-to-me model-derived per ruolo ha
+    // bisogno di una cosa che non può nascondere: la tabella di pesi che lo
+    // alimenta. È quella che si cerca qui — ovunque nel motore, esportata o no.
+    //
+    // Le tabelle per ruolo legittime sono elencate per testo esatto, ognuna con
+    // la propria fonte normativa. Sono tutte REGOLE DI LEGA o accumulatori
+    // azzerati, mai coefficienti: una quarta tabella è un atto deliberato che
+    // passa da una review.
+    const ALLOWED_ROLE_TABLES = new Set([
+      "{ P: 3, D: 9, C: 9, A: 7 }", // ROSTER_REQUIREMENTS — LEAGUE_RULES, composizione rosa
+      "{ P: 0, D: 1, C: 1, A: 1 }", // CONFIRMATION_LIMITS — LEAGUE_RULES §4, riconferme per ruolo
+      "{ P: 0, D: 0, C: 0, A: 0 }", // accumulatori azzerati (reduce, livePlan, confirmations)
+    ]);
+    const offenders: string[] = [];
+    for (const file of SRC_FILES) {
+      const code = stripCommentsAndStrings(sourceOf(file));
+      for (const m of code.matchAll(
+        /\{\s*P\s*:\s*-?[\d.]+\s*,\s*D\s*:\s*-?[\d.]+\s*,\s*C\s*:\s*-?[\d.]+\s*,\s*A\s*:\s*-?[\d.]+\s*,?\s*\}/g,
+      )) {
+        const normalised = m[0]!.replace(/\s+/g, " ").replace(/,\s*\}/, " }");
+        if (!ALLOWED_ROLE_TABLES.has(normalised)) offenders.push(`${file}: ${normalised}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("i valori autorizzati restano DICHIARATI: nessun export che ne produca uno", async () => {
+    // La differenza fra ciò che §D9 consente e ciò che vieta non è il nome, è
+    // chi produce il numero. Il motore INDICIZZA e VALIDA i valori di Owner; non
+    // esiste (e non deve esistere) un export che li calcoli.
+    const mod = await import("../src/index.js");
+    // Prefissi allo stato di radice, non al participio: la versione precedente
+    // richiedeva un confine camelCase (`^compute[A-Z]`) e lasciava passare
+    // `computedValue`, `estimatedPriceOf`, `predictedAnchor`, `inferredFit`.
+    // `fitsPlan` resta fuori senza bisogno di eccezioni — chiede se un prezzo
+    // STA nel piano, e «fits» non è «fitted».
+    const producers = Object.keys(mod).filter((key) =>
+      /^(comput|estimat|predict|infer|fitted|fitting|scor)/i.test(key),
+    );
+    expect(producers).toEqual([]);
+  });
+
+  it("i tre controlli di forma catturano davvero le sonde della review", () => {
+    // Contro-prova: la guardia deve reagire agli attacchi che l'hanno superata.
+    // Senza questo test non si distingue «nessun offender» da «controllo rotto».
+    expect(declaresNumericRange("{ lo: number; hi: number }")).toBe(true);
+    expect(declaresNumericRange("{ lower: number; upper: number }")).toBe(true);
+    expect(declaresNumericRange("[number, number]")).toBe(true);
+    expect(declaresNumericRange("{ minPrice: number; maxPrice: number }")).toBe(true);
+    // …e NON deve reagire agli inviluppi contabili legittimi già nel motore.
+    expect(declaresNumericRange("{ minReserve: number; maxAllocatable: number }")).toBe(false);
+    expect(declaresNumericRange("{ maxSafe: number; hardReserve: number }")).toBe(false);
+    expect(/^(comput|estimat|predict|infer|fitted|fitting|scor)/i.test("estimatedPriceOf")).toBe(
+      true,
+    );
+    expect(/^(comput|estimat|predict|infer|fitted|fitting|scor)/i.test("fitsPlan")).toBe(false);
+  });
+
+  it("LIMITI DICHIARATI della guardia — ciò che NON copre", () => {
+    // Una guardia sopravvalutata è peggio di una assente. Registrato come test
+    // perché resti leggibile accanto a ciò che la guardia fa davvero:
+    //  1. `Object.keys` vede solo i binding a RUNTIME: `interface`/`type` sono
+    //     invisibili al primo controllo (i due controlli di forma sopra leggono
+    //     però il sorgente, quindi li coprono per la sola shape a intervallo);
+    //  2. la guardia è NOMINALE sui produttori: `callScreen` produce i numeri
+    //     della famiglia valore e non contiene nessuna stringa vietata — la sua
+    //     conformità §D9 poggia sui test dedicati, non qui;
+    //  3. il parser di forma è una regex, non un compilatore: una firma con
+    //     tipi funzione annidati o un tipo di ritorno costruito via generici
+    //     può sfuggirle;
+    //  4. **pesi in ARRAY INDICIZZATO** — quarta sonda di una review
+    //     avversariale (S4). Il controllo sulle tabelle per ruolo cerca la
+    //     forma `{ P: …, D: …, C: …, A: … }`; un vettore posizionale
+    //     equivalente, per esempio `const W = [0.71, 1.13, 1.42, 1.87]` letto
+    //     con `W[ROLES.indexOf(role)]`, porta gli stessi pesi senza quella
+    //     forma e **non viene catturato**. Non lo si insegue con una regex più
+    //     larga: distinguere un vettore di pesi da un array di costanti
+    //     legittime richiede di capire come è usato, cioè un'analisi che un
+    //     test di guardia non fa. Resta un compito della review umana, ed è
+    //     dichiarato qui perché nessuno lo dia per coperto.
+    // Il valore della guardia è impedire una REGRESSIONE silenziosa, non
+    // sostituire la review.
+    expect(SRC_FILES.length).toBeGreaterThan(0);
   });
 });

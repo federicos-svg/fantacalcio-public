@@ -21,4 +21,11 @@ export * from "./cliff.js";
 export * from "./competitors.js";
 export * from "./tension.js";
 export * from "./nominationWindow.js";
+// Motore live — strato 3 (valori dichiarati di Owner, piano rosa vivo, radar
+// occasioni, schermata chiamata coi tre numeri decisionali). Vedi
+// docs/AUCTION_COPILOT_STRATEGY_DESIGN.md §4.1/§4.2 e riga 3 di §8.
+export * from "./declaredValues.js";
+export * from "./livePlan.js";
+export * from "./opportunities.js";
+export * from "./callScreen.js";
 export * from "./identityName.js";
