@@ -11,7 +11,7 @@ import {
   ROSTER_REQUIREMENTS,
   INITIAL_BUDGET,
 } from "../../packages/engine/src/types.js";
-import type { OpponentTier1, RoleScarcity } from "../../packages/engine/src/auction.js";
+import type { OpponentTier1, RoleScarcity, WarBoardRow } from "../../packages/engine/src/auction.js";
 import type { RolePriceFacts } from "../nominationContext.js";
 import type { AssignCommandResolution } from "../assignCommand.js";
 import { C, escHtml, renderRoleChip, roleChipHtml } from "./theme.js";
@@ -34,6 +34,12 @@ import {
   sortListonePool,
   paginateListonePool,
 } from "./listone.js";
+import {
+  WAR_BOARD_FULL_NOTE,
+  WAR_BOARD_MINI_NOTE,
+  warBoardFullHtml,
+  warBoardMiniHtml,
+} from "./warBoard.js";
 
 export interface ListonePanelState {
   /** Full loaded listone, unfiltered — drives column discovery and the "N giocatori caricati" note. */
@@ -562,6 +568,99 @@ export function renderRoleScarcityPanel(
   return panel;
 }
 
+// ── War board TAVOLO — due varianti (#231 tranche 3, corsia B) ───────────────
+// Product decision by Owner, 2026-08-14 ~12:50Z (bacheca #222 voce 18): MINI
+// during the live auction, COMPLETA during player selection. The #86 UI
+// invariant ("nessun blocco di tavolo nella schermata Asta") is revised in
+// perimeter — not revoked — and the revision is registered in
+// docs/FRONTEND_STRUCTURE.md §"Invarianti UI da preservare".
+//
+// Both wrappers are thin: every display choice (truncation, wording, markup)
+// lives in the pure builders of ./warBoard.ts, which are unit-tested without
+// a DOM. Both consume `warBoardRows()` output built by the caller — this file
+// never calls the engine and never derives a number of its own.
+//
+// The AVVERSARI TIER-1 block stays where it is (Rose, renderOpponentTier1Panel
+// below): this is a different component — all eight teams including "io",
+// max bid included, no editing — not that one moved.
+
+/**
+ * MINI (momento asta): one strip, `budget` + `max bid` per team, nothing
+ * else. It is deliberately NOT sticky — the sticky element on this screen is
+ * the critical accounting strip (my own ceiling), and a second sticky band
+ * would eat the vertical room the assign form needs mid-auction.
+ */
+export function renderWarBoardMini(
+  rows: readonly WarBoardRow[],
+  teamLabels: Readonly<Record<string, string>>,
+): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "war-board-mini";
+  panel.className = "panel war-board-mini";
+  panel.setAttribute("aria-label", "Tavolo: budget e max bid di tutte le squadre");
+
+  const title = document.createElement("div");
+  title.className = "panel-title";
+  title.textContent = "TAVOLO — BUDGET E MAX BID";
+  panel.appendChild(title);
+
+  const list = document.createElement("ul");
+  list.id = "war-board-mini-list";
+  list.className = "war-board-mini__list";
+  list.innerHTML = warBoardMiniHtml(rows, teamLabels);
+  panel.appendChild(list);
+
+  const note = document.createElement("p");
+  note.className = "hint-text";
+  note.id = "war-board-mini-note";
+  note.textContent = WAR_BOARD_MINI_NOTE;
+  panel.appendChild(note);
+
+  return panel;
+}
+
+/**
+ * COMPLETA (momento chiamata): one card per team — budget, max bid, free
+ * slots per role, last purchases.
+ *
+ * `poolIndex` is built ONCE by the caller for all eight cards (see
+ * listonePoolIndex): resolving each acquisition's display name by scanning
+ * the pool instead would be O(pool x acquisitions) on every render of a
+ * screen that re-renders on every keystroke of the search box.
+ */
+export function renderWarBoardFull(
+  rows: readonly WarBoardRow[],
+  teamLabels: Readonly<Record<string, string>>,
+  poolIndex: ReadonlyMap<string, ListonePlayer>,
+): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "war-board-full";
+  panel.className = "panel war-board";
+  panel.setAttribute("aria-label", "Tavolo: war board completo");
+
+  const title = document.createElement("div");
+  title.className = "panel-title";
+  title.textContent = "TAVOLO — WAR BOARD";
+  panel.appendChild(title);
+
+  const grid = document.createElement("ul");
+  grid.id = "war-board-full-grid";
+  // Same 1/2/4 responsive breakpoints as SQUADRE (LEGA) and AVVERSARI TIER-1
+  // (.teams-grid, src/styles/asta.css): all three are one-card-per-team grids
+  // and must not disagree about when a column drops.
+  grid.className = "teams-grid war-board__grid";
+  grid.innerHTML = warBoardFullHtml(rows, teamLabels, poolIndex);
+  panel.appendChild(grid);
+
+  const note = document.createElement("p");
+  note.className = "hint-text";
+  note.id = "war-board-full-note";
+  note.textContent = WAR_BOARD_FULL_NOTE;
+  panel.appendChild(note);
+
+  return panel;
+}
+
 // ── Contesto chiamata / `nomination_context` (Chiamata moment) ───────────────
 // D7, Binario A (docs/DECISIONS.md §Prodotto): a READ-ONLY, ON-DEMAND panel
 // for a player Owner is already considering, built ONLY from deterministic
@@ -1057,13 +1156,19 @@ export function renderRoseScreen(
 // Surfaces packages/engine/src/auction.ts opponentTier1(), implemented and
 // tested but never called from a screen since PR #86 removed its panel (#221).
 //
-// UI invariant, honoured integrally (docs/FRONTEND_STRUCTURE.md:55): the
-// `AVVERSARI TIER-1` block "non deve riapparire nella schermata Asta". This
-// accounting view therefore lives on the **Rose** screen, never on Asta, and
-// is not laid out next to the auction accounting the way the removed block
-// was. It is pure arithmetic off the event log — residual budget and free
-// slots per opponent — with no behavioural index, no interest estimate and
-// no ordering by anything but the team id the engine already sorts on.
+// UI invariant, honoured integrally (docs/FRONTEND_STRUCTURE.md §"Invarianti
+// UI da preservare"): the `AVVERSARI TIER-1` block "non deve riapparire nella
+// schermata Asta". This accounting view therefore lives on the **Rose**
+// screen, never on Asta, and is not laid out next to the auction accounting
+// the way the removed block was. It is pure arithmetic off the event log —
+// residual budget and free slots per opponent — with no behavioural index, no
+// interest estimate and no ordering by anything but the team id the engine
+// already sorts on.
+//
+// The 2026-08-14 revision of that invariant (#222 voce 18, #231 tranche 3)
+// admits the WAR BOARD to the Asta screen — a different component, see
+// renderWarBoardMini/renderWarBoardFull above — and leaves THIS block exactly
+// where it is. `e2e/opponent-tier1-accounting.spec.ts` still enforces it.
 export function renderOpponentTier1Panel(
   opponents: readonly OpponentTier1[],
   teamLabels: Readonly<Record<string, string>>,

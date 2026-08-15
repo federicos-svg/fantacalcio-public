@@ -498,3 +498,214 @@
   line-height: 1;
   cursor: help;
 }
+
+/* ── War board TAVOLO — due varianti (#231 tranche 3, corsia B) ──────────────
+   Decisione di Owner 2026-08-14 (#222 voce 18), revisione registrata
+   dell'invariante #86 in docs/FRONTEND_STRUCTURE.md. Markup: src/ui/warBoard.ts
+   (builder puri) + renderWarBoardMini/renderWarBoardFull in src/ui/views.ts.
+
+   Convenzione di colore condivisa dalle due varianti: i CREDITI residui sono
+   verdi (--green, come .opponent-tier1__budget e la Rose card), il MAX BID no.
+   Sono due grandezze diverse e affiancate: dipingerle dello stesso colore le
+   farebbe leggere come la stessa cifra a colpo d'occhio, che è esattamente il
+   modo in cui questa striscia verrebbe usata male in asta. */
+
+.war-board-bid--open { color: var(--text-primary); }
+/* Stesso accent schiarito del badge riconferma (fix 9, #285): il --accent
+   pieno su --panel-inner resta sotto 4.5:1 a queste dimensioni di testo. */
+.war-board-bid--locked { color: oklch(0.68 0.13 250); }
+.war-board-bid--done { color: var(--text-sec); }
+
+/* MINI (momento asta): una striscia sola, due cifre per squadra. Le celle
+   scendono su più righe da sole (auto-fit) invece di comprimersi sotto la
+   soglia di leggibilità: a 1280 le otto squadre stanno su una riga, a 390 ne
+   restano tre per riga. Non è sticky — lo sticky di questa schermata è
+   .critical-auction-strip, e due fasce ancorate mangerebbero lo spazio
+   verticale del form di assegnazione proprio mentre serve. */
+.war-board-mini {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+}
+.war-board-mini__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: 6px;
+  margin: 8px 0 6px;
+  padding: 0;
+  list-style: none;
+}
+.war-board-mini__item {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel-inner);
+}
+.war-board-mini__item--self { border-color: var(--accent); }
+.war-board-mini__name {
+  color: var(--text-sec);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.war-board-mini__item--self .war-board-mini__name { color: var(--text-mid); }
+.war-board-mini__nums {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+/* Le due micro-etichette (bdg/max) sono l'unica cosa che distingue le due
+   cifre a occhio: --text-sec, non --text-dim, perché a 9px il contrasto di
+   --text-dim su --panel-inner non regge. Il significato esteso sta nella nota
+   sotto la striscia e nell'aria-label di ogni cella. */
+.war-board-mini__nums em {
+  color: var(--text-sec);
+  font-family: inherit;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  margin-right: 3px;
+}
+.war-board-mini__budget { color: var(--green); }
+.war-board-mini__bid { flex: none; }
+
+/* COMPLETA (momento chiamata): una card per squadra sulla stessa griglia
+   responsive 1/2/4 di SQUADRE (LEGA) e AVVERSARI TIER-1 (.teams-grid). */
+.war-board { margin-bottom: 18px; }
+.war-board__grid {
+  margin: 10px 0 8px;
+  padding: 0;
+  list-style: none;
+}
+.war-board__card {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-inner);
+}
+.war-board__card--self { border-color: var(--accent); }
+.war-board__name {
+  color: var(--text-primary);
+  font-size: 13.5px;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.war-board__self {
+  color: oklch(0.68 0.13 250);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  margin-left: 6px;
+}
+.war-board__metrics {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  min-width: 0;
+}
+.war-board__metric {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.war-board__metric > span {
+  color: var(--text-sec);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+/* Nessun `color` qui: il budget lo prende dal modificatore, il max bid dalle
+   classi di stato .war-board-bid--*. */
+.war-board__metric > strong {
+  font-family: var(--font-mono);
+  font-size: 17px;
+}
+.war-board__metric--budget > strong { color: var(--green); }
+.war-board__bid-note {
+  color: var(--text-sec);
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.war-board__slots {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-width: 0;
+}
+.war-board__slot {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.war-board__slot em {
+  color: var(--text-mid);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-style: normal;
+}
+/* Ultimi acquisti: una riga sopra li separa dalla contabilità, che è la parte
+   che si legge per prima. Il troncamento (3 + "+N precedenti") vive in
+   src/ui/warBoard.ts, non qui: non è un fatto di layout. */
+.war-board__acq {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.war-board__acq-list {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.war-board__acq-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+}
+.war-board__acq-name {
+  color: var(--text-mid);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.war-board__acq-price {
+  color: var(--text-sec);
+  font-family: var(--font-mono);
+  flex: none;
+}
+.war-board__acq-more,
+.war-board__acq-empty {
+  color: var(--text-dim);
+  font-size: 11px;
+}

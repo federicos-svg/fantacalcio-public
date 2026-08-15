@@ -14,7 +14,7 @@ import {
   INITIAL_BUDGET,
 } from "../packages/engine/src/types.js";
 import { reduce } from "../packages/engine/src/reduce.js";
-import { maxSafe, opponentTier1, roleScarcity } from "../packages/engine/src/auction.js";
+import { maxSafe, opponentTier1, roleScarcity, warBoardRows } from "../packages/engine/src/auction.js";
 import { budgetPlan } from "../packages/engine/src/budget.js";
 import { purchaseFeasibility, recordPurchase, type ProposedPurchase } from "../packages/engine/src/feasibility.js";
 import type { ConfirmationInput } from "../packages/engine/src/confirmations.js";
@@ -52,6 +52,8 @@ import {
   renderNominationContextPanel,
   type NominationContextTopEntry,
   renderRoleScarcityPanel,
+  renderWarBoardFull,
+  renderWarBoardMini,
   renderAssignCommandPanel,
   renderRoseScreen,
   renderMockModal,
@@ -2615,6 +2617,17 @@ function renderMomentoChiamata(aState: AuctionState): HTMLElement {
   const scarcity = roleScarcity(aState, scarcityPool());
   wrap.appendChild(renderRoleScarcityPanel(scarcity, state.pool.length > 0));
 
+  // War board COMPLETA — #231 tranche 3, decisione di Owner #222 voce 18
+  // (revisione registrata dell'invariante #86, docs/FRONTEND_STRUCTURE.md).
+  // The full table state belongs to THIS moment: choosing whom to call is
+  // when there is time to read eight cards. The live moment gets the MINI
+  // strip instead (renderMomentoAsta below) — never both at once.
+  // `auctionDisplayIndex()` is the same one-index-per-render helper STORICO
+  // and Rose already use: no per-acquisition scan of the pool.
+  wrap.appendChild(
+    renderWarBoardFull(warBoardRows(aState, SELF_ID), seatLabelMap(), auctionDisplayIndex()),
+  );
+
   const eyebrow = document.createElement("div");
   eyebrow.className = "panel-title";
   eyebrow.style.marginBottom = "14px";
@@ -2948,6 +2961,14 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   topRow.appendChild(playerInfo);
   topRow.appendChild(maxSafeWrap);
   wrap.appendChild(topRow);
+
+  // War board MINI — #231 tranche 3, decisione di Owner #222 voce 18
+  // (revisione registrata dell'invariante #86, docs/FRONTEND_STRUCTURE.md).
+  // Placed straight under "what is being called and for how much": during a
+  // live auction the next question is always "who else can still go there,
+  // and up to where". Two numbers per team, no detail — the detail lives in
+  // the COMPLETA variant of the chiamata moment.
+  wrap.appendChild(renderWarBoardMini(warBoardRows(aState, SELF_ID), seatLabelMap()));
 
   wrap.appendChild(renderPlayerInsightsBlock());
 
