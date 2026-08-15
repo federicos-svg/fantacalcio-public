@@ -15,6 +15,8 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { buildListoneLiveBundle } from "../packages/xlsx-adapter/src/listoneLiveBundle.js";
 import { createHash } from "node:crypto";
+import { SHIPPED_LISTONE, SHIPPED_LISTONE_FIRST_PAGE } from "./shipped-listone.js";
+import { expectListoneRows, expectListoneWholePoolLoaded } from "./helpers.js";
 
 test.use({ serviceWorkers: "block" });
 
@@ -318,7 +320,12 @@ test.describe("BUNDLE-01 — runtime hash verification", () => {
     await page.goto("/");
 
     await expect(page.locator("#critical-budget")).toHaveText("500 cr");
-    await expect(page.getByText("Aldo Prova", { exact: true })).toBeVisible(); // the real shipped asset
+    // The real shipped asset (public/data/listone_2025_26.json), by identity
+    // not by hardcoded content — see e2e/shipped-listone.ts: page 1 content,
+    // order and exactness, plus confirmation the WHOLE pool loaded (no filter,
+    // no truncation).
+    await expectListoneRows(page, SHIPPED_LISTONE_FIRST_PAGE.map((row) => row.name));
+    await expectListoneWholePoolLoaded(page, SHIPPED_LISTONE.length);
     await expect(blockingScreen(page)).toHaveCount(0);
     await expect.poll(() => integrityStatus(page)).toBe("unverified");
     expect(externalRequests).toEqual([]);
