@@ -29,9 +29,9 @@ test("the settings menu swaps the right-hand panel and survives a re-render", as
   // DOM on every keystroke, so a selection living only in the DOM would snap
   // back. Adding a participant re-renders.
   await openSettingsSection(page, "teams");
-  await page.locator("#new-person-name").fill("Marco");
+  await page.locator("#new-person-name").fill("Bruno");
   await page.locator("#add-person").click();
-  await expect(page.locator("#league-people-list input")).toHaveValue("Marco");
+  await expect(page.locator("#league-people-list input")).toHaveValue("Bruno");
   await expect(page.locator("#settings-tab-teams")).toHaveAttribute("aria-selected", "true");
 
   // Arrow keys move within the menu, and focus follows across the re-render.

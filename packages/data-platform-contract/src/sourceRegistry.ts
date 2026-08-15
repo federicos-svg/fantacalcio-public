@@ -1,4 +1,5 @@
 import type { DataSourceId, SourceRegistryEntry } from "./types.js";
+import { SOURCE_EVIDENCE_REFS } from "./sourceEvidence.js";
 
 /**
  * V1 is deliberately scoped to sources already present in the canonical project files.
@@ -18,10 +19,7 @@ export const DATA_SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [
     requiredForLiveMvp: false,
     requiredForCoreValue: true,
     canBlockEnrichedBackfill: true,
-    evidenceRefs: [
-      "private-registry:evidence:01",
-      "private-registry:evidence:02",
-    ],
+    evidenceRefs: SOURCE_EVIDENCE_REFS.fantacalcio_votes,
     notes:
       "Authoritative target/ground truth for vote-dependent modelling; never replaced by provider ratings.",
   },
@@ -37,10 +35,7 @@ export const DATA_SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [
     requiredForLiveMvp: true,
     requiredForCoreValue: false,
     canBlockEnrichedBackfill: false,
-    evidenceRefs: [
-      "private-registry:evidence:03",
-      "private-registry:evidence:04",
-    ],
+    evidenceRefs: SOURCE_EVIDENCE_REFS.fantacalcio_listone,
     notes:
       "Current roster/role/quotation snapshot. Quotation is display-only and not a market-price target.",
   },
@@ -56,7 +51,7 @@ export const DATA_SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [
     requiredForLiveMvp: false,
     requiredForCoreValue: false,
     canBlockEnrichedBackfill: true,
-    evidenceRefs: ["private-registry:evidence:05", "private-registry:evidence:06"],
+    evidenceRefs: SOURCE_EVIDENCE_REFS.league_manual,
     notes:
       "Required for rule-derived targets and Modifier work, but not for B1 or a base-vote-only exploratory pipeline.",
   },
@@ -81,10 +76,7 @@ export const DATA_SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [
     requiredForLiveMvp: false,
     requiredForCoreValue: false,
     canBlockEnrichedBackfill: false,
-    evidenceRefs: [
-      "private-registry:evidence:07",
-      "private-registry:evidence:08",
-    ],
+    evidenceRefs: SOURCE_EVIDENCE_REFS.api_football,
     notes:
       "Verified only for scoped cells/seasons. Missing, snapshot-only and plan-restricted states stay explicit.",
   },
@@ -109,10 +101,7 @@ export const DATA_SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [
     requiredForLiveMvp: false,
     requiredForCoreValue: false,
     canBlockEnrichedBackfill: true,
-    evidenceRefs: [
-      "private-registry:evidence:09",
-      "private-registry:evidence:10",
-    ],
+    evidenceRefs: SOURCE_EVIDENCE_REFS.transfermarkt,
     notes:
       "Candidate architecture only until a compliant real pilot reaches the source. No scraping bypasses.",
   },
@@ -128,10 +117,7 @@ export const DATA_SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [
     requiredForLiveMvp: false,
     requiredForCoreValue: false,
     canBlockEnrichedBackfill: false,
-    evidenceRefs: [
-      "private-registry:evidence:11",
-      "private-registry:evidence:12",
-    ],
+    evidenceRefs: SOURCE_EVIDENCE_REFS.wikidata,
     notes:
       "Optional identity enrichment. It cannot block the live MVP or the first vote-only scouting runs.",
   },
@@ -147,10 +133,7 @@ export const DATA_SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [
     requiredForLiveMvp: false,
     requiredForCoreValue: false,
     canBlockEnrichedBackfill: false,
-    evidenceRefs: [
-      "private-registry:evidence:13",
-      "private-registry:gruppo-esperti-topic-unico-endpoint",
-    ],
+    evidenceRefs: SOURCE_EVIDENCE_REFS.gruppo_esperti_topic_unico,
     notes:
       "Only [TOPIC UNICO] team threads are in scope. Verified expert/staff posts may become qualitative cross-check observations after provenance and authorization review; community posts are not expert authority. No scraping is authorized.",
   },
@@ -166,7 +149,7 @@ export const DATA_SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [
     requiredForLiveMvp: true,
     requiredForCoreValue: false,
     canBlockEnrichedBackfill: false,
-    evidenceRefs: ["schemas/auction_event.schema.json", "packages/engine/src/reduce.ts"],
+    evidenceRefs: SOURCE_EVIDENCE_REFS.auction_event_log,
     notes:
       "Canonical live state is derived locally via reduce(event_log); no backend dependency in the auction path.",
   },

@@ -14,7 +14,7 @@ async function addPerson(page: Page, name: string): Promise<void> {
 
 /** Seats `name` on `seatId`. Matches the option by substring rather than by
  *  exact label: a person already seated elsewhere is listed as
- *  "Marco (ora Squadra2)", which is the point of the affordance. */
+ *  "Bruno (ora Squadra2)", which is the point of the affordance. */
 async function seat(page: Page, seatId: string, name: string): Promise<void> {
   const select = page.locator(`#seat-person-${seatId}`);
   const value = await select.locator("option", { hasText: name }).first().getAttribute("value");
@@ -47,7 +47,7 @@ test("a participant keeps their identity across seats and across leaving the lea
   await expect(teams).toContainText("Bruno");
   await expect(teams).toContainText("Squadra2");
 
-  // Marco leaves the league: the seat frees, the person stays in the archive
+  // Bruno leaves the league: the seat frees, the person stays in the archive
   // and stays pickable — so coming back is a re-selection, not a re-creation.
   await gotoScreen(page, "Impostazioni");
   await page.locator("#seat-person-Squadra3").selectOption("");
@@ -68,18 +68,18 @@ test("the seat locks once it has bought, while renaming the person stays possibl
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
   await page.goto("/");
   await gotoScreen(page, "Impostazioni");
-  await addPerson(page, "Marcoo");
-  await seat(page, "Squadra2", "Marcoo");
+  await addPerson(page, "Brunoo");
+  await seat(page, "Squadra2", "Brunoo");
   await expect(page.locator("#seat-person-Squadra2")).toBeEnabled();
 
   await gotoScreen(page, "Asta");
   await page.getByText(E2E_TARGET_PLAYER.name, { exact: true }).click();
   await page.getByRole("button", { name: /^Avvia/ }).click();
-  await expect(page.locator("#assign-team")).toContainText("Marcoo");
+  await expect(page.locator("#assign-team")).toContainText("Brunoo");
   await page.locator("#assign-team").selectOption("Squadra2");
   await page.locator("#assign-price").fill(String(E2E_PURCHASE_PRICE));
   await page.getByRole("button", { name: "Registra acquisto", exact: true }).click();
-  await expect(page.locator(".panel", { hasText: "STORICO ACQUISTI" })).toContainText("Marcoo");
+  await expect(page.locator(".panel", { hasText: "STORICO ACQUISTI" })).toContainText("Brunoo");
 
   // The log records the SEAT, never the person or their name.
   const log = await readLocalStorageJson<Array<{ fantaTeamId?: string }>>(page, "fac_log");
