@@ -6,7 +6,7 @@
   "description": "Fantacalcio Auction Copilot — public core (engine + UI + contracts). Personal use.",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/build-service-worker.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "playwright test",

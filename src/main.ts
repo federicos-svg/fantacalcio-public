@@ -1,3 +1,8 @@
+// BUNDLE-01 offline layer — must stay the FIRST import: it installs the bundle
+// integrity gate over `window.fetch` and starts the service-worker
+// registration during module evaluation, i.e. before any code below can fetch
+// anything. See src/offline/register.ts.
+import "./offline/register.js";
 import "./styles/base.css";
 import "./styles/layout.css";
 import "./styles/components.css";
