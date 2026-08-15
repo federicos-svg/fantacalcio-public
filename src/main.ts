@@ -1,3 +1,24 @@
+// BUNDLE-01 offline layer: it installs the bundle integrity gate over
+// `window.fetch` and starts the service-worker registration during module
+// evaluation. See src/offline/register.ts.
+//
+// The guarantee is ES module semantics, NOT this line's position. Every import
+// in this list is evaluated before main.ts's own top-level body runs, so the
+// gate is installed before any code written below can fetch anything — and that
+// holds from any position among these imports. An earlier version of this
+// comment said the import "must stay the FIRST"; review falsified it by moving
+// this line LAST among the ~30 imports here, after which the whole offline E2E
+// suite stayed green (connectivity-truth 8/8, bundle-integrity 8/8,
+// offline-cold-start 4/4). Position is a convention worth keeping, not the
+// mechanism.
+//
+// The real thing not to do, which no test here catches: adding a SIBLING import
+// ABOVE this line that does something eager at ITS own top level — a `fetch`, a
+// `navigator.serviceWorker` call, a window `online`/`offline` listener. Sibling
+// modules are evaluated in source order, so such an import runs before the gate
+// exists and its requests are never gated. Keeping this import first is the
+// cheap way to make that impossible by construction.
+import "./offline/register.js";
 import "./styles/base.css";
 import "./styles/layout.css";
 import "./styles/components.css";

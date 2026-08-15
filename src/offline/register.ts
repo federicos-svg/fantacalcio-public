@@ -1,0 +1,185 @@
+// The single import BUNDLE-01 adds to src/main.ts.
+//
+// Module evaluation order is the mechanism, not a detail: an ES module's
+// imports are all evaluated before the importing module's own body, so
+// importing this file from main.ts means the fetch gate is installed and the
+// service worker registration is under way BEFORE `autoLoadListonePool()` —
+// the app's first network call — exists, let alone runs. That is what makes
+// the gate unbypassable without a single line of coupling inside the loader,
+// and it holds from any position in main.ts's import list (verified by moving
+// this import last: the offline E2E suite stayed green).
+//
+// What that does NOT cover, and no test does either: a sibling import listed
+// ABOVE this one in main.ts that fetches, registers a connectivity listener or
+// touches `navigator.serviceWorker` at its own top level. Siblings evaluate in
+// source order, so such a module runs before this one and is not gated. Hence
+// the convention of keeping this import first — see the comment there.
+//
+// Everything here is wiring: the decisions live in integrityGate.ts (what to
+// verify), bundleIntegrity.ts (how), integrityScreen.ts (how the refusal is
+// shown), serviceWorkerRegistration.ts (the offline shell). This file only
+// connects them to the real browser objects, and does nothing at all outside a
+// browser (so importing it from a Node test is inert).
+
+import { createIntegrityGate } from "./integrityGate.js";
+import { probeOrigin } from "./networkProbe.js";
+import { setIntegrityStatus, showIntegrityBlockingScreen } from "./integrityScreen.js";
+import {
+  createNetworkTruth,
+  isNetworkTruthMessage,
+  NETWORK_TRUTH_QUERY,
+  type NetworkTruth,
+} from "./networkTruth.js";
+import { registerServiceWorker } from "./serviceWorkerRegistration.js";
+
+/**
+ * Connects the service worker's observations to the app's own connectivity
+ * state. The app reads `navigator.onLine` and listens for the standard
+ * `online`/`offline` window events (src/main.ts); this dispatches those events
+ * when the worker proves the flag wrong, so the correction needs no change to
+ * the app's state handling — only better inputs to it.
+ */
+function connectNetworkTruth(truth: NetworkTruth): void {
+  const container = navigator.serviceWorker;
+  if (!container) return;
+
+  container.addEventListener("message", (event: MessageEvent) => {
+    if (!isNetworkTruthMessage(event.data)) return;
+    if (event.data.reachable) truth.observeReachable();
+    else truth.observeUnreachable();
+  });
+
+  // A cold start's earliest failures happen before this document exists, so the
+  // page asks for the verdict instead of assuming silence means success. Asked
+  // once the worker is actually controlling us, which is also when it can
+  // answer.
+  void container.ready
+    .then(() => container.controller?.postMessage({ type: NETWORK_TRUTH_QUERY }))
+    .catch(() => undefined);
+  container.addEventListener("controllerchange", () => {
+    container.controller?.postMessage({ type: NETWORK_TRUTH_QUERY });
+  });
+}
+
+/**
+ * Turns the browser's `online` announcement into a hypothesis the app is not
+ * allowed to act on until it has been verified.
+ *
+ * This is the one place it CAN be done. src/main.ts registers its own
+ * `online`/`offline` listeners at the BOTTOM of its module body, and every
+ * import of main.ts — this one included, wherever it sits in that list — is
+ * evaluated before that body runs. So these listeners are registered first.
+ * Listeners on the same target run in registration order, which makes
+ * `stopImmediatePropagation()` here decisive: the app's own handler, which
+ * would set `state.offline = false` on the spot, never sees an unverified
+ * claim. Without this the whole layer is one-directional — measured: with a
+ * captive portal armed BEFORE reconnecting, the banner went back to «Core
+ * locale pronto» instantly, with the log of attempted requests empty.
+ *
+ * The ordering that would actually break this is a sibling module, imported by
+ * main.ts above this one, registering its own `online` listener at ITS top
+ * level: it would run before this interceptor and see the raw claim. Nothing
+ * in the suite guards that; the import-order convention in main.ts does.
+ *
+ * `isTrusted` is the discriminator, and it cannot be forged from script: the
+ * browser's own events carry `true`, the ones this layer re-dispatches after a
+ * successful probe carry `false` and are let through untouched. Specs that
+ * simulate connectivity with a synthetic event keep working exactly as before,
+ * for the same reason.
+ *
+ * `offline` is NOT intercepted. A browser reporting no interface is
+ * conclusive, and the app should react to it immediately.
+ */
+function interceptBrowserConnectivityClaims(truth: NetworkTruth): void {
+  window.addEventListener("online", (event) => {
+    if (!event.isTrusted) return;
+    event.stopImmediatePropagation();
+    void truth.handleBrowserOnlineClaim();
+  });
+  window.addEventListener("offline", (event) => {
+    if (!event.isTrusted) return;
+    truth.handleBrowserOffline();
+  });
+}
+
+function bootOfflineLayer(): void {
+  const originalFetch = window.fetch.bind(window);
+
+  // Learned from the integrity policy the gate loads at boot; until then, and
+  // on a dev server that ships none, the probe falls back to checking that the
+  // answer is at least a well-formed policy of our own schema.
+  let expectedBuildId: string | null = null;
+  let probeCounter = 0;
+
+  const networkTruth = createNetworkTruth({
+    dispatch: (event) => window.dispatchEvent(new Event(event)),
+    isBrowserOnline: () => navigator.onLine,
+    probe: async () => {
+      const verdict = await probeOrigin({
+        // The UNWRAPPED fetch on purpose: the probe must reach the network, not
+        // be answered by the gate's own bookkeeping.
+        fetchImpl: originalFetch,
+        expectedBuildId,
+        nonce: () => String((probeCounter += 1)),
+      });
+      return verdict.reachable;
+    },
+    schedule: (run, ms) => window.setTimeout(run, ms),
+    cancel: (handle) => window.clearTimeout(handle),
+  });
+
+  interceptBrowserConnectivityClaims(networkTruth);
+
+  const gate = createIntegrityGate({
+    fetchImpl: originalFetch,
+    origin: window.location.origin,
+    // Undefined outside a secure context (plain http on a non-localhost host).
+    // Passed through as null on purpose: bundleIntegrity.ts treats a missing
+    // digest as a failure, never as a reason to skip the check.
+    digest: window.crypto?.subtle ?? null,
+    // A dev server (`npm run dev`) ships no built integrity policy and must
+    // stay usable; a production build that is missing one is a broken artifact.
+    productionBuild: import.meta.env.PROD,
+    onStatus: (status) => setIntegrityStatus(document, status),
+    // The gate is the OTHER witness of the same fact — but only while no
+    // service worker is controlling this page.
+    //
+    // Once a worker is in the middle, what the page observes stops being
+    // evidence about the NETWORK: a response served from Cache Storage after
+    // the worker's own fetch timed out is indistinguishable, from here, from a
+    // network that answered. Measured, not assumed — the first version of this
+    // wiring reported `offline` from the worker at 4066 ms and then took it
+    // straight back at 4090 ms, because the cached listone the worker had just
+    // substituted arrived here looking like a success.
+    //
+    // So the rule is single-authority: with a controller, only the worker's own
+    // observations count; without one (a first visit, or a browser where
+    // registration failed), the gate is the only witness there is.
+    onNetworkObservation: (reachable) => {
+      if (navigator.serviceWorker?.controller) return;
+      if (reachable) networkTruth.observeReachable();
+      else networkTruth.observeUnreachable();
+    },
+    onFailure: (report) => showIntegrityBlockingScreen(document, report),
+  });
+
+  window.fetch = gate.fetch as typeof window.fetch;
+
+  void gate.ready
+    .then((state) => {
+      if (state.kind === "ready") expectedBuildId = state.policy.build_id;
+    })
+    .catch(() => undefined);
+
+  // Registration is deliberately NOT awaited and deliberately not followed by
+  // an automatic reload on `controllerchange`: a page that reloads itself
+  // because a new worker took over is a page that can reload itself in the
+  // middle of an auction. Freshness is handled where it costs nothing instead —
+  // navigations are network-first inside the worker (src/offline/swPolicy.ts).
+  connectNetworkTruth(networkTruth);
+  void registerServiceWorker(navigator.serviceWorker ?? null);
+}
+
+if (typeof window !== "undefined" && typeof document !== "undefined") {
+  bootOfflineLayer();
+}
