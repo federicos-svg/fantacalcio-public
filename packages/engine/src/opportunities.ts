@@ -52,8 +52,8 @@
 
 import { type AuctionState, type Role, ROLES } from "./types.js";
 import { type AnchorBook, type CurrentAnchor, type MeasuredInflation, currentAnchor } from "./anchors.js";
-import { type CliffFacts, cliffFacts } from "./cliff.js";
-import { competitorSet } from "./competitors.js";
+import { type CliffFacts, type CliffLadder, cliffFactsOn, cliffLadder } from "./cliff.js";
+import { type CompetitorSet, competitorSet } from "./competitors.js";
 import { type DeclaredValueBook, type RatificationStatus } from "./declaredValues.js";
 import { type LivePlan, type RolePlanLine, fitsPlan } from "./livePlan.js";
 import { type NominationWindow } from "./nominationWindow.js";
@@ -325,6 +325,26 @@ export function opportunityRadar(input: OpportunityRadarInput): readonly Opportu
     maxBidByRole[role] = safe.biddable ? safe.maxSafe : 0;
   }
 
+  // PERF-T008 — due precomputazioni CONDIVISE dal giro, entrambe a output
+  // identico (dimostrato su tutta la griglia di dimensioni in
+  // `opportunityRadar.perf.test.ts` contro la copia congelata della versione
+  // precedente). Nessun dettaglio in meno: gli stessi candidati, con gli stessi
+  // campi e nello stesso ordine, calcolati una volta invece che N.
+  //
+  //  1. LA SCALA DEL CLIFF. `cliffFacts` ricostruiva per OGNI candidato il
+  //     `Set` dei venduti e tre filtri sull'intero listino: a stato fermo è la
+  //     stessa scala ogni volta, quindi il radar era quadratico (candidati x
+  //     listone). Si prepara una volta e si legge con due ricerche binarie.
+  //     PIGRA di proposito: un radar che non produce candidati non la paga.
+  //  2. L'INSIEME ELEGGIBILE. `competitorSet` è puro e qui `state`/`selfId`
+  //     sono costanti, quindi dipende solo da (ruolo, soglia) — e le soglie si
+  //     ripetono moltissimo, perché le Qt.A di un listone si ripetono. Il
+  //     risultato si riusa a parità di chiave: stesso oggetto, stessi numeri.
+  //     `competitorSet` resta l'unica formula dell'eleggibilità, non ne nasce
+  //     una seconda qui.
+  let ladder: CliffLadder | null = null;
+  const competitorsByRoleAndThreshold = new Map<string, CompetitorSet>();
+
   const out: OpportunityCandidate[] = [];
 
   for (const declared of values.all) {
@@ -339,11 +359,18 @@ export function opportunityRadar(input: OpportunityRadarInput): readonly Opportu
     const surplus = declared.declaredValue - anchor.correctedAnchor;
     if (surplus <= 0) continue;
 
-    const cliff = cliffFacts(playerId, book, state);
+    ladder ??= cliffLadder(book, state);
+    const cliff = cliffFactsOn(ladder, playerId);
     if (cliff === null) continue; // irraggiungibile: stessa condizione di `anchor`
     const line: RolePlanLine = plan.perRole[role];
     const withinRolePlan = fitsPlan(line, anchor.correctedAnchor);
-    const competitors = competitorSet(state, role, anchor.correctedAnchor, selfId);
+
+    const competitorsKey = `${role}|${anchor.correctedAnchor}`;
+    let competitors = competitorsByRoleAndThreshold.get(competitorsKey);
+    if (competitors === undefined) {
+      competitors = competitorSet(state, role, anchor.correctedAnchor, selfId);
+      competitorsByRoleAndThreshold.set(competitorsKey, competitors);
+    }
 
     const reasons: OpportunityReason[] = [
       { id: "surplus-vs-current-anchor", value: surplus, n: null },
