@@ -14,11 +14,33 @@
   --border: oklch(0.32 0.012 270);
   --accent: oklch(0.55 0.13 250);
   --accent-dim: oklch(0.35 0.06 250);
+  /* ── Rampa del testo — tutti i livelli ≥ 4,5:1 (WCAG AA) su OGNI sfondo su
+     cui compaiono davvero (--bg 0.19, --panel 0.24, --panel-inner 0.28).
+     Lo sfondo peggiore è --panel-inner: lì servono L ≥ 0.6493 per 4,5:1, ed è
+     quel pavimento a fissare il gradino più basso della rampa. Misure reali
+     (oklch → sRGB → luminanza relativa WCAG), su --panel-inner:
+       --text-dim      4,69:1   (era 2,43:1 a L 0.50)
+       --text-sec      6,33:1   (era 4,01:1 a L 0.62)
+       --text-mid      8,36:1   (invariato: era già conforme)
+       --text-primary 13,00:1   (invariato)
+     I passi in L restano 0.08 / 0.08 / 0.14: la gerarchia non è più portata
+     dal solo colore — dove due livelli si toccano la differenza è anche di
+     corpo, peso, maiuscoletto o spaziatura (vedi .critical-role-plan-item em,
+     .status-filter__label, .hint-text). Il testo attenuato resta attenuato,
+     ma in asta si legge. */
   --text-primary: oklch(0.96 0.005 270);
-  --text-sec: oklch(0.62 0.01 270);
+  --text-sec: oklch(0.74 0.01 270);
   --text-mid: oklch(0.82 0.006 270);
-  --text-dim: oklch(0.5 0.01 270);
-  --stop-red: oklch(0.66 0.19 25);
+  --text-dim: oklch(0.66 0.01 270);
+  /* L'accent COME TESTO, non come fondo: --accent pieno su --panel-inner sta
+     a 3,02:1. Questo token è il valore che il repo aveva già scelto due volte
+     ad hoc (.roster-badge-confirmed e .war-board-bid--locked, fix 9 #285) —
+     stesso hue/chroma, stessa lettura "è il colore accent", 5,09:1 su
+     --panel-inner. --accent resta intatto per fondi, bordi e focus ring. */
+  --text-accent: oklch(0.68 0.13 250);
+  /* Anche STOP è quasi solo testo (una sola border-color): a L 0.66 stava a
+     4,30:1 su --panel-inner, sotto AA. L 0.70 → 5,02:1, stesso hue/chroma. */
+  --stop-red: oklch(0.7 0.19 25);
   --stop-red-dark: oklch(0.5 0.16 25);
   --green: oklch(0.65 0.15 145);
   --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;

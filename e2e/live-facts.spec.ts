@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { ListonePlayer } from "../src/ui/listone.js";
-import { gotoScreen, installSyntheticNetworkGuard } from "./helpers.js";
+import { AA_NORMAL_TEXT, gotoScreen, installSyntheticNetworkGuard, textContrast } from "./helpers.js";
 
 // I FATTI MISURATI DEL MOMENTO LIVE, sullo schermo.
 //
@@ -44,82 +44,10 @@ const CALLED = "Quarto Portiere";
 const DIRECTIVE =
   /fair.?to.?me|target.?band|stretch.?cap|prendilo|mollalo|consigl|dovresti|spingi|ranking|projection/i;
 
-/**
- * Contrasto REALE del testo di un elemento, misurato sul DOM vivo: colore e
- * sfondo si leggono da getComputedStyle e si convertono via canvas (che sa
- * risolvere `oklch()` come lo risolve il browser), poi si compone l'eventuale
- * `opacity` degli antenati contro lo sfondo che sta sotto il gruppo di
- * composizione, esattamente come fa il compositore.
- *
- * Serve perché la regressione che questo test blocca era invisibile al
- * codice: `--text-dim` di per sé è un token accettato altrove, ma dentro una
- * riga con `opacity: 0.78` diventava 1,99:1 — sotto qualunque soglia
- * leggibile. Un test sul solo nome del token non l'avrebbe mai vista.
- */
-async function textContrast(page: Page, selector: string): Promise<number> {
-  return page.evaluate((sel) => {
-    const el = document.querySelector(sel);
-    if (el === null) throw new Error(`contrasto: nessun elemento per ${sel}`);
-
-    const canvas = document.createElement("canvas");
-    canvas.width = 1;
-    canvas.height = 1;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
-    const parse = (color: string): readonly [number, number, number, number] => {
-      ctx.clearRect(0, 0, 1, 1);
-      ctx.fillStyle = color;
-      ctx.fillRect(0, 0, 1, 1);
-      const d = ctx.getImageData(0, 0, 1, 1).data;
-      return [d[0]!, d[1]!, d[2]!, d[3]! / 255];
-    };
-    const mix = (
-      src: readonly [number, number, number, number],
-      dst: readonly [number, number, number, number],
-      alpha: number,
-    ): readonly [number, number, number, number] =>
-      [0, 1, 2, 3].map((i) => alpha * src[i]! + (1 - alpha) * dst[i]!) as unknown as [
-        number,
-        number,
-        number,
-        number,
-      ];
-    const luminance = (c: readonly [number, number, number, number]): number => {
-      const [r, g, b] = [c[0], c[1], c[2]].map((v) => {
-        const s = v / 255;
-        return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
-      }) as [number, number, number];
-      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    };
-
-    // La catena dall'elemento fino alla radice, con la sua opacità.
-    const chain: Element[] = [];
-    for (let node: Element | null = el; node !== null; node = node.parentElement) chain.push(node);
-    const alphas = chain.map((node) => Number(getComputedStyle(node).opacity));
-    const cumulative = alphas.reduce((acc, a) => acc * a, 1);
-    // L'antenato più alto che apre un gruppo di composizione (opacity < 1).
-    let groupTop = -1;
-    alphas.forEach((a, i) => {
-      if (a < 1) groupTop = i;
-    });
-
-    const bgAt = (from: number): readonly [number, number, number, number] => {
-      for (let i = from; i < chain.length; i++) {
-        const bg = parse(getComputedStyle(chain[i]!).backgroundColor);
-        if (bg[3] > 0) return bg;
-      }
-      return [255, 255, 255, 1];
-    };
-    // Sotto il gruppo: ciò contro cui l'intero layer viene composto.
-    const backdrop = bgAt(groupTop + 1);
-    // Dentro il gruppo: lo sfondo su cui il testo è davvero disegnato.
-    const own = bgAt(0);
-
-    const fg = mix(parse(getComputedStyle(el).color), backdrop, cumulative);
-    const bg = mix(own, backdrop, cumulative);
-    const [hi, lo] = [luminance(fg), luminance(bg)].sort((a, b) => b - a) as [number, number];
-    return (hi + 0.05) / (lo + 0.05);
-  }, selector);
-}
+/* `textContrast` vive in e2e/helpers.ts: la stessa misura la usa ora anche
+   e2e/text-contrast-aa.spec.ts, che la estende a tutta l'app. Una copia
+   sola — due copie potrebbero divergere proprio sul calcolo che fa da
+   guardia. Motivazione completa e algoritmo: helpers.ts. */
 
 /** Quante righe occupa davvero il testo di un elemento. */
 async function lineBoxes(page: Page, selector: string): Promise<number> {
@@ -273,7 +201,7 @@ test("ruolo esaurito e budget esaurito restano due fatti distinti, per la squadr
   // `opacity: 0.78` che la portava a 1,99:1. Misurato sul DOM vivo, non
   // dedotto dal nome del token: AA pieno (4,5:1) perché è testo piccolo.
   const reason = "#opponent-reach-Squadra2 .opponent-reach__reason";
-  expect(await textContrast(page, reason)).toBeGreaterThanOrEqual(4.5);
+  expect(await textContrast(page, reason)).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
   // E nessun antenato della riga esclusa può rimettere un'opacità: era quella
   // a moltiplicare contro lo sfondo ogni cifra e ogni parola della riga.
   expect(
@@ -289,10 +217,10 @@ test("ruolo esaurito e budget esaurito restano due fatti distinti, per la squadr
   // Anche il resto della riga esclusa resta sopra AA: nome e numeri.
   expect(
     await textContrast(page, "#opponent-reach-Squadra2 .opponent-reach__name"),
-  ).toBeGreaterThanOrEqual(4.5);
+  ).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
   expect(
     await textContrast(page, "#opponent-reach-Squadra2 .opponent-reach__bid"),
-  ).toBeGreaterThanOrEqual(4.5);
+  ).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
 
   // Abbassando la soglia sotto il tetto di Squadra3, quella squadra rientra:
   // è un vincolo aritmetico, non un giudizio su di lei.

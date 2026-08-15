@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { escHtml, roleChipHtml } from "./theme.js";
+import { ROLE_CHIP_CLASS, escHtml, roleChipHtml } from "./theme.js";
 
 // Pure, DOM-independent helpers only (escHtml/roleChipHtml return plain
 // strings). renderRoleChip and the rest of src/ui/* build DOM nodes via
@@ -41,6 +41,18 @@ describe("roleChipHtml", () => {
   it("falls back to escaped plain text for an unknown role", () => {
     expect(roleChipHtml("X")).toBe("X");
     expect(roleChipHtml("<b>")).toBe("&lt;b&gt;");
+  });
+
+  it("carries the identity class the contrast guard locates it by", () => {
+    // e2e/text-contrast-aa.spec.ts trova le pastiglie con `.role-chip` — per
+    // IDENTITÀ e non per colore, perché un selettore sul colore smette di
+    // corrispondere proprio quando il colore torna sbagliato. Se questa classe
+    // sparisce, quella guardia misura zero pastiglie: la sua asserzione finale
+    // sui quattro ruoli lo intercetta, ma questo test lo dice qui, subito, e
+    // senza avviare un browser.
+    for (const role of ["P", "D", "C", "A"]) {
+      expect(roleChipHtml(role)).toContain(`class="${ROLE_CHIP_CLASS}"`);
+    }
   });
 
   it("HTML-escapes the role label even for known roles (defense in depth)", () => {

@@ -2587,7 +2587,7 @@ function renderTeamsPanel(aState: AuctionState): HTMLElement {
     const card = document.createElement("div");
     card.style.cssText = `background:${C.panelInner};border:1px solid ${isSelf ? C.accent : C.border};border-radius:10px;padding:14px 16px;`;
     const slotStr = ROLES.map((r) => `${roleChipHtml(r)}<span style="font-family:${C.mono};margin-left:3px;margin-right:10px;">${t?.slotsRemaining[r] ?? ROSTER_REQUIREMENTS[r] ?? 0}</span>`).join("");
-    card.innerHTML = `<div style="font-size:14px;font-weight:600;color:${C.textPrimary};margin-bottom:6px;">${escHtml(displayTeamLabel(tid))}${isSelf ? ` <span style="font-size:11px;font-weight:700;color:${C.accent};">● io</span>` : ""}</div>` +
+    card.innerHTML = `<div style="font-size:14px;font-weight:600;color:${C.textPrimary};margin-bottom:6px;">${escHtml(displayTeamLabel(tid))}${isSelf ? ` <span style="font-size:11px;font-weight:700;color:${C.textAccent};">● io</span>` : ""}</div>` +
       `<div class="kpi-value" style="font-size:22px;color:${C.green};">${residuo} <span style="font-size:13px;font-weight:600;color:${C.textSec};">cr</span></div>` +
       `<div style="font-size:12.5px;color:${C.textSec};margin-top:6px;">slot residui: <span class="kpi-value" style="color:${C.textPrimary};">${slotsLeft}</span></div>` +
       `<div style="font-size:13px;color:${C.textSec};margin-top:8px;display:flex;align-items:center;flex-wrap:wrap;">${slotStr}</div>`;
@@ -2921,7 +2921,7 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
 
   // Back link
   const back = document.createElement("div");
-  back.style.cssText = `font-size:12.5px;font-weight:600;color:${C.accent};cursor:pointer;margin-bottom:14px;`;
+  back.style.cssText = `font-size:12.5px;font-weight:600;color:${C.textAccent};cursor:pointer;margin-bottom:14px;`;
   back.textContent = "← Indietro alla ricerca";
   back.tabIndex = 0;
   back.setAttribute("role", "button");
@@ -3364,7 +3364,7 @@ function renderZona4(aState: AuctionState): HTMLElement {
     undoLink.id = `undo-purchase-${entry.seq}`;
     undoLink.tabIndex = 0;
     undoLink.setAttribute("role", "button");
-    undoLink.style.cssText = `font-size:12.5px;font-weight:600;color:${C.accent};cursor:pointer;white-space:nowrap;`;
+    undoLink.style.cssText = `font-size:12.5px;font-weight:600;color:${C.textAccent};cursor:pointer;white-space:nowrap;`;
     undoLink.textContent = "Annulla";
     undoLink.title = isLatest
       ? "Annulla questo acquisto (l'ultimo registrato)"

@@ -48,8 +48,21 @@
 .listone-row--clickable {
   cursor: pointer;
 }
+/* La riga già assegnata arretra PER COLORE, non per opacità — stessa
+   correzione, e stessa ragione, di .opponent-reach__row--excluded in
+   asta.css: `opacity` si applica al layer intero, quindi moltiplica ogni
+   figlio contro lo sfondo sottostante e trascina sotto soglia anche ciò che
+   il figlio aveva già reso conforme. Misurato sul DOM vivo con `opacity:
+   0.6`: il badge «Assegnato» stava a 1,67:1 e il NOME del giocatore a
+   4,28:1 — cioè il dato principale della riga era sotto AA. Nessun valore
+   di opacità lo salva (a 0.85 il badge arriva solo a 3,81:1): serve toglierla.
+   Con --text-dim la riga resta chiaramente arretrata — 0.66 contro lo 0.82
+   di --text-mid delle righe libere, un gradino in L di 0.16, più marcato di
+   qualunque altro passo della rampa — e ogni suo contenuto risale sopra AA:
+   nome e celle a 5,29:1, badge a 4,69:1. Non si perde nulla: la riga tiene
+   il suo badge «Assegnato», le stesse celle e lo stesso testo di prima. */
 .listone-row--assigned {
-  opacity: 0.6;
+  color: var(--text-dim);
 }
 .listone-row--selected {
   background: var(--panel-inner);
@@ -139,6 +152,6 @@
   outline-offset: -2px;
 }
 .status-filter__check {
-  color: var(--accent);
+  color: var(--text-accent);
   font-size: 11px;
 }
