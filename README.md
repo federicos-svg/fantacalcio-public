@@ -12,3 +12,5 @@ no real player data, no proprietary datasets, no credentials.
 - `npm run typecheck` / `npm test` / `npm run build`
 - `npm run test:e2e` — Playwright (Chromium) against the built preview
 - `npm run verify` — full local gate
+
+<!-- prova temporanea: verifica che i required check compaiano sugli eventi pull_request -->
