@@ -246,17 +246,27 @@ export type MeasuredText = {
   readonly bg: string;
   readonly opacity: number;
   readonly fontSize: number;
+  readonly text: string;
   readonly label: string;
   readonly disabled: boolean;
 };
-export async function measureAllText(page: Page): Promise<MeasuredText[]> {
-  return page.evaluate((body) => {
+/**
+ * `selector` restringe la spazzata a una famiglia di elementi invece che a
+ * tutto il documento. Il default `*` è la spazzata d'insieme di sempre; la
+ * forma ristretta serve alle pastiglie di ruolo, che non portano un token
+ * della rampa e vanno quindi cercate per IDENTITÀ (`.role-chip`) e non per
+ * colore — un filtro sul colore smette di corrispondere proprio quando il
+ * colore torna sbagliato, ed è il modo esatto in cui questa suite era già
+ * riuscita a restare verde sull'app rotta (vedi resolveTokenColors sotto).
+ */
+export async function measureAllText(page: Page, selector = "*"): Promise<MeasuredText[]> {
+  return page.evaluate(([body, sel]) => {
     // eslint-disable-next-line no-new-func
     const measure = new Function(`return ${body}`)() as (
       e: Element,
     ) => { ratio: number; fg: string; bg: string; opacity: number };
     const out: MeasuredText[] = [];
-    for (const el of Array.from(document.querySelectorAll("*"))) {
+    for (const el of Array.from(document.querySelectorAll(sel))) {
       const ownText = Array.from(el.childNodes)
         .filter((n) => n.nodeType === 3)
         .map((n) => (n.textContent ?? "").trim())
@@ -275,6 +285,7 @@ export async function measureAllText(page: Page): Promise<MeasuredText[]> {
         bg: m.bg,
         opacity: m.opacity,
         fontSize: parseFloat(cs.fontSize),
+        text: ownText,
         label: `${el.tagName.toLowerCase()}${el.id ? "#" + el.id : ""}${
           cls ? "." + cls.split(/\s+/).join(".") : ""
         } «${ownText.slice(0, 34)}»`,
@@ -282,7 +293,7 @@ export async function measureAllText(page: Page): Promise<MeasuredText[]> {
       });
     }
     return out;
-  }, CONTRAST_IN_PAGE) as Promise<MeasuredText[]>;
+  }, [CONTRAST_IN_PAGE, selector] as const) as Promise<MeasuredText[]>;
 }
 
 /**

@@ -887,7 +887,15 @@ function listoneCellHtml(p: ListonePlayer, col: ListoneColumn, isAssigned: boole
   const flex = listoneColumnFlex(col.key);
   const value = listoneCellValue(p, col.key);
   if (col.kind === "role" && typeof value === "string") {
-    return `<div style="flex:${flex};">${roleChipHtml(value)}</div>`;
+    // Riga già assegnata -> pastiglia ARRETRATA. `opacity: 0.6` su tutta la
+    // riga faceva due cose insieme: attenuava il testo (ed è per questo che è
+    // stata tolta — portava il nome del giocatore a 4,28:1) e attenuava il
+    // disco della pastiglia. Solo la prima andava disfatta: senza questa
+    // variante il disco tornava fra 2,1x e 2,5x più luminoso, e le righe che
+    // non puoi più comprare diventavano la cosa più accesa del listone. Il
+    // disco arretrato è lo stesso hue a L 0.42 — vedi ROLE_CHIP_MUTED_TEXT in
+    // theme.ts per i numeri.
+    return `<div style="flex:${flex};">${roleChipHtml(value, isAssigned ? "muted" : "full")}</div>`;
   }
   if (col.key === "club" && typeof value === "string") {
     return `<div style="flex:${flex};display:flex;align-items:center;gap:6px;">${clubBadgeHtml(value)}${escHtml(value)}</div>`;
