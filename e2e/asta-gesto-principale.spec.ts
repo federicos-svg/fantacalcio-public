@@ -76,13 +76,40 @@ const CALLED = "Sintetico 004";
 // torni, che è il punto di un budget.
 const ASSIGN_HEADING_BUDGET_PX = 560;
 
-/** I pannelli che devono stare SOTTO il gesto. Ognuno è un id già esistente. */
-const PANELS_BELOW = [
-  "#tier-band-panel",
-  "#war-board-mini",
-  "#player-insight-panel",
-  "#opponent-precedents-panel",
+// I pannelli che devono stare SOTTO il gesto NON sono un elenco di id, e la
+// differenza è il motivo per cui questo file esiste.
+//
+// Un elenco scritto a mano copre i riquadri di oggi e ignora quello di domani:
+// mentre questa corsia lavorava ne è arrivato un secondo (IL RUOLO STASERA,
+// corsia worker/tensione-dal-tavolo) e un elenco l'avrebbe lasciato passare in
+// silenzio, che è esattamente il modo in cui la schermata è cresciuta fino a
+// spingere il gesto fuori. La spazzata qui sotto raccoglie OGNI riquadro della
+// vista asta per FORMA, non per nome, quindi comprende anche quelli che questo
+// file non ha mai visto.
+//
+// Che cosa è escluso, e perché ognuna delle due esclusioni è obbligata:
+//  - gli antenati del titolo «ASSEGNA A»: la colonna della vista asta è essa
+//    stessa un `.panel` e contiene tutto, gesto compreso — confrontarla col
+//    proprio contenuto non vuol dire niente;
+//  - ciò che sta DENTRO la scheda del giocatore: il riquadro MOMENTO
+//    DELL'ASTA ridotto è lì per costruzione (#331 punto 2), e sta sopra il
+//    gesto di proposito.
+//
+// I quattro id qui sotto non sono l'elenco: sono il CONTROLLO che la spazzata
+// stia davvero guardando qualcosa. Una spazzata che non trova niente passerebbe
+// per vuoto, ed è il modo classico in cui un'asserzione così smette di mordere.
+const PANELS_EXPECTED_PRESENT = [
+  "tier-band-panel",
+  "war-board-mini",
+  "player-insight-panel",
+  "opponent-precedents-panel",
 ] as const;
+
+interface PanelPosition {
+  readonly id: string;
+  readonly label: string;
+  readonly top: number;
+}
 
 interface GestureGeometry {
   readonly headingTop: number;
@@ -139,13 +166,30 @@ async function gestureGeometry(page: Page): Promise<GestureGeometry> {
   });
 }
 
-/** Posizione assoluta nel documento del bordo superiore di un elemento. */
-async function documentTop(page: Page, selector: string): Promise<number> {
-  return page.evaluate((sel) => {
-    const el = document.querySelector(sel);
-    if (el === null) throw new Error(`ordine: nessun elemento per ${sel}`);
-    return el.getBoundingClientRect().top + window.scrollY;
-  }, selector);
+/**
+ * Ogni riquadro della vista asta che NON è un antenato del gesto e NON sta
+ * dentro la scheda del giocatore, con la sua posizione assoluta nel documento.
+ * Raccolti per forma (`.panel`, `.moment-blocks-grid`, `.table-detail`), mai
+ * per nome: un riquadro aggiunto domani entra in questa lista da sé.
+ */
+async function panelsOutsideCard(page: Page): Promise<readonly PanelPosition[]> {
+  return page.evaluate(() => {
+    const heading = [...document.querySelectorAll(".panel-title")].find(
+      (el) => (el.textContent ?? "").trim() === "ASSEGNA A",
+    );
+    if (heading === undefined) throw new Error("ordine: nessun titolo «ASSEGNA A»");
+    const card = document.getElementById("call-card");
+    return [...document.querySelectorAll(".panel, .moment-blocks-grid, .table-detail")]
+      .filter((el) => !el.contains(heading))
+      .filter((el) => card === null || !card.contains(el))
+      .map((el) => ({
+        id: el.id,
+        // Le prime parole del riquadro: un fallimento deve dire QUALE riquadro
+        // è finito sopra il gesto anche quando non porta un id.
+        label: (el.textContent ?? "").trim().slice(0, 40).replace(/\s+/g, " "),
+        top: Math.round(el.getBoundingClientRect().top + window.scrollY),
+      }));
+  });
 }
 
 async function boot(page: Page, viewport: { width: number; height: number }): Promise<void> {
@@ -215,13 +259,23 @@ test("sopra il gesto c'è solo il giocatore chiamato: la schermata può crescere
   await callPlayer(page);
 
   // b. ORDINE. È questa l'asserzione che regge l'aggiunta successiva: finché
-  //    ogni pannello sta SOTTO il gesto, la sua altezza non lo riguarda.
+  //    ogni riquadro sta SOTTO il gesto, la sua altezza non lo riguarda — e
+  //    non serve sapere in anticipo quanti riquadri saranno né come si
+  //    chiameranno.
   const heading = (await gestureGeometry(page)).headingTop;
-  for (const panel of PANELS_BELOW) {
-    const top = await documentTop(page, panel);
+  const panels = await panelsOutsideCard(page);
+
+  // Il controllo che la spazzata stia guardando qualcosa: senza, un albero
+  // senza riquadri passerebbe per vuoto.
+  const ids = panels.map((p) => p.id);
+  for (const expected of PANELS_EXPECTED_PRESENT) {
+    expect(ids, `la spazzata dei riquadri deve vedere #${expected}`).toContain(expected);
+  }
+
+  for (const panel of panels) {
     expect(
-      top,
-      `${panel} sta a ${Math.round(top)}px e «ASSEGNA A» a ${heading}px: un pannello sopra il gesto lo spinge giù quando cresce`,
+      panel.top,
+      `«${panel.label}»${panel.id === "" ? "" : ` (#${panel.id})`} sta a ${panel.top}px e «ASSEGNA A» a ${heading}px: un riquadro sopra il gesto lo spinge giù ogni volta che cresce`,
     ).toBeGreaterThan(heading);
   }
 
