@@ -132,9 +132,23 @@ test("il riquadro IL RUOLO STASERA misura il tavolo, e solo il tavolo", async ({
   await expect(page.locator("#role-depletion-note")).toContainText("Nessuna banda, nessun punteggio");
 
   // ── Contrasto: ogni riga del riquadro sopra 4,5:1 ─────────────────────────
-  const measured = await measureAllText(page, "#role-depletion-panel, #role-depletion-panel *");
-  expect(measured.length).toBeGreaterThan(4);
-  const tooLow = measured.filter((m) => m.ratio < AA_NORMAL_TEXT);
+  const swept = await measureAllText(page, "#role-depletion-panel, #role-depletion-panel *");
+  expect(swept.length).toBeGreaterThan(4);
+  // Un testo NON CLASSIFICABILE non si salta: la spazzata non può dirlo
+  // leggibile, quindi lo boccia (la regola fail-closed di e2e/helpers.ts).
+  // Senza questa riga un elemento reso non misurabile — `filter`,
+  // `mix-blend-mode` — sparirebbe dal conto qui sotto e il riquadro
+  // resterebbe verde senza essere stato letto.
+  expect(
+    swept.flatMap((m) => (m.kind === "unclassified" ? [`${m.reason} — ${m.label}`] : [])),
+    "testo non classificabile nel riquadro",
+  ).toEqual([]);
+  // Nessun filtro sulle esenzioni, ed è deliberato: THRESHOLD_EXEMPT esenta i
+  // soli controlli disattivati e qui dentro non ce n'è nessuno — il riquadro è
+  // di sola lettura. Ogni riga misurata risponde della soglia, come prima.
+  const tooLow = swept.flatMap((m) =>
+    m.kind === "measured" && m.ratio < AA_NORMAL_TEXT ? [m] : [],
+  );
   expect(tooLow.map((m) => `${m.label} ${m.ratio.toFixed(2)}:1`)).toEqual([]);
 
   expect(externalRequests).toEqual([]);
