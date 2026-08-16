@@ -7,6 +7,7 @@ import {
   recordPurchase,
   voidFeasibility,
   recordVoid,
+  validateEvent,
   INITIAL_BUDGET,
   type AuctionEvent,
   type ProposedPurchase,
@@ -201,6 +202,28 @@ describe("recordPurchase — third portiere at 0 is logged as an explicit declar
     expect(() =>
       recordPurchase(twoGoalkeepersLog, s, { playerId: "P3", role: "P", fantaTeamId: "psg", price: 0 }, TS),
     ).toThrow(/infeasible purchase/);
+  });
+
+  it("the schema itself rejects thirdGoalkeeperZeroDeclared: false — events.ts: never a real fact, only ever a bug", () => {
+    // recordPurchase (tested above) never constructs `false` — it either
+    // writes `true` or omits the key entirely. This guards the OTHER path:
+    // purchaseSchema in events.ts is declared `z.literal(true).optional()`,
+    // never a plain boolean, specifically so this shape is unrepresentable
+    // even by a caller that builds/replays a PURCHASE event directly
+    // (appendEvent, a stored log parsed back with JSON.parse, ...) without
+    // going through recordPurchase at all.
+    expect(() =>
+      validateEvent({
+        type: "PURCHASE",
+        seq: 0,
+        ts: TS,
+        playerId: "P9",
+        role: "P",
+        fantaTeamId: "psg",
+        price: 3,
+        thirdGoalkeeperZeroDeclared: false,
+      }),
+    ).toThrow();
   });
 });
 
