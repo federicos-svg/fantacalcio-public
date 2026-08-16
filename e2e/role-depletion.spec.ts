@@ -117,11 +117,18 @@ test("il riquadro IL RUOLO STASERA misura il tavolo, e solo il tavolo", async ({
   );
 
   // ── Nessun output direttivo, e nessuna banda qualitativa ──────────────────
+  // La misura si fa sul riquadro MENO la nota, e la sottrazione è deliberata:
+  // la nota è la DICHIARAZIONE di assenza («Nessuna banda, nessun punteggio»),
+  // quindi una regex che vieta la parola «punteggio» punirebbe proprio la
+  // frase che fa rispettare la regola. Il divieto vale sui contenuti; la nota
+  // è verificata a parte, per quello che afferma.
+  const noteText = (await page.locator("#role-depletion-note").innerText()).replace(/\s+/g, " ");
+  const contentText = panelText.replace(noteText, " ");
+  expect(contentText).not.toMatch(DIRECTIVE);
   // «bassa/media/alta» è la forma che il motore della tensione produce e che
   // questa corsia ha lasciato fuori: se comparisse, comparirebbe qui.
-  expect(panelText).not.toMatch(DIRECTIVE);
-  expect(panelText).not.toMatch(/\btension[ae]\b/i);
-  expect(panelText).not.toMatch(/\b(bassa|alta)\b/i);
+  expect(contentText).not.toMatch(/\btension[ae]\b/i);
+  expect(contentText).not.toMatch(/\b(bassa|alta)\b/i);
   await expect(page.locator("#role-depletion-note")).toContainText("Nessuna banda, nessun punteggio");
 
   // ── Contrasto: ogni riga del riquadro sopra 4,5:1 ─────────────────────────
