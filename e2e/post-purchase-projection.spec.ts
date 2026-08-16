@@ -54,7 +54,15 @@ async function buy(page: Page, name: string, teamId: string, price: number): Pro
   await page.locator("#assign-team").selectOption(teamId);
   await page.locator("#assign-price").fill(String(price));
   await page.getByRole("button", { name: "Registra acquisto", exact: true }).click();
-  await expect(page.locator("#role-scarcity-panel")).toBeVisible();
+  // Marcatore di "siamo tornati sulla schermata di chiamata" dopo la
+  // registrazione. Era `#role-scarcity-panel`, che il riordino della schermata
+  // di ricerca (#333) ha spostato dentro il gruppo richiudibile del tavolo:
+  // da chiuso resta nel DOM ma `hidden`, quindi l'attesa non si soddisfa mai.
+  // `#search-player` è il marcatore che quel riordino ha adottato ovunque
+  // (helper `boot()`/`buy()` di live-facts, text-contrast-aa,
+  // critical-strip-header-band): è visibile di default ed è il vero segno che
+  // la schermata di chiamata è resa. Stessa proprietà attesa, non più debole.
+  await expect(page.locator("#search-player")).toBeVisible();
 }
 
 async function boot(page: Page, context: Parameters<typeof installSyntheticNetworkGuard>[0]): Promise<string[]> {
