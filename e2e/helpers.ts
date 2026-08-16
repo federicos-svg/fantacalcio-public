@@ -100,6 +100,26 @@ export async function selectStatusFilter(
 }
 
 /**
+ * #333 — Opens "IL TAVOLO" on the chiamata screen: the one gesture behind
+ * which SCARSITÀ PER RUOLO, TAVOLO — WAR BOARD and SQUADRE (LEGA) now live.
+ *
+ * Every spec that reads one of those three panels goes through here. They were
+ * not removed and their markup is byte-identical — they are one click away
+ * instead of occupying the top half of the screen, so what changed in those
+ * specs is the single line that opens them, never what they then assert.
+ *
+ * Idempotent: `state.tableDetailOpen` survives re-renders (a purchase returns
+ * to the chiamata moment with the group still open), so a spec that opens it
+ * once can keep asserting through the rest of its flow.
+ */
+export async function openTableDetail(page: Page): Promise<void> {
+  const toggle = page.locator("#table-detail-toggle");
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator("#table-detail-body")).toBeVisible();
+}
+
+/**
  * Picks an Impostazioni area from the left menu. Only the selected area's
  * body is in the DOM, so this is what makes its content assertable at all.
  */

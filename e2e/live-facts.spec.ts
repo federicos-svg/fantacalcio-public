@@ -1,6 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { ListonePlayer } from "../src/ui/listone.js";
-import { AA_NORMAL_TEXT, gotoScreen, installSyntheticNetworkGuard, textContrast } from "./helpers.js";
+import {
+  AA_NORMAL_TEXT,
+  gotoScreen,
+  installSyntheticNetworkGuard,
+  openTableDetail,
+  textContrast,
+} from "./helpers.js";
 
 // I FATTI MISURATI DEL MOMENTO LIVE, sullo schermo.
 //
@@ -73,8 +79,10 @@ async function buy(page: Page, name: string, teamId: string, price: number): Pro
   await page.locator("#assign-team").selectOption(teamId);
   await page.locator("#assign-price").fill(String(price));
   await page.getByRole("button", { name: "Registra acquisto", exact: true }).click();
-  // A recorded purchase returns to the chiamata moment.
-  await expect(page.locator("#role-scarcity-panel")).toBeVisible();
+  // A recorded purchase returns to the chiamata moment. #333: the marker of
+  // that moment is the search field — SCARSITÀ PER RUOLO now lives behind the
+  // IL TAVOLO gesture, so its visibility no longer tracks the moment.
+  await expect(page.locator("#search-player")).toBeVisible();
 }
 
 test("the live moment carries scarcity, the market census and who can reach the figure", async ({
@@ -271,6 +279,10 @@ test("senza listone caricato la disponibilità resta n/d e i rivali restano cont
 
   // Il pannello scarsità del momento CHIAMATA mostra già l'onestà attesa,
   // ed è la stessa che il momento LIVE mostrerebbe: n/d, mai 0.
+  // #333: sta dietro il gesto IL TAVOLO, quindi lo si APRE prima di leggerlo —
+  // `toHaveText` passerebbe anche su un elemento nascosto, e un verde letto su
+  // DOM invisibile non dimostrerebbe che l'operatore vede quel «n/d».
+  await openTableDetail(page);
   await expect(page.locator("#scarcity-pool-P")).toHaveText("n/d");
   await expect(page.locator("#scarcity-slots-P")).toHaveText("24");
 

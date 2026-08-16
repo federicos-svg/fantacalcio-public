@@ -249,6 +249,58 @@
   font-style: normal;
 }
 
+/* ── IL TAVOLO, DIETRO UN GESTO (#333, momento chiamata) ──────────────────────
+   SCARSITÀ PER RUOLO + TAVOLO — WAR BOARD + SQUADRE (LEGA) sono le stesse otto
+   squadre lette tre volte, e occupavano più di metà della pagina mentre il
+   campo di ricerca — l'unica ragione per cui la schermata esiste — stava sotto
+   la piega. Qui il gruppo è una riga sola con un solo controllo; il corpo resta
+   nel DOM da chiuso (`hidden`), esattamente come .critical-roster-detail.
+
+   Stesso idioma della fascia critica (#331 punto 5), non un secondo
+   meccanismo: un <button> con aria-expanded/aria-controls, tastiera nativa,
+   e `[hidden]` riaffermato perché la regola dello user agent (display:none)
+   perde contro il `display` di questa classe. */
+.table-detail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.table-detail__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px 14px;
+  flex-wrap: wrap;
+  width: 100%;
+  padding: 14px 24px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.table-detail__toggle:hover { border-color: var(--text-dim); }
+/* La descrizione dice cosa c'è dentro PRIMA di aprirlo: un gesto che non
+   dichiara il proprio contenuto nasconde informazione invece di riordinarla. */
+.table-detail__what {
+  color: var(--text-sec);
+  font-size: 12px;
+  min-width: 0;
+}
+.table-detail__caret {
+  margin-left: auto;
+  color: var(--text-sec);
+  font-size: 10px;
+}
+.table-detail__body {
+  display: block;
+  padding-top: 18px;
+}
+.table-detail__body[hidden] { display: none; }
+/* Dentro il gruppo l'ultimo pannello non porta il margine di coda: la
+   spaziatura fra i tre la danno già i loro margin-bottom. */
+.table-detail__body > :last-child { margin-bottom: 0; }
+
 /* SCARSITÀ PER RUOLO (Chiamata moment, src/ui/views.ts
    renderRoleScarcityPanel): four role cells. Two per row on a phone — four
    side by side stop being readable well before they stop fitting, the same
