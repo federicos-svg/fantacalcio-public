@@ -1236,3 +1236,245 @@
 @media (max-width: 479px) {
   .assign-after { flex: 1 1 120px; }
 }
+
+/* ── INSIGHT GIOCATORE — le schede del Gruppo Esperti (src/ui/expertInsight.ts)
+   Due strati, e la CSS serve a tenerli entrambi leggibili nello stesso
+   riquadro: lo STRATO VISIVO (scala della titolarità + pastiglie) e la PROSA.
+   Su desktop stanno in due colonne affiancate — la prosa non è una didascalia
+   sotto le icone, è metà del contenuto — e sotto i 900px si impilano, alla
+   stessa soglia a cui .moment-blocks-grid qui sopra smette di affiancare i due
+   pannelli successivi: la schermata cambia forma in un punto solo.
+
+   Il padding è più stretto di .panel (14/16 invece di 20/24) perché questo
+   riquadro esiste già nella schermata più lunga dell'app e deve stare dentro
+   lo spazio che il segnaposto occupava, non oltre.
+
+   IL COLORE NON PORTA NULLA DA SOLO. Il gradino attivo della scala si
+   distingue per riempimento, maiuscolo e peso oltre che per tinta; le
+   pastiglie di avviso hanno un marcatore «!» testuale oltre al bordo rosso.
+   Tutto il testo sta sui livelli della rampa di base.css (≥ 4,5:1 su ogni
+   fondo su cui compare), che e2e/text-contrast-aa.spec.ts rimisura a ogni
+   run. */
+.player-insight {
+  padding: 12px 14px;
+}
+.player-insight__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* I tre fatti di onestà del payload, scritti a schermo in tutti e cinque gli
+   stati: validated:false, directive:false, contributesToIndex:false. */
+.expert-flags {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+/* Testo, non pastiglie riquadrate: quattro riquadri con bordo e padding
+   costavano tre righe a 390px per dire quattro cose che si leggono in fila. */
+.expert-flags__item {
+  color: var(--text-sec);
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.expert-flags__sep {
+  color: var(--text-dim);
+  font-size: 9.5px;
+  line-height: 1.3;
+}
+.expert-insight__quality {
+  color: var(--text-sec);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+/* Nello stato available l'etichetta è una riga a sé; negli stati vuoti apre il
+   paragrafo, quindi non deve diventare un blocco. */
+.expert-insight__grid { margin-top: 8px; }
+.player-insight > div > .expert-insight__quality { display: block; }
+
+.expert-insight__grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 9px 18px;
+}
+@media (min-width: 900px) {
+  .expert-insight__grid { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); }
+}
+.expert-insight__visual {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-width: 0;
+}
+
+/* La scala della titolarità: tre gradini nell'ordine riserva → ballottaggio →
+   titolare. La POSIZIONE è il canale principale; il gradino dichiarato è
+   anche riempito, maiuscolo e in grassetto. */
+.expert-ladder {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+/* Etichetta e quota sulla STESSA riga: la quota da sola valeva una riga in più
+   su una schermata che non ne ha da regalare. */
+.expert-ladder__top {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  min-width: 0;
+}
+.expert-ladder__head,
+.expert-chips-head {
+  color: var(--text-sec);
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+.expert-ladder__scale {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+}
+.expert-ladder__step {
+  background: var(--panel-inner);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.25;
+  overflow: hidden;
+  padding: 5px 6px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.expert-ladder__step--on {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--text-primary);
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.expert-ladder__missing {
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+
+/* La quota del ballottaggio: barra E cifra. La barra da sola costringerebbe a
+   stimare a occhio proprio quando non c'è tempo. */
+.expert-share {
+  align-items: center;
+  display: flex;
+  flex: 0 1 auto;
+  gap: 7px;
+  min-width: 0;
+}
+.expert-share__track {
+  background: var(--panel-inner);
+  border-radius: 3px;
+  flex: 1 1 60px;
+  height: 6px;
+  min-width: 40px;
+  overflow: hidden;
+}
+.expert-share__fill {
+  background: var(--accent);
+  display: block;
+  height: 100%;
+}
+.expert-share__value {
+  color: var(--text-mid);
+  flex: none;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.expert-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.expert-chip {
+  align-items: baseline;
+  background: var(--panel-inner);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: inline-flex;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 2px 6px;
+}
+.expert-chip em {
+  color: var(--text-sec);
+  font-size: 9.5px;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.expert-chip b {
+  color: var(--text-primary);
+  font-size: 11.5px;
+  font-weight: 700;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* L'avviso non si distingue per la sola tinta del bordo: porta un marcatore
+   «!» che è testo, e la parola dell'avviso resta scritta per esteso. */
+.expert-chip--warn { border-color: var(--stop-red); }
+.expert-chip__mark {
+  color: var(--stop-red);
+  font-size: 11.5px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+/* LA PROSA. Corpo pieno, interlinea larga, misura contenuta: è la seconda
+   metà del contenuto, non una didascalia. */
+.expert-prose {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+}
+.expert-prose__text {
+  color: var(--text-mid);
+  font-size: 12.5px;
+  line-height: 1.5;
+  max-width: 62ch;
+}
+.expert-prose__empty {
+  color: var(--text-dim);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.expert-prose__meta {
+  color: var(--text-sec);
+  font-size: 10.5px;
+  line-height: 1.3;
+}
+
+/* I quattro stati «non lo so»: una frase sola, e nessun contenitore vuoto che
+   possa leggersi come «pieno ma senza niente dentro». */
+.expert-insight__empty { margin-top: 7px; }
+.expert-insight__empty-text {
+  color: var(--text-mid);
+  font-size: 12.5px;
+  line-height: 1.45;
+  max-width: 82ch;
+}

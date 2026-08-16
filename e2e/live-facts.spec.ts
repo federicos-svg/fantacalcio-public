@@ -33,8 +33,14 @@ import {
 //     punto 1, decisione di Pico): la spec fallisce se quella torna, e
 //     verifica nella stessa scena che max bid, budget e slot per ruolo siano
 //     rimasti visibili dove vivono adesso — nessuna informazione è sparita;
-//  4. INSIGHT GIOCATORE keeps its DEV STATICO marker — nothing was removed,
-//     and the one block that still has no measurable fact still says so;
+//  4. INSIGHT GIOCATORE è ancora lì e, senza deposito raggiungibile, è ancora
+//     onestamente vuoto — ma non è più un segnaposto DEV STATICO: porta le
+//     schede del Gruppo Esperti servite a runtime (src/expertScheda.ts), e in
+//     questa scena l'endpoint non risponde JSON, quindi lo stato è
+//     `source_unavailable` e il riquadro lo DICE. La prova che il blocco resta
+//     onesto è cambiata di forma insieme al blocco: qui si verifica lo stato
+//     onesto e la dichiarazione di non-validazione, in e2e/player-insight.spec.ts
+//     tutti e cinque gli stati;
 //  5. no directive output reaches any of it (docs/NO_GO.md §Prodotto).
 //
 // Every row is synthetic and the network guard aborts anything else.
@@ -171,8 +177,30 @@ test("the live moment carries scarcity, the market census and an honest empty pr
   await expect(page.locator("#opponent-precedents-note")).toContainText("il giudizio è tuo");
 
   // ── INSIGHT GIOCATORE: ancora onestamente vuoto, e ancora lì ──────────────
+  // Il marcatore DEV STATICO se n'è andato con il segnaposto: il blocco ora
+  // porta le schede del Gruppo Esperti, e in questa scena il deposito non è
+  // raggiungibile. L'asserzione che quel blocco resti ONESTO non è stata tolta,
+  // è diventata più stretta — prima bastava una pastiglia gialla, ora servono
+  // lo stato dichiarato, l'assenza di qualunque contenuto e la dichiarazione
+  // di non-validazione, che è ciò che quella pastiglia significava.
   await expect(page.getByText("INSIGHT GIOCATORE", { exact: true })).toBeVisible();
-  await expect(page.getByText("DEV STATICO", { exact: true })).toHaveCount(1);
+  await expect(page.getByText("DEV STATICO", { exact: true })).toHaveCount(0);
+  await expect(page.locator("#player-insight-quality")).toHaveText(
+    "fonte aggiuntiva non disponibile",
+  );
+  await expect(page.locator("#player-insight-empty")).toBeVisible();
+  await expect(page.locator("#player-insight-track")).toHaveCount(0);
+  await expect(page.locator("#player-insight-prose")).toHaveCount(0);
+  await expect(page.locator("#player-insight-flag-validated")).toHaveText("NON VALIDATO");
+  // `consigl` è l'unica famiglia di DIRECTIVE che questo riquadro DEVE
+  // contenere, e solo in forma negata: «NON È UN CONSIGLIO» è la resa a schermo
+  // di `directive: false`, cioè esattamente il vincolo che DIRECTIVE difende.
+  // Il divieto qui è quindi sulle famiglie che non possono essere una
+  // negazione, e la negazione viene verificata a parte invece di sparire.
+  expect(await page.locator("#player-insight-panel").innerText()).not.toMatch(
+    /fair.?to.?me|target.?band|stretch.?cap|prendilo|mollalo|dovresti|spingi\b|ranking|projection/i,
+  );
+  await expect(page.locator("#player-insight-flag-directive")).toHaveText("NON È UN CONSIGLIO");
 
   // ── Nessun output direttivo su questa schermata ───────────────────────────
   expect(await page.locator("#moment-facts-panel").innerText()).not.toMatch(DIRECTIVE);
