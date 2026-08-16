@@ -263,7 +263,11 @@ describe("competitorReachHtml", () => {
     const html = competitorReachHtml(competitorSet(freshState(), "P", 30, "Io"), LABELS);
     // maxSafe for an untouched team = 500 − 27 = 473.
     expect(html).toContain(`id="opponent-reach-Squadra2"`);
-    expect(html).toContain("<em>max</em>473");
+    expect(html).toContain("<em>max bid</em>473");
+    // Guardia contro il ritorno della sigla nuda: «max» da solo e' la terza
+    // formulazione della stessa grandezza che altrove si chiama «max bid»,
+    // accanto al «max reparto» del piano per ruolo. Non deve ricomparire.
+    expect(html).not.toMatch(/<em>max<\/em>/);
     expect(html).toContain("<em>slot</em>3");
     // Self is never among the rivals.
     expect(html).not.toContain(`id="opponent-reach-Io"`);
@@ -300,7 +304,7 @@ describe("competitorReachHtml", () => {
     expect(html).toMatch(/id="opponent-reach-Squadra5"[\s\S]*?opponent-reach__bid/);
     // A locked team's ceiling is reported as 0, never as a sub-floor figure
     // dressed up as a bid.
-    expect(html).toMatch(/id="opponent-reach-Squadra4"[\s\S]*?<em>max<\/em>0/);
+    expect(html).toMatch(/id="opponent-reach-Squadra4"[\s\S]*?<em>max bid<\/em>0/);
   });
 
   it("says so in words when nobody else can reach the figure", () => {

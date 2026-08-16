@@ -46,6 +46,14 @@ import type {
 } from "../../packages/engine/src/competitors.js";
 import { escHtml, roleChipHtml } from "./theme.js";
 import { ROLE_LABELS } from "./labels.js";
+// Vocabolario unico dei due tetti (src/ui/budgetLabels.ts). Qui serve
+// `MAX_BID_LABEL`, non una stringa scritta a mano: la cifra di questa riga è
+// `maxSafe()`, la stessa grandezza che la war board chiama «max bid». Finché
+// diceva «max» nuda non collideva con nulla; da quando il piano per ruolo si
+// chiama «max reparto» e la war board «max bid», un «max» nudo a pochi pixel
+// di distanza è la terza formulazione della stessa cosa — ed è la schermata
+// dove Pico ha due secondi per decidere.
+import { MAX_BID_LABEL } from "./budgetLabels.js";
 
 // ── Number formatting (locale-free, deterministic) ───────────────────────────
 
@@ -241,7 +249,7 @@ function competitorRowHtml(
         aria-label="${escHtml(spoken)}">
       <span class="opponent-reach__name" title="${escHtml(label)}">${escHtml(label)}</span>
       <span class="opponent-reach__nums">
-        <span class="opponent-reach__bid"><em>max</em>${a.maxBid}</span>
+        <span class="opponent-reach__bid"><em>${MAX_BID_LABEL}</em>${a.maxBid}</span>
         <span class="opponent-reach__slots"><em>slot</em>${a.slotsRemainingInRole}</span>
       </span>
       ${reason === "" ? "" : `<em class="opponent-reach__reason" title="${escHtml(detail)}">${escHtml(reason)}</em>`}
