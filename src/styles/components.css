@@ -95,9 +95,13 @@
   border: none;
 }
 
-/* Avvia (enabled) / Registra acquisto — accent CTA. The disabled look
-   (Avvia while the listone selection isn't correlated) is now a real
-   :disabled rule instead of a JS ternary computing bg/color/cursor. */
+/* Avvia (enabled) / Registra acquisto / Dichiaro e registro a 0 cr — accent
+   CTA. The disabled look (Avvia while the listone selection isn't correlated)
+   is now a real :disabled rule instead of a JS ternary computing
+   bg/color/cursor.
+   The third-goalkeeper declaration joined this group deliberately: it writes
+   into the purchase register exactly like "Registra acquisto", so it carries
+   the same weight instead of the ghost look of .btn--secondary. */
 .btn--primary {
   font-size: 13.5px;
   font-weight: 700;

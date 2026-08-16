@@ -2937,6 +2937,45 @@ function renderMomentoChiamata(aState: AuctionState): HTMLElement {
   return wrap;
 }
 
+/**
+ * Il testo scritto SUL bottone del terzo portiere a 0 — una costante e non tre
+ * stringhe uguali, perché il messaggio d'errore del prezzo digitato lo cita
+ * alla lettera: se il bottone cambia nome, il messaggio che ci manda l'operatore
+ * cambia con lui e non può indicare un comando che non esiste più.
+ */
+const THIRD_GOALKEEPER_ZERO_LABEL = "Dichiaro e registro a 0 cr";
+
+/**
+ * La condizione STRUTTURALE del terzo portiere: questo acquisto è l'ultimo
+ * slot P della squadra selezionata. È l'unica cosa che decide se il gesto a 0
+ * si vede a schermo — l'ammissione resta di purchaseFeasibility(). Sta in una
+ * funzione sola perché la usano tre punti (bottone, nota di max_safe,
+ * messaggio d'errore del prezzo) e devono dire tutti la stessa cosa.
+ */
+function isThirdGoalkeeperSlot(assignTeam: TeamState | undefined): boolean {
+  return state.call.role === "P" && assignTeam !== undefined && assignTeam.slotsRemaining.P === 1;
+}
+
+/**
+ * L'acquisto ESATTO che il bottone registrerebbe adesso, o `null` quando non
+ * c'è un giocatore selezionato. Costruito qui una volta sola: la schermata lo
+ * usa per CHIEDERE a purchaseFeasibility() se quel gesto passerebbe, e
+ * registerThirdGoalkeeperZero() usa lo stesso oggetto per commetterlo. Testo a
+ * schermo e comportamento del click nascono così dalla stessa proposta, non da
+ * due derivazioni che possono divergere.
+ */
+function thirdGoalkeeperZeroProposal(): ProposedPurchase | null {
+  const selectedPlayer = state.call.selectedPlayer;
+  if (!selectedPlayer) return null;
+  return {
+    playerId: listonePlayerKey(selectedPlayer),
+    role: selectedPlayer.role,
+    fantaTeamId: state.assign.fantaTeamId,
+    price: 0,
+    declareThirdGoalkeeperZero: true,
+  };
+}
+
 function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): HTMLElement {
   const wrap = document.createElement("div");
 
@@ -2995,6 +3034,17 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   const maxSafeWrap = document.createElement("div");
   maxSafeWrap.style.cssText = `text-align:right;`;
   const assignTeam = aState.teams[state.assign.fantaTeamId] ?? team;
+
+  // IL GESTO A 0, DECISO UNA VOLTA SOLA PER TUTTA LA SCHERMATA.
+  // `zeroGestureAvailable` è la condizione strutturale (si vede il bottone);
+  // `zeroAdmitted` è la risposta di purchaseFeasibility() alla proposta esatta
+  // che il click commetterebbe — cioè il comportamento vero, non una sua
+  // seconda derivazione. La nota di max_safe qui sotto legge il secondo, così
+  // non può dichiarare indisponibile un acquisto che il bottone registrerebbe.
+  const zeroGestureAvailable = isThirdGoalkeeperSlot(assignTeam);
+  const zeroProposal = zeroGestureAvailable ? thirdGoalkeeperZeroProposal() : null;
+  const zeroAdmitted = zeroProposal !== null && purchaseFeasibility(aState, zeroProposal).ok;
+
   if (assignTeam && state.call.role) {
     const ms = maxSafe(assignTeam, state.call.role as Role);
     const priceLabel = document.createElement("div");
@@ -3006,8 +3056,20 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
     priceDisplay.style.cssText = `font-size:32px;color:${C.textPrimary};background:${C.panelInner};border-radius:7px;padding:6px 16px;display:inline-block;`;
     priceDisplay.textContent = state.assign.price ? `${state.assign.price} cr` : "— cr";
     const maxSafeNote = document.createElement("div");
+    maxSafeNote.id = "max-safe-note";
     maxSafeNote.style.cssText = `font-size:11.5px;color:${C.textSec};margin-top:5px;`;
-    maxSafeNote.textContent = `max per completare la rosa di ${displayTeamLabel(state.assign.fantaTeamId)}: ${ms.biddable ? ms.maxSafe + " cr" : "n/d"}`;
+    // «n/d» da solo dice "nessun acquisto possibile qui", ed è vero per ogni
+    // prezzo digitabile (il minimo è 1 cr) ma NON quando il terzo portiere a 0
+    // è ancora ammesso. Succede in un caso limite reale: budget residuo
+    // esattamente pari agli altri slot da riempire (budgetResidual ===
+    // otherSlots) — max_safe vale 0 e non è offribile, mentre l'acquisto a 0
+    // non consuma nulla e resta ammesso. Prima la nota diceva «n/d» mentre il
+    // bottone sotto registrava davvero: schermata e comportamento in
+    // contraddizione. La coda qui sotto la toglie, e la toglie solo quando è
+    // purchaseFeasibility() a dire di sì.
+    const ceiling = ms.biddable ? `${ms.maxSafe} cr` : "n/d";
+    const zeroTail = !ms.biddable && zeroAdmitted ? " — resta solo il terzo portiere a 0 cr" : "";
+    maxSafeNote.textContent = `max per completare la rosa di ${displayTeamLabel(state.assign.fantaTeamId)}: ${ceiling}${zeroTail}`;
     maxSafeWrap.appendChild(priceLabel);
     maxSafeWrap.appendChild(priceDisplay);
     maxSafeWrap.appendChild(maxSafeNote);
@@ -3142,26 +3204,36 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
 
   // Terzo portiere a 0 — LEAGUE_RULES.md §6 (decisione Pico, 2026-08-15).
   // Rendered ONLY when this purchase is structurally the selected team's
-  // third (last) portiere slot — same condition purchaseFeasibility()
-  // checks server-side, kept in sync here only to decide whether to SHOW
-  // the gesture; the engine call below is still the sole authority on
-  // whether it is actually admitted. Everywhere else this button does not
-  // exist, so there is nothing to misclick into recording a 0.
+  // third (last) portiere slot — `zeroGestureAvailable`, calcolato in cima a
+  // questa funzione e condiviso con la nota di max_safe, so the screen speaks
+  // with one voice. That condition only decides whether to SHOW the gesture;
+  // the engine call below is still the sole authority on whether it is
+  // actually admitted. Everywhere else this button does not exist, so there
+  // is nothing to misclick into recording a 0.
   //
   // ONE gesture, not two: this click both DECLARES (that the table-level
   // facts the engine cannot see — same real club as a portiere already on
   // the roster, no other participant interested — hold right now) AND
   // commits the purchase at price 0, in the same action. No modal, no
   // field, no second confirm — see registerThirdGoalkeeperZero below.
-  if (state.call.role === "P" && assignTeam && assignTeam.slotsRemaining.P === 1) {
+  if (zeroGestureAvailable) {
     const zeroWrap = document.createElement("div");
     zeroWrap.style.cssText = `margin-top:12px;padding:10px 12px;border:1px dashed ${C.accent};border-radius:7px;background:${C.panelInner};display:flex;align-items:center;gap:12px;flex-wrap:wrap;`;
     const zeroNote = document.createElement("div");
     zeroNote.style.cssText = `font-size:12px;color:${C.textSec};flex:1;min-width:220px;`;
     zeroNote.textContent = `Terzo portiere di ${displayTeamLabel(state.assign.fantaTeamId)}: se stesso club di un portiere già in rosa e nessun altro interessato (LEAGUE_RULES §6) → registralo a 0 cr.`;
     const zeroBtn = document.createElement("button");
-    zeroBtn.textContent = "Dichiaro e registro a 0 cr";
-    zeroBtn.className = "btn btn--secondary";
+    zeroBtn.id = "declare-third-goalkeeper-zero";
+    zeroBtn.textContent = THIRD_GOALKEEPER_ZERO_LABEL;
+    // PESO VISIVO = COSA FA. Questo bottone scrive nel registro degli
+    // acquisti esattamente come «Registra acquisto», quindi porta la stessa
+    // classe e lo stesso peso: prima era `btn--secondary`, l'aspetto di
+    // un'azione minore (fantasma, bordo sottile) su un comando che invece
+    // registra un acquisto. Nessun colore nuovo è stato introdotto per
+    // ottenerlo — è la classe primaria che l'app già usa e che la guardia di
+    // contrasto già copre. A distinguerlo dall'acquisto ordinario resta il
+    // riquadro tratteggiato che lo contiene, con la sua nota.
+    zeroBtn.className = "btn btn--primary";
     zeroBtn.style.flex = "none";
     zeroBtn.title =
       "Un solo click: dichiara che le condizioni del regolamento sono soddisfatte adesso e registra l'acquisto a 0 crediti. La dichiarazione resta nello storico.";
@@ -3284,7 +3356,7 @@ function doAssign(aState: AuctionState): void {
   }
   const price = parsePositiveIntegerPrice(state.assign.price);
   if (price === null) {
-    state.error = "Prezzo non valido: inserisci un numero intero positivo.";
+    state.error = priceRejectedText(state.assign.price, aState);
     render();
     return;
   }
@@ -3297,6 +3369,26 @@ function doAssign(aState: AuctionState): void {
     price,
   };
   commitPurchase(aState, proposed, role);
+}
+
+/**
+ * Il rifiuto di un prezzo che il parser non accetta — invariato in ogni caso
+ * tranne UNO: uno zero digitato mentre la schermata sta mostrando il gesto del
+ * terzo portiere. Lì «inserisci un numero intero positivo» è vero ma è un
+ * vicolo cieco: lo 0 in quel punto è un caso legittimo del regolamento e
+ * l'operatore ha davanti il comando che lo registra, senza che niente glielo
+ * dica. La coda lo nomina, con le stesse identiche parole scritte sul bottone
+ * (THIRD_GOALKEEPER_ZERO_LABEL, una costante sola per non poter divergere).
+ * Fuori da quel caso il messaggio resta parola per parola quello di prima:
+ * dove il bottone non c'è, indicarlo sarebbe una bugia.
+ */
+function priceRejectedText(raw: string, aState: AuctionState): string {
+  const base = "Prezzo non valido: inserisci un numero intero positivo.";
+  // Solo uno zero (anche scritto "00" o con spazi): un prezzo negativo o una
+  // parola non sono il caso del regolamento e non vanno indirizzati lì.
+  const typedZero = /^0+$/.test(raw.trim());
+  if (!typedZero || !isThirdGoalkeeperSlot(aState.teams[state.assign.fantaTeamId])) return base;
+  return `${base} Per il terzo portiere a 0 usa il bottone «${THIRD_GOALKEEPER_ZERO_LABEL}».`;
 }
 
 /**
@@ -3314,22 +3406,16 @@ function doAssign(aState: AuctionState): void {
  * log explains the 0 on replay.
  */
 function registerThirdGoalkeeperZero(aState: AuctionState): void {
-  const selectedPlayer = state.call.selectedPlayer;
-  if (!selectedPlayer) {
+  // La proposta viene dalla stessa funzione che la schermata ha già
+  // interrogato per decidere cosa scrivere nella nota di max_safe: quello che
+  // il testo dichiara possibile è letteralmente ciò che questo click commette.
+  const proposed = thirdGoalkeeperZeroProposal();
+  if (!proposed) {
     state.error = "Nessun giocatore selezionato dal listone.";
     render();
     return;
   }
-  const playerId = listonePlayerKey(selectedPlayer);
-  const role = selectedPlayer.role;
-  const proposed: ProposedPurchase = {
-    playerId,
-    role,
-    fantaTeamId: state.assign.fantaTeamId,
-    price: 0,
-    declareThirdGoalkeeperZero: true,
-  };
-  commitPurchase(aState, proposed, role);
+  commitPurchase(aState, proposed, proposed.role);
 }
 
 /** Human-readable, non-alarmist explanation of a failed save — always
@@ -3440,6 +3526,25 @@ function renderZona4(aState: AuctionState): HTMLElement {
     const row = document.createElement("div");
     row.style.cssText = `display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid ${C.border};font-size:14px;`;
 
+    // LO ZERO DICHIARATO SI LEGGE COME TALE. Un acquisto a 0 cr, in mezzo a
+    // prezzi che per regola partono da 1, è indistinguibile da un errore di
+    // battitura di chi rilegge lo storico: qui la dichiarazione che l'ha reso
+    // possibile — l'unica cosa che spiega quello 0 — smette di restare solo
+    // dentro l'evento (`thirdGoalkeeperZeroDeclared`, scritto da
+    // recordPurchase) e viene mostrata accanto alla cifra. Compare SOLO sugli
+    // eventi che la portano davvero: nessun acquisto ordinario la vede, e uno
+    // 0 senza dichiarazione (che l'admission layer non ammette) resterebbe
+    // nudo, come deve.
+    const declaredZero = entry.thirdGoalkeeperZeroDeclared === true;
+    // `badge--declared-zero` è una classe di sola IDENTITÀ (nessuna regola CSS
+    // la usa): serve alla guardia di contrasto per trovare questo testo per
+    // quello che è, non per il colore che ha — stessa ragione per cui le
+    // pastiglie di ruolo si cercano per classe (e2e/text-contrast-aa.spec.ts).
+    const declaredZeroBadge = declaredZero
+      ? `<span class="badge--declared-zero" style="font-size:11.5px;color:${C.textSec};border:1px solid ${C.border};border-radius:5px;padding:1px 7px;white-space:nowrap;"
+               title="Registrato a 0 crediti su dichiarazione esplicita dell'operatore (terzo portiere, regolamento di lega §6). Non è un errore di inserimento.">terzo portiere dichiarato</span>`
+      : "";
+
     const left = document.createElement("div");
     left.style.cssText = `display:flex;align-items:center;gap:14px;color:${C.textMid};flex-wrap:wrap;`;
     left.innerHTML = `
@@ -3447,6 +3552,7 @@ function renderZona4(aState: AuctionState): HTMLElement {
       <span style="font-weight:600;">${escHtml(resolvePlayerDisplayName(entry.playerId, poolIndex))}</span>
       ${roleChipHtml(entry.role)}
       <span style="font-family:${C.mono};">${entry.price} cr</span>
+      ${declaredZeroBadge}
       <span style="color:${C.textDim};">${escHtml(displayTeamLabel(entry.fantaTeamId))}</span>
     `;
     row.appendChild(left);
@@ -3472,7 +3578,11 @@ function renderZona4(aState: AuctionState): HTMLElement {
       // does, exactly as before this panel got its index.
       const playerDisplay = resolvePlayerDisplayName(entry.playerId, auctionDisplayIndex());
       state.confirmVoidSeq = entry.seq;
-      state.confirmVoidLabel = `${playerDisplay} – ${entry.price} cr – ${displayTeamLabel(entry.fantaTeamId)}`;
+      // La dichiarazione segue l'acquisto anche qui: chi sta per annullare uno
+      // 0 deve sapere se sta cancellando un errore o una scelta dichiarata.
+      state.confirmVoidLabel = `${playerDisplay} – ${entry.price} cr${
+        declaredZero ? " (terzo portiere dichiarato)" : ""
+      } – ${displayTeamLabel(entry.fantaTeamId)}`;
       state.confirmVoidIsLatest = isLatest;
       render();
     });

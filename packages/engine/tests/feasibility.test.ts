@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   reduce,
   appendEvent,
+  maxSafe,
   purchaseFeasibility,
   recordPurchase,
   voidFeasibility,
@@ -200,6 +201,108 @@ describe("recordPurchase — third portiere at 0 is logged as an explicit declar
     expect(() =>
       recordPurchase(twoGoalkeepersLog, s, { playerId: "P3", role: "P", fantaTeamId: "psg", price: 0 }, TS),
     ).toThrow(/infeasible purchase/);
+  });
+});
+
+describe("IL CONFINE budgetResidual === otherSlots — max_safe non offribile, terzo portiere a 0 ancora sì", () => {
+  /**
+   * LO STATO LIMITE, RAGGIUNTO SOLO CON GESTI AMMESSI.
+   *
+   * `budgetResidual === otherSlots` (cioè budget residuo = totalSlotsRemaining
+   * − 1) è lo stato in cui `maxSafe()` vale 0 e non è offribile — la schermata
+   * live scrive «n/d» — mentre `purchaseFeasibility()` ammette ancora il terzo
+   * portiere a 0, perché quell'acquisto non consuma nulla e lascia la rosa
+   * completabile. Prima della correzione la schermata dichiarava
+   * indisponibilità e il bottone registrava lo stesso: testo e comportamento
+   * in contraddizione su un caso reale.
+   *
+   * PERCHÉ È REALE, e non uno stato costruito a mano. Ogni acquisto ammesso
+   * conserva `budgetResidual >= totalSlotsRemaining` (è esattamente ciò che
+   * `breaks-hard-reserve` impone), e le riconferme partono dallo stesso vincolo
+   * (`team-hard-reserve-broken`, confirmations.ts): nessuna sequenza di soli
+   * acquisti può quindi scendere a `budgetResidual < totalSlotsRemaining`.
+   * L'unico ingresso è l'annullamento di un acquisto A COSTO ZERO, che
+   * restituisce uno slot senza restituire crediti. Questo log lo percorre
+   * passo per passo, e lo percorre SOLO tramite recordPurchase()/recordVoid(),
+   * che lanciano su ogni passo non ammesso: se un giorno uno di questi gesti
+   * smettesse di essere ammesso, questo test morirebbe con un throw invece di
+   * verificare un confine immaginario.
+   */
+  function boundaryLog(): readonly AuctionEvent[] {
+    let log: readonly AuctionEvent[] = [];
+    const step = (proposed: ProposedPurchase): void => {
+      log = recordPurchase(log, reduce(log, TEAMS), proposed, TS);
+    };
+    step({ playerId: "P1", role: "P", fantaTeamId: "psg", price: 10 }); // seq 0
+    step({ playerId: "P2", role: "P", fantaTeamId: "psg", price: 5 }); // seq 1
+    // seq 2 — il terzo portiere dichiarato a 0: nessun credito speso, uno slot
+    // occupato. È l'acquisto che, annullato in fondo, produrrà il confine.
+    step({ playerId: "P3", role: "P", fantaTeamId: "psg", price: 0, declareThirdGoalkeeperZero: true });
+    // seq 3 — esattamente max_safe (485 − 24): porta la squadra al limite
+    // "budget bloccato", budgetResidual === totalSlotsRemaining.
+    step({ playerId: "C1", role: "C", fantaTeamId: "psg", price: 461 });
+    return recordVoid(log, 2, TS); // seq 4 — annulla lo 0: slot restituito, crediti no
+  }
+
+  it("è uno stato raggiungibile: solo l'annullamento di un acquisto a 0 porta budgetResidual sotto gli slot", () => {
+    const team = reduce(boundaryLog(), TEAMS).teams.psg!;
+    expect(team.budgetResidual).toBe(24);
+    expect(team.totalSlotsRemaining).toBe(25);
+    // IL confine: il budget residuo copre esattamente gli ALTRI slot, non
+    // questo. `otherSlots` è la stessa quantità che purchaseFeasibility usa.
+    expect(team.budgetResidual).toBe(team.totalSlotsRemaining - 1);
+    // Lo slot del terzo portiere è tornato libero con l'annullamento.
+    expect(team.slotsRemaining.P).toBe(1);
+  });
+
+  it("la schermata dice il vero su «n/d»: max_safe non è offribile e nemmeno il minimo di 1 cr passa", () => {
+    const s = reduce(boundaryLog(), TEAMS);
+    const ms = maxSafe(s.teams.psg!, "P");
+    // Questo è ciò che la nota live rende come «n/d».
+    expect(ms.biddable).toBe(false);
+    expect(ms.maxSafe).toBe(0);
+    expect(ms.reason).toBe("budget-locked");
+    // E «n/d» è onesto per QUALUNQUE prezzo digitabile: il minimo di 1 cr
+    // romperebbe la hard reserve. Nessun acquisto ordinario è più possibile.
+    const atFloor = purchaseFeasibility(s, { playerId: "P4", role: "P", fantaTeamId: "psg", price: 1 });
+    expect(atFloor.ok).toBe(false);
+    expect(atFloor.violations).toContain("breaks-hard-reserve");
+  });
+
+  it("il comportamento concorda: il terzo portiere dichiarato a 0 è ancora ammesso, e registrato come dichiarazione", () => {
+    const log = boundaryLog();
+    const s = reduce(log, TEAMS);
+    const declared: ProposedPurchase = {
+      playerId: "P4",
+      role: "P",
+      fantaTeamId: "psg",
+      price: 0,
+      declareThirdGoalkeeperZero: true,
+    };
+    const r = purchaseFeasibility(s, declared);
+    expect(r.ok).toBe(true);
+    expect(r.violations).toEqual([]);
+
+    // Ammesso davvero, non solo "senza violazioni": l'evento viene appeso con
+    // la dichiarazione, ed è ciò che la schermata promette quando scrive
+    // «resta solo il terzo portiere a 0 cr».
+    const next = recordPurchase(log, s, declared, TS);
+    expect(next[next.length - 1]!).toMatchObject({
+      type: "PURCHASE",
+      price: 0,
+      thirdGoalkeeperZeroDeclared: true,
+    });
+    const after = reduce(next, TEAMS).teams.psg!;
+    expect(after.budgetResidual).toBe(24); // lo 0 non toglie crediti
+    expect(after.slotsRemaining.P).toBe(0);
+    expect(after.totalSlotsRemaining).toBe(24); // e la rosa resta completabile: 24 cr per 24 slot
+  });
+
+  it("nemmeno al confine la dichiarazione è deducibile: lo stesso 0 senza dichiarare resta rifiutato", () => {
+    const s = reduce(boundaryLog(), TEAMS);
+    const r = purchaseFeasibility(s, { playerId: "P4", role: "P", fantaTeamId: "psg", price: 0 });
+    expect(r.ok).toBe(false);
+    expect(r.violations).toContain("price-below-floor");
   });
 });
 
