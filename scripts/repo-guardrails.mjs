@@ -10,20 +10,21 @@
  *
  * Does NOT scan secret patterns — that stays in scripts/secret-scan.mjs.
  *
- * Data-extension exceptions (guardrails-core.mjs §"Data-extension exceptions"):
- * a host repository with a written, scoped authorization to track otherwise-
- * blocked file kinds declares them in a tracked `guardrails.exceptions.json`
- * at the repo root. No file -> no exceptions -> the strict default. The list
- * lives with the repository that owns the authorization; the logic stays here.
+ * Extension exceptions (guardrails-core.mjs §"Extension exceptions"): a host
+ * repository with a written, scoped authorization to track otherwise-blocked
+ * DATA files declares them in a tracked `guardrails.exceptions.json` at the
+ * repo root. No file -> no exceptions -> the strict default. The list lives
+ * with the repository that owns the authorization; the logic — and the ceiling
+ * on which file KINDS a list may ever reach — stays here.
  */
 
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import {
   classifyTrackedFile,
-  compileDataExceptions,
+  compileExtensionExceptions,
   lintProjectState,
-  NO_DATA_EXCEPTIONS,
+  NO_EXTENSION_EXCEPTIONS,
 } from "./guardrails-core.mjs";
 
 const NUL = String.fromCharCode(0);
@@ -52,12 +53,12 @@ function die(message) {
  *    Never "ignore the bad list and carry on strict": a list that was meant
  *    to apply and silently did not is how a green run stops meaning anything.
  */
-function loadDataExceptions() {
+function loadExtensionExceptions() {
   let raw;
   try {
     raw = readFileSync(EXCEPTIONS_FILE, "utf8");
   } catch {
-    return NO_DATA_EXCEPTIONS;
+    return NO_EXTENSION_EXCEPTIONS;
   }
   try {
     execSync(`git ls-files --error-unmatch -- ${EXCEPTIONS_FILE}`, { stdio: "ignore" });
@@ -74,11 +75,11 @@ function loadDataExceptions() {
     die(`${EXCEPTIONS_FILE} is not valid JSON: ${err.message}`);
   }
   try {
-    return compileDataExceptions(spec);
+    return compileExtensionExceptions(spec);
   } catch (err) {
     die(`${EXCEPTIONS_FILE} rejected — ${err.message}`);
   }
-  return NO_DATA_EXCEPTIONS; // unreachable — die() exits
+  return NO_EXTENSION_EXCEPTIONS; // unreachable — die() exits
 }
 
 function sampleBytes(path) {
@@ -90,10 +91,10 @@ function sampleBytes(path) {
 }
 
 const offenders = [];
-const dataExceptions = loadDataExceptions();
+const extensionExceptions = loadExtensionExceptions();
 
 for (const path of trackedFiles()) {
-  const verdict = classifyTrackedFile(path, sampleBytes(path), dataExceptions);
+  const verdict = classifyTrackedFile(path, sampleBytes(path), extensionExceptions);
   if (verdict !== "allowed") offenders.push(`${verdict}: ${path}`);
 }
 
@@ -122,8 +123,8 @@ if (offenders.length > 0) {
 // The exception count is printed on success, never left implicit: a run that
 // was permitted by an injected list must say so in its own output.
 const exceptionsNote =
-  dataExceptions.size > 0
-    ? ` ${dataExceptions.size} data exception(s) active from ${EXCEPTIONS_FILE}.`
+  extensionExceptions.size > 0
+    ? ` ${extensionExceptions.size} extension exception(s) active from ${EXCEPTIONS_FILE}.`
     : "";
 console.log(
   `[REPO-GUARDRAILS] OK — tracked tree clean, PROJECT_STATE.md not auto-stale.${exceptionsNote}`,
