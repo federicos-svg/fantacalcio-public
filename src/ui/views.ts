@@ -42,6 +42,13 @@ import {
 } from "./warBoard.js";
 import type { ResidualPressure } from "../../packages/engine/src/anchors.js";
 import type { PrecedentsReading } from "../../packages/opponent-profiles/src/types.js";
+import type { ExpertInsightView } from "../expertScheda.js";
+import {
+  EXPERT_INSIGHT_TITLE,
+  expertInsightBodyHtml,
+  expertInsightFlagsHtml,
+  expertInsightSpoken,
+} from "./expertInsight.js";
 import {
   MOMENT_FACTS_NOTE,
   OPPONENT_PRECEDENTS_NOTE,
@@ -982,24 +989,59 @@ export function renderAssignCommandPanel(
 }
 
 // ── Insight giocatore (Asta moment) ───────────────────────────────────────────
-// STILL a devStaticPanel, on purpose, while the two blocks below it stopped
-// being one. Every PLAYER-LEVEL measured fact the engine can produce today
-// needs the anchor book (`AnchorBook`, packages/engine/src/anchors.ts): the
-// current anchor, the cliff to the next available player of the role, the
-// tension band — all three take `book` as a required input, and the book is
-// built from the listone's Qt.A, which this app does not yet declare. The
-// only player-level fact reachable without it is "is he still available",
-// which in this moment is a tautology (the moment is open on him).
-// The listone quotation cannot fill the gap either: the UI matrix
-// (docs/AUCTION_2026_EXECUTION_PLAN.md §3) admits it display-only and
-// forbids deriving scarcity, ranking or any suggestion from it.
-// An honest empty block beats a number nobody measured — so this one waits.
-export function renderPlayerInsightsBlock(): HTMLElement {
-  return devStaticPanel(
-    "INSIGHT GIOCATORE",
-    "Richiede insight statici sul giocatore chiamato (non implementati).",
-    "Nessun insight disponibile per questo giocatore.",
-  );
+//
+// ERA un devStaticPanel, e la sua nota diceva perché: ogni fatto MISURATO a
+// livello di giocatore che il motore sa produrre passa dall'anchor book
+// (packages/engine/src/anchors.ts), che poggia sulle Qt.A del listone, e la
+// quotazione del listone è display-only per la matrice UI
+// (docs/AUCTION_2026_EXECUTION_PLAN.md §3). Quella strada resta chiusa e
+// questo blocco non l'ha riaperta.
+//
+// Ciò che è cambiato è la FONTE, non il gate: le schede del Gruppo Esperti non
+// sono un numero che l'app calcola, sono un PARERE DI TERZI che Pico trascrive
+// a mano prima dell'asta e che il deposito privato serve a runtime
+// (src/expertScheda.ts per il contratto, src/ui/expertInsight.ts per la resa).
+// Un parere descrittivo non ha bisogno del gate che governa gli output
+// direttivi, e infatti qui non compare nessun punteggio, nessuna classifica,
+// nessuna banda di prezzo: il riquadro dichiara a schermo, in tutti e cinque i
+// suoi stati, di non essere validato e di non essere un consiglio.
+//
+// Il marcatore DEV STATICO se ne va perché significa esattamente «questo
+// blocco non fa nulla di reale» (src/ui/devStatic.ts): tenerlo sopra una
+// scheda scritta davvero sarebbe la stessa disonestà al contrario. Nulla di
+// ciò che c'era è sparito — il segnaposto mostrava una frase che diceva di non
+// avere niente, e quella frase ora è uno dei quattro stati onesti.
+export interface PlayerInsightProps {
+  readonly view: ExpertInsightView;
+}
+
+export function renderPlayerInsightsBlock(props: PlayerInsightProps): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "player-insight-panel";
+  panel.className = "panel player-insight";
+  panel.setAttribute("aria-label", expertInsightSpoken(props.view));
+
+  const head = document.createElement("div");
+  head.className = "player-insight__head";
+  head.innerHTML = `<span class="panel-title">${escHtml(EXPERT_INSIGHT_TITLE)}</span>${expertInsightFlagsHtml(
+    props.view,
+  )}`;
+  panel.appendChild(head);
+
+  const body = document.createElement("div");
+  body.innerHTML = expertInsightBodyHtml(props.view);
+  panel.appendChild(body);
+
+  // QUESTO PANNELLO NON HA UNA NOTA IN FONDO, e non è una dimenticanza: gli
+  // altri due blocchi di questa schermata ce l'hanno perché devono spiegare da
+  // quale calcolo nascono i loro numeri, mentre qui non c'è nessun calcolo da
+  // spiegare. I tre caveat che una nota porterebbe sono già a schermo, e più in
+  // alto: le pastiglie di onestà nella testata (parere di terzi, non validato,
+  // non è un consiglio, fuori dal calcolo) e la riga di provenienza sotto la
+  // prosa, che dice che la scheda è trascritta a mano prima dell'asta. Una nota
+  // che ripetesse quelle cose costava 47px misurati a 390px su una schermata
+  // che è già la più lunga dell'app.
+  return panel;
 }
 
 // ── Momento dell'asta (Asta moment) ──────────────────────────────────────────

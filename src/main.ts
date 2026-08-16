@@ -87,6 +87,7 @@ import {
 import {
   renderListoneSvincolati,
   renderPlayerInsightsBlock,
+  type PlayerInsightProps,
   renderMomentInsightsBlock,
   renderOpponentPrecedentsBlock,
   renderImpostazioniScreen,
@@ -150,6 +151,13 @@ import {
   poolHasAppealIndex,
 } from "./ui/listone.js";
 import { roleBudgetPlanHtml } from "./ui/roleBudgetPlan.js";
+import {
+  EXPERT_SCHEDA_ENDPOINT,
+  EXPERT_SCHEDE_ABSENT,
+  parseExpertSchedaDeposit,
+  resolveExpertInsight,
+  type ExpertSchedaStore,
+} from "./expertScheda.js";
 
 // Path of the shipped, Cloudflare-Access-gated static listone asset — see
 // docs/data/LISTONE_UI_LOAD_CONTRACT.md for the shape and authorization.
@@ -163,6 +171,16 @@ const LISTONE_REMOTE_HEADER_MODIFIED_AT = "x-listone-modified-at";
 // A listone that hasn't arrived in 4s is not worth a blank panel during an
 // auction: the request is abandoned and the static/localStorage copy stands.
 const LISTONE_REMOTE_TIMEOUT_MS = 4000;
+
+// Same-origin Pages Function serving the Gruppo Esperti schede written by hand
+// before the auction and deposited in the private Drive folder — same shape,
+// same perimeter and same Cloudflare Access gate as /api/listone above. The
+// reader that talks to Drive lives in the private repository; the public core
+// carries the contract, the validator, the UI and synthetic fixtures only.
+// Timeout shorter than the listone's: without the listone the app has nothing
+// to show at all, without the schede it has an honest "not read" to show, so
+// this request must never be the one that keeps the screen waiting.
+const EXPERT_SCHEDE_TIMEOUT_MS = 3000;
 
 // ── League config (MVP: fixed roster, no editing UI) ───────────────────────────
 const SELF_ID = "Io";
@@ -387,6 +405,15 @@ interface AppState {
    */
   auctionHistory: readonly PastAuctionPurchase[];
   opponentProfiles: readonly OpponentProfile[];
+  /**
+   * Le schede del Gruppo Esperti, lette a runtime dal deposito privato
+   * (src/expertScheda.ts). `{ ok: false, reason: "absent" }` è lo stato di
+   * partenza e resta tale finché la risposta non arriva valida: assente,
+   * illeggibile o non conforme producono tutte lo stesso esito verso l'utente
+   * — «non ho letto nulla» — che il riquadro DICHIARA invece di far sembrare
+   * «non c'è nulla da dire su questo giocatore».
+   */
+  expertSchede: ExpertSchedaStore;
   rosterError: string;
   newPersonName: string;
   settingsArea: string;
@@ -602,6 +629,9 @@ const state: AppState = {
   // sbagliato con l'aria di un fatto.
   auctionHistory: loadAuctionHistory(browserStorage).purchases,
   opponentProfiles: loadOpponentProfiles(browserStorage).profiles,
+  // Nessuna scheda finché il deposito non risponde: il riquadro parte da
+  // «fonte aggiuntiva non disponibile», che è la verità al primo frame.
+  expertSchede: EXPERT_SCHEDE_ABSENT,
   rosterError: "",
   newPersonName: "",
   // Opens on the area you act on; app status is diagnostics, read on demand.
@@ -648,6 +678,44 @@ async function fetchRemoteListone(): Promise<{ text: string; modifiedAt: string 
   } finally {
     clearTimeout(timeout);
   }
+}
+
+// Le schede del Gruppo Esperti servite dal deposito privato, o `null` quando
+// l'endpoint non è raggiungibile, è troppo lento o risponde con qualcosa che
+// non è JSON. Il controllo del content-type è la stessa difesa che /api/listone
+// applica già, e per lo stesso motivo: una build statica senza Pages Functions
+// risponde a questo path con l'index.html della SPA a status 200, e trattarlo
+// come dati sarebbe un default silenzioso. Non lancia mai e non blocca il
+// primo render: la schermata parte con lo stato onesto «non letto».
+async function fetchExpertSchede(): Promise<string | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), EXPERT_SCHEDE_TIMEOUT_MS);
+  try {
+    const res = await fetch(EXPERT_SCHEDA_ENDPOINT, {
+      signal: controller.signal,
+      headers: { accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    const contentType = (res.headers.get("content-type") ?? "").toLowerCase();
+    if (!contentType.includes("application/json")) return null;
+    return await res.text();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// Un deposito che non si legge NON cancella quello che è già a schermo — ma al
+// boot non c'è niente da cancellare, quindi qui l'unico effetto è che lo stato
+// resta «non letto». Nessun errore visibile: la mancanza della fonte è già
+// dichiarata dentro il riquadro, dove serve, e un banner in più su questa
+// schermata costerebbe altezza a chi ha due secondi per decidere.
+async function autoLoadExpertSchede(): Promise<void> {
+  const store = parseExpertSchedaDeposit(await fetchExpertSchede());
+  if (!store.ok) return;
+  state.expertSchede = store;
+  render();
 }
 
 // ── Listone ⇄ log identity reconciliation (audit round 2, findings 1 and 3) ──
@@ -1176,6 +1244,31 @@ function opponentPrecedentsProps(): OpponentPrecedentsProps {
     }),
     teamLabels: seatLabelMap(),
   };
+}
+
+/**
+ * La vista del riquadro INSIGHT GIOCATORE per il giocatore attualmente in
+ * asta.
+ *
+ * IDENTITÀ. La chiave è `listonePlayerKey` calcolata su NOME + SQUADRA, ed è
+ * la stessa ricetta con cui `indexSchede` indicizza il deposito: Pico scrive
+ * nome e squadra come li legge nel listone, e non ha modo di conoscere un
+ * `proxyId`. Per questo `proxyId` è deliberatamente NON passato qui — con una
+ * riga che ne porta uno, `listonePlayerKey(riga)` renderebbe `proxy:…` mentre
+ * la scheda resterebbe indicizzata su `nome__squadra`, e il riquadro direbbe
+ * «non è ancora scritta» su una scheda che invece esiste. Le due ricette
+ * devono restare identiche: se una cambia, cambiano entrambe.
+ *
+ * SENZA GIOCATORE SELEZIONATO la chiave è `null` e la risoluzione rende lo
+ * stato onesto: non si cerca «una scheda qualsiasi».
+ */
+function playerInsightProps(): PlayerInsightProps {
+  const selected = state.call.selectedPlayer;
+  const key =
+    selected === null
+      ? null
+      : listonePlayerKey({ name: selected.name, club: selected.club ?? state.call.club });
+  return { view: resolveExpertInsight(state.expertSchede, key) };
 }
 
 // ── Command line di inserimento (T13 #231) ───────────────────────────────────
@@ -3418,7 +3511,7 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   // the COMPLETA variant of the chiamata moment.
   wrap.appendChild(renderWarBoardMini(warBoardRows(aState, SELF_ID), seatLabelMap()));
 
-  wrap.appendChild(renderPlayerInsightsBlock());
+  wrap.appendChild(renderPlayerInsightsBlock(playerInsightProps()));
 
   // The two blocks below used to be DEV STATICO placeholders on the tightest
   // screen of the app. They now carry the facts the engine already knew:
@@ -3944,6 +4037,7 @@ function renderVoidConfirm(): HTMLElement {
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 render();
 void autoLoadListonePool();
+void autoLoadExpertSchede();
 
 window.addEventListener("offline", () => {
   state.offline = true;
