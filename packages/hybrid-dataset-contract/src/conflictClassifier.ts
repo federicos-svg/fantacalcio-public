@@ -15,7 +15,7 @@ export interface ConflictInput<T> {
   readonly sourceB: SourceName;
   readonly provenanceB: ProvenanceRecord;
   // MUST be `effectiveResponsibility(rule)` from precedencePolicy.ts — never a raw
-  // `preferredSourceCandidate` read directly off a PrecedenceRule. A candidate that
+  // `primaryCandidates` list read directly off a PrecedenceRule. A candidate that
   // has not passed a real pilot is downgraded to MISSING by that function, and
   // MISSING never auto-resolves here (see below). Passing a candidate straight
   // through would let an unverified source silently win a conflict.
@@ -23,13 +23,20 @@ export interface ConflictInput<T> {
   readonly valuesEqual: (a: T, b: T) => boolean;
 }
 
-// Never overwrites silently: both values + both provenance records are always kept.
-// Only PRIMARY_* precedence resolves a real conflict; DERIVED_FROM_BOTH and
-// CROSS_CHECK_ONLY_* are never sufficient evidence to pick a winner automatically —
-// they stay CONFLICT_UNRESOLVED, same as MISSING. Because effectiveResponsibility()
-// downgrades every unverified candidate to MISSING, a PRIMARY_* value reaching this
-// function is guaranteed (by that upstream contract) to be backed by a real, passed
-// pilot — this function does not and cannot re-verify that itself.
+/**
+ * Never overwrites silently: both values + both provenance records are always kept.
+ * Only `{ kind: "PRIMARY" }` precedence resolves a real conflict —
+ * `DERIVED_FROM_MULTIPLE` and `MISSING` are never sufficient evidence to pick a
+ * winner automatically, they stay `CONFLICT_UNRESOLVED`. Because
+ * effectiveResponsibility() downgrades every unverified candidate to `MISSING` and
+ * never promotes a structurally cross-check-only source to `PRIMARY`, a `PRIMARY`
+ * precedence reaching this function is guaranteed (by that upstream contract) to name
+ * a source backed by a real, passed pilot that is actually eligible for primary
+ * authority on this field — this function does not and cannot re-verify that itself.
+ *
+ * Generic over any `FeatureSourceName`: registering a newly approved source never
+ * requires a change here, only a new precedence rule.
+ */
 export function classifyConflict<T>(input: ConflictInput<T>): ConflictRecord<T> {
   const base = {
     field: input.field,
@@ -52,41 +59,26 @@ export function classifyConflict<T>(input: ConflictInput<T>): ConflictRecord<T> 
     };
   }
 
-  if (input.precedence === "PRIMARY_TRANSFERMARKT" && input.sourceA === "transfermarkt") {
-    return {
-      ...base,
-      status: "CONFLICT_RESOLVED",
-      resolutionRule: "PRIMARY_TRANSFERMARKT",
-      resolvedValue: input.valueA,
-      resolvedSource: input.sourceA,
-    };
-  }
-  if (input.precedence === "PRIMARY_TRANSFERMARKT" && input.sourceB === "transfermarkt") {
-    return {
-      ...base,
-      status: "CONFLICT_RESOLVED",
-      resolutionRule: "PRIMARY_TRANSFERMARKT",
-      resolvedValue: input.valueB,
-      resolvedSource: input.sourceB,
-    };
-  }
-  if (input.precedence === "PRIMARY_API_FOOTBALL" && input.sourceA === "api_football") {
-    return {
-      ...base,
-      status: "CONFLICT_RESOLVED",
-      resolutionRule: "PRIMARY_API_FOOTBALL",
-      resolvedValue: input.valueA,
-      resolvedSource: input.sourceA,
-    };
-  }
-  if (input.precedence === "PRIMARY_API_FOOTBALL" && input.sourceB === "api_football") {
-    return {
-      ...base,
-      status: "CONFLICT_RESOLVED",
-      resolutionRule: "PRIMARY_API_FOOTBALL",
-      resolvedValue: input.valueB,
-      resolvedSource: input.sourceB,
-    };
+  if (input.precedence.kind === "PRIMARY") {
+    const primarySource = input.precedence.source;
+    if (input.sourceA === primarySource) {
+      return {
+        ...base,
+        status: "CONFLICT_RESOLVED",
+        resolutionRule: `PRIMARY:${primarySource}`,
+        resolvedValue: input.valueA,
+        resolvedSource: input.sourceA,
+      };
+    }
+    if (input.sourceB === primarySource) {
+      return {
+        ...base,
+        status: "CONFLICT_RESOLVED",
+        resolutionRule: `PRIMARY:${primarySource}`,
+        resolvedValue: input.valueB,
+        resolvedSource: input.sourceB,
+      };
+    }
   }
 
   return {

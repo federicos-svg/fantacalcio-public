@@ -34,7 +34,6 @@ export const SOURCE_EVIDENCE_REFS: Readonly<Record<DataSourceId, readonly string
   fantacalcio_listone: ["private-registry:evidence:03", "private-registry:evidence:04"],
   league_manual: ["private-registry:evidence:05", "private-registry:evidence:06"],
   api_football: ["private-registry:evidence:07", "private-registry:evidence:08"],
-  transfermarkt: ["private-registry:evidence:09", "private-registry:evidence:10"],
   wikidata: ["private-registry:evidence:11", "private-registry:evidence:12"],
   gruppo_esperti_topic_unico: [
     "private-registry:evidence:13",

@@ -12,7 +12,7 @@ describe("data source registry", () => {
   });
 
   it("keeps blocked providers out of the live MVP and core Value", () => {
-    const blocked = getSource("transfermarkt");
+    const blocked = getSource("wikidata");
     expect(blocked.state).toBe("BLOCKED_TECHNICAL");
     expect(blocked.requiredForLiveMvp).toBe(false);
     expect(blocked.requiredForCoreValue).toBe(false);
@@ -26,7 +26,7 @@ describe("data source registry", () => {
 
   it("does not make external providers ground truth", () => {
     expect(getSource("api_football").authorityRoles).not.toContain("GROUND_TRUTH");
-    expect(getSource("transfermarkt").authorityRoles).not.toContain("GROUND_TRUTH");
+    expect(getSource("wikidata").authorityRoles).not.toContain("GROUND_TRUTH");
   });
 
   it("registers only Topic Unico as a non-authoritative expert source", () => {
@@ -57,10 +57,10 @@ describe("data source registry", () => {
 
   it("rejects any non-operational source as a live dependency", () => {
     const entries = DATA_SOURCE_REGISTRY.map((entry) =>
-      entry.id === "transfermarkt" ? { ...entry, requiredForLiveMvp: true } : entry,
+      entry.id === "wikidata" ? { ...entry, requiredForLiveMvp: true } : entry,
     ) as readonly SourceRegistryEntry[];
     expect(validateSourceRegistry(entries)).toContain(
-      "transfermarkt: state BLOCKED_TECHNICAL cannot satisfy live MVP",
+      "wikidata: state BLOCKED_TECHNICAL cannot satisfy live MVP",
     );
   });
 
@@ -73,6 +73,16 @@ describe("data source registry", () => {
     expect(validateSourceRegistry(entries)).toContain(
       "api_football: only fantacalcio_votes may be GROUND_TRUTH",
     );
+  });
+
+  it("no longer registers the removed source, under any id or label", () => {
+    const ids = DATA_SOURCE_REGISTRY.map((entry) => entry.id as string);
+    expect(ids).not.toContain("transfermarkt");
+    expect(ids).not.toContain("market_value");
+    for (const entry of DATA_SOURCE_REGISTRY) {
+      expect(entry.label.toLowerCase()).not.toContain("transfermarkt");
+      expect(entry.dataFamilies as readonly string[]).not.toContain("market_value");
+    }
   });
 
   it("fails closed when a required source disappears", () => {

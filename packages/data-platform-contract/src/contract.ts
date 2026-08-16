@@ -6,7 +6,7 @@ import { ALGORITHM_PIPELINE_REQUIREMENTS, validatePipelineRequirementSpecs } fro
 import { DATA_SOURCE_REGISTRY, validateSourceRegistry } from "./sourceRegistry.js";
 import { DATA_ARTIFACT_STORAGE_POLICY, validateStoragePolicy } from "./storagePolicy.js";
 
-export const DATA_PLATFORM_CONTRACT_VERSION = "DATA-PLATFORM-CONTRACT@1.0.0" as const;
+export const DATA_PLATFORM_CONTRACT_VERSION = "DATA-PLATFORM-CONTRACT@1.1.0" as const;
 
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
