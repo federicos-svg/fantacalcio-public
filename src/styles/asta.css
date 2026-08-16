@@ -513,6 +513,12 @@
   font-size: 11px;
   color: var(--text-sec);
 }
+/* L'etichetta più lunga della cella è «max reparto», e sono due parole: senza
+   questo la riga può spezzarsi in mezzo e chiudere con un «MAX» nudo appeso a
+   fine riga — esattamente la sigla ambigua che questa etichetta esiste per
+   togliere. La cella intera va a capo come blocco (il contenitore è
+   flex-wrap: wrap), il nome no. */
+.critical-role-plan-item { white-space: nowrap; }
 .critical-role-plan-item em {
   font-style: normal;
   font-size: 9px;
@@ -632,16 +638,30 @@
   white-space: nowrap;
 }
 .war-board-mini__item--self .war-board-mini__name { color: var(--text-mid); }
+/* Le due cifre, una per riga. Erano affiancate su una riga sola, e la riga
+   sola bastava finché la sigla del tetto era «max» nudo: misurato a 390, 768 e
+   1280 il contenuto occupava 111px su 113px disponibili nella cella, cioè 2px
+   di margine. La sigla ora è «max bid» — stesso nome della variante COMPLETA,
+   e non più la stessa parola con cui la fascia critica chiama il tetto di
+   REPARTO (src/ui/budgetLabels.ts) — e non ci sta: incolonnarle è il modo di
+   dire la cosa giusta senza comprimere né troncare niente. In cambio ogni
+   cifra sta sotto la propria sigla, allineata a destra sopra l'altra, che è
+   una lettura più netta di due coppie sigla-numero affiancate. */
 .war-board-mini__nums {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
+  display: grid;
+  gap: 0;
   min-width: 0;
   font-family: var(--font-mono);
   font-size: 14px;
 }
-/* Le due micro-etichette (bdg/max) sono l'unica cosa che distingue le due
+.war-board-mini__nums > span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+/* Le due micro-etichette (bdg/max bid) sono l'unica cosa che distingue le due
    cifre a occhio: --text-sec, non --text-dim. La rampa schiarita di base.css
    rende conformi entrambi su --panel-inner (6,33:1 e 4,69:1), ma a 9px la
    scelta resta --text-sec: queste due sigle sono l'unico disambiguatore delle
@@ -655,10 +675,9 @@
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
-  margin-right: 3px;
+  white-space: nowrap;
 }
 .war-board-mini__budget { color: var(--green); }
-.war-board-mini__bid { flex: none; }
 
 /* COMPLETA (momento chiamata): una card per squadra sulla stessa griglia
    responsive 1/2/4 di SQUADRE (LEGA) e AVVERSARI TIER-1 (.teams-grid). */

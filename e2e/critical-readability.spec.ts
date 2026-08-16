@@ -69,12 +69,25 @@ test("budget, slots and the safe bid ceiling stay visible in rehearsal viewports
       const { slots, min, max } = perRole[role];
       await expect(cell).toContainText(`slot${slots}`);
       await expect(cell).toContainText(`min${min}`);
-      await expect(cell).toContainText(`max${max}`);
+      // «max reparto», non «max»: maxAllocatable è quanto l'intero reparto di
+      // quel ruolo può ancora assorbire, non quanto si può mettere su una
+      // sola offerta — che è maxSafe, la metrica «Max bid sicuro» qui sopra,
+      // a poche decine di pixel. Le due coincidono solo con UN solo slot
+      // libero nel reparto; con due o più divergono e la sigla condivisa le
+      // faceva leggere come la stessa cifra (src/ui/budgetLabels.ts).
+      await expect(cell).toContainText(`max reparto${max}`);
       // Contabilità, non consigli: no directive/advisory wording anywhere
       // in the cell (docs/NO_GO.md §Prodotto).
       const text = ((await cell.textContent()) ?? "").toLowerCase();
       expect(text).not.toMatch(/consigli|suggeri|target|prezzo equo/);
+      // …e mai il nome dell'ALTRA grandezza dentro la cella di questa.
+      expect(text).not.toContain("max bid");
     }
+
+    // Le due grandezze convivono nella stessa banda: qui si verifica che
+    // portino due nomi diversi, non che stiano lontane.
+    await expect(page.locator("#critical-max-bid")).toContainText("Max bid sicuro");
+    await expect(page.locator("#critical-max-bid")).not.toContainText("max reparto");
 
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await expect(strip).toBeInViewport();

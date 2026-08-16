@@ -72,6 +72,11 @@ test("the war board shows the COMPLETE variant while choosing, the MINI strip wh
   const miniOpponent = page.locator("#war-board-mini-Squadra2");
   await expect(miniOpponent).toContainText("500");
   await expect(miniOpponent).toContainText(FRESH_MAX_BID);
+  // Stesso numero, stesso nome delle card COMPLETE: la sigla del tetto è
+  // «max bid» in tutte e due le varianti. Era «max» nuda — la stessa parola
+  // con cui la fascia critica chiama il tetto di REPARTO, che è un'altra
+  // grandezza (src/ui/budgetLabels.ts, src/ui/maxLabels.test.ts).
+  await expect(miniOpponent).toContainText(`max bid${FRESH_MAX_BID}`);
   // The visible form is abbreviated (bdg/max), so each cell carries the full
   // reading for assistive tech.
   await expect(miniOpponent).toHaveAttribute(
