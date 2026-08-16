@@ -6,20 +6,21 @@ import {
   EXPERT_INSIGHT_TITLE,
   FONTE_LABELS,
   FONTE_NON_DICHIARATA,
-  TITOLARITA_LADDER,
-  TITOLARITA_LADDER_COVERS_VOCABULARY,
+  EXPERT_INSIGHT_LABEL_TEXT,
+  TITOLARITA_LABELS,
+  TITOLARITA_LABELS_COVER_VOCABULARY,
   expertInsightBodyHtml,
   expertInsightChips,
   expertInsightChipsHtml,
-  expertInsightFlags,
-  expertInsightFlagsHtml,
+  expertInsightLabel,
+  expertInsightLabelHtml,
   expertInsightProseHtml,
   expertInsightQualityHtml,
   expertInsightSpoken,
   formatSchedaDate,
   gerarchiaLabel,
   sharePercentHtml,
-  titolaritaLadderHtml,
+  titolaritaHtml,
 } from "./expertInsight.js";
 import {
   AVVISO_VALUES,
@@ -75,9 +76,13 @@ const DIRECTIVE_WORDS = [
 const DENIED_ONLY_WORDS = ["punteggio", "classifica"];
 
 describe("vocabolario e formattazione", () => {
-  it("la scala copre esattamente il vocabolario della titolarità, dal basso in alto", () => {
-    expect(TITOLARITA_LADDER_COVERS_VOCABULARY).toBe(true);
-    expect(TITOLARITA_LADDER).toEqual(["riserva", "ballottaggio", "titolare"]);
+  it("le etichette coprono esattamente il vocabolario della titolarità", () => {
+    expect(TITOLARITA_LABELS_COVER_VOCABULARY).toBe(true);
+    expect(TITOLARITA_LABELS).toEqual({
+      riserva: "riserva",
+      ballottaggio: "ballottaggio",
+      titolare: "titolare",
+    });
   });
 
   it("la data si formatta affettando la stringa ISO, senza Date e senza Intl", () => {
@@ -93,36 +98,33 @@ describe("vocabolario e formattazione", () => {
   });
 });
 
-describe("i tre fatti di onestà sono a schermo, non solo nel JSON", () => {
-  it.each([...EXPERT_INSIGHT_AVAILABILITIES])("in stato %s il riquadro si dichiara non validato", (availability) => {
+describe("la label unica «Scheda Esperto»", () => {
+  // ASSERZIONE RISCRITTA, NON CANCELLATA. Prima cercava a schermo le quattro
+  // pastiglie di caveat; Pico le ha ridotte a una sola label, e la garanzia si
+  // è spostata dallo schermo al `title` della label e al contratto. Il test
+  // segue la garanzia dove è andata: la label deve esserci in TUTTI e cinque
+  // gli stati, e il suo tooltip deve nominare i tre campi del payload.
+  it.each([...EXPERT_INSIGHT_AVAILABILITIES])("in stato %s la label è una sola e dice cos'è", (availability) => {
     const view =
       availability === "available"
         ? viewOf({ nota: "Due righe." })
         : unknownExpertInsight(availability as Exclude<ExpertInsightAvailability, "available">);
-    const html = expertInsightFlagsHtml(view);
-    expect(html).toContain('id="player-insight-flag-validated"');
-    expect(html).toContain("NON VALIDATO");
-    expect(html).toContain('id="player-insight-flag-directive"');
-    expect(html).toContain("NON È UN CONSIGLIO");
-    expect(html).toContain('id="player-insight-flag-index"');
-    expect(html).toContain("FUORI DAL CALCOLO");
-    expect(html).toContain("PARERE DI TERZI");
+    const html = expertInsightLabelHtml(view);
+    expect(html).toContain('id="player-insight-label"');
+    expect(html).toContain(EXPERT_INSIGHT_LABEL_TEXT);
+    // Una sola: nessun residuo delle quattro scritte di prima.
+    expect(html).not.toContain("PARERE DI TERZI");
+    expect(html).not.toContain("NON VALIDATO");
+    expect(html).not.toContain("FUORI DAL CALCOLO");
+    expect(html.match(/player-insight-label/g)).toHaveLength(1);
   });
 
-  it("le tre pastiglie nascono dai tre campi del payload, non da un letterale", () => {
-    const view = viewOf({ nota: "x" });
-    expect(expertInsightFlags(view).map((f) => f.id)).toEqual([
-      "player-insight-flag-source",
-      "player-insight-flag-validated",
-      "player-insight-flag-directive",
-      "player-insight-flag-index",
-    ]);
-    // Il titolo di ciascuna nomina il campo da cui viene: la pastiglia e il
-    // dato non possono divergere in silenzio.
-    const titles = expertInsightFlags(view).map((f) => f.title).join(" ");
-    expect(titles).toContain("validated: false");
-    expect(titles).toContain("directive: false");
-    expect(titles).toContain("contributesToIndex: false");
+  it("il tooltip della label nasce dai tre campi del payload, non da un letterale", () => {
+    const title = expertInsightLabel(viewOf({ nota: "x" })).title;
+    expect(title).toContain("validated: false");
+    expect(title).toContain("directive: false");
+    expect(title).toContain("contributesToIndex: false");
+    expect(title).toContain("trascritta a mano prima dell'asta");
   });
 
   it("l'etichetta di qualità è portata dal dato, mai ricostruita dal renderer", () => {
@@ -134,25 +136,55 @@ describe("i tre fatti di onestà sono a schermo, non solo nel JSON", () => {
       expect(expertInsightQualityHtml(view)).toContain(EXPERT_INSIGHT_QUALITY_LABELS[availability]);
     }
   });
+
+  // Nello stato pieno l'etichetta di qualità NON si stampa più: diceva la
+  // stessa cosa della label. Resta nel payload e nella forma parlata.
+  it("nello stato pieno la qualità non è più una seconda riga a schermo", () => {
+    const view = viewOf({ titolarita: "titolare", nota: "Contesto." });
+    expect(expertInsightBodyHtml(view)).not.toContain("player-insight-quality");
+    expect(view.quality).toBe(EXPERT_INSIGHT_QUALITY_LABELS.available);
+    expect(expertInsightSpoken(view)).toContain(EXPERT_INSIGHT_QUALITY_LABELS.available);
+  });
+
+  it("nei quattro stati vuoti la qualità resta a schermo: lì è il nome dello stato", () => {
+    for (const availability of UNKNOWN_STATES) {
+      expect(expertInsightBodyHtml(unknownExpertInsight(availability))).toContain(
+        EXPERT_INSIGHT_QUALITY_LABELS[availability],
+      );
+    }
+  });
 });
 
 describe("lo strato visivo", () => {
-  it("la scala accende un solo gradino e tiene scritte tutte e tre le parole", () => {
-    const html = titolaritaLadderHtml(viewOf({ titolarita: "ballottaggio" }));
-    expect(html).toContain("riserva");
+  // ASSERZIONE RISCRITTA, NON CANCELLATA. Prima verificava che la scala
+  // tenesse scritte tutte e tre le parole con una sola accesa; Pico ha deciso
+  // che si mostra solo il valore dichiarato, quindi il test verifica ora
+  // l'opposto — che gli altri due NON compaiano — che è la stessa proprietà
+  // («si legge una risposta, non un quiz») letta dal verso giusto.
+  it("la titolarità mostra solo il valore dichiarato, mai le altre opzioni", () => {
+    const html = titolaritaHtml(viewOf({ titolarita: "ballottaggio" }));
     expect(html).toContain("ballottaggio");
-    expect(html).toContain("titolare");
-    // Il colore non è mai l'unico canale: il gradino attivo è marcato nel DOM.
-    expect(html.match(/expert-ladder__step--on/g)).toHaveLength(1);
-    expect(html).toContain('id="player-insight-track-ballottaggio" aria-current="true"');
-    expect(html).not.toContain('id="player-insight-track-titolare" aria-current');
+    expect(html).not.toContain("riserva");
+    expect(html).not.toContain("titolare");
+    expect(html).toContain('id="player-insight-track-ballottaggio"');
+    expect(html.match(/expert-titolarita__value/g)).toHaveLength(1);
   });
 
-  it("senza titolarità dichiarata la scala non si disegna: tre gradini spenti si leggerebbero «riserva»", () => {
-    const html = titolaritaLadderHtml(viewOf({ nota: "solo prosa" }));
+  it.each(["titolare", "ballottaggio", "riserva"] as const)(
+    "il valore %s compare per intero: la parola non è mai abbreviata nel markup",
+    (value) => {
+      const html = titolaritaHtml(viewOf({ titolarita: value }));
+      expect(html).toContain(`>${TITOLARITA_LABELS[value]}</span>`);
+      expect(html).not.toContain("…");
+      expect(html).not.toContain("...");
+    },
+  );
+
+  it("senza titolarità dichiarata non si disegna nessuna pastiglia: una pastiglia spenta sarebbe un valore", () => {
+    const html = titolaritaHtml(viewOf({ nota: "solo prosa" }));
     expect(html).toContain('id="player-insight-track-missing"');
     expect(html).toContain("non dichiarata dalla scheda");
-    expect(html).not.toContain("expert-ladder__step");
+    expect(html).not.toContain("expert-titolarita__value");
   });
 
   it("la quota del ballottaggio porta la barra E la cifra, e la cifra resta leggibile", () => {
@@ -242,7 +274,7 @@ describe("i quattro stati «non lo so» si vedono che non sanno", () => {
     expect(html).toContain('id="player-insight-empty"');
     expect(html).toContain(EXPERT_INSIGHT_EMPTY_TEXT[availability]);
     // Niente strato visivo e niente prosa: il riquadro non può sembrare pieno.
-    expect(html).not.toContain("expert-ladder");
+    expect(html).not.toContain("expert-titolarita");
     expect(html).not.toContain("expert-chip");
     expect(html).not.toContain("expert-prose");
   });
@@ -269,8 +301,10 @@ describe("forma parlata e perimetro", () => {
     expect(spoken).toContain("titolarità ballottaggio al 60 per cento");
     expect(spoken).toContain("rigori designato");
     expect(spoken).toContain("Contesto.");
+    // La forma parlata porta l'etichetta di qualità per intero: chi naviga a
+    // voce non ha la label in alto a destra.
+    expect(spoken).toContain(EXPERT_INSIGHT_LABEL_TEXT);
     expect(spoken).toContain("non validato");
-    expect(spoken).toContain("non è un consiglio");
   });
 
   it.each(UNKNOWN_STATES)("in stato %s l'aria-label dice perché non c'è niente", (availability) => {

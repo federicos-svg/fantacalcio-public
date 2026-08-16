@@ -1266,40 +1266,32 @@
   flex-wrap: wrap;
 }
 
-/* I tre fatti di onestà del payload, scritti a schermo in tutti e cinque gli
-   stati: validated:false, directive:false, contributesToIndex:false. */
-.expert-flags {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-/* Testo, non pastiglie riquadrate: quattro riquadri con bordo e padding
-   costavano tre righe a 390px per dire quattro cose che si leggono in fila. */
-.expert-flags__item {
+/* LA LABEL UNICA, in alto a destra. Qui c'erano quattro scritte di caveat
+   (parere di terzi / non validato / non è un consiglio / fuori dal calcolo):
+   decisione di Pico, una sola. Il perché sta in src/ui/expertInsight.ts
+   (`expertInsightLabel`), la garanzia che portavano è nel contratto e nei suoi
+   test, e il `title` di questa label nomina i tre campi uno per uno. */
+.expert-label {
+  border: 1px solid var(--border);
+  border-radius: 5px;
   color: var(--text-sec);
-  font-size: 9.5px;
+  flex: none;
+  font-size: 10px;
   font-weight: 800;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   line-height: 1.3;
+  padding: 2px 7px;
   white-space: nowrap;
 }
-.expert-flags__sep {
-  color: var(--text-dim);
-  font-size: 9.5px;
-  line-height: 1.3;
-}
+/* L'etichetta di qualità compare ora SOLO nei quattro stati vuoti, dove apre
+   il paragrafo: è il nome dello stato, non un secondo caveat. */
 .expert-insight__quality {
   color: var(--text-sec);
   font-size: 11px;
   font-weight: 700;
   line-height: 1.35;
 }
-/* Nello stato available l'etichetta è una riga a sé; negli stati vuoti apre il
-   paragrafo, quindi non deve diventare un blocco. */
 .expert-insight__grid { margin-top: 8px; }
-.player-insight > div > .expert-insight__quality { display: block; }
 
 .expert-insight__grid {
   display: grid;
@@ -1316,57 +1308,45 @@
   min-width: 0;
 }
 
-/* La scala della titolarità: tre gradini nell'ordine riserva → ballottaggio →
-   titolare. La POSIZIONE è il canale principale; il gradino dichiarato è
-   anche riempito, maiuscolo e in grassetto. */
-.expert-ladder {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-/* Etichetta e quota sulla STESSA riga: la quota da sola valeva una riga in più
-   su una schermata che non ne ha da regalare. */
-.expert-ladder__top {
+/* LA TITOLARITÀ: etichetta, il valore dichiarato, la quota — una riga sola
+   dove ci sta, che va a capo dove non ci sta.
+
+   IL VALORE NON PUÒ PIÙ TRONCARSI, ed è il motivo per cui non è più una cella
+   di una griglia a tre colonne: `width: max-content` lo dimensiona sul proprio
+   contenuto, quindi «BALLOTTAGGIO» non diventa «BALLOTT…» a schermo stretto
+   come faceva prima. Niente `overflow: hidden`, niente `text-overflow`:
+   e2e/player-insight.spec.ts confronta scrollWidth e clientWidth a tutte e
+   quattro le larghezze. */
+.expert-titolarita {
   align-items: center;
   display: flex;
-  gap: 10px;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 5px 9px;
   min-width: 0;
 }
-.expert-ladder__head,
+.expert-titolarita__head,
 .expert-chips-head {
   color: var(--text-sec);
+  flex: none;
   font-size: 9.5px;
   font-weight: 800;
   letter-spacing: 0.06em;
 }
-.expert-ladder__scale {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 3px;
-}
-.expert-ladder__step {
-  background: var(--panel-inner);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-dim);
-  font-size: 11px;
-  line-height: 1.25;
-  overflow: hidden;
-  padding: 5px 6px;
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.expert-ladder__step--on {
+.expert-titolarita__value {
   background: var(--accent-dim);
-  border-color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
   color: var(--text-primary);
+  flex: none;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.03em;
+  line-height: 1.25;
+  padding: 3px 8px;
   text-transform: uppercase;
+  width: max-content;
 }
-.expert-ladder__missing {
+.expert-titolarita__missing {
   color: var(--text-dim);
   font-size: 11.5px;
 }

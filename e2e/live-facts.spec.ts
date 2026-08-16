@@ -191,7 +191,7 @@ test("the live moment carries scarcity, the market census and an honest empty pr
   await expect(page.locator("#player-insight-empty")).toBeVisible();
   await expect(page.locator("#player-insight-track")).toHaveCount(0);
   await expect(page.locator("#player-insight-prose")).toHaveCount(0);
-  await expect(page.locator("#player-insight-flag-validated")).toHaveText("NON VALIDATO");
+  await expect(page.locator("#player-insight-label")).toHaveText("Scheda Esperto");
   // `consigl` è l'unica famiglia di DIRECTIVE che questo riquadro DEVE
   // contenere, e solo in forma negata: «NON È UN CONSIGLIO» è la resa a schermo
   // di `directive: false`, cioè esattamente il vincolo che DIRECTIVE difende.
@@ -200,7 +200,7 @@ test("the live moment carries scarcity, the market census and an honest empty pr
   expect(await page.locator("#player-insight-panel").innerText()).not.toMatch(
     /fair.?to.?me|target.?band|stretch.?cap|prendilo|mollalo|dovresti|spingi\b|ranking|projection/i,
   );
-  await expect(page.locator("#player-insight-flag-directive")).toHaveText("NON È UN CONSIGLIO");
+  expect(await page.locator("#player-insight-label").getAttribute("title")).toContain("validated: false");
 
   // ── Nessun output direttivo su questa schermata ───────────────────────────
   expect(await page.locator("#moment-facts-panel").innerText()).not.toMatch(DIRECTIVE);
