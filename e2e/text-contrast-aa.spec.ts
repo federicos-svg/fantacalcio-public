@@ -325,6 +325,22 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
   await openSettingsSection(page, "schede");
   await page.locator("#schede-player").selectOption({ index: 1 });
   await expect(page.locator("#schede-form")).toBeVisible();
+  // I punti d'uso ESPLICITI del pannello, misurati uno per uno come quelli
+  // delle altre schermate. Non sono un doppione della spazzata: la spazzata
+  // salta ciò che sta dentro un gruppo di composizione (il colore composito
+  // non corrisponde più al token, vedi expectRampAboveAA), quindi da sola
+  // resterebbe verde se domani qualcuno attenuasse questo pannello con
+  // un'`opacity`. Questi selettori misurano il colore REALE, qualunque esso
+  // sia diventato.
+  for (const sel of [
+    "#schede-progress-count", // l'avanzamento delle due ore
+    "#schede-progress-percent", // la cifra accanto alla barra
+    "#schede-identity-note", // perché nome e squadra non si scrivono
+    "#schede-nota-counter", // il contatore della nota, --text-dim
+    ".schede-check", // le etichette delle checkbox del vocabolario
+  ]) {
+    expect(await textContrast(page, sel), `schede: ${sel}`).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+  }
   await sweepScene("impostazioni/schede-modulo");
 
   // Il modulo vuoto rifiutato: misura il riquadro d'allarme e il contatore
@@ -332,6 +348,9 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
   // storto — che è esattamente quando devono essere leggibili.
   await page.locator("#schede-save").click();
   await expect(page.locator("#schede-errors")).toBeVisible();
+  for (const sel of ["#schede-errors li", "#schede-deposit-status"]) {
+    expect(await textContrast(page, sel), `schede: ${sel}`).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+  }
   await sweepScene("impostazioni/schede-errori");
 
   // La spazzata non può essere passata per vuoto: se i colori della rampa non
