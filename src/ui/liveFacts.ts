@@ -40,10 +40,12 @@ import { ROLES, type Role } from "../../packages/engine/src/types.js";
 import type { RoleScarcity } from "../../packages/engine/src/auction.js";
 import type { ResidualPressure } from "../../packages/engine/src/anchors.js";
 import type {
-  CompetitorAssessment,
-  CompetitorBlocker,
-  CompetitorSet,
-} from "../../packages/engine/src/competitors.js";
+  OpponentPrecedents,
+  PrecedentFact,
+  PrecedentsReading,
+  SeasonShare,
+  SupportedClubNote,
+} from "../../packages/opponent-profiles/src/types.js";
 import { escHtml, roleChipHtml } from "./theme.js";
 import { ROLE_LABELS } from "./labels.js";
 
@@ -173,167 +175,305 @@ export function marketPressureHtml(pressure: ResidualPressure): string {
 export const MOMENT_FACTS_NOTE =
   "Slot liberi: slot di quel ruolo ancora vuoti su tutto il tavolo, somma delle 8 squadre, derivata dal log dell'asta. In listone: righe di quel ruolo non ancora assegnate nel listone caricato. Crediti per slot: crediti residui di tutto il tavolo diviso gli slot che restano da riempire, confrontati con la dotazione iniziale della lega (500/28). Sola contabilità: nessun dato di modello, nessuna stima, nessun suggerimento su quanto spingere.";
 
-// ── AVVERSARI — chi può arrivare alla cifra, per solo vincolo duro ───────────
+// ── AVVERSARI — i precedenti d'asta sul giocatore chiamato ───────────────────
+//
+// QUESTO PANNELLO HA CAMBIATO MESTIERE (issue #331 punto 1, decisione di Pico
+// registrata). Mostrava chi, per VINCOLO DURO (uno slot libero del ruolo e un
+// max bid sicuro che arriva alla soglia), poteva raggiungere la cifra: era
+// `competitorSet()`, e su un giocatore senza prezzo la soglia degradava al
+// rilancio minimo, dove la risposta è sempre «tutti» — «7 rivali su 7 possono
+// arrivare al rilancio minimo (1 cr)» è una frase che non informa nessuno.
+//
+// La raggiungibilità per vincolo duro è quindi USCITA DA QUI, e non dall'app:
+// il max bid sicuro e il budget residuo di TUTTE le otto squadre restano sulla
+// stessa schermata, nella striscia WAR BOARD (MINI) subito sopra; gli slot
+// liberi per ruolo, squadra per squadra, restano nella war board COMPLETA del
+// momento CHIAMATA e nel pannello AVVERSARI TIER-1 della schermata Rose; gli
+// slot liberi del ruolo su tutto il tavolo restano nel blocco MOMENTO
+// DELL'ASTA, qui accanto. Nessuna di quelle cifre ha smesso di essere
+// visibile: ha smesso di essere ricontata in questo riquadro.
+//
+// AL SUO POSTO: PRECEDENTI, cioè gesti già compiuti e contabili
+// (packages/opponent-profiles/src/precedents.ts). Per ogni avversario, che
+// cosa ha fatto davvero che riguardi il giocatore ora sul tavolo, con il
+// numero accanto e con la numerosità — su quante stagioni — sempre in vista.
+//
+// IL DIVIETO CHE GOVERNA QUESTA SEZIONE, e vale per ogni stringa qui sotto:
+// nessuna inferenza psicologica, nessuna stima di quanto un avversario voglia
+// un giocatore, nessuno score, indice, punteggio, classifica di intensità o
+// previsione di comportamento. «Sui suoi tre più cari ha speso il 60% per
+// quattro stagioni, l'ultima il 32%» si può controllare riga per riga; «è un
+// big spender» no, ed è per questo che non compare.
+//
+// IL TITOLO DICE «I PRECEDENTI» E NON «CHI LO VUOLE», ed è una scelta, non una
+// dimenticanza. Il MESTIERE del pannello è quello che Pico ha deciso —
+// rispondere a «chi lo vuole» invece che a «chi può arrivarci» — ma il titolo
+// visibile deve nominare ciò che il pannello CONTIENE, che sono gesti passati
+// misurati, non un'intenzione presente. Questa regola in questo file ha già un
+// precedente: il titolo ereditato dal segnaposto diceva «INTERESSE SUL
+// GIOCATORE» ed è stato corretto proprio perché affermava un'intenzione che
+// nessun calcolo dietro di lui produceva; e la nota sotto il pannello non deve
+// essere la SMENTITA della sua stessa intestazione. Rimettere «CHI LO VUOLE»
+// sopra un elenco di nomi rifarebbe quell'errore al contrario: ora il pannello
+// misura qualcosa, ma quel qualcosa resta il passato, e chi lo vuole lo decide
+// Pico leggendolo. Il nome della domanda vive dove deve: nella riga di sintesi
+// e nella nota, che dicono a che cosa questi precedenti servono.
+//
+// Larghezza: «AVVERSARI: I PRECEDENTI» è più corto di «AVVERSARI: CHI PUÒ
+// ARRIVARCI», che a 390px stava su una riga sola con 2px di margine misurati.
+// Non può traboccare dove quello non traboccava.
+
+/** Percentuale intera, senza segno, senza `Intl`. La quota non ha direzione. */
+export function formatPercent(share: number): string {
+  if (!Number.isFinite(share)) return "n/d";
+  return `${Math.round(share * 100)}%`;
+}
 
 /**
- * Why a team cannot reach the threshold. One reason per team, the most
- * upstream one, exactly as `competitorSet` reports it: a team with the role
- * full also has max bid 0, but saying "budget" there would be false — the
- * problem is that it does not need that player at all.
+ * Forma breve di una stagione: `2021/22` -> `21/22`. Serve solo dentro la
+ * serie per stagione, dove le cifre stanno in fila e la larghezza è contesa;
+ * la forma piena resta nel `title` e nell'aria-label, dove non lo è.
  */
-export function competitorBlockerLabel(blocker: CompetitorBlocker): string {
-  switch (blocker) {
-    case "role-full":
-      return "ruolo pieno";
-    case "budget-locked":
-      return "budget bloccato";
-    case "below-threshold":
-      return "sotto la soglia";
+export function shortSeason(season: string): string {
+  return season.length === 7 ? season.slice(2) : season;
+}
+
+/** Estremi dello storico, in parole: «5 stagioni (2021/22 → 2025/26)». */
+export function seasonsSpan(seasons: readonly string[]): string {
+  if (seasons.length === 0) return "nessuna stagione";
+  if (seasons.length === 1) return `1 stagione (${seasons[0]})`;
+  return `${seasons.length} stagioni (${seasons[0]} → ${seasons[seasons.length - 1]})`;
+}
+
+/**
+ * Il MOTIVO di un fatto: che cosa quell'avversario ha fatto. Sempre un verbo
+ * al passato e sempre riferito a un gesto, mai un aggettivo sulla persona.
+ */
+export function precedentMotive(fact: PrecedentFact): string {
+  switch (fact.id) {
+    case "ricomprato":
+      return "l'ha ricomprato all'asta";
+    case "club":
+      return `ha speso su ${fact.club}`;
+    case "piu-cari":
+      return `ha speso sui propri ${fact.topPurchases} più cari`;
   }
 }
 
-/** Spoken/extended form of the same reason, for the row's `title`. */
-export function competitorBlockerDetail(blocker: CompetitorBlocker): string {
-  switch (blocker) {
-    case "role-full":
-      return "Nessuno slot di questo ruolo ancora libero: questo giocatore non le serve.";
-    case "budget-locked":
-      return "Budget bloccato dalla riserva dura: non può fare nemmeno un'offerta valida.";
-    case "below-threshold":
-      return "Può offrire, ma il suo max bid sicuro non arriva alla soglia.";
+/**
+ * La PROVA di un fatto: i numeri che lo sostengono e la numerosità su cui
+ * poggiano. La numerosità non è una postilla — un tratto visto in quattro
+ * stagioni e uno visto solo nell'ultima non sono la stessa affermazione — e
+ * per questo sta nella stessa riga del numero, non in una nota.
+ */
+export function precedentEvidence(fact: PrecedentFact): string {
+  const measured = `misurato su ${fact.seasonsMeasured} ${fact.seasonsMeasured === 1 ? "stagione" : "stagioni"}`;
+  switch (fact.id) {
+    case "ricomprato": {
+      const times = `${fact.auctionPurchases} ${fact.auctionPurchases === 1 ? "volta" : "volte"}`;
+      const prices = fact.prices.map((p) => `${p.price} cr nel ${p.season}`).join(", ");
+      // I rinnovi sono la PROVENIENZA del conteggio, non un secondo segnale:
+      // spiegano perché il numero è più basso delle stagioni in cui l'ha
+      // avuto, e non contano come precedenti.
+      const renewals =
+        fact.renewalsExcluded === 0
+          ? ""
+          : ` · ${fact.renewalsExcluded} ${fact.renewalsExcluded === 1 ? "rinnovo non contato" : "rinnovi non contati"}`;
+      return `${times} — ${prices} · ${measured}${renewals}`;
+    }
+    case "club":
+    case "piu-cari":
+      // «N su M dal X% in su» porta GIÀ la numerosità nel proprio
+      // denominatore: `M` è `seasonsMeasured`. Ripetere «misurato su M
+      // stagioni» qui sarebbe la stessa cifra due volte in una riga sola, e
+      // costerebbe una riga di altezza su una schermata che ne ha poche.
+      return `${formatPercent(fact.latest.share)} nel ${fact.latest.season} · ${fact.seasonsAtOrAbove} ${
+        fact.seasonsAtOrAbove === 1 ? "stagione" : "stagioni"
+      } su ${fact.seasonsMeasured} ${fact.seasonsMeasured === 1 ? "misurata" : "misurate"} dal ${formatPercent(fact.threshold)} in su`;
   }
 }
 
 /**
- * How the threshold shown to the operator was obtained. `price` = the figure
- * typed in the assignment form; `floor` = nothing typed yet, so the question
- * degrades to the honest weaker one ("who can still enter at the minimum
- * bid") instead of inventing a figure nobody said.
+ * La serie stagione per stagione, senza media e senza appiattimento: è qui che
+ * si vede la differenza fra «alto per quattro stagioni e crollato nell'ultima»
+ * e «alto solo nell'ultima», che una cifra sola renderebbe identiche.
  */
-export type ReachThresholdSource = "price" | "floor";
-
-/** The one line that says what the count below actually counts. */
-export function competitorReachHeadline(set: CompetitorSet, source: ReachThresholdSource): string {
-  const total = set.eligibleCount + set.excluded.length;
-  const at =
-    source === "price"
-      ? `a ${set.threshold} cr`
-      : `al rilancio minimo (${set.threshold} cr): nessun prezzo ancora inserito`;
-  return `${set.eligibleCount} rivali su ${total} possono arrivare ${at}`;
+function precedentSeriesHtml(perSeason: readonly SeasonShare[]): string {
+  return `<span class="opponent-precedents__series">${perSeason
+    .map(
+      (s) =>
+        `<span class="opponent-precedents__season" title="${escHtml(s.season)}: ${escHtml(
+          formatPercent(s.share),
+        )} (${s.amount} cr su ${s.total})"><em>${escHtml(shortSeason(s.season))}</em>${escHtml(
+          formatPercent(s.share),
+        )}</span>`,
+    )
+    .join("")}</span>`;
 }
 
-function competitorRowHtml(
-  a: CompetitorAssessment,
-  labels: Readonly<Record<string, string>>,
-  kind: "eligible" | "excluded",
-): string {
-  const label = labels[a.fantaTeamId] ?? a.fantaTeamId;
-  const blocker = a.blockers[0];
-  const reason = blocker === undefined ? "" : competitorBlockerLabel(blocker);
-  const detail = blocker === undefined ? "" : competitorBlockerDetail(blocker);
-  const spoken =
-    kind === "eligible"
-      ? `${label}: può arrivarci, max bid ${a.maxBid} crediti, ${a.slotsRemainingInRole} slot liberi nel ruolo`
-      : `${label}: non può arrivarci, ${detail} Max bid ${a.maxBid} crediti, ${a.slotsRemainingInRole} slot liberi nel ruolo, ${a.budgetResidual} crediti residui`;
+/** Forma parlata della serie, per l'aria-label della riga. */
+function seriesSpoken(perSeason: readonly SeasonShare[]): string {
+  return perSeason.map((s) => `${s.season} ${formatPercent(s.share)}`).join(", ");
+}
+
+function precedentFactHtml(fantaTeamId: string, fact: PrecedentFact): string {
+  const series = fact.id === "ricomprato" ? "" : precedentSeriesHtml(fact.perSeason);
+  // Motivo e prova sullo STESSO flusso di testo, non su due righe fisse: dove
+  // c'è larghezza stanno su una riga sola e il fatto si legge come una frase
+  // («l'ha ricomprato all'asta — 2 volte, 30 cr nel 2023/24…»); dove non ce
+  // n'è vanno a capo da soli. Due righe imposte costavano ~14px per fatto su
+  // una schermata che è già la più lunga dell'app, senza rendere nulla più
+  // chiaro.
   return `
-    <li class="opponent-reach__row opponent-reach__row--${kind}"
-        id="opponent-reach-${escHtml(a.fantaTeamId)}"
-        aria-label="${escHtml(spoken)}">
-      <span class="opponent-reach__name" title="${escHtml(label)}">${escHtml(label)}</span>
-      <span class="opponent-reach__nums">
-        <span class="opponent-reach__bid"><em>max</em>${a.maxBid}</span>
-        <span class="opponent-reach__slots"><em>slot</em>${a.slotsRemainingInRole}</span>
-      </span>
-      ${reason === "" ? "" : `<em class="opponent-reach__reason" title="${escHtml(detail)}">${escHtml(reason)}</em>`}
+    <li class="opponent-precedents__fact opponent-precedents__fact--${fact.id}"
+        id="opponent-precedents-${escHtml(fantaTeamId)}-${fact.id}">
+      <span class="opponent-precedents__motive">${escHtml(precedentMotive(fact))}</span><span
+        class="opponent-precedents__sep" aria-hidden="true"> — </span
+      ><span class="opponent-precedents__evidence">${escHtml(precedentEvidence(fact))}</span>
+      ${series}
     </li>`;
 }
 
 /**
- * The two groups, in the engine's own order (eligible by max bid desc then
- * id; excluded by id). Both groups are always rendered, including when empty:
- * "nobody else can reach this figure" and "everybody can" are different
- * facts, and a group that vanished would leave the operator unable to tell
- * which one they are looking at.
+ * Il tifo dichiarato, accostato alla spesa MISURATA su quel club.
  *
- * Headings state the BASIS in the heading itself ("può arrivarci" / "non può
- * arrivarci"), because `competitorSet` measures reachability under hard
- * constraints and nothing else: no declared interest, no observed counter, no
- * behavioural profile ever enters it (§D9).
+ * Non compare mai da solo, e non è il titolo di niente: sta sotto i fatti che
+ * hanno fatto nascere la riga, in una riga subordinata, con accanto la cifra
+ * che può smentirlo. Un avversario che tifa il club del giocatore chiamato ma
+ * non ci ha mai speso non arriva nemmeno qui — non ha una riga
+ * (precedents.ts) — e la frase «lo vuole perché è della sua squadra» non ha
+ * modo di formarsi.
  */
-export function competitorReachHtml(
-  set: CompetitorSet,
+function supportedClubHtml(note: SupportedClubNote, seriesAlreadyShown: boolean): string {
+  const measured =
+    note.latest === null
+      ? "nessuna stagione misurata su quel club"
+      : `spesa misurata su quel club: ${formatPercent(note.latest.share)} nel ${note.latest.season}, su ${note.seasonsMeasured} ${
+          note.seasonsMeasured === 1 ? "stagione" : "stagioni"
+        }`;
+  // La serie non si stampa due volte. Quando la riga porta già il fatto
+  // `club` — stesso club, stessa misura, stesse stagioni — la serie è due
+  // righe sopra: ristamparla qui non aggiungerebbe un dato, aggiungerebbe
+  // solo altezza a una schermata che è già la più lunga dell'app.
+  const series =
+    note.latest === null || seriesAlreadyShown ? "" : precedentSeriesHtml(note.perSeason);
+  return `
+    <span class="opponent-precedents__support">
+      <em>tifo dichiarato</em>${escHtml(note.club)} · ${escHtml(measured)}
+      ${series}
+    </span>`;
+}
+
+function precedentRowHtml(
+  entry: OpponentPrecedents,
   labels: Readonly<Record<string, string>>,
 ): string {
-  const group = (
-    id: string,
-    heading: string,
-    rows: readonly CompetitorAssessment[],
-    kind: "eligible" | "excluded",
-    empty: string,
-  ): string => `
-    <div class="opponent-reach__group" id="opponent-reach-${id}">
-      <span class="opponent-reach__heading">${escHtml(heading)}<b>${rows.length}</b></span>
+  const label = labels[entry.fantaTeamId] ?? entry.fantaTeamId;
+  const spokenFacts = entry.facts
+    .map((fact) => {
+      const base = `${precedentMotive(fact)}: ${precedentEvidence(fact)}`;
+      return fact.id === "ricomprato" ? base : `${base}. Per stagione: ${seriesSpoken(fact.perSeason)}`;
+    })
+    .join(". ");
+  const spokenSupport =
+    entry.supportedClub === null
+      ? ""
+      : `. Tifo dichiarato in intervista: ${entry.supportedClub.club}${
+          entry.supportedClub.latest === null
+            ? ""
+            : `, spesa misurata su quel club per stagione: ${seriesSpoken(entry.supportedClub.perSeason)}`
+        }`;
+  return `
+    <li class="opponent-precedents__row"
+        id="opponent-precedents-${escHtml(entry.fantaTeamId)}"
+        aria-label="${escHtml(`${label}. ${spokenFacts}${spokenSupport}`)}">
+      <span class="opponent-precedents__name" title="${escHtml(label)}">${escHtml(label)}</span>
+      <ul class="opponent-precedents__facts">
+        ${entry.facts.map((fact) => precedentFactHtml(entry.fantaTeamId, fact)).join("")}
+      </ul>
       ${
-        rows.length === 0
-          ? `<span class="opponent-reach__empty">${escHtml(empty)}</span>`
-          : `<ul class="opponent-reach__list">${rows.map((r) => competitorRowHtml(r, labels, kind)).join("")}</ul>`
+        entry.supportedClub === null
+          ? ""
+          : supportedClubHtml(
+              entry.supportedClub,
+              entry.facts.some((f) => f.id === "club"),
+            )
       }
-    </div>`;
-
-  return (
-    group(
-      "eligible",
-      `PUÒ ARRIVARE A ${set.threshold} CR`,
-      set.eligible,
-      "eligible",
-      "Nessun rivale può arrivare a questa cifra.",
-    ) +
-    group(
-      "excluded",
-      "NON PUÒ ARRIVARCI",
-      set.excluded,
-      "excluded",
-      "Nessun rivale è fuori: tutti possono arrivarci.",
-    )
-  );
+    </li>`;
 }
 
 /**
- * Titolo del pannello. Dice la quantità che il pannello MISURA —
- * raggiungibilità aritmetica — e non quella che non calcola: il titolo
- * ereditato dal segnaposto diceva «INTERESSE SUL GIOCATORE», cioè
- * un'intenzione, che `competitorSet` rifiuta per costruzione (`basis:
- * "hard-constraints"`) e che §D9 vieta di inferire.
+ * La riga di sintesi. Dice quanti avversari hanno un precedente, su quanti
+ * sono stati esaminati, e su quale storico.
  *
- * Perché questa formulazione e non un'altra:
- *  - il SOGGETTO resta «AVVERSARI»: a essere sbagliato era il predicato, non
- *    di chi parla il pannello, e rinominare il soggetto avrebbe introdotto un
- *    secondo termine per la stessa cosa accanto ad «AVVERSARI TIER-1» (Rose);
- *  - «PUÒ» è il verbo portante e non è negoziabile: è possibilità aritmetica,
- *    non previsione. «CHI ARRIVA» sarebbe una predizione;
- *  - «ARRIVARCI» è la stessa parola delle due intestazioni interne («PUÒ
- *    ARRIVARE A N CR» / «NON PUÒ ARRIVARCI»), così titolo, riga di sintesi e
- *    gruppi si leggono come una frase sola invece che come tre affermazioni;
- *  - il «-ci» ha il suo antecedente una riga sotto, nella riga di sintesi
- *    («N rivali su M possono arrivare a X cr»), e per intero nell'aria-label
- *    del pannello, dove non c'è larghezza da contendere.
- *
- * I due punti al posto del trattone di «TAVOLO — BUDGET E MAX BID» sono una
- * scelta di larghezza, misurata e non stimata: a 390px il titolo ha 244px, e
- * questo pannello vive sulla schermata più stretta dell'app, in asta.
- *   AVVERSARI — INTERESSE SUL GIOCATORE   312px  (andava a capo: 2 righe)
- *   AVVERSARI — CHI PUÒ ARRIVARCI         254px  (andrebbe a capo)
- *   AVVERSARI: CHI PUÒ ARRIVARCI          242px  (una riga, margine 2px)
- * Il margine è sottile: se un giorno un altro font lo fa andare a capo, il
- * titolo torna su due righe come ci stava quello vecchio — nessun overflow,
- * nessuno scroll orizzontale. Per questo l'E2E pretende una riga sola a 768 e
- * 1280 e si limita a vietare il traboccamento a 390.
+ * I TRE SILENZI SONO TRE FRASI DIVERSE, e nessuno di loro è un elenco vuoto:
+ * «nessun giocatore chiamato», «nessuno storico caricato» e «storico caricato,
+ * nessun precedente su questo giocatore» portano a decisioni diverse, e
+ * scriverli allo stesso modo — o non scriverli affatto — farebbe leggere
+ * «non lo so» come «nessuno lo vuole». Il ritorno silenzioso alla vecchia
+ * domanda (chi può arrivare alla cifra) non è fra le opzioni: quella domanda
+ * ha lasciato questo pannello per decisione, non per guasto.
  */
-export const OPPONENT_REACH_TITLE = "AVVERSARI: CHI PUÒ ARRIVARCI";
+export function opponentPrecedentsHeadline(reading: PrecedentsReading): string {
+  const seats = `${reading.seatsConsidered} ${reading.seatsConsidered === 1 ? "avversario" : "avversari"}`;
+  const unassigned =
+    reading.seatsWithoutPerson === 0
+      ? ""
+      : ` ${reading.seatsWithoutPerson} ${
+          reading.seatsWithoutPerson === 1 ? "posto non ha" : "posti non hanno"
+        } una persona assegnata: su quelli non esiste storico.`;
+  switch (reading.emptyReason) {
+    case "no-called-player":
+      return OPPONENT_PRECEDENTS_NO_CALL;
+    case "no-history":
+      return `${OPPONENT_PRECEDENTS_NO_HISTORY}${unassigned}`;
+    case "no-facts":
+      return `Nessun precedente d'asta su questo giocatore per nessuno dei ${seats} esaminati. Non è «nessuno lo vuole»: è «lo storico non dice niente su di lui». Storico: ${seasonsSpan(reading.seasons)}.${unassigned}`;
+    case null:
+      return `${reading.opponents.length} ${
+        reading.opponents.length === 1 ? "avversario ha" : "avversari hanno"
+      } un precedente d'asta su questo giocatore, su ${seats} esaminati. Storico: ${seasonsSpan(reading.seasons)}.${unassigned}`;
+  }
+}
 
-export const OPPONENT_REACH_NOTE =
-  "Solo vincolo duro, dal log dell'asta: uno slot del ruolo ancora libero e un max bid sicuro (budget − minimo necessario per gli slot obbligatori che restano) che arriva alla soglia. «Può arrivarci» non significa «lo vuole»: nessun profilo avversario, nessuna intenzione dichiarata, nessun indice comportamentale entra in questo conteggio. La tua squadra è esclusa: la domanda è chi ALTRO può arrivarci.";
+/**
+ * L'elenco. Vuoto è un esito legittimo e non produce un contenitore vuoto: la
+ * riga di sintesi ha già detto quale dei tre silenzi è, e una lista vuota
+ * accanto a quella frase sembrerebbe un elenco di «nessuno».
+ */
+export function opponentPrecedentsHtml(
+  reading: PrecedentsReading,
+  labels: Readonly<Record<string, string>>,
+): string {
+  if (reading.opponents.length === 0) return "";
+  return `<ul class="opponent-precedents__list" id="opponent-precedents-list">${reading.opponents
+    .map((entry) => precedentRowHtml(entry, labels))
+    .join("")}</ul>`;
+}
 
-/** The block's honest state when the moment has no role yet. */
-export const OPPONENT_REACH_NO_ROLE =
-  "Nessun ruolo sul giocatore chiamato: senza ruolo non esiste lo slot su cui misurare chi può competere, e un elenco costruito senza quel vincolo sarebbe falso.";
+/**
+ * Titolo del pannello. Vedi la nota lunga in testa a questa sezione: nomina
+ * ciò che il pannello CONTIENE — gesti passati, contati — e non l'intenzione
+ * presente che nessun calcolo dietro di lui produce.
+ */
+export const OPPONENT_PRECEDENTS_TITLE = "AVVERSARI: I PRECEDENTI";
+
+/**
+ * La nota è tenuta CORTA di proposito, ed è una misura, non un gusto: su
+ * questa schermata il pannello convive con la war board, il blocco MOMENTO
+ * DELL'ASTA e il form ASSEGNA A, e a 390px una nota di sei righe costa più
+ * altezza di tutto l'elenco che spiega. Ogni frase qui sotto porta un vincolo
+ * che senza di lei si perderebbe — la provenienza, i rinnovi che non contano,
+ * la numerosità, il limite del tifo, l'assenza di punteggi — e non c'è una
+ * sesta frase.
+ */
+export const OPPONENT_PRECEDENTS_NOTE =
+  "Serve a rispondere da solo a «chi lo vuole»: il pannello non lo calcola. Solo gesti già compiuti, contati sullo storico d'asta, ognuno con le stagioni su cui è misurato: quattro alte con un crollo nell'ultima non sono un tratto nato ieri. I rinnovi non contano come riacquisti — rinnovare non è ricomprare — e la spesa sui propri più cari compare solo se il chiamato è di quella fascia. Il tifo dichiarato in intervista è accostato alla spesa misurata su quel club e da solo non fa comparire nessuno: tifare una squadra non è averci speso. Nessun punteggio e nessuna previsione: i fatti sono qui, il giudizio è tuo.";
+
+/** Lo stato onesto quando non c'è nessun giocatore chiamato. */
+export const OPPONENT_PRECEDENTS_NO_CALL =
+  "Nessun giocatore chiamato: senza un giocatore non esiste il soggetto a cui i precedenti si riferiscono, e un elenco costruito senza di lui parlerebbe d'altro.";
+
+/** Lo stato onesto quando nessuno storico d'asta è stato caricato. */
+export const OPPONENT_PRECEDENTS_NO_HISTORY =
+  "Nessuno storico d'asta caricato: non ho fatti su cui dire chi ha già voluto questo giocatore. Un elenco vuoto qui non significa «nessuno lo vuole», significa «non lo so».";

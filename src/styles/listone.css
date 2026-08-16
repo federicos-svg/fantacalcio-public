@@ -49,8 +49,9 @@
   cursor: pointer;
 }
 /* La riga già assegnata arretra PER COLORE, non per opacità — stessa
-   correzione, e stessa ragione, di .opponent-reach__row--excluded in
-   asta.css: `opacity` si applica al layer intero, quindi moltiplica ogni
+   correzione, e stessa ragione, della riga esclusa che il pannello AVVERSARI
+   aveva prima di #331 (.opponent-precedents__row in asta.css non usa opacità
+   proprio per questo): `opacity` si applica al layer intero, quindi moltiplica ogni
    figlio contro lo sfondo sottostante e trascina sotto soglia anche ciò che
    il figlio aveva già reso conforme. Misurato sul DOM vivo con `opacity:
    0.6`: il badge «Assegnato» stava a 1,67:1 e il NOME del giocatore a

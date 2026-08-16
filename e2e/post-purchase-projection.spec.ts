@@ -191,6 +191,21 @@ test("la proiezione è a schermo proprio mentre si digita il prezzo", async ({ p
   // Questo è il motivo per cui il blocco NON sta accanto a «Prezzo da pagare»
   // in cima: con il campo del prezzo a fuoco quel blocco è già fuori schermo.
   await page.locator("#assign-price").fill("30");
+  // Il campo viene portato in vista con lo SCORRIMENTO MINIMO del browser
+  // (`block: "nearest"`), che è quello che fa un utente quando raggiunge il
+  // campo. Il passo è esplicito da #331: prima bastava lo scorrimento
+  // automatico di Playwright — che lascia il campo una decina di pixel sotto
+  // la piega — perché il pannello AVVERSARI qui sopra si accorciava di ~20px
+  // al primo tasto (la sua riga di sintesi passava da due righe a una) e
+  // tirava su tutta la colonna. Quel pannello ora mostra i precedenti d'asta,
+  // che non dipendono dalla cifra battuta e quindi NON si riflowano: la
+  // proiezione non può più essere salvata da un salto di layout altrui, e
+  // questa misura non deve più dipenderne. Ciò che il test protegge non
+  // cambia — anzi si irrigidisce: con il campo del prezzo interamente in
+  // vista, la proiezione deve essere interamente in vista con lui.
+  await page.evaluate(() =>
+    document.getElementById("assign-price")?.scrollIntoView({ block: "nearest" }),
+  );
   const geometry = await page.evaluate(() => {
     const rect = (id: string) => {
       const el = document.getElementById(id);
@@ -199,8 +214,20 @@ test("la proiezione è a schermo proprio mentre si digita il prezzo", async ({ p
     const after = rect("assign-after");
     const priceInput = rect("assign-price");
     const priceDisplay = rect("price-display");
+    // Tolleranza di un pixel sul bordo basso, come già fa la misura dello
+    // scorrimento laterale in fondo a questo test: con lo scorrimento minimo
+    // il bordo del campo COINCIDE con quello della finestra, e un confronto
+    // esatto su valori sub-pixel del layout deciderebbe il verde su un
+    // decimo di pixel.
+    const fitsBelow = (r: DOMRect) => r.bottom <= window.innerHeight + 1;
     return {
-      afterInViewport: after !== null && after.top >= 0 && after.bottom <= window.innerHeight,
+      afterInViewport: after !== null && after.top >= 0 && fitsBelow(after),
+      // Invariante di layout, indipendente da qualunque scorrimento: la
+      // proiezione non finisce mai più in basso del campo che la aggiorna, e
+      // quindi è visibile ogni volta che quel campo lo è.
+      afterNotBelowPrice:
+        after !== null && priceInput !== null && after.bottom <= priceInput.bottom + 1,
+      priceInputInViewport: priceInput !== null && priceInput.top >= 0 && fitsBelow(priceInput),
       priceDisplayTop: priceDisplay?.top ?? null,
       sameBand: after !== null && priceInput !== null && Math.abs(after.top - priceInput.top) < 200,
       // La riga ASSEGNA A non deve essere cresciuta in altezza: il blocco sta
@@ -208,9 +235,14 @@ test("la proiezione è a schermo proprio mentre si digita il prezzo", async ({ p
       formRowHeight: document.querySelector(".form-row")?.getBoundingClientRect().height ?? 0,
     };
   });
+  expect(geometry.priceInputInViewport, "il campo del prezzo è interamente in vista").toBe(true);
   expect(geometry.afterInViewport, "la proiezione deve essere leggibile mentre si digita").toBe(
     true,
   );
+  expect(
+    geometry.afterNotBelowPrice,
+    "la proiezione non sta mai più in basso del campo che la aggiorna",
+  ).toBe(true);
   expect(geometry.sameBand, "la proiezione sta nella stessa banda del campo prezzo").toBe(true);
   expect(geometry.formRowHeight, "la riga ASSEGNA A non deve crescere").toBeLessThanOrEqual(60);
   // La misura che spiega la scelta: il blocco in cima è sopra il bordo alto.

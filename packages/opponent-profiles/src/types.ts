@@ -319,3 +319,297 @@ export interface OpponentCounters {
    */
   readonly lastContestedLossSeq: number | null;
 }
+
+// ---------------------------------------------------------------------------
+// Precedenti d'asta — lo storico multi-stagione e i fatti pertinenti al
+// giocatore chiamato
+// ---------------------------------------------------------------------------
+//
+// PERCHÉ QUESTA METÀ ESISTE, E PERCHÉ NON STA IN UN CAMPO NOTE. Il pannello
+// AVVERSARI della schermata live non chiede più «chi può arrivare alla cifra»
+// (vincolo duro, packages/engine/src/competitors.ts) ma «cosa ha fatto davvero
+// questo avversario che riguardi il giocatore chiamato». Le risposte sono
+// misurate su uno storico d'asta di più stagioni, e nessuna delle caselle già
+// presenti in questo pacchetto poteva ospitarle:
+//
+//  - il PRIOR d'intervista è dichiarato, non misurato, ed è per persona, non
+//    per giocatore chiamato;
+//  - i CONTATORI OSSERVATI (counters.ts) leggono l'event log della stagione IN
+//    CORSO, che per costruzione non sa nulla delle stagioni precedenti;
+//  - `notes` è testo libero: ficcarci dentro «ha ricomprato X tre volte»
+//    renderebbe il fatto non verificabile, non contabile e non falsificabile,
+//    che è l'opposto di ciò che serve.
+//
+// Da qui una terza famiglia di tipi, con la stessa disciplina delle altre due:
+// ogni fatto porta la propria NUMEROSITÀ (su quante stagioni è misurato), i
+// valori restano separati stagione per stagione, e non esiste — né deve
+// esistere — un numero unico che aggreghi «quanto lo vuole».
+//
+// IL DIVIETO CHE GOVERNA QUESTA SEZIONE. Nessuna inferenza psicologica,
+// nessuna stima d'intenzione, nessuno score, indice, punteggio o classifica di
+// intensità, nessuna previsione di comportamento. Un fatto è ammesso qui solo
+// se è un gesto già compiuto, contabile a partire dallo storico, e pertinente
+// al giocatore chiamato. Il giudizio — «allora lo vuole» — resta di Pico e
+// resta fuori dal codice.
+
+/**
+ * Come è entrato in rosa un giocatore, in una stagione passata.
+ *
+ * LA DISTINZIONE È LOAD-BEARING, non una sfumatura di catalogazione: un
+ * RINNOVO non è un gesto ripetuto, è non aver mai lasciato il giocatore. Solo
+ * `asta` conta come «lo ha voluto di nuovo, contro gli altri, a un prezzo». Il
+ * conteggio dei precedenti esclude quindi i rinnovi per costruzione, e il
+ * numero dei rinnovi esclusi viaggia accanto al fatto come PROVENIENZA (perché
+ * il conteggio è più basso delle stagioni in cui l'ha avuto), mai come un
+ * secondo segnale di interesse.
+ */
+export const ACQUISITION_KINDS = ["asta", "riconferma"] as const;
+
+export type AcquisitionKind = (typeof ACQUISITION_KINDS)[number];
+
+/**
+ * Etichetta di stagione, `YYYY/YY`. Il formato è vincolato per una ragione
+ * meccanica e non estetica: l'ordinamento cronologico di questo pacchetto è
+ * l'ordinamento LESSICOGRAFICO dell'etichetta, e lo è correttamente solo se
+ * l'etichetta comincia con l'anno a quattro cifre. Una stagione scritta
+ * «21-22» ordinerebbe in silenzio dopo «2025/26».
+ */
+export const SEASON_PATTERN = /^\d{4}\/\d{2}$/;
+
+/**
+ * Un acquisto passato, come lo storico d'asta lo registra. Una riga per
+ * giocatore per stagione.
+ *
+ * Chiavato sulla PERSONA e non sul posto a tavola, per la stessa ragione del
+ * profilo (vedi `PERSON_ID_PATTERN`): fra una stagione e l'altra i posti
+ * cambiano mano, e un precedente segue l'essere umano che l'ha compiuto. Il
+ * ponte posto -> persona è il registro lega, passato a `auctionPrecedents()`
+ * come mappa, mai importato.
+ *
+ * Nessun campo nome, qui come nel profilo: `playerId` è un identificatore, e
+ * il nome del giocatore chiamato è già sullo schermo. Lo storico d'asta di una
+ * lega reale è dato personale (chi ha speso cosa, con nome e cognome) e vive
+ * SOLO nello storage runtime-local, mai nel repository — vedi storage.ts.
+ */
+export interface PastAuctionPurchase {
+  /** `YYYY/YY`, vedi `SEASON_PATTERN`. */
+  readonly season: string;
+  readonly personId: string;
+  readonly playerId: string;
+  /** Il club REALE del giocatore in quella stagione (Serie A), non la fantasquadra. */
+  readonly club: string;
+  readonly price: number;
+  readonly acquisition: AcquisitionKind;
+}
+
+/** Versione dello storico persistito. Una versione diversa è rifiutata, mai migrata. */
+export const AUCTION_HISTORY_SCHEMA_VERSION = 1;
+
+/** L'involucro persistito: ciò che lo storage runtime-local tiene, e nient'altro. */
+export interface AuctionHistoryStore {
+  readonly schemaVersion: typeof AUCTION_HISTORY_SCHEMA_VERSION;
+  readonly purchases: readonly PastAuctionPurchase[];
+}
+
+/** Il giocatore chiamato al tavolo: le sole due cose che servono per la pertinenza. */
+export interface CalledPlayer {
+  readonly playerId: string;
+  /** Club reale del giocatore chiamato. Stringa vuota quando non è noto. */
+  readonly club: string;
+}
+
+/**
+ * I tipi di fatto ammessi, NELL'ORDINE DI FORZA DICHIARATO (il più forte per
+ * primo). L'ordine è una decisione, non una misura: `ricomprato` viene prima
+ * perché riguarda esattamente il giocatore chiamato, `club` perché riguarda la
+ * sua squadra reale, `piu-cari` perché riguarda la sua fascia di prezzo.
+ *
+ * IL TIFO NON È IN QUESTA LISTA, ed è la garanzia strutturale che regge tutto
+ * il pannello: «tifa quella squadra» non è un gesto compiuto, è
+ * un'appartenenza dichiarata, e da solo non dice nulla su cosa quella persona
+ * farà con i crediti — il caso che lo dimostra è un tifoso che sul proprio
+ * club ha speso il 3,6% e poi lo 0%. Non essendo un `PrecedentFactId` non può
+ * diventare il titolo di una riga né, da solo, far comparire un avversario:
+ * vive in un campo subordinato di `OpponentPrecedents`, che esiste soltanto
+ * quando la riga esiste già per un fatto misurato.
+ */
+export const PRECEDENT_FACT_IDS = ["ricomprato", "club", "piu-cari"] as const;
+
+export type PrecedentFactId = (typeof PRECEDENT_FACT_IDS)[number];
+
+/** Una stagione e la quota misurata in quella stagione. Mai una media sola. */
+export interface SeasonShare {
+  readonly season: string;
+  /** Quota 0..1 della spesa all'asta di quella stagione. */
+  readonly share: number;
+  /** Crediti che compongono il numeratore. */
+  readonly amount: number;
+  /** Crediti spesi all'asta in tutta la stagione: il denominatore. */
+  readonly total: number;
+}
+
+/** Una stagione e il prezzo pagato in quella stagione. */
+export interface SeasonPrice {
+  readonly season: string;
+  readonly price: number;
+}
+
+/**
+ * Ciò che ogni fatto porta con sé, sempre: SU QUANTE STAGIONI è misurato.
+ *
+ * Non è un dettaglio da nota a piè di pagina. Un tratto visto in quattro
+ * stagioni e uno visto solo nell'ultima non sono la stessa affermazione, e un
+ * pannello che li stampasse uguali mentirebbe due volte: sul primo, perché ne
+ * nasconderebbe la tenuta; sul secondo, perché gliene presterebbe una che non
+ * ha. `seasons` è l'elenco completo, in ordine crescente, così chi legge vede
+ * anche QUALI stagioni, non solo quante.
+ */
+export interface PrecedentSample {
+  readonly seasonsMeasured: number;
+  readonly seasons: readonly string[];
+}
+
+/**
+ * Ha già ricomprato QUESTO giocatore all'asta. Il fatto più forte, perché non
+ * è un'analogia: è lo stesso giocatore.
+ */
+export interface RepeatPurchaseFact extends PrecedentSample {
+  readonly id: "ricomprato";
+  /** Quante volte lo ha ricomprato ALL'ASTA. I rinnovi non entrano mai qui. */
+  readonly auctionPurchases: number;
+  /** In quali stagioni lo ha ricomprato all'asta, crescenti. */
+  readonly purchaseSeasons: readonly string[];
+  /** Prezzi pagati, stagione per stagione: la prova accanto al conteggio. */
+  readonly prices: readonly SeasonPrice[];
+  /**
+   * Quante volte lo ha RINNOVATO. Provenienza del conteggio qui sopra — spiega
+   * perché è più basso delle stagioni in cui lo ha avuto — e nient'altro:
+   * non è un secondo segnale e non entra in nessun conteggio.
+   */
+  readonly renewalsExcluded: number;
+}
+
+/** Concentrazione di spesa sul club reale del giocatore chiamato. */
+export interface ClubConcentrationFact extends PrecedentSample {
+  readonly id: "club";
+  readonly club: string;
+  /** TUTTE le stagioni misurate, crescenti: nessun appiattimento in una media. */
+  readonly perSeason: readonly SeasonShare[];
+  /** In quante di quelle stagioni la quota è arrivata alla soglia dichiarata. */
+  readonly seasonsAtOrAbove: number;
+  /** L'ultima stagione misurata, che può contraddire tutte le precedenti. */
+  readonly latest: SeasonShare;
+  /** La soglia dichiarata effettivamente applicata, accanto al numero che gatekeepa. */
+  readonly threshold: number;
+}
+
+/**
+ * Quota di spesa sui propri giocatori più cari. Pertinente solo quando il
+ * giocatore chiamato è a sua volta caro — vedi `CalledPlayerPriceBand`.
+ */
+export interface TopSpendFact extends PrecedentSample {
+  readonly id: "piu-cari";
+  /** Quanti acquisti compongono «i propri più cari». Dichiarato, non scelto dai dati. */
+  readonly topPurchases: number;
+  readonly perSeason: readonly SeasonShare[];
+  readonly seasonsAtOrAbove: number;
+  readonly latest: SeasonShare;
+  readonly threshold: number;
+}
+
+export type PrecedentFact = RepeatPurchaseFact | ClubConcentrationFact | TopSpendFact;
+
+/**
+ * La spesa MISURATA sul club per cui una persona tifa, accostata al tifo
+ * dichiarato. Sempre calcolata, anche (soprattutto) quando è bassa: è la prova
+ * che può smentire il tifo, e senza di lei «tifa quella squadra» sarebbe una
+ * frase senza contraddittorio.
+ */
+export interface SupportedClubNote {
+  readonly club: string;
+  /** Sempre questo letterale: viene dall'intervista, confermata riga per riga. */
+  readonly provenance: "intervista_dichiarata";
+  readonly perSeason: readonly SeasonShare[];
+  readonly seasonsMeasured: number;
+  /** `null` quando la persona non ha nessuna stagione misurata nello storico. */
+  readonly latest: SeasonShare | null;
+}
+
+/**
+ * Un avversario e i suoi precedenti sul giocatore chiamato.
+ *
+ * `facts` non è mai vuoto: senza un fatto misurato la voce non viene creata,
+ * perché una riga in questo pannello è già un'affermazione. `supportedClub`
+ * può esserci o no e non basta a creare la riga (vedi `PRECEDENT_FACT_IDS`).
+ */
+export interface OpponentPrecedents {
+  /** Il POSTO a tavola: è così che il pannello scrive la riga. */
+  readonly fantaTeamId: string;
+  /** La PERSONA a cui i precedenti appartengono. */
+  readonly personId: string;
+  readonly facts: readonly PrecedentFact[];
+  readonly supportedClub: SupportedClubNote | null;
+}
+
+/** Perché il pannello non ha voci. Mai un elenco vuoto senza motivo scritto. */
+export type PrecedentsEmptyReason =
+  /** Nessun giocatore chiamato: non c'è un soggetto a cui i fatti si riferiscano. */
+  | "no-called-player"
+  /** Nessuno storico caricato: non è «nessuno lo vuole», è «non lo so». */
+  | "no-history"
+  /** Storico presente, nessun fatto pertinente a QUESTO giocatore. */
+  | "no-facts";
+
+/**
+ * L'esito completo, con tutto ciò che serve a leggerlo senza indovinare:
+ * quante persone sono state esaminate, quanti posti non hanno una persona (e
+ * quindi non hanno storico), su quali stagioni poggia lo storico e quali
+ * soglie dichiarate erano in vigore.
+ */
+export interface PrecedentsReading {
+  readonly opponents: readonly OpponentPrecedents[];
+  /** Su cosa poggia, dichiarato nel dato: storico d'asta misurato, nient'altro. */
+  readonly basis: "auction-history";
+  /** Le stagioni presenti nello storico, crescenti. */
+  readonly seasons: readonly string[];
+  /** Quanti posti rivali sono stati esaminati (la propria squadra esclusa). */
+  readonly seatsConsidered: number;
+  /** Quanti di quelli non hanno una persona assegnata: su loro non esiste storico. */
+  readonly seatsWithoutPerson: number;
+  readonly thresholds: PrecedentThresholds;
+  readonly emptyReason: PrecedentsEmptyReason | null;
+}
+
+/**
+ * Soglie PRE-DICHIARATE — parametri dichiarati, mai stimati dai dati e mai
+ * tarati dal sistema. Esportate (invece che nascoste dentro il calcolo)
+ * proprio perché la soglia in vigore sia ispezionabile accanto al numero che
+ * lascia passare: `PrecedentsReading.thresholds` le riporta nell'esito.
+ *
+ * PUNTO APERTO PER PICO: questi valori sono una prima dichiarazione della
+ * sessione che implementa, non sua. Restano provvisori finché non li conferma
+ * o li sostituisce — esattamente come `DEFAULT_COUNTER_THRESHOLDS`.
+ */
+export interface PrecedentThresholds {
+  /** Quota della spesa all'asta di UNA stagione su un club, da cui in su è un fatto. */
+  readonly clubShare: number;
+  /** Quanti acquisti compongono «i propri giocatori più cari». */
+  readonly topPurchases: number;
+  /** Quota della spesa all'asta di UNA stagione sui propri più cari, da cui in su è un fatto. */
+  readonly topShare: number;
+  /**
+   * Prezzo mediano passato del giocatore CHIAMATO, in crediti, da cui in su
+   * quel giocatore è «caro» e il fatto `piu-cari` diventa pertinente. È
+   * l'unico modo in cui la pertinenza entra qui: misurata sullo storico
+   * d'asta, mai dedotta dalla quotazione del listone (che questo pacchetto non
+   * legge, e che il pannello live non deriva — docs/AUCTION_2026_EXECUTION_PLAN.md §3).
+   */
+  readonly expensiveFrom: number;
+}
+
+export const DEFAULT_PRECEDENT_THRESHOLDS: PrecedentThresholds = {
+  clubShare: 0.15,
+  topPurchases: 3,
+  topShare: 0.5,
+  expensiveFrom: 50,
+};
