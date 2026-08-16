@@ -1149,3 +1149,53 @@
   font-size: 11.5px;
   line-height: 1.4;
 }
+
+/* DOPO L'ACQUISTO — la quarta domanda del tavolo, dentro la riga ASSEGNA A
+   (src/main.ts, renderAssignAfterBlock/fillAssignAfter). Sta fra il campo del
+   prezzo e «Registra acquisto» e occupa lo spazio orizzontale che quella riga
+   aveva già libero: la schermata dell'asta è lunga il doppio del viewport, e
+   una risposta che costasse altezza sarebbe una risposta che si legge dopo
+   aver perso il giocatore.
+
+   Il colore non è decorativo. L'etichetta sta un gradino sotto (--text-sec),
+   i numeri sono il contenuto (--text-primary, mono come ogni altra cifra
+   dell'app), l'allarme è --stop-red. Tutti e tre sono token della rampa già
+   conforme AA di base.css: nessun colore nuovo, nessuna eccezione. */
+.assign-after {
+  flex: 0 1 250px;
+  min-width: 0;
+  align-self: flex-end;
+  /* Il filetto esiste sempre, trasparente: in allarme cambia solo colore, così
+     la larghezza del blocco non salta mentre si digita. */
+  border-left: 2px solid transparent;
+  padding-left: 10px;
+}
+.assign-after--alarm { border-left-color: var(--stop-red); }
+.assign-after__label {
+  color: var(--text-sec);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.assign-after__value {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+/* Vuota quando non c'è niente da dire: `:empty` la fa collassare senza un
+   secondo ramo di costruzione nel DOM. */
+.assign-after__alarm {
+  color: var(--stop-red);
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+.assign-after__alarm:empty { display: none; }
+
+/* Sotto i 480 px la riga ASSEGNA A è già satura (campo squadra e campo prezzo
+   riempiono la prima riga, il bottone la seconda): il blocco prende la base
+   minima che gli consente di stare ACCANTO al bottone invece di spingerlo su
+   una terza riga. */
+@media (max-width: 479px) {
+  .assign-after { flex: 1 1 120px; }
+}

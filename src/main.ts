@@ -63,6 +63,13 @@ import {
 } from "./leagueTeams.js";
 import { requiredRoleError } from "./callGuard.js";
 import { parsePositiveIntegerPrice } from "./price.js";
+import {
+  projectAfterPurchase,
+  projectionAlarmText,
+  projectionLabelText,
+  projectionValueText,
+  type PostPurchaseProjection,
+} from "./postPurchaseProjection.js";
 import { executeVoidCommand, voidErrorText } from "./voidCommand.js";
 import { rolePriceFacts, roleTopPurchases } from "./nominationContext.js";
 import {
@@ -3185,6 +3192,104 @@ function renderMomentoChiamata(
   return wrap;
 }
 
+// ── «Dopo l'acquisto»: quanto resta se lo prendi a questa cifra ─────────────
+// La quarta domanda del tavolo. Budget, Spesi e Slot dicono lo stato ADESSO;
+// nessun pannello diceva lo stato che si otterrebbe pagando la cifra che si sta
+// digitando, e a due secondi dal rilancio quel conto si faceva a mente.
+//
+// DOVE STA, E PERCHÉ LÌ. Dentro la riga ASSEGNA A, fra il campo del prezzo e
+// «Registra acquisto». Non in alto accanto a «Prezzo da pagare»: misurato sul
+// DOM vivo, mentre il campo del prezzo è a fuoco quel blocco è già fuori
+// schermo (a 1440×900 il suo bordo superiore sta a −65 px), quindi una
+// proiezione lì non la vedrebbe nessuno proprio nell'istante in cui serve. Qui
+// invece occupa lo spazio orizzontale che la riga aveva già libero, e per
+// questo non allunga una schermata che è già lunga il doppio del viewport.
+//
+// DI CHI PARLA. Della squadra selezionata nel menu ASSEGNA A — quella che sta
+// per ricevere l'acquisto — e lo dice per esteso nell'etichetta. Sulla stessa
+// schermata maxSafe() è già chiamata con due ricette diverse (la squadra del
+// menu e la squadra dell'utente): una proiezione senza nome sarebbe una terza
+// lettura indistinguibile dalle altre due.
+
+/** Il guscio DOM del blocco. Il testo lo scrive fillAssignAfter, sia al primo
+ *  render sia a ogni tasto battuto nel campo del prezzo. */
+function renderAssignAfterBlock(): HTMLElement {
+  const box = document.createElement("div");
+  box.id = "assign-after";
+  box.className = "assign-after";
+  // Cambia mentre si digita SENZA re-render (vedi il listener di #assign-price),
+  // quindi va annunciato e non solo ridipinto — stesso trattamento della
+  // headline del pannello AVVERSARI, che si aggiorna con lo stesso idioma.
+  box.setAttribute("role", "status");
+  box.setAttribute("aria-live", "polite");
+  box.setAttribute("aria-atomic", "true");
+
+  const label = document.createElement("div");
+  label.id = "assign-after-label";
+  label.className = "assign-after__label";
+
+  const value = document.createElement("div");
+  value.id = "assign-after-value";
+  value.className = "assign-after__value";
+
+  const alarm = document.createElement("div");
+  alarm.id = "assign-after-alarm";
+  alarm.className = "assign-after__alarm";
+
+  box.append(label, value, alarm);
+  return box;
+}
+
+/**
+ * La proiezione da mostrare adesso: squadra del menu ASSEGNA A (con la squadra
+ * dell'utente come ripiego solo se quell'id non esiste nello stato, esattamente
+ * come fa il blocco «Prezzo da pagare» più in alto), ruolo del giocatore
+ * chiamato, prezzo grezzo così com'è nel campo. `null` solo quando la schermata
+ * non porta un ruolo — irraggiungibile dalla UI, perché launchAsta richiede una
+ * chiamata correlata, ma il tipo lo prevede.
+ */
+function assignAfterProjection(
+  aState: AuctionState,
+  team: TeamState | undefined,
+): PostPurchaseProjection | null {
+  const assignTeam = aState.teams[state.assign.fantaTeamId] ?? team;
+  const role = state.call.role;
+  if (assignTeam === undefined || role === "") return null;
+  return projectAfterPurchase(assignTeam, role as Role, state.assign.price);
+}
+
+/**
+ * Scrive le tre righe nel blocco passato. Separata dal costruttore per lo
+ * stesso motivo di fillOpponentReach: il campo del prezzo non chiama render()
+ * — lo farebbe perdere fuoco e cursore in mezzo a un rilancio — quindi la
+ * proiezione si aggiorna con la stessa toppa in place che `#price-display` usa
+ * da sempre. La riga d'allarme resta nel DOM anche vuota: svuotarne il testo la
+ * fa collassare da sé (`.assign-after__alarm:empty`), e non c'è un secondo ramo
+ * di costruzione da tenere allineato al primo.
+ *
+ * Il parametro è IL BLOCCO, non un suo antenato, e non è un dettaglio:
+ * `querySelector` guarda solo i discendenti, quindi una versione che cercava
+ * `#assign-after` dentro il blocco stesso lo mancava e lasciava la proiezione
+ * muta a schermo pur avendola calcolata. Successo davvero, alla prima stesura;
+ * la spec e2e ora lo intercetta perché asserisce il TESTO, non la presenza.
+ */
+function fillAssignAfter(box: HTMLElement, projection: PostPurchaseProjection | null): void {
+  const label = box.querySelector("#assign-after-label");
+  const value = box.querySelector("#assign-after-value");
+  const alarm = box.querySelector("#assign-after-alarm");
+  if (label === null || value === null || alarm === null) return;
+  if (projection === null) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  label.textContent = projectionLabelText(displayTeamLabel(projection.fantaTeamId));
+  value.textContent = projectionValueText(projection);
+  const alarmText = projectionAlarmText(projection);
+  alarm.textContent = alarmText;
+  box.classList.toggle("assign-after--alarm", alarmText !== "");
+}
+
 function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): HTMLElement {
   const wrap = document.createElement("div");
 
@@ -3359,11 +3464,18 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   priceInput.title = "Prezzo in crediti: solo numero intero positivo.";
   priceInput.value = state.assign.price;
   priceInput.className = "field-input";
+  // Costruito qui perché il listener qui sotto lo aggiorna a ogni tasto.
+  const assignAfter = renderAssignAfterBlock();
+  fillAssignAfter(assignAfter, assignAfterProjection(aState, team));
   priceInput.addEventListener("input", (e) => {
     state.assign.price = (e.target as HTMLInputElement).value;
     // live-update maxSafe price display without full re-render
     const pd = wrap.querySelector("#price-display");
     if (pd) pd.textContent = state.assign.price ? `${state.assign.price} cr` : "— cr";
+    // Stesso motivo, stesso idioma, per «dopo l'acquisto»: è la risposta a
+    // «quanto mi resta se lo prendo A QUESTA CIFRA», quindi deve seguire la
+    // cifra mentre viene battuta, non l'ultima cifra registrata.
+    fillAssignAfter(assignAfter, assignAfterProjection(aState, team));
     // Same reason, same idiom, for the AVVERSARI block: it answers "who can
     // still reach THIS figure", so it has to follow the figure as it is typed.
     // A full render() here would take focus and caret out of the price field
@@ -3385,6 +3497,10 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
 
   formRow.appendChild(teamGroup);
   formRow.appendChild(priceGroup);
+  // Fra il prezzo e il bottone, non dopo il bottone: l'ordine di lettura (e di
+  // tabulazione) diventa «chi, quanto, cosa resta, conferma» — la conseguenza
+  // si legge prima di premere, non dopo.
+  formRow.appendChild(assignAfter);
   formRow.appendChild(submitBtn);
   divider.appendChild(formRow);
 
