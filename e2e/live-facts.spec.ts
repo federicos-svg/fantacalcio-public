@@ -1,6 +1,17 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { ListonePlayer } from "../src/ui/listone.js";
-import { AA_NORMAL_TEXT, gotoScreen, installSyntheticNetworkGuard, textContrast } from "./helpers.js";
+import {
+  AA_NORMAL_TEXT,
+  gotoScreen,
+  installSyntheticNetworkGuard,
+  openTableDetail,
+  textContrast,
+} from "./helpers.js";
+import {
+  CALLED_CLUB,
+  PEOPLE,
+  seedPrecedents,
+} from "./fixtures/synthetic-precedents.js";
 
 // I FATTI MISURATI DEL MOMENTO LIVE, sullo schermo.
 //
@@ -8,20 +19,20 @@ import { AA_NORMAL_TEXT, gotoScreen, installSyntheticNetworkGuard, textContrast 
 // GIOCATORE, MOMENTO DELL'ASTA, AVVERSARI — on the tightest screen of the
 // app: three blocks that declared themselves empty while the engine already
 // knew the answer to two of them. This spec proves the two that could be
-// answered now ARE answered, from the event log alone, and that the third is
-// still honestly empty rather than filled with a number nobody measured.
+// answered now ARE answered, and that the third is still honestly empty
+// rather than filled with a number nobody measured.
 //
 // What is asserted, and why each assertion is load-bearing:
 //  1. MOMENTO DELL'ASTA carries roleScarcity() — the same panel the chiamata
 //     moment already had — plus residualPressure()'s census of credits and
 //     slots still on the table;
-//  2. AVVERSARI carries competitorSet(): who can still reach the figure being
-//     TYPED, which means the block has to follow the price field without a
-//     full re-render (that field never calls render(), on purpose — it would
-//     take focus and caret mid-auction);
-//  3. the three exclusion reasons stay distinct (ruolo pieno / sotto la
-//     soglia / budget bloccato): collapsing them would tell the operator the
-//     wrong thing about why a rival is out;
+//  2. AVVERSARI carries auctionPrecedents(): che cosa ogni avversario ha già
+//     fatto che riguardi il giocatore chiamato, contato sullo storico d'asta
+//     multi-stagione — con la prova accanto e la numerosità in vista;
+//  3. quel pannello NON mostra più la raggiungibilità per vincolo duro (#331
+//     punto 1, decisione di Pico): la spec fallisce se quella torna, e
+//     verifica nella stessa scena che max bid, budget e slot per ruolo siano
+//     rimasti visibili dove vivono adesso — nessuna informazione è sparita;
 //  4. INSIGHT GIOCATORE keeps its DEV STATICO marker — nothing was removed,
 //     and the one block that still has no measurable fact still says so;
 //  5. no directive output reaches any of it (docs/NO_GO.md §Prodotto).
@@ -73,11 +84,13 @@ async function buy(page: Page, name: string, teamId: string, price: number): Pro
   await page.locator("#assign-team").selectOption(teamId);
   await page.locator("#assign-price").fill(String(price));
   await page.getByRole("button", { name: "Registra acquisto", exact: true }).click();
-  // A recorded purchase returns to the chiamata moment.
-  await expect(page.locator("#role-scarcity-panel")).toBeVisible();
+  // A recorded purchase returns to the chiamata moment. #333: the marker of
+  // that moment is the search field — SCARSITÀ PER RUOLO now lives behind the
+  // IL TAVOLO gesture, so its visibility no longer tracks the moment.
+  await expect(page.locator("#search-player")).toBeVisible();
 }
 
-test("the live moment carries scarcity, the market census and who can reach the figure", async ({
+test("the live moment carries scarcity, the market census and an honest empty precedents panel", async ({
   page,
   context,
 }) => {
@@ -109,38 +122,53 @@ test("the live moment carries scarcity, the market census and who can reach the 
   await expect(page.locator("#moment-market-delta")).toHaveText("0%");
   await expect(page.locator("#moment-market-basis")).toContainText("Censimento su 8 squadre");
 
-  // AVVERSARI — nessun prezzo ancora inserito: la domanda degrada a quella
-  // onesta più debole (chi può entrare al rilancio minimo), dichiarata.
-  await expect(page.locator("#opponent-reach-headline")).toContainText("7 rivali su 7");
-  await expect(page.locator("#opponent-reach-headline")).toContainText("al rilancio minimo (1 cr)");
-  await expect(page.locator("#opponent-reach-eligible .opponent-reach__row")).toHaveCount(7);
-  // La propria squadra non è mai fra i rivali.
-  await expect(page.locator("#opponent-reach-Io")).toHaveCount(0);
-  // Entrambi i gruppi restano presenti anche quando uno è vuoto.
-  await expect(page.locator("#opponent-reach-excluded")).toContainText("Nessun rivale è fuori");
+  // AVVERSARI — nessuno storico caricato: il pannello DICE che non ha fatti.
+  // È la degradazione onesta che regge tutto il resto: un elenco vuoto senza
+  // questa frase si leggerebbe come «nessuno lo vuole», che è una cosa
+  // diversa da «non lo so».
+  await expect(page.locator("#opponent-precedents-headline")).toContainText(
+    "Nessuno storico d'asta caricato",
+  );
+  await expect(page.locator("#opponent-precedents-headline")).toContainText(
+    "non significa «nessuno lo vuole»",
+  );
+  await expect(page.locator("#opponent-precedents-list")).toHaveCount(0);
 
-  // ── Il blocco segue la cifra che si sta digitando ─────────────────────────
+  // ── Il pannello NON è tornato a mostrare la raggiungibilità ───────────────
+  // La riga di sintesi non cambia quando si batte una cifra: i precedenti sono
+  // del giocatore, non del prezzo. È la differenza esatta col blocco che stava
+  // qui prima, che si ricalcolava a ogni tasto.
+  const beforeTyping = await page.locator("#opponent-precedents-headline").innerText();
   await page.locator("#assign-price").fill("30");
-  await expect(page.locator("#opponent-reach-headline")).toHaveText(
-    "7 rivali su 7 possono arrivare a 30 cr",
-  );
-  await expect(page.locator("#opponent-reach-eligible")).toContainText("PUÒ ARRIVARE A 30 CR");
-  // max bid di una squadra intonsa: 500 − 27 = 473; slot P liberi: 3.
-  await expect(page.locator("#opponent-reach-Squadra2")).toContainText("473");
-  await expect(page.locator("#opponent-reach-Squadra2")).toContainText("3");
-  // ...senza che il campo prezzo perda il fuoco: quel campo non chiama
-  // render() proprio per questo, e l'aggiornamento in place deve rispettarlo.
-  expect(await page.evaluate(() => document.activeElement?.id)).toBe("assign-price");
+  await expect(page.locator("#opponent-precedents-headline")).toHaveText(beforeTyping);
+  const panelText = await page.locator("#opponent-precedents-panel").innerText();
+  expect(panelText).not.toMatch(/può arrivar|arrivarci|rilancio minimo|rivali su/i);
+  expect(panelText).not.toMatch(/max bid|slot liber|sotto la soglia|ruolo pieno|budget bloccato/i);
+  // Il vecchio pannello non esiste più con nessuno dei suoi ganci.
+  await expect(page.locator("#opponent-reach-panel")).toHaveCount(0);
+  await expect(page.locator("#opponent-reach-headline")).toHaveCount(0);
+  await expect(page.locator("#opponent-reach-eligible")).toHaveCount(0);
 
-  // ── Il titolo dice ciò che il pannello misura, non un'intenzione ──────────
-  await expect(page.locator("#opponent-reach-panel .panel-title")).toHaveText(
-    "AVVERSARI: CHI PUÒ ARRIVARCI",
+  // ── …E NESSUNA CIFRA È SPARITA DALL'APP ───────────────────────────────────
+  // Il vincolo duro è uscito da QUEL riquadro, non dall'applicazione. Qui, in
+  // questa stessa schermata, la striscia war board porta ancora il max bid
+  // vero e il budget residuo di tutte le otto squadre.
+  const mini = page.locator("#war-board-mini-Squadra2");
+  await expect(mini).toContainText("473"); // 500 − 27, il max bid di una squadra intonsa
+  await expect(mini).toContainText("500"); // budget residuo
+  await expect(page.locator("#war-board-mini-note")).toContainText("max bid");
+  await expect(page.locator(".war-board-mini__item")).toHaveCount(8);
+  // E gli slot liberi del ruolo in asta restano nel blocco qui accanto.
+  await expect(page.locator("#moment-scarcity-slots-P")).toHaveText("24");
+
+  // ── Il titolo dice ciò che il pannello contiene ───────────────────────────
+  await expect(page.locator("#opponent-precedents-panel .panel-title")).toHaveText(
+    "AVVERSARI: I PRECEDENTI",
   );
-  // `competitorSet` ha `basis: "hard-constraints"`: la parola «interesse» non
-  // deve comparire da nessuna parte in questo pannello, titolo compreso.
-  expect(await page.locator("#opponent-reach-panel").innerText()).not.toMatch(/interess/i);
-  // La smentita nel corpo resta comunque: precisa la lettura dei numeri.
-  await expect(page.locator("#opponent-reach-note")).toContainText("non significa «lo vuole»");
+  // Il pannello non afferma un'intenzione che non calcola: né «interesse» né
+  // «lo vuole» compaiono se non nella nota, dove sono negati.
+  expect(await page.locator("#opponent-precedents-headline").innerText()).not.toMatch(/interess/i);
+  await expect(page.locator("#opponent-precedents-note")).toContainText("il giudizio è tuo");
 
   // ── INSIGHT GIOCATORE: ancora onestamente vuoto, e ancora lì ──────────────
   await expect(page.getByText("INSIGHT GIOCATORE", { exact: true })).toBeVisible();
@@ -148,25 +176,35 @@ test("the live moment carries scarcity, the market census and who can reach the 
 
   // ── Nessun output direttivo su questa schermata ───────────────────────────
   expect(await page.locator("#moment-facts-panel").innerText()).not.toMatch(DIRECTIVE);
-  expect(await page.locator("#opponent-reach-panel").innerText()).not.toMatch(DIRECTIVE);
-  await expect(page.locator("#opponent-reach-note")).toContainText("Solo vincolo duro");
-  await expect(page.locator("#opponent-reach-note")).toContainText("non significa «lo vuole»");
+  expect(await page.locator("#opponent-precedents-panel").innerText()).not.toMatch(DIRECTIVE);
+  await expect(page.locator("#opponent-precedents-note")).toContainText("gesti già compiuti");
+  await expect(page.locator("#opponent-precedents-note")).toContainText(
+    "tifare una squadra non è averci speso",
+  );
   await expect(page.locator("#moment-facts-note")).toContainText("nessun dato di modello");
 
   // Nessuno dei due blocchi segue l'utente fuori dal momento asta.
   await page.getByText("← Indietro alla ricerca").click();
   await expect(page.locator("#moment-facts-panel")).toHaveCount(0);
-  await expect(page.locator("#opponent-reach-panel")).toHaveCount(0);
+  await expect(page.locator("#opponent-precedents-panel")).toHaveCount(0);
   await gotoScreen(page, "Rose");
   await expect(page.locator("#moment-facts-panel")).toHaveCount(0);
 
   expect(externalRequests).toEqual([]);
 });
 
-test("ruolo esaurito e budget esaurito restano due fatti distinti, per la squadra giusta", async ({
+test("ruolo esaurito e budget esaurito restano due fatti distinti, e restano VISIBILI", async ({
   page,
   context,
 }) => {
+  // Questo test copriva le tre esclusioni del vecchio pannello AVVERSARI
+  // (ruolo pieno / sotto la soglia / budget bloccato). Quel pannello non
+  // mostra più la raggiungibilità per vincolo duro (#331 punto 1), quindi le
+  // asserzioni cambiano SOGGETTO ma non oggetto: i due fatti restano
+  // distinti, e la spec verifica che restino distinti e leggibili DOVE VIVONO
+  // ADESSO — il tetto nella striscia war board della schermata live, gli slot
+  // per ruolo nella war board COMPLETA. È la prova che «ridurre» non ha tolto
+  // informazione: se una delle due sparisse, questo test diventerebbe rosso.
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, LIVE_POOL, externalRequests);
   await page.goto("/");
@@ -182,31 +220,46 @@ test("ruolo esaurito e budget esaurito restano due fatti distinti, per la squadr
   // ancora liberi, ma il tetto residuo scende a 1 credito.
   await buy(page, "Primo Attaccante", "Squadra3", 473);
 
-  await callPlayer(page, CALLED);
-  await page.locator("#assign-price").fill("30");
-
-  // ── Le due esclusioni non si confondono ───────────────────────────────────
-  await expect(page.locator("#opponent-reach-headline")).toHaveText(
-    "5 rivali su 7 possono arrivare a 30 cr",
+  // ── Gli slot per ruolo, squadra per squadra: war board COMPLETA ───────────
+  await openTableDetail(page);
+  await expect(page.locator("#war-board-full-Squadra2 .war-board__slots")).toHaveAttribute(
+    "aria-label",
+    /Slot residui per ruolo: P 0/,
   );
-  await expect(page.locator("#opponent-reach-Squadra2")).toContainText("ruolo pieno");
-  await expect(page.locator("#opponent-reach-Squadra2")).toContainText("0"); // slot P residui
-  await expect(page.locator("#opponent-reach-Squadra3")).toContainText("sotto la soglia");
-  await expect(page.locator("#opponent-reach-Squadra3")).toContainText("1"); // max bid residuo
-  await expect(page.locator("#opponent-reach-excluded .opponent-reach__row")).toHaveCount(2);
-  await expect(page.locator("#opponent-reach-eligible .opponent-reach__row")).toHaveCount(5);
+  // Squadra3 ha ancora i suoi tre slot P: i due fatti non si confondono.
+  await expect(page.locator("#war-board-full-Squadra3 .war-board__slots")).toHaveAttribute(
+    "aria-label",
+    /Slot residui per ruolo: P 3/,
+  );
 
-  // ── Il motivo dell'esclusione deve essere LEGGIBILE ───────────────────────
-  // È l'informazione più utile della riga, e viveva in una riga con
-  // `opacity: 0.78` che la portava a 1,99:1. Misurato sul DOM vivo, non
-  // dedotto dal nome del token: AA pieno (4,5:1) perché è testo piccolo.
-  const reason = "#opponent-reach-Squadra2 .opponent-reach__reason";
-  expect(await textContrast(page, reason)).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
-  // E nessun antenato della riga esclusa può rimettere un'opacità: era quella
-  // a moltiplicare contro lo sfondo ogni cifra e ogni parola della riga.
+  await callPlayer(page, CALLED);
+
+  // ── Il tetto di ciascuna squadra: striscia war board, schermata live ──────
+  // Squadra3 ha speso tutto il suo max bid sicuro: le resta 1 credito di
+  // tetto e 27 di budget. Squadra2 ha speso 3 crediti e ne conserva 497.
+  await expect(page.locator("#war-board-mini-Squadra3")).toHaveAttribute(
+    "aria-label",
+    /budget residuo 27 crediti, max bid 1 credit/,
+  );
+  await expect(page.locator("#war-board-mini-Squadra2")).toHaveAttribute(
+    "aria-label",
+    /budget residuo 497 crediti, max bid 4?7?0? ?/,
+  );
+
+  // ── E il tetto resta LEGGIBILE, non solo presente ─────────────────────────
+  // Stessa misura AA che il vecchio pannello pretendeva sul motivo di
+  // esclusione: sul DOM vivo, non dedotta dal nome del token.
+  expect(
+    await textContrast(page, "#war-board-mini-Squadra3 .war-board-mini__bid"),
+  ).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+  expect(
+    await textContrast(page, "#war-board-mini-Squadra3 .war-board-mini__name"),
+  ).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+  // Nessun antenato può rimettere un'opacità: era quella a moltiplicare ogni
+  // cifra contro lo sfondo nel pannello che stava qui prima.
   expect(
     await page.evaluate(() => {
-      let node = document.querySelector("#opponent-reach-Squadra2");
+      let node: Element | null = document.querySelector("#war-board-mini-Squadra3");
       while (node !== null) {
         if (Number(getComputedStyle(node).opacity) < 1) return false;
         node = node.parentElement;
@@ -214,21 +267,6 @@ test("ruolo esaurito e budget esaurito restano due fatti distinti, per la squadr
       return true;
     }),
   ).toBe(true);
-  // Anche il resto della riga esclusa resta sopra AA: nome e numeri.
-  expect(
-    await textContrast(page, "#opponent-reach-Squadra2 .opponent-reach__name"),
-  ).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
-  expect(
-    await textContrast(page, "#opponent-reach-Squadra2 .opponent-reach__bid"),
-  ).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
-
-  // Abbassando la soglia sotto il tetto di Squadra3, quella squadra rientra:
-  // è un vincolo aritmetico, non un giudizio su di lei.
-  await page.locator("#assign-price").fill("1");
-  await expect(page.locator("#opponent-reach-headline")).toHaveText(
-    "6 rivali su 7 possono arrivare a 1 cr",
-  );
-  await expect(page.locator("#opponent-reach-Squadra2")).toContainText("ruolo pieno");
 
   // ── Il momento si è mosso con l'asta ──────────────────────────────────────
   // 24 − 3 slot P; 4 − 3 portieri ancora a listone; 56 − 1 slot A.
@@ -248,7 +286,139 @@ test("ruolo esaurito e budget esaurito restano due fatti distinti, per la squadr
   expect(externalRequests).toEqual([]);
 });
 
-test("senza listone caricato la disponibilità resta n/d e i rivali restano contati", async ({
+test("i precedenti d'asta, con la prova accanto e la numerosità in vista", async ({
+  page,
+  context,
+}) => {
+  // Lo storico e i profili arrivano dal deposito runtime-local, cioè dallo
+  // stesso canale da cui l'app li legge davvero: la scena esercita schema,
+  // validazione e join posto→persona, non una porta di servizio.
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, LIVE_POOL, externalRequests);
+  await page.goto("/");
+  await page.evaluate(() => localStorage.clear());
+  await seedPrecedents(page);
+  await callPlayer(page, CALLED);
+
+  // ── La sintesi: quanti, su quanti, e su quale storico ─────────────────────
+  const headline = page.locator("#opponent-precedents-headline");
+  await expect(headline).toContainText("2 avversari hanno un precedente d'asta");
+  await expect(headline).toContainText("su 7 avversari esaminati");
+  await expect(headline).toContainText("Storico: 3 stagioni (2023/24 → 2025/26)");
+  // I posti senza persona sono dichiarati: su di loro non esiste storico, e
+  // tacerlo li farebbe leggere come «non hanno precedenti».
+  await expect(headline).toContainText("4 posti non hanno una persona assegnata");
+
+  // ── Il fatto più forte: ha ricomprato QUESTO giocatore ────────────────────
+  const squadra2 = page.locator("#opponent-precedents-Squadra2");
+  await expect(squadra2).toContainText(PEOPLE.squadra2.name);
+  await expect(squadra2).toContainText("l'ha ricomprato all'asta");
+  await expect(squadra2).toContainText("2 volte");
+  await expect(squadra2).toContainText("30 cr nel 2023/24");
+  await expect(squadra2).toContainText("40 cr nel 2025/26");
+  await expect(squadra2).toContainText("misurato su 3 stagioni");
+  // IL RINNOVO NON È UN RIACQUISTO: tre stagioni con quel giocatore in rosa,
+  // due volte ricomprato. Il conteggio deve dire 2, e dire perché.
+  await expect(squadra2).toContainText("1 rinnovo non contato");
+  await expect(squadra2).not.toContainText("3 volte");
+
+  // ── Il crollo dell'ultima stagione resta leggibile come tale ──────────────
+  const squadra4 = page.locator("#opponent-precedents-Squadra4");
+  await expect(squadra4).toContainText(`ha speso su ${CALLED_CLUB}`);
+  await expect(squadra4).toContainText("2 stagioni su 3 misurate dal 15% in su");
+  const series = squadra4.locator(".opponent-precedents__season");
+  await expect(series).toHaveCount(3);
+  await expect(series.nth(0)).toHaveText("23/2445%");
+  await expect(series.nth(1)).toHaveText("24/2535%");
+  await expect(series.nth(2)).toHaveText("25/260%");
+
+  // ── IL TIFO NON BASTA, E NON PUÒ BASTARE ──────────────────────────────────
+  // Squadra3 tifa ClubDue — dichiarato e confermato nel profilo seminato — e
+  // su quel club ha speso il 4%. Non compare: la riga stessa sarebbe
+  // l'affermazione «lo vuole», e nessun gesto la sostiene.
+  await expect(page.locator("#opponent-precedents-Squadra3")).toHaveCount(0);
+  expect(await page.locator("#opponent-precedents-panel").innerText()).not.toContain(
+    PEOPLE.squadra3.name,
+  );
+  await expect(page.locator(".opponent-precedents__row")).toHaveCount(2);
+  // Dove la riga esiste già, il tifo si accosta CON la spesa misurata accanto,
+  // e sta sotto i fatti, mai al posto loro.
+  const support = squadra2.locator(".opponent-precedents__support");
+  await expect(support).toContainText("tifo dichiarato");
+  await expect(support).toContainText(CALLED_CLUB);
+  await expect(support).toContainText("spesa misurata su quel club");
+
+  // ── Leggibilità: ogni parte della riga regge AA sul DOM vivo ──────────────
+  for (const sel of [
+    "#opponent-precedents-Squadra2 .opponent-precedents__name",
+    "#opponent-precedents-Squadra2 .opponent-precedents__motive",
+    "#opponent-precedents-Squadra2 .opponent-precedents__evidence",
+    "#opponent-precedents-Squadra4 .opponent-precedents__season",
+    "#opponent-precedents-Squadra2 .opponent-precedents__support",
+  ]) {
+    expect(await textContrast(page, sel), sel).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+  }
+
+  // ── E il vincolo duro non è tornato dalla finestra ────────────────────────
+  const panelText = await page.locator("#opponent-precedents-panel").innerText();
+  expect(panelText).not.toMatch(/può arrivar|arrivarci|rilancio minimo|rivali su/i);
+  expect(panelText).not.toMatch(/max bid|slot liber|sotto la soglia|ruolo pieno|budget bloccato/i);
+  expect(panelText).not.toMatch(DIRECTIVE);
+  // Battere una cifra non cambia un solo numero di questo pannello: i
+  // precedenti sono del giocatore, non del prezzo.
+  const before = await page.locator("#opponent-precedents-body").innerHTML();
+  await page.locator("#assign-price").fill("77");
+  expect(await page.locator("#opponent-precedents-body").innerHTML()).toBe(before);
+
+  expect(externalRequests).toEqual([]);
+});
+
+test("uno storico corrotto non degrada in silenzio: il pannello dice che non ha fatti", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, LIVE_POOL, externalRequests);
+  await page.goto("/");
+  await page.evaluate(() => localStorage.clear());
+  // Una stagione scritta «23-24» invece che «2023/24»: ordinerebbe in silenzio
+  // dopo il 2025/26. Il lettore è fail-closed e rende una lista VUOTA, mai una
+  // lista a metà — un conteggio di precedenti su metà delle righe sarebbe un
+  // numero sbagliato con l'aria di un fatto.
+  await page.evaluate(() => {
+    localStorage.setItem(
+      "fac_auction_history",
+      JSON.stringify({
+        schemaVersion: 1,
+        purchases: [
+          {
+            season: "23-24",
+            personId: "person:00000000-0000-4000-8000-0000000000e2",
+            playerId: "sint-rotto",
+            club: "ClubUno",
+            price: 10,
+            acquisition: "asta",
+          },
+        ],
+      }),
+    );
+  });
+  await page.reload();
+  await callPlayer(page, CALLED);
+
+  await expect(page.locator("#opponent-precedents-headline")).toContainText(
+    "Nessuno storico d'asta caricato",
+  );
+  await expect(page.locator("#opponent-precedents-list")).toHaveCount(0);
+  // E in nessun caso si torna alla domanda vecchia.
+  expect(await page.locator("#opponent-precedents-panel").innerText()).not.toMatch(
+    /può arrivar|rivali su|max bid/i,
+  );
+
+  expect(externalRequests).toEqual([]);
+});
+
+test("senza listone caricato la disponibilità resta n/d, mai uno 0 travestito da misura", async ({
   page,
   context,
 }) => {
@@ -271,6 +441,10 @@ test("senza listone caricato la disponibilità resta n/d e i rivali restano cont
 
   // Il pannello scarsità del momento CHIAMATA mostra già l'onestà attesa,
   // ed è la stessa che il momento LIVE mostrerebbe: n/d, mai 0.
+  // #333: sta dietro il gesto IL TAVOLO, quindi lo si APRE prima di leggerlo —
+  // `toHaveText` passerebbe anche su un elemento nascosto, e un verde letto su
+  // DOM invisibile non dimostrerebbe che l'operatore vede quel «n/d».
+  await openTableDetail(page);
   await expect(page.locator("#scarcity-pool-P")).toHaveText("n/d");
   await expect(page.locator("#scarcity-slots-P")).toHaveText("24");
 
@@ -294,8 +468,11 @@ test("offline non regredisce: i due blocchi restano pieni e corretti", async ({ 
   await expect(page.locator("#moment-market-per-slot")).toHaveText("17,9 cr");
   await expect(page.locator("#moment-scarcity-slots-P")).toHaveText("24");
   await page.locator("#assign-price").fill("12");
-  await expect(page.locator("#opponent-reach-headline")).toHaveText(
-    "7 rivali su 7 possono arrivare a 12 cr",
+  // Il pannello dei precedenti è una funzione pura dello storico runtime-local
+  // e del giocatore chiamato: offline non degrada e non prova a raggiungere
+  // niente. Senza storico caricato dice, offline come online, che non ha fatti.
+  await expect(page.locator("#opponent-precedents-headline")).toContainText(
+    "Nessuno storico d'asta caricato",
   );
 
   // E l'acquisto registrato offline si riflette sui blocchi al giro dopo.
@@ -323,7 +500,10 @@ test("i due blocchi restano leggibili a 390, 768 e 1280 senza scroll orizzontale
     await page.setViewportSize(viewport);
     await page.goto("/");
     await page.evaluate(() => localStorage.clear());
-    await page.reload();
+    // Con lo storico seminato il pannello è nel suo stato PIENO: misurare la
+    // responsività sullo stato vuoto sarebbe misurare la scatola, non ciò che
+    // ci sta dentro.
+    await seedPrecedents(page);
 
     await callPlayer(page, CALLED);
 
@@ -343,13 +523,22 @@ test("i due blocchi restano leggibili a 390, 768 e 1280 senza scroll orizzontale
     await expect(page.locator(".moment-scarcity__cell")).toHaveCount(4);
     await expect(page.locator("#moment-scarcity-P")).toContainText("Portieri");
 
-    await expect(page.locator("#opponent-reach-eligible .opponent-reach__row")).toHaveCount(7);
+    await expect(page.locator(".opponent-precedents__row")).toHaveCount(2);
+    // La serie per stagione va a capo invece di comprimersi o traboccare: è
+    // l'unico pezzo del pannello che cresce con la lunghezza dello storico.
+    await expect(page.locator("#opponent-precedents-Squadra4 .opponent-precedents__season")).toHaveCount(3);
+    expect(
+      await page.evaluate(() => {
+        const el = document.querySelector("#opponent-precedents-Squadra4 .opponent-precedents__series")!;
+        return el.scrollWidth <= el.clientWidth + 1;
+      }),
+    ).toBe(true);
     // Il titolo. A 768 e 1280 deve stare su UNA riga: lì il margine è ampio e
     // un titolo che va a capo segnala che qualcuno l'ha allungato senza
     // guardare. A 390 il margine misurato è di 2px, quindi la pretesa è più
     // debole ma comunque stringente: mai più di due righe (quante ne prendeva
     // il titolo vecchio) e mai traboccare fuori dalla propria scatola.
-    const titleSel = "#opponent-reach-panel .panel-title";
+    const titleSel = "#opponent-precedents-panel .panel-title";
     const titleLines = await lineBoxes(page, titleSel);
     if (viewport.width >= 700) expect(titleLines).toBe(1);
     expect(titleLines).toBeLessThanOrEqual(2);

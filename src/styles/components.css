@@ -184,20 +184,18 @@
    112px/154px used to be that clearance and silently stopped being it when
    the strip absorbed the old BUDGET & ROSA panel (per-role roster bars) and
    grew — then again when issue #265 item #1 added the per-role budget-plan
-   line (.critical-role-plan) under each role's bar. The values below are the
-   strip's measured bottom edge on the Asta screen — 193px wide-viewport,
-   237.5px at or under 520px, where the strip re-wraps to 2 columns and so
-   pays for the extra line twice (src/styles/asta.css,
-   .critical-auction-strip) — plus a small gap.
-   e2e/critical-overlays.spec.ts now asserts at 390/768/1280 that the heading
-   clears the strip, so this cannot drift back unnoticed.
+   line (.critical-role-plan) under each role's bar. It then needed 204px/249px
+   for a strip whose measured bottom edge was 193px wide-viewport and 237.5px
+   at or under 520px.
 
-   Scoped to a modifier rather than `.modal-overlay` itself because the Rose
-   DEV mock modal (renderMockModal) opens on a screen that has no strip and
-   must not be pushed down for a clearance it does not need. */
-.modal-overlay--clears-critical-strip {
-  padding-top: 204px;
-}
+   #331 punto 5 gave that room back. The strip is now ONE row attached to the
+   header, and its detail is collapsed for as long as a confirmation is open
+   (see confirmationOverlayOpen() in src/main.ts): measured bottom edge 83px at
+   768/1280 and 129px at 390 — both already cleared by `.modal-overlay`'s own
+   112px/154px top padding, which is why the extra modifier is gone rather than
+   re-tuned. Nothing is asserted less: e2e/critical-overlays.spec.ts and
+   e2e/new-panels-responsive.spec.ts still measure the real geometry at
+   390/768/1280 and go red if a heading ever slides under the strip again. */
 
 .confirmation-dialog {
   width: min(400px, 100%);
@@ -230,9 +228,6 @@
   .modal-overlay {
     padding-top: 154px;
   }
-  .modal-overlay--clears-critical-strip {
-    padding-top: 249px;
-  }
   .confirmation-dialog {
     max-height: calc(100vh - 170px);
     padding: 18px;
@@ -241,15 +236,8 @@
 /* The dialog is `align-self: flex-start` inside the overlay, so its own
    max-height has to shrink by whatever the clearance above added — otherwise a
    tall dialog (the LIVE-06 non-last confirmation is the tallest) can run past
-   the bottom of a short viewport, e.g. 1280x720. */
-.modal-overlay--clears-critical-strip > .confirmation-dialog {
-  max-height: calc(100vh - 220px);
-}
-@media (max-width: 520px) {
-  .modal-overlay--clears-critical-strip > .confirmation-dialog {
-    max-height: calc(100vh - 265px);
-  }
-}
+   the bottom of a short viewport, e.g. 1280x720. The generic 128px/170px above
+   are that budget now that no overlay adds a strip clearance on top. */
 
 /* App status list (Impostazioni) — three read-on-demand states, dot + label.
    The dot is decorative: the label and the sentence carry the meaning, so

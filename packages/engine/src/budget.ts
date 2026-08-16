@@ -14,7 +14,19 @@ export interface RoleBudgetEnvelope {
   readonly slotsRemaining: number;
   /** Credits that MUST stay for this role's own still-empty slots (at floor). */
   readonly minReserve: number;
-  /** Most that COULD go to this role while keeping every OTHER mandatory slot fillable at floor. */
+  /**
+   * Most that COULD go to this role while keeping every OTHER mandatory slot
+   * fillable at floor.
+   *
+   * IL TETTO DI UN REPARTO — non è un tetto di offerta. Copre TUTTI gli slot
+   * ancora liberi di questo ruolo messi insieme: offrire `maxAllocatable` su
+   * un solo giocatore lascia gli altri slot dello stesso reparto senza
+   * copertura. Il tetto di UNA offerta è `maxSafe(team, role)` (./auction.ts),
+   * che riserva anche gli slot liberi di questo ruolo; le due coincidono solo
+   * quando `slotsRemaining === 1`, altrimenti questa è maggiore di esattamente
+   * `hardReserve(slotsRemaining - 1)`. A schermo sono `max reparto` e
+   * `max bid`, due nomi distinti apposta (src/ui/budgetLabels.ts).
+   */
   readonly maxAllocatable: number;
 }
 

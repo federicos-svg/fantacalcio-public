@@ -36,9 +36,21 @@ import {
   COST_FLOOR,
 } from "../packages/engine/src/types.js";
 import { reduce } from "../packages/engine/src/reduce.js";
-import { maxSafe, opponentTier1, roleScarcity, warBoardRows } from "../packages/engine/src/auction.js";
-import { competitorSet } from "../packages/engine/src/competitors.js";
+import {
+  maxSafe,
+  opponentTier1,
+  roleScarcity,
+  warBoardRows,
+  type RoleScarcity,
+} from "../packages/engine/src/auction.js";
 import { residualPressure } from "../packages/engine/src/anchors.js";
+import {
+  auctionPrecedents,
+  loadAuctionHistory,
+  loadOpponentProfiles,
+  type OpponentProfile,
+  type PastAuctionPurchase,
+} from "../packages/opponent-profiles/src/index.js";
 import { budgetPlan } from "../packages/engine/src/budget.js";
 import { purchaseFeasibility, recordPurchase, type ProposedPurchase } from "../packages/engine/src/feasibility.js";
 import type { ConfirmationInput } from "../packages/engine/src/confirmations.js";
@@ -57,6 +69,13 @@ import {
 } from "./leagueTeams.js";
 import { requiredRoleError } from "./callGuard.js";
 import { parsePositiveIntegerPrice } from "./price.js";
+import {
+  projectAfterPurchase,
+  projectionAlarmText,
+  projectionLabelText,
+  projectionValueText,
+  type PostPurchaseProjection,
+} from "./postPurchaseProjection.js";
 import { executeVoidCommand, voidErrorText } from "./voidCommand.js";
 import { rolePriceFacts, roleTopPurchases } from "./nominationContext.js";
 import {
@@ -69,14 +88,14 @@ import {
   renderListoneSvincolati,
   renderPlayerInsightsBlock,
   renderMomentInsightsBlock,
-  renderOpponentInterestBlock,
+  renderOpponentPrecedentsBlock,
   renderImpostazioniScreen,
   SETTINGS_ICONS,
   type SettingsArea,
   renderNominationContextPanel,
   type NominationContextTopEntry,
-  fillOpponentReach,
-  type OpponentReachProps,
+  fillOpponentPrecedents,
+  type OpponentPrecedentsProps,
   renderRoleScarcityPanel,
   renderWarBoardFull,
   renderWarBoardMini,
@@ -287,6 +306,21 @@ interface AppState {
   // the selected player changes, so the panel never shows a previous player's
   // context under a new name. See renderNominationContextPanel.
   nominationContextOpen: boolean;
+  // #331 punto 5 — the critical strip is ONE row, so the per-role detail
+  // (progress bar + budget envelope) sits behind an explicit gesture instead
+  // of a second full-width line. Nothing was removed: this flag is what makes
+  // it reachable, and it is deliberately app state (not DOM state) because
+  // render() rebuilds the strip from scratch on every keystroke.
+  criticalPlanOpen: boolean;
+  // #333 — the table-side block (scarsità per ruolo, war board, squadre della
+  // lega) sits behind ONE gesture on the chiamata screen. It answers none of
+  // the four questions asked at auction speed from MY seat (quanto posso
+  // spendere / chi me lo contende / quanto mi serve il ruolo / quanto mi
+  // resta), and its three panels used to cost more than half the page. Nothing
+  // was removed: all three stay in the DOM, one click/Invio away, and the flag
+  // is app state (not DOM state) because render() rebuilds the tree on every
+  // keystroke of the search box.
+  tableDetailOpen: boolean;
   // T13 #231 — the fast-path command line. Raw text exactly as typed; the
   // interpretation is recomputed from it on every render (resolveAssignCommand
   // is pure), never cached, so it can never drift from the current log/pool.
@@ -340,6 +374,19 @@ interface AppState {
   poolStatusFilterOpen: boolean;
   offline: boolean;
   leagueRoster: LeagueRoster;
+  /**
+   * Lo storico d'asta multi-stagione e i profili d'intervista, letti al boot
+   * dallo storage locale del browser.
+   *
+   * MAI NEL REPOSITORY, e la scelta di tenerli in `AppState` invece che di
+   * rileggerli a ogni render è deliberata: sono dati di persone reali, quindi
+   * più il codice che li tocca è poco e in un posto solo, meglio è. Vuoti è lo
+   * stato normale finché il layer privato non li deposita — e vuoti il
+   * pannello AVVERSARI lo DICE, invece di mostrare un elenco che sembrerebbe
+   * «nessuno lo vuole» (src/ui/liveFacts.ts, OPPONENT_PRECEDENTS_NO_HISTORY).
+   */
+  auctionHistory: readonly PastAuctionPurchase[];
+  opponentProfiles: readonly OpponentProfile[];
   rosterError: string;
   newPersonName: string;
   settingsArea: string;
@@ -524,6 +571,8 @@ const state: AppState = {
   call: { playerName: "", role: "", club: "", selectedPlayer: null },
   callInteractions: 0,
   nominationContextOpen: false,
+  criticalPlanOpen: false,
+  tableDetailOpen: false,
   assignCommand: "",
   assignCommandError: "",
   chiamataFocusPending: true,
@@ -548,6 +597,11 @@ const state: AppState = {
   poolStatusFilterOpen: false,
   offline: !navigator.onLine,
   leagueRoster: loadLeagueRoster(browserStorage, FANTA_TEAM_IDS),
+  // Fail-closed entrambi: assente o corrotto -> lista vuota, mai parziale. Un
+  // conteggio di precedenti fatto su metà delle righe sarebbe un numero
+  // sbagliato con l'aria di un fatto.
+  auctionHistory: loadAuctionHistory(browserStorage).purchases,
+  opponentProfiles: loadOpponentProfiles(browserStorage).profiles,
   rosterError: "",
   newPersonName: "",
   // Opens on the area you act on; app status is diagnostics, read on demand.
@@ -994,6 +1048,18 @@ function toggleNominationContext(): void {
   focusAfterRender("nomination-context-toggle");
 }
 
+/**
+ * #333 — the one gesture that opens the table-side block. Same shape as
+ * toggleNominationContext/the critical strip's roster toggle: app state, a
+ * full re-render, and the keyboard put back on the control that now carries
+ * the new `aria-expanded` value.
+ */
+function toggleTableDetail(): void {
+  state.tableDetailOpen = !state.tableDetailOpen;
+  render();
+  focusAfterRender("table-detail-toggle");
+}
+
 // True only when the search bar's three fields still exactly match the
 // player last clicked in the Listone — editing playerName/role/club after
 // selecting breaks this until another row is clicked. Gates both the Avvia
@@ -1068,31 +1134,47 @@ function scarcityPool(): PoolPlayer[] {
 }
 
 /**
- * Inputs of the AVVERSARI block on the live screen (competitorSet, via
- * views.ts renderOpponentInterestBlock).
+ * Ingressi del blocco AVVERSARI della schermata live: i PRECEDENTI D'ASTA sul
+ * giocatore chiamato (views.ts `renderOpponentPrecedentsBlock`).
  *
- * THRESHOLD. The figure the reach is measured against is the price being
- * typed in the assignment form. While nothing valid has been typed the
- * question degrades to the honest weaker one — who can still enter at the
- * minimum bid of LEAGUE_RULES §3-bis (`min_bid_increment: 1`, i.e.
- * COST_FLOOR) — instead of a figure nobody said out loud. Which of the two is
- * on screen is declared in the headline, never left to be guessed.
+ * DA DOVE VENGONO I DATI, E PERCHÉ DA LÌ. Lo storico d'asta multi-stagione e i
+ * profili d'intervista sono giudizi e spese di persone reali della lega: non
+ * stanno nel repository e non ci staranno mai (issue #234, nota privacy).
+ * Vivono nello storage locale del browser, letti al boot dalle due funzioni
+ * `loadAuctionHistory` / `loadOpponentProfiles` del pacchetto, che sono
+ * fail-closed: uno storico assente o corrotto rende una lista VUOTA, mai una
+ * lista parziale, e il pannello lo dichiara invece di mostrare un elenco muto.
  *
- * SELF. `SELF_ID` is excluded, like opponentTier1() does: the panel asks who
- * ELSE can get there, and counting my own team among the rivals would inflate
- * it by one. The assignment form's team selector deliberately does NOT change
- * this — that selector says whose purchase is being recorded, while this
- * block is always read from Owner's seat.
+ * IDENTITÀ DEL GIOCATORE. `listonePlayerKey` è la stessa chiave con cui
+ * l'event log registra un acquisto (doAssign) e con cui il listone si indicizza:
+ * usare qui una seconda ricetta significherebbe contare come «un altro
+ * giocatore» lo stesso giocatore, cioè perdere in silenzio ogni precedente.
+ *
+ * SÉ STESSO. `SELF_ID` è escluso, come fa `opponentTier1()`: la domanda è cosa
+ * hanno fatto GLI ALTRI. Il selettore di squadra del form ASSEGNA A non cambia
+ * questo — quel selettore dice di chi è l'acquisto che si sta registrando,
+ * questo blocco si legge sempre dalla sedia di Pico.
+ *
+ * NON DIPENDE DAL PREZZO CHE SI STA BATTENDO, e non è un dettaglio: i
+ * precedenti sono del giocatore, non della cifra. È la differenza col blocco
+ * che stava qui prima (`competitorSet`), che si ricalcolava a ogni tasto
+ * proprio perché la sua domanda conteneva la cifra.
  */
-function opponentReachProps(aState: AuctionState): OpponentReachProps {
-  const role = state.call.role;
-  const teamLabels = seatLabelMap();
-  if (role === "") return { set: null, teamLabels, thresholdSource: "floor" };
-  const typed = parsePositiveIntegerPrice(state.assign.price);
+function opponentPrecedentsProps(): OpponentPrecedentsProps {
+  const selected = state.call.selectedPlayer;
+  const called =
+    selected === null
+      ? null
+      : { playerId: listonePlayerKey(selected), club: selected.club ?? state.call.club };
   return {
-    set: competitorSet(aState, role, typed ?? COST_FLOOR, SELF_ID),
-    teamLabels,
-    thresholdSource: typed === null ? "floor" : "price",
+    reading: auctionPrecedents({
+      called,
+      history: state.auctionHistory,
+      seats: state.leagueRoster.seats,
+      profiles: state.opponentProfiles,
+      selfSeatId: SELF_ID,
+    }),
+    teamLabels: seatLabelMap(),
   };
 }
 
@@ -1310,6 +1392,17 @@ function render(): void {
   wrapper.className = "app-shell";
 
   wrapper.appendChild(renderHeader());
+
+  // #331 punto 5 — the critical strip is page CHROME, not a card inside the
+  // page column: it is mounted HERE, as the header's sibling, so it can be as
+  // wide as the header and sit flush against it (inside .screen-container it
+  // was capped at the 1200px column and floated 20px below the bar). And it is
+  // mounted ONLY in the chiamata moment: during the live asta the same numbers
+  // are answered by the player card (max per completare la rosa) and the war
+  // board MINI, and Pico asked for the vertical room back exactly there.
+  if (criticalStripMounted()) {
+    wrapper.appendChild(renderCriticalAuctionStrip(myTeam(deriveAuctionState())));
+  }
 
   if (state.recovery.kind === "recovered" || state.recovery.kind === "started-new") {
     wrapper.appendChild(
@@ -1659,9 +1752,10 @@ function cancelPendingImport(): void {
 
 function renderImportConfirm(): HTMLElement {
   const overlay = document.createElement("div");
-  // Opens on the Asta screen, under the sticky critical strip — see the
-  // modifier's comment in src/styles/components.css.
-  overlay.className = "modal-overlay modal-overlay--clears-critical-strip";
+  // Opens on the Asta screen, under the sticky critical strip, which paints
+  // over it on purpose — `.modal-overlay`'s own top padding is what keeps the
+  // dialog's heading clear of it. See the comment in src/styles/components.css.
+  overlay.className = "modal-overlay";
   overlay.id = "import-confirm-overlay";
 
   const modal = document.createElement("div");
@@ -1712,7 +1806,7 @@ function renderImportConfirm(): HTMLElement {
     cancelBtn.disabled = true;
     state.pendingImportRaw = null;
     applyImportedRaw(raw);
-    focusAfterRender("critical-auction-strip");
+    focusAfterRender(criticalFocusAnchorId());
   });
 
   actions.append(cancelBtn, confirmBtn);
@@ -1863,8 +1957,9 @@ function renderAsta(): HTMLElement {
     wrap.appendChild(poolNotice);
   }
 
-  // Keep the critical accounting rendered above every confirmation.
-  wrap.appendChild(renderCriticalAuctionStrip(team));
+  // The critical strip used to be appended here. It now lives next to the
+  // header (see render()) so it can be header-wide and header-attached, and
+  // only in the chiamata moment — #331 punto 5.
 
   // Confirm void overlay
   if (state.confirmVoidSeq !== null) {
@@ -1872,16 +1967,73 @@ function renderAsta(): HTMLElement {
     return wrap;
   }
 
-  // Zone 1
-  wrap.appendChild(renderZona1(aState, team));
+  // Remaining supply per role — deterministic, from the event log (slots) and
+  // the loaded listone row count (availability). Derived ONCE per render and
+  // handed to both readers: the CONTESTO CHIAMATA panel (selected role only)
+  // and the table-side block below.
+  const scarcity = roleScarcity(aState, scarcityPool());
 
-  // League teams (read-only list)
-  wrap.appendChild(renderTeamsPanel(aState));
+  // Zone 1
+  wrap.appendChild(renderZona1(aState, team, scarcity));
+
+  // #333 — where the table lives, per moment.
+  //
+  // CHIAMATA: scarsità per ruolo + war board + SQUADRE (LEGA) are one block
+  // behind one gesture (renderTableDetail). They are the same eight seats read
+  // three ways, they answer the four auction-speed questions only from the
+  // TABLE's side, and together they were more than half of this screen's
+  // height while the search field — the reason the screen exists — sat below
+  // the fold. Moved and grouped, not removed: every number is still one
+  // click/Invio away, in the DOM, in the same three panels.
+  //
+  // ASTA: unchanged. SQUADRE (LEGA) stays exactly where it was, plainly
+  // visible, because the live moment has no such block and nothing here may
+  // take information away from that screen.
+  if (state.moment === "chiamata") {
+    wrap.appendChild(renderTableDetail(aState, scarcity));
+  } else {
+    wrap.appendChild(renderTeamsPanel(aState));
+  }
 
   // Zone 4
   wrap.appendChild(renderZona4(aState));
 
   return wrap;
+}
+
+/**
+ * Whether `#critical-auction-strip` is on screen right now — #331 punto 5
+ * moved it out of the Asta page column and restricted it to the chiamata
+ * moment, so "is the strip there?" is no longer "are we on the Asta screen?".
+ * Two things read it: where the strip is mounted (render()) and everything
+ * that used it as a focus/clearance anchor (the two confirmation overlays).
+ */
+function criticalStripMounted(): boolean {
+  return state.screen === "asta" && state.moment === "chiamata";
+}
+
+/**
+ * Where focus lands after a confirmation overlay that has no better return
+ * target. The strip was that anchor unconditionally; in the asta moment it is
+ * not rendered any more, so the anchor falls back to the price field — the
+ * control that moment is built around.
+ */
+function criticalFocusAnchorId(): string {
+  return criticalStripMounted() ? "critical-auction-strip" : "assign-price";
+}
+
+/**
+ * A modal confirmation is up. The strip keeps painting OVER it on purpose (the
+ * accounting must stay readable while you confirm), which is exactly why its
+ * one control has to stand down while that is true: a focusable, clickable
+ * button rendered outside a modal dialog would sit on top of it, escape the
+ * dialog's focus trap by pointer, and could grow the strip over the dialog's
+ * own heading. While an overlay is open the roster is a plain readout and its
+ * detail stays collapsed — `state.criticalPlanOpen` is untouched, so it comes
+ * back exactly as it was once the dialog closes.
+ */
+function confirmationOverlayOpen(): boolean {
+  return state.confirmVoidSeq !== null || state.pendingImportRaw !== null || state.mockModal !== null;
 }
 
 // Persistent, constraint-only accounting: budget/slots/max_safe come from the
@@ -1891,6 +2043,13 @@ function renderAsta(): HTMLElement {
 // question as the ceiling ("how much room is left, and where"), so splitting
 // them across a sticky strip and a panel you had to scroll to meant reading
 // two places for one answer.
+//
+// #331 punto 5 — UNA RIGA SOLA, senza perdere niente. The four metrics AND the
+// per-role roster progress (chip + filled/total) share a single line; what used
+// to force a second full-width line — the four progress bars and the per-role
+// budget envelope (slot/min/max) — moved behind an explicit toggle, still one
+// key/click away, still in the DOM, still announced (aria-expanded/controls).
+// Nothing was deleted: the strip renders the same facts, in less room.
 function renderCriticalAuctionStrip(team: TeamState | undefined): HTMLElement {
   const strip = document.createElement("section");
   strip.id = "critical-auction-strip";
@@ -1899,7 +2058,7 @@ function renderCriticalAuctionStrip(team: TeamState | undefined): HTMLElement {
   strip.setAttribute("aria-label", "Budget, rosa e vincoli critici asta");
 
   if (!team) {
-    strip.innerHTML = `<div class="critical-metric critical-metric--bid critical-bid--stop"><span>Max bid sicuro</span><strong>— <em>stato squadra non disponibile</em></strong></div>`;
+    strip.innerHTML = `<div class="critical-strip__row"><div class="critical-metric critical-metric--bid critical-bid--stop"><span>Max bid sicuro</span><strong>— <em>stato squadra non disponibile</em></strong></div></div>`;
     return strip;
   }
 
@@ -1940,12 +2099,33 @@ function renderCriticalAuctionStrip(team: TeamState | undefined): HTMLElement {
   // metric above stays because it is the aggregate that drives the ceiling
   // (max_safe = budget − slot + 1) and is not readable off these four bars
   // without summing four subtractions.
-  // Per-role structural budget envelope — plan.perRole, already computed
-  // above via budgetPlan() but never rendered until now (issue #265 item
-  // #1, matrice UI §3 "Contabilità: budget, slot, hard_reserve, max_safe,
-  // violazioni | Visibile | Nessuno"). Read-only off the engine's output:
-  // no new calculation, no recommendation.
-  const roster = ROLES.map((role) => {
+  //
+  // Two renderings of the SAME four roles, deliberately:
+  //  - the pills, on the single row: chip + filled/total + the completion
+  //    tick. This is the part the operator reads between one call and the
+  //    next, so it never goes behind a gesture;
+  //  - the detail, one gesture away: the progress bar (with its progressbar
+  //    role and aria values) and the per-role structural budget envelope —
+  //    plan.perRole (issue #265 item #1, matrice UI §3 "Contabilità: budget,
+  //    slot, hard_reserve, max_safe, violazioni | Visibile | Nessuno").
+  //    Read-only off the engine's output: no new calculation, no advice.
+  const rosterPills = ROLES.map((role) => {
+    const filled = team.filled[role] ?? 0;
+    const total = ROSTER_REQUIREMENTS[role] ?? 0;
+    const complete = total > 0 && filled >= total;
+    return `<span class="critical-role-pill${complete ? " critical-role-pill--complete" : ""}">${roleChipHtml(role)}<em>${filled}/${total}${complete ? " ✓" : ""}</em></span>`;
+  }).join("");
+
+  // The pills ARE the disclosure control: pressing the roster opens the roster
+  // detail. A separate labelled toggle button cost ~137px of the single row —
+  // enough to push the row onto a second line at 768px, i.e. to spend on the
+  // gesture exactly the space the gesture exists to save. `aria-label` restates
+  // the counts so screen readers lose nothing by the pills being a button name.
+  const rosterAriaCounts = ROLES.map(
+    (role) => `${ROLE_LABELS[role]} ${team.filled[role] ?? 0} su ${ROSTER_REQUIREMENTS[role] ?? 0}`,
+  ).join(", ");
+
+  const rosterDetail = ROLES.map((role) => {
     const filled = team.filled[role] ?? 0;
     const total = ROSTER_REQUIREMENTS[role] ?? 0;
     const pct = total > 0 ? Math.round((filled / total) * 100) : 0;
@@ -1969,26 +2149,47 @@ function renderCriticalAuctionStrip(team: TeamState | undefined): HTMLElement {
       </div>`;
   }).join("");
 
+  const interactive = !confirmationOverlayOpen();
+  const planOpen = state.criticalPlanOpen && interactive;
+  const roster = interactive
+    ? `<button type="button" class="critical-roster" id="critical-roster"
+              aria-expanded="${planOpen}" aria-controls="critical-roster-detail"
+              title="Dettaglio per ruolo: avanzamento e piano budget"
+              aria-label="Avanzamento rosa — ${rosterAriaCounts}. ${planOpen ? "Chiudi" : "Apri"} il dettaglio per ruolo.">${rosterPills}<span class="critical-roster__caret" aria-hidden="true">${planOpen ? "▴" : "▾"}</span></button>`
+    : `<div class="critical-roster critical-roster--static" id="critical-roster"
+            aria-label="Avanzamento rosa — ${rosterAriaCounts}.">${rosterPills}</div>`;
   strip.innerHTML = `
-    <div class="critical-metric">
-      <span>Budget</span>
-      <strong id="critical-budget">${team.budgetResidual} cr</strong>
+    <div class="critical-strip__row">
+      <div class="critical-metric">
+        <span>Budget</span>
+        <strong id="critical-budget">${team.budgetResidual} cr</strong>
+      </div>
+      <div class="critical-metric">
+        <span>Spesi</span>
+        <strong id="critical-spent">${team.spent} cr</strong>
+      </div>
+      <div class="critical-metric">
+        <span>Slot</span>
+        <strong id="critical-slots">${team.totalSlotsRemaining}</strong>
+      </div>
+      ${roster}
+      <div class="critical-metric critical-metric--bid ${bidState}"
+           id="critical-max-bid" role="status" aria-live="polite">
+        <span>Max bid sicuro</span>
+        <strong>${bidValue}${bidNote ? ` <em>${bidNote}</em>` : ""}</strong>
+      </div>
     </div>
-    <div class="critical-metric">
-      <span>Spesi</span>
-      <strong id="critical-spent">${team.spent} cr</strong>
-    </div>
-    <div class="critical-metric">
-      <span>Slot</span>
-      <strong id="critical-slots">${team.totalSlotsRemaining}</strong>
-    </div>
-    <div class="critical-metric critical-metric--bid ${bidState}"
-         id="critical-max-bid" role="status" aria-live="polite">
-      <span>Max bid sicuro</span>
-      <strong>${bidValue}${bidNote ? ` <em>${bidNote}</em>` : ""}</strong>
-    </div>
-    <div class="critical-roster" id="critical-roster">${roster}</div>
+    <div class="critical-roster-detail" id="critical-roster-detail"${planOpen ? "" : " hidden"}>${rosterDetail}</div>
   `;
+
+  const toggle = strip.querySelector("#critical-roster");
+  toggle?.addEventListener("click", () => {
+    state.criticalPlanOpen = !state.criticalPlanOpen;
+    render();
+    // The strip is rebuilt from scratch by render(); without this the keyboard
+    // would be dropped on the body right after opening the detail.
+    focusAfterRender("critical-roster");
+  });
   return strip;
 }
 
@@ -2619,14 +2820,81 @@ function renderTeamsPanel(aState: AuctionState): HTMLElement {
   return panel;
 }
 
+// ── #333 — Il tavolo, dietro un gesto (momento chiamata) ─────────────────────
+// SCARSITÀ PER RUOLO, TAVOLO — WAR BOARD e SQUADRE (LEGA) sono le stesse otto
+// squadre lette tre volte, e nessuna delle tre risponde alle quattro domande
+// dal MIO posto (quanto posso spendere per questo · chi me lo contende ·
+// quanto mi serve questo ruolo adesso · quanto mi resta se lo prendo): quelle
+// risposte stanno nella fascia critica e nel CONTESTO CHIAMATA. Sono il
+// contorno con cui si decide fra una chiamata e l'altra, non nei due secondi
+// in cui qualcuno urla un prezzo — quindi stanno dietro un gesto solo.
+//
+// Vincolo di Pico rispettato alla lettera: RIDURRE NON TOGLIE INFORMAZIONE.
+// I tre pannelli restano nel DOM anche da chiusi (attributo `hidden`, non
+// rimozione), identici a se stessi, raggiungibili da tastiera con
+// aria-expanded/aria-controls — lo stesso idioma della fascia critica
+// (#331 punto 5, `.critical-roster` / `.critical-roster-detail`), non un
+// secondo meccanismo inventato qui.
+function renderTableDetail(
+  aState: AuctionState,
+  scarcity: Readonly<Record<Role, RoleScarcity>>,
+): HTMLElement {
+  const section = document.createElement("section");
+  section.id = "table-detail";
+  // Deliberatamente NON `.panel`: i pannelli interni lo sono già, e diverse
+  // spec localizzano SQUADRE (LEGA) con `.panel` + hasText — un antenato con
+  // la stessa classe renderebbe quel locator ambiguo.
+  section.className = "table-detail";
+  section.setAttribute("aria-label", "Tavolo: scarsità, war board e squadre");
+
+  const open = state.tableDetailOpen;
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.id = "table-detail-toggle";
+  toggle.className = "table-detail__toggle";
+  toggle.setAttribute("aria-expanded", String(open));
+  toggle.setAttribute("aria-controls", "table-detail-body");
+  toggle.innerHTML =
+    `<span class="panel-title">IL TAVOLO</span>` +
+    `<span class="table-detail__what">scarsità per ruolo · war board · squadre (lega)</span>` +
+    `<span class="table-detail__caret" aria-hidden="true">${open ? "▴" : "▾"}</span>`;
+  toggle.addEventListener("click", toggleTableDetail);
+  section.appendChild(toggle);
+
+  const body = document.createElement("div");
+  body.id = "table-detail-body";
+  body.className = "table-detail__body";
+  if (!open) body.hidden = true;
+  body.appendChild(renderRoleScarcityPanel(scarcity, state.pool.length > 0));
+  // War board COMPLETA — #231 tranche 3, decisione di Owner #222 voce 18
+  // (revisione registrata dell'invariante #86, docs/FRONTEND_STRUCTURE.md).
+  // The full table state belongs to THIS moment: choosing whom to call is
+  // when there is time to read eight cards. The live moment gets the MINI
+  // strip instead (renderMomentoAsta) — never both at once.
+  // `auctionDisplayIndex()` is the same one-index-per-render helper STORICO
+  // and Rose already use: no per-acquisition scan of the pool.
+  body.appendChild(
+    renderWarBoardFull(warBoardRows(aState, SELF_ID), seatLabelMap(), auctionDisplayIndex()),
+  );
+  body.appendChild(renderTeamsPanel(aState));
+  section.appendChild(body);
+
+  return section;
+}
+
 // ── Zone 1: Chiamata panel ────────────────────────────────────────────────────
-function renderZona1(aState: AuctionState, team: TeamState | undefined): HTMLElement {
+function renderZona1(
+  aState: AuctionState,
+  team: TeamState | undefined,
+  scarcity: Readonly<Record<Role, RoleScarcity>>,
+): HTMLElement {
   const panel = document.createElement("div");
   panel.className = "panel";
   panel.style.cssText = `padding:24px;border:1px solid ${C.border};`;
 
   if (state.moment === "chiamata") {
-    panel.appendChild(renderMomentoChiamata(aState));
+    panel.appendChild(renderMomentoChiamata(aState, scarcity));
   } else {
     panel.appendChild(renderMomentoAsta(aState, team));
   }
@@ -2634,54 +2902,42 @@ function renderZona1(aState: AuctionState, team: TeamState | undefined): HTMLEle
   return panel;
 }
 
-function renderMomentoChiamata(aState: AuctionState): HTMLElement {
+/**
+ * #333 — L'ORDINE DI QUESTA SCHERMATA È UNA DECISIONE, NON UN INVENTARIO.
+ *
+ * Le quattro domande del tavolo, in ordine di frequenza (confermate da Pico):
+ *   1. quanto posso spendere per questo;
+ *   2. chi me lo contende;
+ *   3. quanto mi serve davvero questo ruolo adesso;
+ *   4. quanto mi resta se lo prendo.
+ * Criterio: ciò che serve alla decisione più frequente sta in alto e non si
+ * scrolla; ciò che non serve a nessuna delle quattro scende. Il contesto è
+ * un'asta dal vivo: qualcuno urla un prezzo e ci sono due secondi.
+ *
+ * Da cui l'ordine qui sotto, che è l'unica cosa cambiata — nessun blocco è
+ * stato cancellato, nessun numero è sparito:
+ *   1. RICERCA GIOCATORE — è l'unica ragione per cui questa schermata esiste,
+ *      e stava sotto la piega a tutte le risoluzioni. Ora è il primo elemento
+ *      della colonna, sotto la fascia critica (che porta già D1 e D4).
+ *   2. CONTESTO CHIAMATA — l'unico blocco che risponde a D1+D2+D3 insieme per
+ *      il giocatore selezionato. Compare solo dopo la selezione (D7 Binario A:
+ *      on-demand, e resta on-demand) ma ora compare SUBITO SOTTO il campo di
+ *      ricerca, non alla quarta schermata.
+ *   3. LISTONE — la risposta alla ricerca, attaccata alla ricerca.
+ *   4. INSERIMENTO RAPIDO — è un'azione (registra un acquisto già concluso),
+ *      non una risposta: scende sotto la coppia ricerca/listone, ma resta un
+ *      pannello pieno e visibile perché lo si usa a ogni aggiudicazione.
+ *   5. GIOCATORE SUGGERITO — vuoto per costruzione (nessun motore di
+ *      suggerimento è abilitato) e non risponde a nessuna delle quattro: va in
+ *      fondo. Non è stato rimosso: rimuoverlo è una decisione di Pico.
+ * Il tavolo (scarsità, war board, squadre) non è più qui in mezzo: sta dietro
+ * un gesto solo, fuori da questo pannello — vedi renderTableDetail().
+ */
+function renderMomentoChiamata(
+  aState: AuctionState,
+  scarcity: Readonly<Record<Role, RoleScarcity>>,
+): HTMLElement {
   const wrap = document.createElement("div");
-
-  // Suggested player block — design slot "CHI CHIAMARE ORA".
-  // Honest placeholder: there is NO suggestion engine yet (richiede dati reali +
-  // gate non attivi). Mostriamo il blocco in modo stabile, senza fingere una
-  // predizione. Non è una raccomandazione.
-  const suggested = document.createElement("div");
-  suggested.style.cssText = `background:${C.panelInner};border:1px solid ${C.border};border-radius:8px;padding:12px 16px;margin-bottom:18px;`;
-  const suggestedEyebrow = document.createElement("div");
-  suggestedEyebrow.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.06em;color:${C.textSec};margin-bottom:4px;`;
-  suggestedEyebrow.textContent = "GIOCATORE SUGGERITO — CHI CHIAMARE ORA";
-  const suggestedBody = document.createElement("div");
-  suggestedBody.style.cssText = `font-size:13px;line-height:1.5;color:${C.textMid};`;
-  suggestedBody.textContent = "Nessun suggerimento automatico attivo: il motore richiede dati reali, non ancora abilitati. Inserisci manualmente il giocatore chiamato qui sotto. (Non è una predizione.)";
-  suggested.appendChild(suggestedEyebrow);
-  suggested.appendChild(suggestedBody);
-  wrap.appendChild(suggested);
-
-  // T13 #231 — the fast path, first: one line records a purchase without
-  // walking the select -> Avvia -> prezzo -> conferma sequence below, which
-  // stays exactly as it was for every other case.
-  wrap.appendChild(
-    renderAssignCommandPanel(
-      {
-        value: state.assignCommand,
-        resolution: assignCommandResolution(aState),
-        error: state.assignCommandError,
-      },
-      { onInput: onAssignCommandInput, onSubmit: () => submitAssignCommand(aState) },
-    ),
-  );
-
-  // Remaining supply per role — deterministic, from the event log (slots) and
-  // the loaded listone row count (availability). See renderRoleScarcityPanel.
-  const scarcity = roleScarcity(aState, scarcityPool());
-  wrap.appendChild(renderRoleScarcityPanel(scarcity, state.pool.length > 0));
-
-  // War board COMPLETA — #231 tranche 3, decisione di Owner #222 voce 18
-  // (revisione registrata dell'invariante #86, docs/FRONTEND_STRUCTURE.md).
-  // The full table state belongs to THIS moment: choosing whom to call is
-  // when there is time to read eight cards. The live moment gets the MINI
-  // strip instead (renderMomentoAsta below) — never both at once.
-  // `auctionDisplayIndex()` is the same one-index-per-render helper STORICO
-  // and Rose already use: no per-acquisition scan of the pool.
-  wrap.appendChild(
-    renderWarBoardFull(warBoardRows(aState, SELF_ID), seatLabelMap(), auctionDisplayIndex()),
-  );
 
   const eyebrow = document.createElement("div");
   eyebrow.className = "panel-title";
@@ -2923,6 +3179,45 @@ function renderMomentoChiamata(aState: AuctionState): HTMLElement {
   );
   wrap.appendChild(listoneWrap);
 
+  // T13 #231 — the fast path: one line records a purchase without walking the
+  // select -> Avvia -> prezzo -> conferma sequence, which stays exactly as it
+  // was for every other case. #333 moved it BELOW the search/listone pair: it
+  // is a write action performed once an aggiudicazione is already over, not
+  // one of the four questions asked while a price is being shouted. It stays a
+  // full, always-visible panel (no gesture in front of it) because it is used
+  // at every single aggiudicazione of the table, not occasionally.
+  wrap.appendChild(
+    renderAssignCommandPanel(
+      {
+        value: state.assignCommand,
+        resolution: assignCommandResolution(aState),
+        error: state.assignCommandError,
+      },
+      { onInput: onAssignCommandInput, onSubmit: () => submitAssignCommand(aState) },
+    ),
+  );
+
+  // Suggested player block — design slot "CHI CHIAMARE ORA".
+  // Honest placeholder: there is NO suggestion engine yet (richiede dati reali +
+  // gate non attivi). Mostriamo il blocco in modo stabile, senza fingere una
+  // predizione. Non è una raccomandazione.
+  // #333: sta in fondo, non in cima. È vuoto per costruzione, quindi non può
+  // rispondere a nessuna delle quattro domande, e in cima costava la posizione
+  // migliore della pagina. Spostato, non tolto — toglierlo è una decisione di
+  // prodotto che non è stata presa.
+  const suggested = document.createElement("div");
+  suggested.id = "suggested-player";
+  suggested.style.cssText = `background:${C.panelInner};border:1px solid ${C.border};border-radius:8px;padding:12px 16px;margin-top:18px;`;
+  const suggestedEyebrow = document.createElement("div");
+  suggestedEyebrow.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.06em;color:${C.textSec};margin-bottom:4px;`;
+  suggestedEyebrow.textContent = "GIOCATORE SUGGERITO — CHI CHIAMARE ORA";
+  const suggestedBody = document.createElement("div");
+  suggestedBody.style.cssText = `font-size:13px;line-height:1.5;color:${C.textMid};`;
+  suggestedBody.textContent = "Nessun suggerimento automatico attivo: il motore richiede dati reali, non ancora abilitati. Inserisci manualmente il giocatore chiamato nella ricerca qui sopra. (Non è una predizione.)";
+  suggested.appendChild(suggestedEyebrow);
+  suggested.appendChild(suggestedBody);
+  wrap.appendChild(suggested);
+
   // Focus the search input only on the first render after entering this
   // moment (boot, "← Indietro", or right after a completed purchase) — never
   // on a re-render triggered by typing/selecting here, which would otherwise
@@ -2935,6 +3230,104 @@ function renderMomentoChiamata(aState: AuctionState): HTMLElement {
   }
 
   return wrap;
+}
+
+// ── «Dopo l'acquisto»: quanto resta se lo prendi a questa cifra ─────────────
+// La quarta domanda del tavolo. Budget, Spesi e Slot dicono lo stato ADESSO;
+// nessun pannello diceva lo stato che si otterrebbe pagando la cifra che si sta
+// digitando, e a due secondi dal rilancio quel conto si faceva a mente.
+//
+// DOVE STA, E PERCHÉ LÌ. Dentro la riga ASSEGNA A, fra il campo del prezzo e
+// «Registra acquisto». Non in alto accanto a «Prezzo da pagare»: misurato sul
+// DOM vivo, mentre il campo del prezzo è a fuoco quel blocco è già fuori
+// schermo (a 1440×900 il suo bordo superiore sta a −65 px), quindi una
+// proiezione lì non la vedrebbe nessuno proprio nell'istante in cui serve. Qui
+// invece occupa lo spazio orizzontale che la riga aveva già libero, e per
+// questo non allunga una schermata che è già lunga il doppio del viewport.
+//
+// DI CHI PARLA. Della squadra selezionata nel menu ASSEGNA A — quella che sta
+// per ricevere l'acquisto — e lo dice per esteso nell'etichetta. Sulla stessa
+// schermata maxSafe() è già chiamata con due ricette diverse (la squadra del
+// menu e la squadra dell'utente): una proiezione senza nome sarebbe una terza
+// lettura indistinguibile dalle altre due.
+
+/** Il guscio DOM del blocco. Il testo lo scrive fillAssignAfter, sia al primo
+ *  render sia a ogni tasto battuto nel campo del prezzo. */
+function renderAssignAfterBlock(): HTMLElement {
+  const box = document.createElement("div");
+  box.id = "assign-after";
+  box.className = "assign-after";
+  // Cambia mentre si digita SENZA re-render (vedi il listener di #assign-price),
+  // quindi va annunciato e non solo ridipinto — stesso trattamento della
+  // headline del pannello AVVERSARI, che si aggiorna con lo stesso idioma.
+  box.setAttribute("role", "status");
+  box.setAttribute("aria-live", "polite");
+  box.setAttribute("aria-atomic", "true");
+
+  const label = document.createElement("div");
+  label.id = "assign-after-label";
+  label.className = "assign-after__label";
+
+  const value = document.createElement("div");
+  value.id = "assign-after-value";
+  value.className = "assign-after__value";
+
+  const alarm = document.createElement("div");
+  alarm.id = "assign-after-alarm";
+  alarm.className = "assign-after__alarm";
+
+  box.append(label, value, alarm);
+  return box;
+}
+
+/**
+ * La proiezione da mostrare adesso: squadra del menu ASSEGNA A (con la squadra
+ * dell'utente come ripiego solo se quell'id non esiste nello stato, esattamente
+ * come fa il blocco «Prezzo da pagare» più in alto), ruolo del giocatore
+ * chiamato, prezzo grezzo così com'è nel campo. `null` solo quando la schermata
+ * non porta un ruolo — irraggiungibile dalla UI, perché launchAsta richiede una
+ * chiamata correlata, ma il tipo lo prevede.
+ */
+function assignAfterProjection(
+  aState: AuctionState,
+  team: TeamState | undefined,
+): PostPurchaseProjection | null {
+  const assignTeam = aState.teams[state.assign.fantaTeamId] ?? team;
+  const role = state.call.role;
+  if (assignTeam === undefined || role === "") return null;
+  return projectAfterPurchase(assignTeam, role as Role, state.assign.price);
+}
+
+/**
+ * Scrive le tre righe nel blocco passato. Separata dal costruttore per lo
+ * stesso motivo di fillOpponentReach: il campo del prezzo non chiama render()
+ * — lo farebbe perdere fuoco e cursore in mezzo a un rilancio — quindi la
+ * proiezione si aggiorna con la stessa toppa in place che `#price-display` usa
+ * da sempre. La riga d'allarme resta nel DOM anche vuota: svuotarne il testo la
+ * fa collassare da sé (`.assign-after__alarm:empty`), e non c'è un secondo ramo
+ * di costruzione da tenere allineato al primo.
+ *
+ * Il parametro è IL BLOCCO, non un suo antenato, e non è un dettaglio:
+ * `querySelector` guarda solo i discendenti, quindi una versione che cercava
+ * `#assign-after` dentro il blocco stesso lo mancava e lasciava la proiezione
+ * muta a schermo pur avendola calcolata. Successo davvero, alla prima stesura;
+ * la spec e2e ora lo intercetta perché asserisce il TESTO, non la presenza.
+ */
+function fillAssignAfter(box: HTMLElement, projection: PostPurchaseProjection | null): void {
+  const label = box.querySelector("#assign-after-label");
+  const value = box.querySelector("#assign-after-value");
+  const alarm = box.querySelector("#assign-after-alarm");
+  if (label === null || value === null || alarm === null) return;
+  if (projection === null) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  label.textContent = projectionLabelText(displayTeamLabel(projection.fantaTeamId));
+  value.textContent = projectionValueText(projection);
+  const alarmText = projectionAlarmText(projection);
+  alarm.textContent = alarmText;
+  box.classList.toggle("assign-after--alarm", alarmText !== "");
 }
 
 function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): HTMLElement {
@@ -3033,8 +3426,14 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   //    shows, brought to the live screen where the role's remaining supply is
   //    what the next bid is decided against — plus residualPressure(), the
   //    census of credits and slots still on the table (anchors.ts);
-  //  - AVVERSARI: competitorSet() — who can still reach the figure being
-  //    typed, by hard constraint only (competitors.ts).
+  //  - AVVERSARI: auctionPrecedents() — cosa ogni avversario ha già fatto che
+  //    riguardi il giocatore chiamato, contato sullo storico d'asta
+  //    multi-stagione (packages/opponent-profiles). Prima qui c'era
+  //    competitorSet(), cioè chi poteva arrivare alla cifra per solo vincolo
+  //    duro: quei numeri non sono spariti dall'app — max bid e budget di tutte
+  //    le squadre stanno nella striscia WAR BOARD (MINI) poche righe sopra,
+  //    gli slot per ruolo nella war board COMPLETA del momento CHIAMATA e in
+  //    AVVERSARI TIER-1 su Rose — hanno smesso di essere ricontati qui (#331).
   // Both are pure functions of the reduced AuctionState (+ the listone row
   // count for availability): no model field, no network, no receipt needed —
   // docs/AUCTION_2026_EXECUTION_PLAN.md §3, rows "Scarsità" and "Contabilità".
@@ -3051,8 +3450,7 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
       pressure: residualPressure(aState),
     }),
   );
-  const opponentReach = renderOpponentInterestBlock(opponentReachProps(aState));
-  suggestionsGrid.appendChild(opponentReach);
+  suggestionsGrid.appendChild(renderOpponentPrecedentsBlock(opponentPrecedentsProps()));
   wrap.appendChild(suggestionsGrid);
 
   // Assign form
@@ -3111,16 +3509,24 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   priceInput.title = "Prezzo in crediti: solo numero intero positivo.";
   priceInput.value = state.assign.price;
   priceInput.className = "field-input";
+  // Costruito qui perché il listener qui sotto lo aggiorna a ogni tasto.
+  const assignAfter = renderAssignAfterBlock();
+  fillAssignAfter(assignAfter, assignAfterProjection(aState, team));
   priceInput.addEventListener("input", (e) => {
     state.assign.price = (e.target as HTMLInputElement).value;
     // live-update maxSafe price display without full re-render
     const pd = wrap.querySelector("#price-display");
     if (pd) pd.textContent = state.assign.price ? `${state.assign.price} cr` : "— cr";
-    // Same reason, same idiom, for the AVVERSARI block: it answers "who can
-    // still reach THIS figure", so it has to follow the figure as it is typed.
-    // A full render() here would take focus and caret out of the price field
-    // mid-auction, which is exactly why this input never calls it.
-    fillOpponentReach(opponentReach, opponentReachProps(aState));
+    // Stesso motivo, stesso idioma, per «dopo l'acquisto»: è la risposta a
+    // «quanto mi resta se lo prendo A QUESTA CIFRA», quindi deve seguire la
+    // cifra mentre viene battuta, non l'ultima cifra registrata.
+    fillAssignAfter(assignAfter, assignAfterProjection(aState, team));
+    // Il blocco AVVERSARI non viene più ridipinto qui, e l'assenza è una
+    // conseguenza del cambio di mestiere, non una dimenticanza: i PRECEDENTI
+    // sono del giocatore chiamato, non della cifra che si sta battendo, quindi
+    // battere una cifra non ne cambia nemmeno un numero. Il blocco che stava
+    // qui prima (`competitorSet`) doveva seguire il prezzo perché la sua
+    // domanda conteneva il prezzo; questo no.
   });
   priceInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") doAssign(aState);
@@ -3137,6 +3543,10 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
 
   formRow.appendChild(teamGroup);
   formRow.appendChild(priceGroup);
+  // Fra il prezzo e il bottone, non dopo il bottone: l'ordine di lettura (e di
+  // tabulazione) diventa «chi, quanto, cosa resta, conferma» — la conseguenza
+  // si legge prima di premere, non dopo.
+  formRow.appendChild(assignAfter);
   formRow.appendChild(submitBtn);
   divider.appendChild(formRow);
 
@@ -3420,7 +3830,8 @@ function renderVoidConfirm(): HTMLElement {
   // Opens on the Asta screen, under the sticky critical strip — see the
   // modifier's comment in src/styles/components.css. Without it the heading
   // that distinguishes the non-last void from the ordinary one is covered.
-  overlay.className = "modal-overlay modal-overlay--clears-critical-strip";
+  // See renderImportConfirm and src/styles/components.css.
+  overlay.className = "modal-overlay";
   overlay.id = "void-confirm-overlay";
 
   const modal = document.createElement("div");
@@ -3458,7 +3869,7 @@ function renderVoidConfirm(): HTMLElement {
   keepBtn.className = "btn btn--secondary";
   keepBtn.dataset.dialogInitialFocus = "";
   keepBtn.addEventListener("click", () => {
-    const returnId = state.confirmVoidSeq === null ? "critical-auction-strip" : `undo-purchase-${state.confirmVoidSeq}`;
+    const returnId = state.confirmVoidSeq === null ? criticalFocusAnchorId() : `undo-purchase-${state.confirmVoidSeq}`;
     state.confirmVoidSeq = null;
     state.confirmVoidLabel = "";
     render();
@@ -3499,7 +3910,7 @@ function renderVoidConfirm(): HTMLElement {
     state.confirmVoidSeq = null;
     state.confirmVoidLabel = "";
     render();
-    focusAfterRender("critical-auction-strip");
+    focusAfterRender(criticalFocusAnchorId());
   });
 
   btnRow.appendChild(keepBtn);
@@ -3516,12 +3927,12 @@ function renderVoidConfirm(): HTMLElement {
       state.confirmVoidSeq = null;
       state.confirmVoidLabel = "";
       render();
-      focusAfterRender("critical-auction-strip");
+      focusAfterRender(criticalFocusAnchorId());
     }
   });
 
   activateAccessibleDialog(overlay, modal, () => {
-    const returnId = state.confirmVoidSeq === null ? "critical-auction-strip" : `undo-purchase-${state.confirmVoidSeq}`;
+    const returnId = state.confirmVoidSeq === null ? criticalFocusAnchorId() : `undo-purchase-${state.confirmVoidSeq}`;
     state.confirmVoidSeq = null;
     state.confirmVoidLabel = "";
     render();

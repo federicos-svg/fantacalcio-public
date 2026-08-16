@@ -7,6 +7,7 @@ import {
   installSyntheticNetworkGuard,
   measureAllText,
   openSettingsSection,
+  openTableDetail,
   resolveTokenColors,
   selectStatusFilter,
   textContrast,
@@ -83,7 +84,9 @@ async function boot(page: Page): Promise<void> {
   await page.goto("/");
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await expect(page.locator("#role-scarcity-panel")).toBeVisible();
+  // #333: il segnale di «schermata di chiamata pronta» è il campo di ricerca —
+  // SCARSITÀ PER RUOLO ora sta dietro il gesto IL TAVOLO.
+  await expect(page.locator("#search-player")).toBeVisible();
 }
 
 /**
@@ -178,6 +181,25 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
   };
 
   // ── ASTA — momento CHIAMATA ───────────────────────────────────────────────
+  // #331 punto 5: il dettaglio per ruolo della fascia critica (barre e
+  // micro-etichette del piano) sta dietro un gesto. Va APERTO prima di
+  // misurare: `measureAllText` salta ciò che non ha rettangolo, quindi
+  // lasciarlo chiuso non farebbe fallire nulla — farebbe smettere di misurare,
+  // che è il modo esatto in cui questa suite era già riuscita a restare verde
+  // sull'app rotta (vedi la nota su resolveTokenColors in helpers.ts).
+  // Lo stato resta aperto per le scene successive: la fascia si ricostruisce a
+  // ogni render, ma `criticalPlanOpen` è stato dell'app, non del DOM.
+  await page.locator("#critical-roster").click();
+  await expect(page.locator("#critical-role-plan-P")).toBeVisible();
+
+  // #333: stessa ragione, secondo gesto. SCARSITÀ PER RUOLO, WAR BOARD e
+  // SQUADRE (LEGA) stanno dietro IL TAVOLO: da chiusi non hanno rettangolo, e
+  // `measureAllText` salta ciò che non ne ha — lasciarli chiusi non farebbe
+  // fallire nulla, farebbe SMETTERE DI MISURARE tre pannelli interi (compreso
+  // `.scarcity-metric > span`, uno dei punti d'uso espliciti qui sotto).
+  // Anche questo stato resta aperto per le scene successive.
+  await openTableDetail(page);
+
   // I punti d'uso espliciti: micro-etichette del piano per ruolo, nota della
   // riga di comando, etichetta del filtro di stato, nota del listone.
   // Ognuno era fra 2,43:1 e 2,75:1 prima della schiaritura.
@@ -200,8 +222,8 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
   await page.locator("#assign-price").fill("30");
   for (const sel of [
     "#moment-market-basis", // --text-dim su --panel-inner, 2,43:1 prima
-    "#war-board-mini-note", // --text-dim, «bdg = crediti residui · max = …»
-    ".opponent-reach__empty", // --text-dim, «Nessun rivale è fuori…»
+    "#war-board-mini-note", // --text-dim, «bdg = crediti residui · max bid = …»
+    "#opponent-precedents-headline", // --text-mid, la sintesi dei precedenti
     ".moment-scarcity__called", // --accent come testo, «IN ASTA», 3,02:1 prima
     ".moment-market__head", // --text-sec su --panel-inner, 4,01:1 prima
     ".war-board-mini__name", // --text-sec su --panel-inner, 4,01:1 prima
@@ -216,7 +238,7 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
   // badge «Assegnato» a 1,67:1 e il NOME del giocatore a 4,28:1.
   await page.locator("#assign-team").selectOption("Io");
   await page.getByRole("button", { name: "Registra acquisto", exact: true }).click();
-  await expect(page.locator("#role-scarcity-panel")).toBeVisible();
+  await expect(page.locator("#search-player")).toBeVisible();
   await selectStatusFilter(page, "all");
   const assignedRow = page.locator(".listone-row--assigned").first();
   await expect(assignedRow).toBeVisible();

@@ -16,12 +16,19 @@ test("a purchase above max_safe is refused with the hard-reserve message and wri
   await page.getByRole("button", { name: /^Avvia/ }).click();
 
   // 474 = max_safe + 1 on an untouched roster (500 − (28 − 1) × COST_FLOOR).
-  await expect(page.locator("#critical-max-bid")).toContainText("473 cr");
+  //
+  // #331 punto 5: la fascia critica non è più montata nel momento d'asta —
+  // Pico l'ha chiesta solo nella schermata di chiamata. Le stesse due cifre
+  // (max bid sicuro e budget residuo della MIA squadra) si leggono qui dal
+  // TAVOLO — BUDGET E MAX BID, che è la superficie che le porta in questo
+  // momento. Stessi numeri, stessa origine (log ridotto), altro riquadro.
+  const selfOnTable = page.locator("#war-board-mini-Io");
+  await expect(selfOnTable.locator(".war-board-mini__bid")).toContainText("473");
   await page.locator("#assign-price").fill("474");
   await page.getByRole("button", { name: "Registra acquisto", exact: true }).click();
   await expect(page.getByText(/hard reserve violata/)).toBeVisible();
   expect(await readLocalStorageJson<unknown[]>(page, "fac_log")).toBeNull();
-  await expect(page.locator("#critical-budget")).toHaveText("500 cr");
+  await expect(selfOnTable.locator(".war-board-mini__budget")).toContainText("500");
 
   // Exactly at the ceiling the same purchase goes through.
   await page.locator("#assign-price").fill("473");

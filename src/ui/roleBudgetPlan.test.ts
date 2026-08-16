@@ -26,7 +26,12 @@ describe("roleBudgetPlanHtml", () => {
     const html = roleBudgetPlanHtml(envelope());
     expect(html).toContain("<em>slot</em>");
     expect(html).toContain("<em>min</em>");
-    expect(html).toContain("<em>max</em>");
+    // «max reparto», non «max»: maxAllocatable è il tetto dell'INTERO reparto,
+    // e la sigla nuda era la stessa che la fascia critica e la war board
+    // usavano per maxSafe — il tetto di UNA offerta, un'altra grandezza.
+    // Divergenza e leggibilità delle due etichette: src/ui/maxLabels.test.ts.
+    expect(html).toContain("<em>max reparto</em>");
+    expect(html).not.toContain("<em>max</em>");
     // No recommendation/directive wording of any kind.
     expect(html.toLowerCase()).not.toMatch(/consigli|suggeri|target|prezzo equo/);
   });

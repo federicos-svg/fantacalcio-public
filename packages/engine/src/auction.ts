@@ -29,6 +29,18 @@ export interface MaxSafeResult {
  * OTHER still-empty mandatory slot (buying this player fills one slot now).
  * This is the strongest bid that still guarantees a completable roster.
  * DIRECTIVE, aritmetica pura — no value/price model involved.
+ *
+ * IL TETTO DI UNA OFFERTA — da non confondere col tetto di un REPARTO.
+ * Questa funzione riserva gli altri slot obbligatori TUTTI, compresi quelli
+ * ancora liberi nel ruolo richiesto: risponde a «quanto posso mettere su
+ * QUESTO giocatore». La sua gemella `budgetPlan(team).perRole[r].
+ * maxAllocatable` (./budget.ts) riserva solo gli slot obbligatori DEGLI ALTRI
+ * ruoli e risponde a «quanto può ancora assorbire l'intero reparto r». Le due
+ * coincidono solo quando al reparto resta un solo slot; con s slot liberi la
+ * seconda è maggiore di esattamente hardReserve(s − 1). A schermo hanno due
+ * nomi distinti apposta — `max bid` e `max reparto`, src/ui/budgetLabels.ts —
+ * perché per mesi si sono chiamate tutte e due «max» e a metà asta divergono
+ * in silenzio.
  */
 export function maxSafe(team: TeamState, role: Role): MaxSafeResult {
   if (team.slotsRemaining[role] <= 0) {
