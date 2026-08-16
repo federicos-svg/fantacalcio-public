@@ -3204,12 +3204,12 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
 
   // Terzo portiere a 0 — LEAGUE_RULES.md §6 (decisione Pico, 2026-08-15).
   // Rendered ONLY when this purchase is structurally the selected team's
-  // third (last) portiere slot — `zeroGestureAvailable`, calcolato in cima a
-  // questa funzione e condiviso con la nota di max_safe, so the screen speaks
-  // with one voice. That condition only decides whether to SHOW the gesture;
-  // the engine call below is still the sole authority on whether it is
-  // actually admitted. Everywhere else this button does not exist, so there
-  // is nothing to misclick into recording a 0.
+  // third (last) portiere slot — `zeroGestureAvailable`, computed at the top
+  // of this function and SHARED with the max_safe note above, so the two
+  // cannot disagree about whether this gesture exists. That condition only
+  // decides whether to SHOW the gesture; the engine call below is still the
+  // sole authority on whether it is actually admitted. Everywhere else this
+  // button does not exist, so there is nothing to misclick into recording a 0.
   //
   // ONE gesture, not two: this click both DECLARES (that the table-level
   // facts the engine cannot see — same real club as a portiere already on
