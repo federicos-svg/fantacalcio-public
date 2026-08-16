@@ -43,6 +43,22 @@ describe("checkForbiddenTopLevel — rule 1", () => {
     expect(finding!.rule).toBe("forbidden-top-level");
   });
 
+  it("fails a root guardrails.exceptions.json — this repository must never carry one", () => {
+    // scripts/repo-guardrails.mjs reads an injected data-exception list from
+    // exactly this root path (guardrails-core.mjs §"Data-extension
+    // exceptions"). The mechanism exists for a host repository that HAS a
+    // written authorization to track otherwise-blocked file kinds; this one
+    // does not, and its guard must stay at the strict default.
+    //
+    // Nothing here needed adding to make that true — the closed top-level
+    // allowlist already refuses the file. This test pins the property so it
+    // cannot be lost by someone widening ALLOWED_TOP_LEVEL_FILES for an
+    // unrelated reason, which would silently make the loader reachable.
+    const finding = checkForbiddenTopLevel("guardrails.exceptions.json");
+    expect(finding).not.toBeNull();
+    expect(finding!.rule).toBe("forbidden-top-level");
+  });
+
   it("fails a top-level directory not on the allowlist", () => {
     expect(checkForbiddenTopLevel("automations/pipeline.ts")).not.toBeNull();
     expect(checkForbiddenTopLevel("docs/README.md")).not.toBeNull();
