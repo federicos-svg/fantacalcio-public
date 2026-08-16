@@ -1235,6 +1235,8 @@ export const SETTINGS_ICONS = {
     '<circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 14c0-2.4 2-3.9 4.5-3.9s4.5 1.5 4.5 3.9"/><path d="M11 3.4a2.5 2.5 0 0 1 0 4.6"/><path d="M12.6 10.4c1.3.6 1.9 1.8 1.9 3.6"/>',
   confirm: '<path d="M2 8.4 6 12l8-8"/>',
   status: '<path d="M1.5 8h3l2-4.6L9.6 12l1.9-4h3"/>',
+  // Un foglio scritto: la scheda che si compila a mano prima dell'asta.
+  scheda: '<rect x="2.5" y="1.5" width="11" height="13" rx="1.5"/><path d="M5 5h6"/><path d="M5 8h6"/><path d="M5 11h3.5"/>',
 } as const;
 
 export interface SettingsArea {

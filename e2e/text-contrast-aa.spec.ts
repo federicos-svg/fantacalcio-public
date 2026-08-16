@@ -312,10 +312,27 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
 
   // ── IMPOSTAZIONI ──────────────────────────────────────────────────────────
   await gotoScreen(page, "Impostazioni");
-  for (const section of ["teams", "riconferme", "status"] as const) {
+  for (const section of ["teams", "riconferme", "schede", "status"] as const) {
     await openSettingsSection(page, section);
     await sweepScene(`impostazioni/${section}`);
   }
+
+  // SCHEDE — il modulo e il riquadro d'allarme esistono solo dopo un gesto:
+  // da chiusi non hanno rettangolo, e `measureAllText` salta ciò che non ne
+  // ha. Senza questi due gesti la spazzata resterebbe verde su un pannello
+  // intero mai misurato — lo stesso modo in cui questa suite era già riuscita
+  // a restare verde sull'app rotta.
+  await openSettingsSection(page, "schede");
+  await page.locator("#schede-player").selectOption({ index: 1 });
+  await expect(page.locator("#schede-form")).toBeVisible();
+  await sweepScene("impostazioni/schede-modulo");
+
+  // Il modulo vuoto rifiutato: misura il riquadro d'allarme e il contatore
+  // della nota, cioè le due superfici che compaiono solo quando qualcosa va
+  // storto — che è esattamente quando devono essere leggibili.
+  await page.locator("#schede-save").click();
+  await expect(page.locator("#schede-errors")).toBeVisible();
+  await sweepScene("impostazioni/schede-errori");
 
   // La spazzata non può essere passata per vuoto: se i colori della rampa non
   // corrispondono più a nulla (token rinominato, valori cambiati senza

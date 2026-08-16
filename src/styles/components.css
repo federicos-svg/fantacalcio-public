@@ -443,6 +443,193 @@
   color: var(--stop-red);
 }
 
+/* Schede Gruppo Esperti (Impostazioni) — la schermata che compila le ~200
+   schede prima dell'asta, src/main.ts renderSchedeSettings.
+
+   TUTTO IL TESTO STA SULLA RAMPA di base.css (--text-primary / --text-mid /
+   --text-sec / --text-dim) e su nient'altro: e2e/text-contrast-aa.spec.ts
+   rimisura questa schermata a ogni run, e un colore fuori rampa non verrebbe
+   nemmeno misurato — resterebbe verde mentre il pannello è illeggibile.
+   Il rosso qui compare solo come BORDO di un riquadro d'allarme, mai come
+   colore di un testo, per questa ragione e non per gusto. */
+.schede-settings {
+  display: grid;
+  gap: 12px;
+}
+
+/* L'avanzamento delle due ore: la cifra scritta E la barra. La barra da sola
+   costringerebbe a stimare a occhio, la cifra da sola non si legge di
+   sfuggita — stessa ragione per cui la quota del ballottaggio ha entrambe. */
+.schede-progress {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-inner);
+}
+.schede-progress__line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.schede-progress__count {
+  font-size: 12.5px;
+  color: var(--text-primary);
+}
+.schede-progress__percent {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-mid);
+}
+.schede-progress__track {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+.schede-progress__fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+/* Un allarme: il riquadro è rosso, il testo resta sulla rampa. */
+.schede-alert {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--stop-red);
+  border-radius: 8px;
+  background: var(--panel-inner);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-primary);
+}
+.schede-errors {
+  display: grid;
+  gap: 4px;
+  padding-left: 28px;
+  list-style: disc;
+}
+.schede-errors:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.schede-notice {
+  color: var(--text-mid);
+}
+
+.schede-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 14px;
+  align-items: end;
+}
+
+.schede-form {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.schede-form__title {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.schede-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Vocabolari chiusi: presenza/assenza, quindi checkbox e non testo libero. */
+.schede-checks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.schede-checks legend {
+  padding: 0 4px;
+}
+.schede-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-mid);
+  cursor: pointer;
+}
+
+.schede-nota {
+  resize: vertical;
+  min-height: 76px;
+  font-family: inherit;
+  line-height: 1.45;
+}
+/* Il contatore della nota: sempre visibile, e sopra il limite lo DICE. Il
+   testo non viene mai troncato da solo — è il salvataggio che si rifiuta. */
+.schede-nota__counter {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.schede-nota__counter.is-over {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.schede-list {
+  display: grid;
+  gap: 6px;
+}
+.schede-row {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+/* Identità e comandi sulla stessa riga; il riassunto sotto, a tutta larghezza.
+   Flex e non griglia a colonne fisse: i comandi sono due o tre a seconda che
+   la cancellazione stia chiedendo conferma, e una griglia fissa si romperebbe
+   proprio in quel momento. */
+.schede-row__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+.schede-row__identity {
+  flex: 1 1 180px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.schede-row__summary {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-sec);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.schede-deposit {
+  display: grid;
+  gap: 8px;
+}
+
 /* Settings: menu on the left, content on the right. Vertical tablist +
    tabpanel, so the menu is arrow-key navigable and the selected item is
    announced as selected rather than only coloured. */
