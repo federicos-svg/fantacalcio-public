@@ -1519,3 +1519,127 @@
   line-height: 1.45;
   max-width: 82ch;
 }
+
+/* IL RUOLO STASERA — svuotamento del ruolo in asta, misurato sul solo tavolo
+   della serata (src/roleDepletion.ts, src/ui/roleDepletion.ts).
+   Il riquadro vive sulla schermata più lunga dell'app e ha due contenuti di
+   peso diverso: l'elenco di chi ha preso (poche righe, tipicamente da zero a
+   otto) e il censimento dei posti (quattro numeri fissi). Il secondo riusa la
+   stessa forma del blocco MERCATO qui sopra — etichetta a sinistra, numero
+   monospaziato a destra — perché è lo stesso genere di lettura e imparare due
+   griglie diverse per la stessa cosa costa più di quanto renda.
+   Colori: solo token della rampa di base.css. Nessuna informazione è portata
+   dal colore: ogni numero ha la sua etichetta scritta accanto. */
+.role-depletion__role {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.role-depletion__role em {
+  color: var(--text-mid);
+  font-size: 11.5px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.role-depletion__headline {
+  color: var(--text-mid);
+  font-size: 12.5px;
+  line-height: 1.4;
+  margin: 8px 0 10px;
+  max-width: 82ch;
+}
+.role-depletion__body { display: grid; gap: 8px; }
+.role-depletion__buyers {
+  display: grid;
+  gap: 5px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+/* Una riga per squadra: nome, quanti e quanto, poi i prezzi in chiaro. I tre
+   pezzi stanno sullo stesso flusso e vanno a capo da soli dove la larghezza
+   non basta — tre colonne fisse troncherebbero il nome proprio sul telefono,
+   dove il nome è l'unica cosa che distingue una riga dall'altra. */
+.role-depletion__buyer {
+  align-items: baseline;
+  background: var(--panel-inner);
+  border-radius: 7px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 6px 9px;
+}
+.role-depletion__buyer-name {
+  color: var(--text-primary);
+  flex: 1 1 auto;
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.role-depletion__buyer-count {
+  color: var(--text-mid);
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+/* I prezzi uno per uno, mai una media: la media di 45 e 3 e la media di 24 e
+   24 sono lo stesso numero e non sono lo stesso tavolo. */
+.role-depletion__buyer-prices {
+  color: var(--text-sec);
+  flex: 1 1 100%;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.role-depletion__census {
+  background: var(--panel-inner);
+  border-radius: 8px;
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+  padding: 8px 10px;
+}
+.role-depletion__census-head {
+  color: var(--text-sec);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.role-depletion__census-row {
+  display: grid;
+  gap: 4px 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (max-width: 899px) and (min-width: 561px) {
+  .role-depletion__census-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+.role-depletion__metric {
+  align-items: baseline;
+  display: flex;
+  gap: 6px;
+  justify-content: space-between;
+  min-width: 0;
+}
+.role-depletion__metric > span {
+  color: var(--text-sec);
+  font-size: 10.5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.role-depletion__metric > strong {
+  color: var(--text-primary);
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+}
+.role-depletion__census-basis {
+  color: var(--text-dim);
+  font-size: 10.5px;
+  line-height: 1.35;
+}

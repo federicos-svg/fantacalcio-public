@@ -108,8 +108,11 @@ import {
   renderConfirmationsBlockedScreen,
   renderConfirmationsQuarantineBanner,
   renderConfirmationsStorageErrorScreen,
+  renderRoleDepletionBlock,
+  type RoleDepletionProps,
   type RecoveryBlockedProps,
 } from "./ui/views.js";
+import { roleDepletionReading } from "./roleDepletion.js";
 import {
   loadAuctionLog,
   saveAuctionLog,
@@ -1413,6 +1416,37 @@ function nominationContextTopAssigned(role: Role): NominationContextTopEntry[] {
     teamLabel: displayTeamLabel(entry.fantaTeamId),
     price: entry.price,
   }));
+}
+
+/**
+ * Ingressi del riquadro IL RUOLO STASERA (views.ts `renderRoleDepletionBlock`):
+ * che cosa è successo al ruolo in asta stasera, e quanti posti di quel ruolo
+ * restano aperti al tavolo.
+ *
+ * Tutto il lavoro sta in `roleDepletionReading` (src/roleDepletion.ts), che è
+ * puro e testato senza DOM: qui si passano soltanto i pezzi di stato che quella
+ * funzione non può conoscere.
+ *
+ * `state.call.role` e non il ruolo della riga selezionata: è il ruolo con cui
+ * la chiamata è partita, cioè quello che il resto della schermata live sta già
+ * usando (`momentScarcityHtml` marca la sua cella con lo stesso valore), e due
+ * ruoli diversi sulla stessa schermata sarebbero due risposte a due domande
+ * mentre la domanda è una sola. `""` — nessuna chiamata — arriva fino alla
+ * frase che lo dice, e non diventa un ruolo di ripiego.
+ *
+ * NON RICEVE IL LISTONE, e non è una dimenticanza: la decisione di Pico del
+ * 16/08/2026 tiene la quotazione fuori dal calcolo, quindi questo pannello non
+ * ha nemmeno il modo di guardarla. Vedi la nota in testa a src/roleDepletion.ts.
+ */
+function roleDepletionProps(aState: AuctionState): RoleDepletionProps {
+  return {
+    reading: roleDepletionReading({
+      log: state.log,
+      state: aState,
+      role: state.call.role,
+    }),
+    teamLabels: seatLabelMap(),
+  };
 }
 
 // ── Render entry point ────────────────────────────────────────────────────────
@@ -3559,6 +3593,16 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   wrap.appendChild(renderWarBoardMini(warBoardRows(aState, SELF_ID), seatLabelMap()));
 
   wrap.appendChild(renderPlayerInsightsBlock(playerInsightProps()));
+
+  // IL RUOLO STASERA — che cosa è successo al ruolo in asta stasera (quanti ne
+  // sono passati, da chi, a che prezzi) e quanti posti di quel ruolo restano
+  // aperti al tavolo. Sta QUI, subito sopra il blocco MOMENTO DELL'ASTA, perché
+  // le due letture si leggono in fila: prima come il ruolo si è svuotato, poi
+  // quanto ne resta. Sola lettura, sola aritmetica sull'event log e sul
+  // censimento dei posti: nessuna quotazione di listino entra nel calcolo
+  // (decisione di Pico 16/08/2026 — vedi la nota in testa a
+  // src/roleDepletion.ts).
+  wrap.appendChild(renderRoleDepletionBlock(roleDepletionProps(aState)));
 
   // The two blocks below used to be DEV STATICO placeholders on the tightest
   // screen of the app. They now carry the facts the engine already knew:
