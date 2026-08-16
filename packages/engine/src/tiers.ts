@@ -108,6 +108,40 @@
 //     costruisce lo stesso `AppealOrdering` dalla quotazione ufficiale con
 //     un'altra `provenance`: questo file non cambia di una riga.
 //
+// ─── L'AGGANCIO ALLA UI ──────────────────────────────────────────────────────
+//
+// Il pannello chiama UNA funzione e riceve una struttura sola. Firma esatta,
+// per chi costruisce la vista:
+//
+//   import { tierFacts, type TierBook, type TierFacts }
+//     from "../../packages/engine/src/tiers.js";
+//
+//   const facts: TierFacts = tierFacts({
+//     state,        // AuctionState — reduce(log, teamIds, confirmations)
+//     log,          // readonly AuctionEvent[] — il log grezzo, per i PREZZI
+//     playerId,     // il giocatore chiamato
+//     role,         // il suo ruolo
+//     book,         // TierBook | null — costruito una volta al caricamento
+//     selfId,       // opzionale: la propria squadra, esclusa da `opponents`
+//   });
+//
+// Cosa la vista deve rendere e cosa NON deve fare:
+//  - `facts.placement.kind` ha CINQUE valori e ognuno è una frase diversa a
+//    schermo. `no-ordering` / `role-not-ordered` / `unranked` sono tre modi
+//    diversi di dire «non lo so» e nessuno dei tre va reso come «fondo»;
+//  - `facts.provenance` va MOSTRATA accanto alla fascia (o la fascia non si
+//    mostra): è la condizione vincolante 1 del record 2026-08-16. `null` ⇒
+//    `n/d`, mai un valore di ripiego;
+//  - `facts.occupancy` porta `freeCount` e `originalSize`: «ne restano 3 di 8»,
+//    numeri già pronti, nessun conteggio da rifare in UI;
+//  - `facts.pricesPaidInTier` è una LISTA CRESCENTE di prezzi pagati: quanti =
+//    `length`, minimo = primo, massimo = ultimo (vedi §"Il registro, non una
+//    banda"). `null` ⇒ fuori fascia, `[]` ⇒ nessuno ha ancora pagato;
+//  - `facts.opponents` esce in ordine di ID. Se la vista li riordina, li
+//    riordini per un fatto misurato che mostra accanto (slot residui, max
+//    bid, quanti ne ha già di quella fascia) — mai per un punteggio di
+//    «quanto lo vuole», che questo motore non produce e non deve produrre.
+//
 // DETERMINISMO ASSOLUTO. Nessun orologio, nessun `Math.random`, nessun `Intl`,
 // nessuna formattazione dipendente dalla locale, nessuna iterazione il cui
 // esito dipenda dall'ordine di inserimento di una struttura non ordinata: le
