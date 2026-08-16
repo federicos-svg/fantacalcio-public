@@ -230,7 +230,11 @@ export async function selectListoneRowByName(page: Page, name: string): Promise<
         corrispondenza, elemento escluso, spec verde;
      2. mettere un `opacity` su un pannello: il colore composito dei figli
         cambia, smette di corrispondere al token, e gli elementi escono
-        dall'insieme misurato invece di fallire.
+        dall'insieme misurato invece di fallire;
+     3. scrivere il testo con `::before` / `::after { content: … }`: la
+        spazzata guardava solo i nodi di testo, quindi quel testo non era
+        escluso — non veniva proprio VISTO. Terza strada, stessa fuga,
+        verificata rompendo come le altre due.
 
    Una guardia che si disattiva da sola quando il difetto compare è peggio di
    nessuna guardia: produce un verde che qualcuno userà per dire che
@@ -247,21 +251,35 @@ export async function selectListoneRowByName(page: Page, name: string): Promise<
      - l'`opacity` cumulativa degli antenati si applica al gruppo di
        composizione contro lo sfondo che sta sotto il gruppo, esattamente come
        fa il compositore;
-     - l'alfa del colore del testo si compone anch'essa.
+     - l'alfa del colore del testo si compone anch'essa;
+     - uno PSEUDO-ELEMENTO è semplicemente uno strato in più in cima alla
+       catena, col proprio colore, la propria alfa e il proprio sfondo: non ha
+       bisogno di regole sue.
 
    Serve perché la regressione che questo test blocca era invisibile al codice:
    `--text-dim` di per sé è un token accettato altrove, ma dentro una riga con
    `opacity: 0.78` diventava 1,99:1 — sotto qualunque soglia leggibile. Un test
    sul solo nome del token non l'avrebbe mai vista.
 
-   LIMITE DICHIARATO, UNO SOLO. `backdrop-filter` sfoca ciò che traspare da
-   uno sfondo non completamente opaco. Qui il fondo che traspare si compone
-   NON sfocato: l'errore vale solo per la frazione di trasparenza dello sfondo
-   che lo copre (per .critical-auction-strip: 6%), e uno sfocamento conserva la
-   media locale del colore, quindi il termine d'errore è una frazione del 6% di
-   una differenza di luminanza. Dove lo sfondo è opaco la misura è esatta e il
-   `backdrop-filter` è irrilevante. È scritto qui perché sia governabile, non
-   perché sia trascurabile per definizione.
+   LIMITI DICHIARATI, DUE. Scritti qui perché siano governabili, non perché
+   siano trascurabili per definizione.
+
+   1. `backdrop-filter` sfoca ciò che traspare da uno sfondo non completamente
+      opaco. Qui il fondo che traspare si compone NON sfocato: l'errore vale
+      solo per la frazione di trasparenza dello sfondo che lo copre (per
+      .critical-auction-strip: 6%), e uno sfocamento conserva la media locale
+      del colore, quindi il termine d'errore è una frazione del 6% di una
+      differenza di luminanza. Dove lo sfondo è opaco la misura è esatta e il
+      `backdrop-filter` è irrilevante.
+
+   2. Lo sfondo si cerca risalendo gli ANTENATI. Un testo posizionato sopra un
+      elemento che non è un suo antenato (un overlay assoluto steso su un
+      fratello) verrebbe misurato contro lo sfondo del proprio antenato, non
+      contro ciò che gli sta davvero dietro. Non è un buco aperto in questa
+      app — nessun testo qui si sovrappone a un fratello con sfondo diverso —
+      ma la misura NON lo coprirebbe, e chiuderlo vuol dire hit-testing, non
+      aritmetica sugli stili. Se un giorno servisse un overlay del genere, va
+      chiuso prima, non dopo.
 
    La soglia è 4,5:1: WCAG AA per il testo normale. Il testo attenuato di
    questa app è quasi tutto sotto i 14px, quindi l'eccezione "large text"
@@ -321,7 +339,7 @@ export const THRESHOLD_EXEMPT: readonly { readonly selector: string; readonly wh
 /** Il calcolo, iniettato nella pagina una volta sola e riusato dalle due
  *  funzioni pubbliche qui sotto. Restituisce un ESITO, non un numero: o la
  *  misura, o il motivo per cui non è stato possibile misurare. */
-const CONTRAST_IN_PAGE = `(el) => {
+const CONTRAST_IN_PAGE = `(el, pseudo) => {
   const canvas = document.createElement("canvas");
   canvas.width = 1; canvas.height = 1;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
@@ -352,20 +370,31 @@ const CONTRAST_IN_PAGE = `(el) => {
   const tag = (n) => n.tagName.toLowerCase() + (n.id ? "#" + n.id : "");
   const no = (reason) => ({ ok: false, reason: reason });
 
+  /* LA CATENA DI COMPOSIZIONE, dal più interno alla radice.
+     Con \`pseudo\` il primo strato è lo PSEUDO-ELEMENTO: dipinge SOPRA lo
+     sfondo dell'elemento che lo genera e porta un proprio colore, una propria
+     alfa e un proprio sfondo, quindi entra nella catena come uno strato in
+     più — non come un caso a parte, così tutto ciò che c'è sotto (opacity,
+     filter, pila degli sfondi) vale per lui identico. */
   const chain = [];
   for (let node = el; node !== null; node = node.parentElement) chain.push(node);
   const styles = chain.map((n) => getComputedStyle(n));
+  const labels = chain.map(tag);
+  if (pseudo) {
+    styles.unshift(getComputedStyle(el, pseudo));
+    labels.unshift(tag(el) + pseudo);
+  }
 
   /* Trasformazioni che riscrivono il colore reso in modi che questa misura
      non sa rifare. Non si approssimano: si dichiarano non classificabili.
      \`filter: opacity(.4)\` e \`filter: brightness(.3)\` sono esattamente lo
      stesso attacco dell'\`opacity\`, per una strada che l'aritmetica qui sotto
      non vede: senza questo controllo tornerebbero a passare in silenzio. */
-  for (let i = 0; i < chain.length; i++) {
+  for (let i = 0; i < styles.length; i++) {
     if (styles[i].filter !== "none")
-      return no("colore reso non ricostruibile: filter «" + styles[i].filter + "» su " + tag(chain[i]));
+      return no("colore reso non ricostruibile: filter «" + styles[i].filter + "» su " + labels[i]);
     if (styles[i].mixBlendMode !== "normal")
-      return no("colore reso non ricostruibile: mix-blend-mode «" + styles[i].mixBlendMode + "» su " + tag(chain[i]));
+      return no("colore reso non ricostruibile: mix-blend-mode «" + styles[i].mixBlendMode + "» su " + labels[i]);
   }
 
   const alphas = styles.map((s) => Number(s.opacity));
@@ -381,10 +410,10 @@ const CONTRAST_IN_PAGE = `(el) => {
     const layers = [];
     for (let i = from; i <= to; i++) {
       if (styles[i].backgroundImage !== "none")
-        return { error: "sfondo non risolvibile: background-image su " + tag(chain[i]) };
+        return { error: "sfondo non risolvibile: background-image su " + labels[i] };
       const c = parse(styles[i].backgroundColor);
       if (c === null)
-        return { error: "sfondo non risolvibile: «" + styles[i].backgroundColor + "» su " + tag(chain[i]) };
+        return { error: "sfondo non risolvibile: «" + styles[i].backgroundColor + "» su " + labels[i] };
       layers.push(c);
       if (c[3] === 1) break;
     }
@@ -393,7 +422,7 @@ const CONTRAST_IN_PAGE = `(el) => {
     return { color: acc };
   };
 
-  const backdrop = stack(groupTop + 1, chain.length - 1);
+  const backdrop = stack(groupTop + 1, styles.length - 1);
   if (backdrop.error !== undefined) return no(backdrop.error);
   if (backdrop.color[3] < 1)
     return no("nessuno sfondo opaco fino alla radice: il colore reso dietro il testo non è determinabile");
@@ -432,8 +461,9 @@ export async function textContrast(page: Page, selector: string): Promise<number
       // eslint-disable-next-line no-new-func
       const measure = new Function(`return ${body}`)() as (
         e: Element,
+        pseudo: string | null,
       ) => { ok: true; ratio: number } | { ok: false; reason: string };
-      const out = measure(el);
+      const out = measure(el, null);
       if (!out.ok) throw new Error(`contrasto: ${sel} non classificabile — ${out.reason}`);
       return out.ratio;
     },
@@ -468,14 +498,28 @@ export type TextMeasurement =
     };
 
 /**
- * La spazzata: ogni elemento a schermo che porta testo proprio.
+ * La spazzata: ogni testo a schermo, di qualunque provenienza.
  *
- * Cosa NON entra nell'insieme, e sono solo due famiglie, entrambe dimostrate
- * dal browser e mai dal colore del testo:
+ * DUE PROVENIENZE, NON UNA. Un elemento produce testo in due modi e la
+ * spazzata li tratta uguale:
+ *  - i propri NODI DI TESTO (`nodeType === 3`);
+ *  - il `content` dei propri PSEUDO-ELEMENTI `::before` / `::after`.
+ * Il secondo non c'era: `::after { content: "beta"; color: … }` era testo
+ * dipinto a schermo che nessuna casella misurava — la stessa fuga chiusa qui
+ * sopra per una terza strada, verificata rompendo davvero. Uno pseudo-elemento
+ * entra come uno strato in più della catena di composizione (vedi
+ * CONTRAST_IN_PAGE), quindi porta con sé il proprio colore, la propria alfa e
+ * il proprio sfondo senza alcuna regola speciale.
+ *
+ * Cosa NON entra nell'insieme, e sono solo tre famiglie, tutte dimostrate dal
+ * browser e mai dal colore del testo:
  *  - ciò che è in UNMEASURABLE_TEXT, per il motivo scritto lì accanto;
  *  - ciò che non viene proprio dipinto: nessun box generato
  *    (`getClientRects()` vuoto, cioè `display: none` e discendenti) oppure
- *    `visibility` diversa da `visible`.
+ *    `visibility` diversa da `visible`;
+ *  - uno pseudo-elemento che non genera testo: `content` assente (`none` /
+ *    `normal`) o fatto di sole immagini (`url(...)`), che non ha un colore del
+ *    testo da misurare.
  *
  * In particolare NON esce più dall'insieme un elemento perché il suo colore
  * «non è riconosciuto»: il colore non decide più chi viene misurato. E non ne
@@ -494,51 +538,73 @@ export async function measureAllText(page: Page, selector = "*"): Promise<TextMe
       // eslint-disable-next-line no-new-func
       const measure = new Function(`return ${body as string}`)() as (
         e: Element,
+        pseudo: string | null,
       ) =>
         | { ok: true; ratio: number; fg: string; bg: string; opacity: number }
         | { ok: false; reason: string };
       const out: TextMeasurement[] = [];
       for (const el of Array.from(document.querySelectorAll(sel as string))) {
-        const ownText = Array.from(el.childNodes)
-          .filter((n) => n.nodeType === 3)
-          .map((n) => (n.textContent ?? "").trim())
-          .join(" ")
-          .trim();
-        if (ownText === "") continue;
         if (
           (unmeasurable as readonly { readonly selector: string }[]).some((x) =>
             el.matches(x.selector),
           )
         )
           continue;
-        const cs = getComputedStyle(el);
         // Non dipinto affatto: nessun box generato, o reso invisibile da
         // `visibility`. Sono le sole due uscite mute che restano.
         if (el.getClientRects().length === 0) continue;
+        const cs = getComputedStyle(el);
         if (cs.visibility !== "visible") continue;
         const cls = typeof el.className === "string" ? el.className : "";
-        const label = `${el.tagName.toLowerCase()}${el.id ? "#" + el.id : ""}${
+        const self = `${el.tagName.toLowerCase()}${el.id ? "#" + el.id : ""}${
           cls ? "." + cls.split(/\s+/).join(".") : ""
-        } «${ownText.slice(0, 34)}»`;
-        const m = measure(el);
-        if (!m.ok) {
-          out.push({ kind: "unclassified", reason: m.reason, text: ownText, label });
-          continue;
-        }
+        }`;
         const waiver = (
           exempt as readonly { readonly selector: string; readonly why: string }[]
         ).find((x) => el.matches(x.selector));
-        out.push({
-          kind: "measured",
-          ratio: m.ratio,
-          fg: m.fg,
-          bg: m.bg,
-          opacity: m.opacity,
-          fontSize: parseFloat(cs.fontSize),
-          text: ownText,
-          label,
-          exempt: waiver === undefined ? null : waiver.why,
-        });
+
+        /** Una sola porta d'uscita per entrambe le provenienze: misura, oppure
+         *  «non classificabile». Mai un `continue` silenzioso. */
+        const record = (pseudo: string | null, text: string, size: number): void => {
+          const label = `${self}${pseudo ?? ""} «${text.slice(0, 34)}»`;
+          const m = measure(el, pseudo);
+          if (!m.ok) {
+            out.push({ kind: "unclassified", reason: m.reason, text, label });
+            return;
+          }
+          out.push({
+            kind: "measured",
+            ratio: m.ratio,
+            fg: m.fg,
+            bg: m.bg,
+            opacity: m.opacity,
+            fontSize: size,
+            text,
+            label,
+            exempt: waiver === undefined ? null : waiver.why,
+          });
+        };
+
+        const ownText = Array.from(el.childNodes)
+          .filter((n) => n.nodeType === 3)
+          .map((n) => (n.textContent ?? "").trim())
+          .join(" ")
+          .trim();
+        if (ownText !== "") record(null, ownText, parseFloat(cs.fontSize));
+
+        for (const pseudo of ["::before", "::after"]) {
+          const ps = getComputedStyle(el, pseudo);
+          const content = ps.content;
+          // Nessun contenuto generato: lo pseudo-elemento non esiste.
+          if (content === "" || content === "none" || content === "normal") continue;
+          // Sole immagini: c'è un box, ma non c'è testo di cui misurare il
+          // colore. Qualunque altra forma (stringhe, `attr()`, `counter()`,
+          // e le loro combinazioni con un'immagine) è testo e si misura.
+          if (/^\s*(url\([^)]*\)|image-set\([^)]*\)|linear-gradient\([^)]*\))\s*$/.test(content))
+            continue;
+          if (ps.visibility !== "visible") continue;
+          record(pseudo, content, parseFloat(ps.fontSize));
+        }
       }
       return out;
     },

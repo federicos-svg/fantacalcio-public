@@ -40,16 +40,19 @@ import {
 //     era l'ultima famiglia di testo sotto soglia rimasta in questa app.
 //
 // LA SPAZZATA È FAIL-CLOSED. Fino a poco fa la guardia n. 2 misurava solo il
-// testo il cui colore composito corrispondeva a un token della rampa: bastava
-// dipingere un testo di un colore qualsiasi — o mettere un `opacity` su un
-// pannello, che il colore composito lo cambia da sé — perché l'elemento
-// uscisse dall'insieme misurato invece di essere bocciato, e la spec restava
-// verde sull'app rotta. Entrambe le fughe sono state verificate rompendo
-// davvero, non ragionando. Adesso ogni testo visibile finisce in una di tre
-// caselle: misurato e sopra AA, misurato e sotto AA (rosso), non
-// classificabile (rosso, col motivo e il selettore stampati). Le uniche
-// esclusioni sono dichiarate in helpers.ts — UNMEASURABLE_TEXT e
-// THRESHOLD_EXEMPT — e ognuna porta scritto perché esiste.
+// testo il cui colore composito corrispondeva a un token della rampa, e solo i
+// nodi di testo. C'erano quindi TRE modi di rendere illeggibile un testo senza
+// che questa spec lo dicesse: dipingerlo di un colore qualsiasi; mettere un
+// `opacity` su un pannello, che il colore composito lo cambia da sé; scriverlo
+// con `::before` / `::after { content: … }`, che la spazzata non guardava
+// proprio. Nei primi due casi l'elemento usciva dall'insieme misurato invece
+// di essere bocciato; nel terzo non ci entrava mai. Tutte e tre le fughe sono
+// state verificate rompendo davvero, non ragionando. Adesso ogni testo
+// visibile — nodi di testo e pseudo-elementi — finisce in una di tre caselle:
+// misurato e sopra AA, misurato e sotto AA (rosso), non classificabile
+// (rosso, col motivo e il selettore stampati). Le uniche esclusioni sono
+// dichiarate in helpers.ts — UNMEASURABLE_TEXT e THRESHOLD_EXEMPT — e ognuna
+// porta scritto perché esiste.
 //
 // Tutte le righe sono sintetiche e il network guard aborta qualunque altra
 // cosa.
@@ -118,6 +121,10 @@ type SweepCount = { readonly measured: number; readonly onRamp: number };
  * composito e basta — usciva dall'insieme misurato invece di essere bocciato.
  * Il modo più facile di rendere illeggibile un testo era anche il modo più
  * facile di farlo sparire dalla prova che doveva impedirlo.
+ *
+ * E NIENTE FILTRO SULLA PROVENIENZA: il `content` di `::before` / `::after` è
+ * testo dipinto a schermo esattamente come un nodo di testo, e viene misurato
+ * come tale (helpers.ts, measureAllText).
  *
  * Cosa resta fuori, e perché: SOLO ciò che è dichiarato in helpers.ts —
  * UNMEASURABLE_TEXT (contenuto di <head>, testo del widget nativo di
