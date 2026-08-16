@@ -280,6 +280,17 @@ function assertInvariants(log: readonly AuctionEvent[], where: string): AuctionS
 interface RunResult {
   readonly log: readonly AuctionEvent[];
   readonly final: AuctionState;
+  /**
+   * Lo stato COM'ERA dopo ogni singolo evento, catturato mentre la corsa
+   * avanzava. `snapshots[i]` è lo stato dopo `log[i]`.
+   *
+   * Serve al test di rigioco, e serve in questa forma per una ragione precisa:
+   * confrontare `reduce(prefisso)` con `reduce(prefisso)` è vero per
+   * costruzione e non prova niente. Il confronto che prova qualcosa è fra lo
+   * stato che l'app AVEVA in quel momento e quello che otterrebbe ricaricando
+   * da zero — cioè esattamente il gesto del recovery a metà asta.
+   */
+  readonly snapshots: readonly AuctionState[];
   readonly unsold: number;
   readonly voids: number;
   /** Quanti acquisti sono stati chiusi esattamente al massimo sicuro. */
@@ -325,6 +336,7 @@ function runAuction(
   let roleFullSeen = 0;
   let budgetLockedSeen = 0;
   let atFloorSeen = 0;
+  const snapshots: AuctionState[] = [];
   const rolesFilledLeagueWide = new Set<Role>();
 
   for (let i = 0; i < total; i++) {
@@ -383,7 +395,7 @@ function runAuction(
     if (winningBid === maxSafe(state.teams[winner]!, player.role).maxSafe) atLimit += 1;
 
     log = recordPurchase(log, state, proposed, `2026-09-03T20:${String(i % 60).padStart(2, "0")}:00.000Z`);
-    assertInvariants(log, `dopo l'acquisto ${i}`);
+    snapshots.push(assertInvariants(log, `dopo l'acquisto ${i}`));
 
     // Le correzioni al tavolo: ogni 37 acquisti si annulla l'ultimo, che è il
     // gesto reale («ho battuto il prezzo sbagliato»). Il giocatore torna
@@ -393,7 +405,7 @@ function runAuction(
       if (last.type === "PURCHASE") {
         log = recordVoid(log, last.seq, `2026-09-03T21:${String(i % 60).padStart(2, "0")}:00.000Z`);
         voids += 1;
-        assertInvariants(log, `dopo l'annullamento di ${last.seq}`);
+        snapshots.push(assertInvariants(log, `dopo l'annullamento di ${last.seq}`));
       }
     }
   }
@@ -414,6 +426,7 @@ function runAuction(
   return {
     log,
     final,
+    snapshots,
     unsold,
     voids,
     atLimit,
@@ -536,7 +549,85 @@ describe("#237 backtest sintetico — un'asta intera, invarianti verificati a og
     }
   });
 
-  it("nessun doppio acquisto, nessuno slot oltre il limite, nessun budget negativo, in tutta la corsa", () => {
+  it("il doppio acquisto è RIFIUTATO in ogni istante della corsa, anche dopo un annullamento", () => {
+    // PERCHÉ QUESTO TEST ESISTE IN QUESTA FORMA. La prima stesura si limitava
+    // a contare: «nessun playerId compare due volte nel log finale». La
+    // falsificazione l'ha smontata — tolto del tutto il controllo
+    // `duplicate-player` da `purchaseFeasibility`, il test restava VERDE,
+    // perché la corsa chiama ogni giocatore una volta sola e non prova mai a
+    // ricomprarne uno già preso. Contava una proprietà che non poteva violare.
+    //
+    // Adesso la corsa ci PROVA davvero, in tre punti diversi dell'asta, su un
+    // giocatore posseduto da un altro E su uno posseduto da sé, e verifica che
+    // il motore rifiuti nominando la violazione. Il caso dopo un VOID è la
+    // controprova: quel giocatore È tornato libero, e lì il rifiuto NON deve
+    // esserci — altrimenti un annullamento renderebbe un giocatore
+    // irrecuperabile per il resto della serata.
+    const run = runAuction(SEED, { withVoids: true });
+
+    const voided = new Set<number>();
+    for (const e of run.log) if (e.type === "VOID") voided.add(e.targetSeq);
+
+    let attempted = 0;
+    for (const checkpoint of [40, 120, run.log.length]) {
+      const prefix = run.log.slice(0, checkpoint);
+      const state = reduce(prefix, [...TEAMS]);
+      const owned = prefix.filter(
+        (e): e is Extract<AuctionEvent, { type: "PURCHASE" }> =>
+          e.type === "PURCHASE" && !voided.has(e.seq),
+      );
+      if (owned.length === 0) continue;
+
+      const target = owned[Math.floor(owned.length / 2)]!;
+      for (const buyer of [target.fantaTeamId, TEAMS.find((t) => t !== target.fantaTeamId)!]) {
+        const verdict = purchaseFeasibility(state, {
+          playerId: target.playerId,
+          role: target.role,
+          fantaTeamId: buyer,
+          price: COST_FLOOR,
+        });
+        expect(
+          verdict.violations,
+          `a ${checkpoint} eventi il motore ha accettato di ricomprare ${target.playerId} (già di ${target.fantaTeamId}) per ${buyer}`,
+        ).toContain("duplicate-player");
+        expect(verdict.ok).toBe(false);
+        // E il contratto non si limita a dirlo: rifiuta di scrivere l'evento.
+        expect(() =>
+          recordPurchase(prefix, state, {
+            playerId: target.playerId,
+            role: target.role,
+            fantaTeamId: buyer,
+            price: COST_FLOOR,
+          }, "2026-09-03T22:00:00.000Z"),
+        ).toThrow(/duplicate-player/);
+        attempted += 1;
+      }
+    }
+    // La corsa ha davvero prodotto i checkpoint su cui provare.
+    expect(attempted).toBeGreaterThanOrEqual(4);
+
+    // CONTROPROVA — un giocatore ANNULLATO è di nuovo comprabile. Senza questa
+    // metà, il test resterebbe verde anche su un motore che rifiuta tutto.
+    const firstVoid = run.log.find((e) => e.type === "VOID");
+    expect(firstVoid, "la corsa non ha prodotto annullamenti").toBeDefined();
+    const voidSeq = firstVoid!.seq;
+    const freed = run.log.find(
+      (e): e is Extract<AuctionEvent, { type: "PURCHASE" }> =>
+        e.type === "PURCHASE" && e.seq === (firstVoid as { targetSeq: number }).targetSeq,
+    )!;
+    const afterVoid = reduce(run.log.slice(0, run.log.findIndex((e) => e.seq === voidSeq) + 1), [...TEAMS]);
+    expect(afterVoid.purchasedPlayerIds).not.toContain(freed.playerId);
+    expect(
+      purchaseFeasibility(afterVoid, {
+        playerId: freed.playerId,
+        role: freed.role,
+        fantaTeamId: freed.fantaTeamId,
+        price: COST_FLOOR,
+      }).violations,
+    ).not.toContain("duplicate-player");
+  });
+
+  it("nessuno slot oltre il limite e nessun budget negativo: la contabilità torna sui totali", () => {
     const run = runAuction(SEED, { withVoids: true });
 
     // Il conteggio fisico degli acquisti ancora in piedi combacia con la somma
@@ -566,13 +657,20 @@ describe("#237 backtest sintetico — un'asta intera, invarianti verificati a og
     // Rigiocato in un colpo solo == rigiocato dallo stesso log.
     expect(reduce(run.log, [...TEAMS])).toEqual(run.final);
 
-    // E ogni PREFISSO del log rigiocato da zero coincide con lo stato che si
-    // otteneva a quel punto della corsa: è la proprietà che rende un recovery
-    // affidabile — ricaricare a metà asta deve dare esattamente lo stato che
-    // c'era, non uno equivalente «più o meno».
-    for (let i = 0; i <= run.log.length; i++) {
-      const prefix = run.log.slice(0, i);
-      expect(reduce(prefix, [...TEAMS])).toEqual(reduce(prefix, [...TEAMS]));
+    // E ogni PREFISSO del log rigiocato DA ZERO coincide con lo stato che
+    // l'app aveva davvero in quel momento della corsa. È la proprietà che
+    // rende affidabile un recovery a metà asta: ricaricare deve restituire
+    // esattamente lo stato che c'era, non uno equivalente «più o meno».
+    //
+    // Il confronto è contro gli snapshot catturati DURANTE la corsa, non
+    // contro un secondo `reduce()` dello stesso prefisso — quello sarebbe vero
+    // per costruzione e non proverebbe niente (falsificato: la prima stesura
+    // faceva così e restava verde su un `reduce` rotto).
+    expect(run.snapshots.length).toBe(run.log.length);
+    for (let i = 0; i < run.log.length; i++) {
+      expect(reduce(run.log.slice(0, i + 1), [...TEAMS]), `rigioco del prefisso di ${i + 1} eventi`).toEqual(
+        run.snapshots[i],
+      );
     }
 
     // Determinismo end-to-end: due corse indipendenti con la stessa seed
