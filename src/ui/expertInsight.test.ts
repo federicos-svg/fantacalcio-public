@@ -7,6 +7,14 @@ import {
   FONTE_LABELS,
   FONTE_NON_DICHIARATA,
   EXPERT_INSIGHT_LABEL_TEXT,
+  EXPERT_INSIGHT_CHOICE_PENDING_TEXT,
+  SCHEDA_CHOICE_CLEAR_VALUE,
+  SCHEDA_CHOICE_LINKED_NOTE,
+  SCHEDA_CHOICE_NOT_PERSISTED,
+  SCHEDA_CHOICE_PENDING_NOTE,
+  SCHEDA_CHOICE_QUESTION,
+  schedaChoiceHtml,
+  schedaMatchNoteText,
   TITOLARITA_LABELS,
   TITOLARITA_LABELS_COVER_VOCABULARY,
   expertInsightBodyHtml,
@@ -26,7 +34,7 @@ import {
   AVVISO_VALUES,
   EXPERT_INSIGHT_AVAILABILITIES,
   EXPERT_INSIGHT_QUALITY_LABELS,
-  indexSchede,
+  expertSchedaStore,
   resolveExpertInsight,
   unknownExpertInsight,
   type ExpertInsightAvailability,
@@ -42,10 +50,10 @@ const CLUB = "ClubQuattro";
 const KEY = listonePlayerKey({ name: PLAYER, club: CLUB });
 
 function viewOf(scheda: Omit<ExpertScheda, "player" | "club">): ExpertInsightView {
-  return resolveExpertInsight(
-    { ok: true, byPlayerKey: indexSchede([{ player: PLAYER, club: CLUB, ...scheda }]) },
-    KEY,
-  );
+  return resolveExpertInsight(expertSchedaStore([{ player: PLAYER, club: CLUB, ...scheda }]), {
+    name: PLAYER,
+    club: CLUB,
+  });
 }
 
 const UNKNOWN_STATES = EXPERT_INSIGHT_AVAILABILITIES.filter(
@@ -332,6 +340,12 @@ describe("forma parlata e perimetro", () => {
         }),
       ),
       ...UNKNOWN_STATES.map((a) => expertInsightBodyHtml(unknownExpertInsight(a))),
+      // Le superfici dell'aggancio: la dichiarazione e la domanda, in tutti e
+      // due i loro stati (prima e dopo la risposta di Pico).
+      EXPERT_INSIGHT_CHOICE_PENDING_TEXT,
+      expertInsightBodyHtml(ambiguousView(), true),
+      expertInsightBodyHtml(ambiguousView(SECOND_KEY), true),
+      expertInsightSpoken(ambiguousView()),
     ].join(" \n ");
     const lower = surfaces.toLowerCase();
     for (const word of DIRECTIVE_WORDS) {
@@ -344,5 +358,154 @@ describe("forma parlata e perimetro", () => {
         `«${word}» compare in forma affermativa: qui può esistere solo come negazione`,
       ).toBe(false);
     }
+  });
+});
+
+// ── LA DICHIARAZIONE E LA DOMANDA ────────────────────────────────────────────
+//
+// Due superfici che esistono solo quando servono, e che nel caso normale
+// (nome del listone identico a quello della scheda) devono essere STRINGA
+// VUOTA: su questa schermata ogni riga costa altezza al pannello successivo.
+
+const SHORT = "Placeholder";
+const SHORT_TARGET = { name: SHORT, club: CLUB } as const;
+const OTHER_PLAYER = "Bruno Placeholder";
+const FIRST_KEY = listonePlayerKey({ name: PLAYER, club: CLUB });
+const SECOND_KEY = listonePlayerKey({ name: OTHER_PLAYER, club: CLUB });
+
+const ambiguousStore = expertSchedaStore([
+  { player: PLAYER, club: CLUB, nota: "Prima." },
+  { player: OTHER_PLAYER, club: CLUB, nota: "Seconda." },
+]);
+const ambiguousView = (chosen: string | null = null): ExpertInsightView =>
+  resolveExpertInsight(ambiguousStore, SHORT_TARGET, chosen);
+
+describe("la riga che dichiara un aggancio dedotto", () => {
+  it("dice su quale nome la scheda è scritta quando il nome non era identico", () => {
+    const view = resolveExpertInsight(
+      expertSchedaStore([{ player: PLAYER, club: CLUB, nota: "Contesto." }]),
+      SHORT_TARGET,
+    );
+    const html = expertInsightBodyHtml(view);
+    expect(html).toContain('id="player-insight-match"');
+    expect(html).toContain(PLAYER);
+    expect(schedaMatchNoteText(view)).toContain(PLAYER);
+  });
+
+  // Il caso normale è la stragrande maggioranza delle righe: qui la riga non
+  // deve esistere, non deve essere vuota-ma-presente.
+  it("non esiste quando il nome del listone è quello della scheda", () => {
+    const view = viewOf({ nota: "Contesto." });
+    expect(view.matchedBy).toBe("exact");
+    expect(schedaMatchNoteText(view)).toBe("");
+    expect(expertInsightBodyHtml(view)).not.toContain("player-insight-match");
+  });
+
+  it("non si ripete quando la scelta è già stata fatta a mano: la tendina lo dice già", () => {
+    expect(schedaMatchNoteText(ambiguousView(SECOND_KEY))).toBe("");
+  });
+});
+
+describe("la tendina: la domanda a Pico, e la sua risposta", () => {
+  it("non c'è tendina quando non c'è niente da chiedere", () => {
+    expect(schedaChoiceHtml(viewOf({ nota: "x" }))).toBe("");
+    for (const availability of UNKNOWN_STATES) {
+      expect(schedaChoiceHtml(unknownExpertInsight(availability))).toBe("");
+    }
+  });
+
+  it("porta i nomi COME SCRITTI sulle schede, che è ciò che Pico rilegge", () => {
+    const html = schedaChoiceHtml(ambiguousView());
+    expect(html).toContain(`value="${FIRST_KEY}"`);
+    expect(html).toContain(`value="${SECOND_KEY}"`);
+    expect(html).toContain(`${PLAYER} — ${CLUB}`);
+    expect(html).toContain(`${OTHER_PLAYER} — ${CLUB}`);
+  });
+
+  // IL PUNTO PIÙ IMPORTANTE DI QUESTO BLOCCO. Un `<select>` che parte già su un
+  // valore è una risposta data dall'app con l'aria di una domanda.
+  it("NESSUN candidato è preselezionato finché Pico non ha scelto", () => {
+    const html = schedaChoiceHtml(ambiguousView());
+    expect(html).toContain(`<option value="" disabled selected>`);
+    expect(html).not.toContain(`value="${FIRST_KEY}" selected`);
+    expect(html).not.toContain(`value="${SECOND_KEY}" selected`);
+    // «Nessuna di queste» prima di una scelta non cambierebbe niente: è rumore.
+    expect(html).not.toContain(SCHEDA_CHOICE_CLEAR_VALUE);
+  });
+
+  it("dopo la scelta il candidato scelto è selezionato e la tendina resta, per cambiare idea", () => {
+    const html = schedaChoiceHtml(ambiguousView(SECOND_KEY));
+    expect(html).toContain(`value="${SECOND_KEY}" selected`);
+    expect(html).not.toContain(`value="${FIRST_KEY}" selected`);
+    expect(html).toContain(SCHEDA_CHOICE_CLEAR_VALUE);
+    expect(html).toContain(SCHEDA_CHOICE_LINKED_NOTE);
+  });
+
+  it("finché non si sceglie il riquadro dichiara di non mostrare niente", () => {
+    const view = ambiguousView();
+    const html = expertInsightBodyHtml(view);
+    expect(view.availability).toBe("identity_not_resolved");
+    expect(html).toContain(EXPERT_INSIGHT_CHOICE_PENDING_TEXT);
+    expect(html).toContain(SCHEDA_CHOICE_PENDING_NOTE);
+    // Nessun residuo delle due schede: il riquadro non ne mostra metà.
+    expect(html).not.toContain("Prima.");
+    expect(html).not.toContain("Seconda.");
+  });
+
+  // Le due situazioni sotto `identity_not_resolved` portano a due gesti
+  // diversi: scegliere qui, oppure unire due schede nel deposito.
+  it("«vanno unite a mano» resta la frase del caso senza scelta possibile", () => {
+    const view = resolveExpertInsight(
+      expertSchedaStore([
+        { player: PLAYER, club: CLUB, nota: "Una." },
+        { player: PLAYER, club: CLUB, nota: "Due." },
+      ]),
+      SHORT_TARGET,
+    );
+    const html = expertInsightBodyHtml(view);
+    expect(html).toContain(EXPERT_INSIGHT_EMPTY_TEXT.identity_not_resolved);
+    expect(html).not.toContain(EXPERT_INSIGHT_CHOICE_PENDING_TEXT);
+    expect(schedaChoiceHtml(view)).toBe("");
+  });
+
+  it("scelta la scheda, il riquadro mostra la SUA prosa e tiene la tendina sotto", () => {
+    const html = expertInsightBodyHtml(ambiguousView(SECOND_KEY));
+    expect(html).toContain("Seconda.");
+    expect(html).not.toContain("Prima.");
+    expect(html).toContain('id="player-insight-choice"');
+    expect(html.indexOf("expert-prose")).toBeLessThan(html.indexOf("player-insight-choice"));
+  });
+
+  it("una scrittura non riuscita si legge nel riquadro invece di sparire", () => {
+    expect(expertInsightBodyHtml(ambiguousView(SECOND_KEY), true)).toContain(
+      SCHEDA_CHOICE_NOT_PERSISTED,
+    );
+    expect(expertInsightBodyHtml(ambiguousView(SECOND_KEY))).not.toContain(
+      SCHEDA_CHOICE_NOT_PERSISTED,
+    );
+  });
+
+  it("i nomi delle schede sono escapati: una scheda scritta a mano non inietta markup", () => {
+    const html = schedaChoiceHtml(
+      resolveExpertInsight(
+        expertSchedaStore([
+          { player: `${SHORT} <img src=x onerror=alert(1)>`, club: CLUB, nota: "a" },
+          { player: `${SHORT} altro`, club: CLUB, nota: "b" },
+        ]),
+        SHORT_TARGET,
+      ),
+    );
+    expect(html).not.toContain("<img");
+    expect(html).toContain("&lt;img");
+  });
+
+  it("la forma parlata porta la domanda e i candidati, non solo lo stato", () => {
+    const spoken = expertInsightSpoken(ambiguousView());
+    expect(spoken).toContain(SCHEDA_CHOICE_QUESTION);
+    expect(spoken).toContain(PLAYER);
+    expect(spoken).toContain(OTHER_PLAYER);
+    const after = expertInsightSpoken(ambiguousView(SECOND_KEY));
+    expect(after).toContain(OTHER_PLAYER);
+    expect(after).toContain("Seconda.");
   });
 });

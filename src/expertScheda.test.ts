@@ -5,7 +5,10 @@ import {
   EXPERT_SCHEDA_SCHEMA_VERSION,
   EXPERT_SCHEDE_ABSENT,
   SCHEDA_NOTA_MAX,
+  expertSchedaStore,
+  findSchedaCandidates,
   indexSchede,
+  indexSchedeByClub,
   isValidIsoDate,
   parseExpertSchedaDeposit,
   resolveExpertInsight,
@@ -25,13 +28,15 @@ import { listonePlayerKey } from "./ui/listone.js";
 const PLAYER = "Dario Placeholder";
 const CLUB = "ClubQuattro";
 const KEY = listonePlayerKey({ name: PLAYER, club: CLUB });
+/** La riga di listone da cui il riquadro cerca: nome + squadra, mai una chiave. */
+const TARGET = { name: PLAYER, club: CLUB } as const;
 
 function deposit(schede: readonly unknown[]): string {
   return JSON.stringify({ schemaVersion: EXPERT_SCHEDA_SCHEMA_VERSION, schede });
 }
 
 function storeOf(schede: readonly ExpertScheda[]): ExpertSchedaStore {
-  return { ok: true, byPlayerKey: indexSchede(schede) };
+  return expertSchedaStore(schede);
 }
 
 const FULL: ExpertScheda = {
@@ -127,13 +132,13 @@ describe("deposito delle schede — validazione fail-closed", () => {
 
 describe("i cinque stati di disponibilità", () => {
   it("source_unavailable — il deposito non è stato letto", () => {
-    const view = resolveExpertInsight(EXPERT_SCHEDE_ABSENT, KEY);
+    const view = resolveExpertInsight(EXPERT_SCHEDE_ABSENT, TARGET);
     expect(view.availability).toBe("source_unavailable");
     expect(view.quality).toBe(EXPERT_INSIGHT_QUALITY_LABELS.source_unavailable);
   });
 
   it("no_expert_signal — deposito letto, scheda non ancora scritta", () => {
-    const view = resolveExpertInsight(storeOf([]), KEY);
+    const view = resolveExpertInsight(storeOf([]), TARGET);
     expect(view.availability).toBe("no_expert_signal");
     expect(view.quality).toBe(EXPERT_INSIGHT_QUALITY_LABELS.no_expert_signal);
   });
@@ -142,13 +147,12 @@ describe("i cinque stati di disponibilità", () => {
     expect(resolveExpertInsight(storeOf([FULL]), null).availability).toBe("no_expert_signal");
     const empty: ExpertScheda = { player: PLAYER, club: CLUB, aggiornata: "2026-08-30", fonte: "staff" };
     expect(schedaHasContent(empty)).toBe(false);
-    expect(resolveExpertInsight(storeOf([empty]), KEY).availability).toBe("no_expert_signal");
+    expect(resolveExpertInsight(storeOf([empty]), TARGET).availability).toBe("no_expert_signal");
   });
 
   it("identity_not_resolved — due schede sullo stesso giocatore, nessuna delle due scelta", () => {
     const view = resolveExpertInsight(
-      storeOf([FULL, { player: PLAYER, club: CLUB, nota: "seconda scheda" }]),
-      KEY,
+      storeOf([FULL, { player: PLAYER, club: CLUB, nota: "seconda scheda" }]), TARGET,
     );
     expect(view.availability).toBe("identity_not_resolved");
     expect(view.quality).toBe(EXPERT_INSIGHT_QUALITY_LABELS.identity_not_resolved);
@@ -156,7 +160,7 @@ describe("i cinque stati di disponibilità", () => {
   });
 
   it("author_authority_not_verified — fonte non di staff, contenuto non attribuibile", () => {
-    const view = resolveExpertInsight(storeOf([{ ...FULL, fonte: "community" }]), KEY);
+    const view = resolveExpertInsight(storeOf([{ ...FULL, fonte: "community" }]), TARGET);
     expect(view.availability).toBe("author_authority_not_verified");
     expect(view.quality).toBe(EXPERT_INSIGHT_QUALITY_LABELS.author_authority_not_verified);
     expect(view.titolarita).toBeNull();
@@ -164,13 +168,19 @@ describe("i cinque stati di disponibilità", () => {
   });
 
   it("available — la scheda piena arriva intera alla vista", () => {
-    const view = resolveExpertInsight(storeOf([FULL]), KEY);
+    const view = resolveExpertInsight(storeOf([FULL]), TARGET);
     expect(view).toEqual({
       availability: "available",
       quality: EXPERT_INSIGHT_QUALITY_LABELS.available,
       contributesToIndex: false,
       validated: false,
       directive: false,
+      // Nome identico a quello del listone: nessuna domanda, nessun aggancio
+      // dedotto da dichiarare.
+      candidates: [],
+      chosenSchedaKey: null,
+      matchedBy: "exact",
+      matchedPlayer: PLAYER,
       titolarita: "ballottaggio",
       percentuale: 60,
       gerarchia: 2,
@@ -185,8 +195,7 @@ describe("i cinque stati di disponibilità", () => {
 
   it("available — una scheda di sola prosa è valida e conserva la sua prosa", () => {
     const view = resolveExpertInsight(
-      storeOf([{ player: PLAYER, club: CLUB, nota: "Due righe e nient'altro." }]),
-      KEY,
+      storeOf([{ player: PLAYER, club: CLUB, nota: "Due righe e nient'altro." }]), TARGET,
     );
     expect(view.availability).toBe("available");
     expect(view.nota).toBe("Due righe e nient'altro.");
@@ -198,7 +207,7 @@ describe("i cinque stati di disponibilità", () => {
   // Una percentuale senza titolarità è un numero senza soggetto: al riquadro
   // arriverebbe una barra riempita al 60% che non dice di che cosa.
   it("scarta la percentuale quando la titolarità non è dichiarata", () => {
-    const view = resolveExpertInsight(storeOf([{ player: PLAYER, club: CLUB, percentuale: 60, nota: "x" }]), KEY);
+    const view = resolveExpertInsight(storeOf([{ player: PLAYER, club: CLUB, percentuale: 60, nota: "x" }]), TARGET);
     expect(view.availability).toBe("available");
     expect(view.percentuale).toBeNull();
   });
@@ -226,7 +235,7 @@ describe("i cinque stati di disponibilità", () => {
 
   it("ogni stato porta la propria etichetta e i tre fatti di onestà", () => {
     const views = [
-      resolveExpertInsight(storeOf([FULL]), KEY),
+      resolveExpertInsight(storeOf([FULL]), TARGET),
       ...EXPERT_INSIGHT_AVAILABILITIES.filter((a) => a !== "available").map((a) =>
         unknownExpertInsight(a as Exclude<ExpertInsightAvailability, "available">),
       ),
@@ -246,7 +255,7 @@ describe("i cinque stati di disponibilità", () => {
   it("nessun nome di campo direttivo nella vista, in nessuno stato", () => {
     const patterns = [/^value/, /^fairtome/, /^targetband/, /^prezzo/, /^price/, /^consiglioasta/, /^maxbid/, /^raccomandazione/];
     const views = [
-      resolveExpertInsight(storeOf([FULL]), KEY),
+      resolveExpertInsight(storeOf([FULL]), TARGET),
       ...EXPERT_INSIGHT_AVAILABILITIES.filter((a) => a !== "available").map((a) =>
         unknownExpertInsight(a as Exclude<ExpertInsightAvailability, "available">),
       ),
@@ -257,5 +266,202 @@ describe("i cinque stati di disponibilità", () => {
         expect(patterns.some((p) => p.test(normalized))).toBe(false);
       }
     }
+  });
+});
+
+// ── L'AGGANCIO DEL NOME AL LISTONE ───────────────────────────────────────────
+//
+// Il difetto che questo blocco difende è INVISIBILE quando c'è: una scheda
+// scritta a mano su «Dario Placeholder» accanto a una riga di listone che dice
+// «Placeholder» spariva, e il riquadro dichiarava che la scheda non era stata
+// scritta. Nessun errore, nessun segno a schermo, e ~200 schede compilate a
+// mano che potevano perdersi una alla volta senza che nessuno se ne accorgesse.
+//
+// Ogni prova qui sotto è sulla REGOLA, non su una soglia: squadra uguale,
+// uguaglianza piena, contenimento di token nei due versi. Non ci sono numeri da
+// tarare, quindi non c'è nessun numero da provare.
+
+const OTHER_CLUB = "ClubUno";
+/** Il cognome nudo, come lo scrive il listone della lega. */
+const SHORT = "Placeholder";
+const SHORT_TARGET = { name: SHORT, club: CLUB } as const;
+const shortScheda = (player: string, nota: string): ExpertScheda => ({ player, club: CLUB, nota });
+
+describe("l'aggancio della scheda alla riga di listone", () => {
+  it("il caso che motiva tutto: la scheda porta il nome intero, il listone il cognome", () => {
+    const view = resolveExpertInsight(storeOf([shortScheda(PLAYER, "Nota della scheda.")]), SHORT_TARGET);
+    expect(view.availability).toBe("available");
+    expect(view.nota).toBe("Nota della scheda.");
+    // L'aggancio è DEDOTTO, quindi è dichiarato: su quale nome sia scritta la
+    // scheda deve poterlo leggere chi guarda, o un aggancio sbagliato sarebbe
+    // silenzioso quanto la scheda che spariva.
+    expect(view.matchedBy).toBe("contained");
+    expect(view.matchedPlayer).toBe(PLAYER);
+  });
+
+  it("vale anche nel verso opposto: scheda col cognome, listone col nome intero", () => {
+    const view = resolveExpertInsight(storeOf([shortScheda(SHORT, "Solo cognome.")]), {
+      name: PLAYER,
+      club: CLUB,
+    });
+    expect(view.availability).toBe("available");
+    expect(view.matchedBy).toBe("contained");
+    expect(view.matchedPlayer).toBe(SHORT);
+  });
+
+  // Il difetto che «contenimento di token» esiste per NON avere: con una piega
+  // che unisce tutto in una stringa sola, «Placeholder» aggancerebbe
+  // «Placeholderini» per sottostringa grezza.
+  it("un nome che INIZIA come un altro non è lo stesso nome", () => {
+    const store = storeOf([shortScheda("Placeholderini", "Altro giocatore.")]);
+    expect(resolveExpertInsight(store, SHORT_TARGET).availability).toBe("no_expert_signal");
+    expect(findSchedaCandidates(store, SHORT_TARGET)).toEqual([]);
+  });
+
+  it("la squadra è un muro: nome identico in un'altra squadra non aggancia mai", () => {
+    const store = storeOf([{ player: PLAYER, club: OTHER_CLUB, nota: "Omonimo altrove." }]);
+    expect(resolveExpertInsight(store, TARGET).availability).toBe("no_expert_signal");
+    expect(resolveExpertInsight(store, { name: PLAYER, club: OTHER_CLUB }).availability).toBe(
+      "available",
+    );
+  });
+
+  it("accenti e punteggiatura non rompono l'uguaglianza piena", () => {
+    const view = resolveExpertInsight(storeOf([{ player: "Dário Placeholder", club: CLUB, nota: "x" }]), TARGET);
+    expect(view.availability).toBe("available");
+    expect(view.matchedBy).toBe("exact");
+  });
+
+  // Senza questa precedenza il listone «Placeholder» con accanto una scheda
+  // «Placeholder» e una «Dario Placeholder» farebbe una domanda avendo già in
+  // mano la risposta giusta.
+  it("l'uguaglianza piena vince sul contenimento, e chiude la ricerca", () => {
+    const store = storeOf([
+      shortScheda(PLAYER, "Nome intero."),
+      shortScheda(SHORT, "Cognome nudo."),
+    ]);
+    const view = resolveExpertInsight(store, SHORT_TARGET);
+    expect(findSchedaCandidates(store, SHORT_TARGET).map((g) => g.player)).toEqual([SHORT]);
+    expect(view.availability).toBe("available");
+    expect(view.nota).toBe("Cognome nudo.");
+    expect(view.matchedBy).toBe("exact");
+    expect(view.candidates).toEqual([]);
+  });
+});
+
+describe("due schede possibili: la scelta è di Pico, non dell'app", () => {
+  const AMBIGUOUS = [
+    shortScheda(PLAYER, "Prima scheda."),
+    shortScheda("Bruno Placeholder", "Seconda scheda."),
+  ] as const;
+  const store = storeOf(AMBIGUOUS);
+  const firstKey = listonePlayerKey({ name: PLAYER, club: CLUB });
+  const secondKey = listonePlayerKey({ name: "Bruno Placeholder", club: CLUB });
+
+  it("senza risposta non si sceglie: la domanda, e nessun contenuto", () => {
+    const view = resolveExpertInsight(store, SHORT_TARGET);
+    expect(view.availability).toBe("identity_not_resolved");
+    expect(view.quality).toBe(EXPERT_INSIGHT_QUALITY_LABELS.identity_not_resolved);
+    expect(view.chosenSchedaKey).toBeNull();
+    expect(view.candidates.map((c) => c.player)).toEqual([PLAYER, "Bruno Placeholder"]);
+    // I candidati portano il nome COME SCRITTO sulla scheda: è ciò che Pico
+    // rilegge per rispondere. Una superficie piegata non gli direbbe niente.
+    expect(view.candidates.every((c) => c.club === CLUB && c.count === 1)).toBe(true);
+    expect(view.nota).toBe("");
+    expect(view.titolarita).toBeNull();
+  });
+
+  it("la risposta aggancia quella scheda, e resta cambiabile", () => {
+    const view = resolveExpertInsight(store, SHORT_TARGET, secondKey);
+    expect(view.availability).toBe("available");
+    expect(view.nota).toBe("Seconda scheda.");
+    expect(view.matchedBy).toBe("chosen");
+    expect(view.matchedPlayer).toBe("Bruno Placeholder");
+    expect(view.chosenSchedaKey).toBe(secondKey);
+    // I candidati restano nella vista anche DOPO la scelta: il riquadro deve
+    // poter offrire il cambio, o una risposta data in due secondi durante
+    // un'asta diventa irreversibile.
+    expect(view.candidates).toHaveLength(2);
+    expect(resolveExpertInsight(store, SHORT_TARGET, firstKey).nota).toBe("Prima scheda.");
+  });
+
+  // Il deposito è riscritto a mano fra una sessione e l'altra: una risposta di
+  // ieri può puntare a una scheda che oggi non è più fra i candidati.
+  it("una risposta che non punta più a niente riapre la domanda invece di agganciare a caso", () => {
+    const view = resolveExpertInsight(store, SHORT_TARGET, "scheda-sparita__clubquattro");
+    expect(view.availability).toBe("identity_not_resolved");
+    expect(view.chosenSchedaKey).toBeNull();
+    expect(view.candidates).toHaveLength(2);
+  });
+
+  it("una risposta non può creare un aggancio dove la regola non ne trova", () => {
+    const view = resolveExpertInsight(storeOf([]), SHORT_TARGET, firstKey);
+    expect(view.availability).toBe("no_expert_signal");
+    expect(view.matchedBy).toBeNull();
+    expect(view.candidates).toEqual([]);
+  });
+
+  it("con un candidato solo la risposta è inerte: non sposta l'aggancio e non si registra", () => {
+    const single = storeOf([shortScheda(PLAYER, "Unica.")]);
+    const view = resolveExpertInsight(single, SHORT_TARGET, "qualunque-altra-chiave__clubquattro");
+    expect(view.availability).toBe("available");
+    expect(view.nota).toBe("Unica.");
+    expect(view.chosenSchedaKey).toBeNull();
+  });
+
+  // Il caso storico — due schede sotto la STESSA identità — non è una scelta:
+  // le due etichette sarebbero identiche. Resta «vanno unite a mano».
+  it("due schede sotto la stessa identità restano da unire, senza domanda", () => {
+    const view = resolveExpertInsight(
+      storeOf([shortScheda(PLAYER, "Una."), shortScheda(PLAYER, "Due.")]),
+      SHORT_TARGET,
+    );
+    expect(view.availability).toBe("identity_not_resolved");
+    expect(view.candidates).toEqual([]);
+    expect(view.nota).toBe("");
+  });
+
+  it("scegliere un candidato che ne nasconde due lo dice, e lascia cambiare", () => {
+    const view = resolveExpertInsight(
+      storeOf([shortScheda(PLAYER, "Una."), shortScheda(PLAYER, "Due."), shortScheda("Bruno Placeholder", "Altra.")]),
+      SHORT_TARGET,
+      firstKey,
+    );
+    expect(view.availability).toBe("identity_not_resolved");
+    expect(view.nota).toBe("");
+    expect(view.candidates.find((c) => c.schedaKey === firstKey)?.count).toBe(2);
+    expect(view.chosenSchedaKey).toBe(firstKey);
+  });
+
+  it("gli altri stati sopravvivono alla scelta: una fonte non di staff resta non attribuibile", () => {
+    const view = resolveExpertInsight(
+      storeOf([
+        { player: PLAYER, club: CLUB, nota: "Prima.", fonte: "community" },
+        shortScheda("Bruno Placeholder", "Seconda."),
+      ]),
+      SHORT_TARGET,
+      firstKey,
+    );
+    expect(view.availability).toBe("author_authority_not_verified");
+    expect(view.nota).toBe("");
+    expect(view.candidates).toHaveLength(2);
+  });
+});
+
+describe("l'indice per squadra e i confini della ricerca", () => {
+  it("raggruppa per squadra piegata e conserva il nome come scritto", () => {
+    const byClub = indexSchedeByClub(
+      indexSchede([shortScheda(PLAYER, "x"), { player: "Aldo Prova", club: "  club quattro  ", nota: "y" }]),
+    );
+    expect([...byClub.keys()]).toEqual(["clubquattro", "club-quattro"]);
+    expect(byClub.get("clubquattro")?.[0]?.player).toBe(PLAYER);
+    expect(byClub.get("clubquattro")?.[0]?.nameTokens).toEqual(["dario", "placeholder"]);
+  });
+
+  it("un nome senza token non aggancia niente: nessuna prova non è un aggancio gratuito", () => {
+    const store = storeOf([shortScheda(PLAYER, "x")]);
+    expect(findSchedaCandidates(store, { name: "···", club: CLUB })).toEqual([]);
+    expect(findSchedaCandidates(store, null)).toEqual([]);
+    expect(findSchedaCandidates(EXPERT_SCHEDE_ABSENT, TARGET)).toEqual([]);
   });
 });

@@ -1449,6 +1449,67 @@
   line-height: 1.3;
 }
 
+/* ── L'AGGANCIO: la dichiarazione e la domanda ──────────────────────────────
+   Due superfici che nel caso normale NON esistono (i costruttori rendono
+   stringa vuota), quindi non costano niente alla schermata più lunga dell'app.
+   Tutto il testo sta sui livelli della rampa di base.css ed è sotto i 14px:
+   e2e/text-contrast-aa.spec.ts lo rimisura a ogni run e l'eccezione «large
+   text» non si applica da nessuna parte. */
+
+/* La riga che dichiara un aggancio DEDOTTO: sta sopra il contenuto perché dice
+   DI CHI è ciò che si sta per leggere, e leggerla dopo sarebbe leggerla tardi. */
+.expert-match {
+  color: var(--text-sec);
+  font-size: 11px;
+  line-height: 1.35;
+  margin-top: 6px;
+}
+
+/* La domanda. Sotto il contenuto in entrambi i rami — quando la scheda è
+   agganciata ciò che conta è la scheda, e cambiare idea è un ripensamento. */
+.expert-choice {
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 9px;
+  padding-top: 8px;
+}
+.expert-choice__label {
+  color: var(--text-mid);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+/* Largo abbastanza da mostrare «Nome Cognome — Squadra» senza troncare, e
+   comunque mai oltre la larghezza del pannello su telefono. */
+.expert-choice__select {
+  background: var(--panel-inner);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text-primary);
+  flex: 1 1 220px;
+  font-size: 12.5px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 6px 9px;
+}
+.expert-choice__note {
+  color: var(--text-sec);
+  flex: 1 1 100%;
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+/* La scrittura non riuscita: si legge, non si nasconde. Il colore da solo non
+   porta niente — la frase dice per intero che cosa non è stato salvato. */
+.expert-choice__warn {
+  color: var(--stop-red);
+  flex: 1 1 100%;
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
 /* I quattro stati «non lo so»: una frase sola, e nessun contenitore vuoto che
    possa leggersi come «pieno ma senza niente dentro». */
 .expert-insight__empty { margin-top: 7px; }
