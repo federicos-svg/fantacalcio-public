@@ -443,6 +443,45 @@
   color: var(--stop-red);
 }
 
+/* L'identificativo di un partecipante, accanto al suo nome (Impostazioni →
+   Partecipanti e squadre). È la chiave con cui lo storico d'asta riconosce la
+   persona: senza questa riga il file dell'archivio si scriverebbe leggendo
+   `localStorage` dagli strumenti da sviluppatore del browser. */
+.person-id-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+.person-id-value {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.3;
+  color: var(--text-sec);
+  background: var(--panel-inner);
+  border-radius: 4px;
+  padding: 3px 5px;
+  /* 45 caratteri in una colonna da 180px: scorre dentro di sé invece di
+     allargare la griglia dei partecipanti. */
+  overflow-x: auto;
+  white-space: nowrap;
+  /* Un clic solo seleziona tutto l'identificativo, per chi copia a mano. */
+  user-select: all;
+}
+.person-id-copy {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+.person-id-copy-status {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-mid);
+}
+.person-id-copy-status--warn {
+  color: var(--stop-red);
+}
+
 /* Archivio avversari (Impostazioni) — la via d'ingresso dello storico d'asta
    e dei profili d'intervista. src/ui/opponentArchiveSettings.ts.
    Ogni colore qui è un token della rampa di base.css: questo pannello finisce

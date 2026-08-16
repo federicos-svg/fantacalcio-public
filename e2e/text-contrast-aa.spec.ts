@@ -312,6 +312,14 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
 
   // ── IMPOSTAZIONI ──────────────────────────────────────────────────────────
   await gotoScreen(page, "Impostazioni");
+  // Un partecipante creato prima della spazzata: senza nessuno in archivio la
+  // riga «nome → identificativo» non esiste, e il testo più piccolo di questa
+  // schermata — l'identificativo, 10,5px monospace su --panel-inner — non
+  // verrebbe misurato affatto.
+  await openSettingsSection(page, "teams");
+  await page.locator("#new-person-name").fill("Persona Sintetica");
+  await page.locator("#add-person").click();
+  await expect(page.locator("#league-people-list .person-id-value")).toHaveCount(1);
   for (const section of ["teams", "riconferme", "status"] as const) {
     await openSettingsSection(page, section);
     await sweepScene(`impostazioni/${section}`);

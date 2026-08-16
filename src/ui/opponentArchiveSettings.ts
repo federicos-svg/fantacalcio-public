@@ -98,7 +98,7 @@ export const PROFILES_FILE_TEMPLATE = `{
  */
 const HISTORY_RULES: readonly string[] = [
   "`season`: esattamente `AAAA/AA`, per esempio `2024/25`. L'ordine cronologico dell'app è l'ordine alfabetico di questa etichetta, quindi `24-25` finirebbe in fondo senza dirlo a nessuno.",
-  "`personId`: `person:` seguito dall'UUID della PERSONA nel registro lega (Impostazioni → Partecipanti e squadre), mai il nome e mai il posto a tavola. I posti cambiano mano fra una stagione e l'altra, un precedente segue la persona.",
+  "`personId`: l'identificativo della PERSONA, mai il nome e mai il posto a tavola — i posti cambiano mano fra una stagione e l'altra, e un precedente segue la persona. Si legge accanto a ogni nome in Impostazioni → Partecipanti e squadre, dove ogni riga ha il suo pulsante «Copia»: sono 45 caratteri, non trascriverli a occhio.",
   "`playerId`: l'identificativo del giocatore, lo stesso in tutte le stagioni. Se cambia, lo stesso giocatore viene contato come due giocatori diversi e i precedenti spariscono in silenzio.",
   "`club`: la squadra REALE del giocatore in quella stagione (Serie A), non la fantasquadra.",
   "`price`: crediti interi, da 0 in su.",
@@ -108,7 +108,7 @@ const HISTORY_RULES: readonly string[] = [
 ];
 
 const PROFILES_RULES: readonly string[] = [
-  "`personId`: come sopra, l'UUID della persona nel registro lega. Un solo profilo per persona.",
+  "`personId`: come sopra, copiato da Impostazioni → Partecipanti e squadre. Un solo profilo per persona.",
   "`interviewId`: un'etichetta libera che identifica l'intervista da cui il profilo viene.",
   "Ogni risposta è un oggetto `{ value, status, declaredAt }`: `status` è `confermato` o `proposto`, e SOLO `confermato` viene letto — una risposta proposta è una proposta, non una dichiarazione di Pico.",
   "`declaredAt`: data ISO `AAAA-MM-GG`, e deve essere una data vera.",
