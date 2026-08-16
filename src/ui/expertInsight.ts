@@ -6,15 +6,15 @@
 // Il riquadro si legge durante un'asta, con due secondi per decidere, e deve
 // reggere DUE REGISTRI insieme:
 //
-//  1. LO STRATO VISIVO, per il colpo d'occhio. I segnali del Gruppo Esperti
-//     sono categorici e ordinati, quindi si disegnano: la titolarità è una
-//     scala a tre gradini (riserva -> ballottaggio -> titolare) e viene resa
-//     come una SCALA POSIZIONALE, non come un colore. La posizione su un asse
-//     è il canale che si legge più in fretta di tutti — più della lunghezza,
-//     molto più della tinta — e qui porta l'unica informazione che decide se
-//     alzare la mano: «gioca o non gioca». Rigori e calci piazzati sono
-//     presenza/assenza e diventano pastiglie; gli avvisi sono pastiglie con un
-//     marcatore proprio.
+//  1. LO STRATO VISIVO, per il colpo d'occhio. La titolarità è UNA pastiglia
+//     con dentro il valore che la scheda dichiara — «ballottaggio» — e nulla
+//     accanto. Qui c'era una scala a tre gradini con gli altri due spenti;
+//     Pico l'ha tolta guardando il pannello, e la ragione regge meglio del
+//     disegno che l'aveva messa: tre caselle di cui due spente sono un quiz,
+//     una casella è una risposta, e chi legge in due secondi vuole la
+//     risposta. Rigori e calci piazzati sono presenza/assenza e diventano
+//     pastiglie; gli avvisi sono pastiglie con un marcatore proprio. La quota
+//     del ballottaggio resta l'unica grandezza continua, barra più cifra.
 //  2. LA PROSA, per ciò che non si comprime. Il perché di un avviso, una
 //     situazione di mercato, una nota di contesto: sono frasi, e comprimerle
 //     in un'icona le distruggerebbe. La nota NON è una didascalia sotto le
@@ -24,14 +24,13 @@
 //
 // ── IL COLORE NON PORTA MAI NULLA DA SOLO ────────────────────────────────────
 //
-// Ogni gradino della scala porta la sua PAROLA («riserva», «ballottaggio»,
-// «titolare»); il gradino attivo si distingue per posizione, riempimento,
-// maiuscolo e peso, non per tinta. Ogni pastiglia porta la sua parola. Gli
-// avvisi hanno in più un marcatore testuale «!». Tutto il testo di questo
-// modulo sta sui quattro livelli della rampa di base.css, che e2e/
-// text-contrast-aa.spec.ts rimisura a ogni run: nulla qui è sotto 4,5:1, e il
-// testo è tutto sotto i 14px, quindi l'eccezione «large text» non si applica
-// da nessuna parte.
+// La pastiglia della titolarità porta la sua PAROLA, per intero e mai troncata
+// (è dimensionata sul contenuto, non su una colonna di griglia). Ogni altra
+// pastiglia porta la sua parola. Gli avvisi hanno in più un marcatore testuale
+// «!». Tutto il testo di questo modulo sta sui quattro livelli della rampa di
+// base.css, che e2e/text-contrast-aa.spec.ts rimisura a ogni run: nulla qui è
+// sotto 4,5:1, e il testo è tutto sotto i 14px, quindi l'eccezione «large text»
+// non si applica da nessuna parte.
 //
 // ── COSA NON C'È, E NON DEVE ARRIVARCI ───────────────────────────────────────
 //
@@ -39,10 +38,10 @@
 // «conviene»: `value` / `fair_to_me` / `target_band` sono output direttivi
 // dietro un gate chiuso (docs/NO_GO.md §Prodotto) e questo riquadro è
 // descrittivo per costruzione. I tre fatti di onestà del payload —
-// `validated: false`, `directive: false`, `contributesToIndex: false` — sono
-// resi a schermo in tutti e cinque gli stati: un flag vero solo nel JSON non lo
-// legge nessuno, e chi guarda deve capire in un colpo d'occhio che sta
-// leggendo il parere di terzi, non una raccomandazione del sistema.
+// `validated: false`, `directive: false`, `contributesToIndex: false` — restano
+// letterali nel contratto, restano verificati dai test e restano nel `title`
+// della label; a schermo li riassume una sola scritta, «Scheda Esperto» (vedi
+// `expertInsightLabel` più sotto per il perché).
 //
 // Costruttori di stringhe puri — stesso idioma di warBoard.ts, roleBudgetPlan.ts
 // e liveFacts.ts — così tutta la logica di resa è testabile senza DOM. Nessun
@@ -64,9 +63,6 @@ import { escHtml } from "./theme.js";
 export const EXPERT_INSIGHT_TITLE = "INSIGHT GIOCATORE";
 
 // ── Etichette utente ─────────────────────────────────────────────────────────
-
-/** La scala, dal gradino più basso al più alto. L'ordine È l'informazione. */
-export const TITOLARITA_LADDER: readonly Titolarita[] = ["riserva", "ballottaggio", "titolare"];
 
 export const TITOLARITA_LABELS: Readonly<Record<Titolarita, string>> = {
   riserva: "riserva",
@@ -108,88 +104,93 @@ export const FONTE_NON_DICHIARATA = "fonte non dichiarata";
 // ── I tre fatti di onestà, letti dal payload e scritti a schermo ─────────────
 
 /**
- * Ogni voce nomina il campo del payload da cui nasce. Se un giorno uno dei tre
- * smettesse di essere `false`, questa riga non potrebbe più essere stampata da
- * un letterale e l'incoerenza uscirebbe allo scoperto invece di restare nel
- * JSON.
+ * L'ETICHETTA UNICA, in alto a destra.
+ *
+ * Qui c'erano quattro pastiglie — «PARERE DI TERZI · NON VALIDATO · NON È UN
+ * CONSIGLIO · FUORI DAL CALCOLO» — una per ciascuno dei tre letterali `false`
+ * del payload più la provenienza. Sono state sostituite da una sola label per
+ * decisione di Pico, presa guardando il pannello: **«Scheda Esperto»**.
+ *
+ * PERCHÉ LA DECISIONE È COERENTE COL DATO, e non una rinuncia. Quelle quattro
+ * scritte erano state disegnate quando la fonte era il forum letto da una
+ * macchina, e servivano ad avvertire chi legge che il segnale veniva da altri e
+ * non era stato verificato. Da quando le schede le scrive Pico a mano prima
+ * dell'asta, quelle scritte avvertono lui di ciò che ha scritto lui: dicono la
+ * stessa cosa che dice il titolo del riquadro, e una riga identica sopra ogni
+ * giocatore smette di essere letta dopo il terzo.
+ *
+ * LA GARANZIA NON SPARISCE, CAMBIA POSTO. I tre `false` restano nel payload e
+ * restano verificati dai test del contratto; lo schema `.strict()` continua a
+ * rifiutare `value` / `fair_to_me` / `target_band` / `prezzo` / `maxBid` /
+ * `raccomandazione`; il `title` di questa label li nomina uno per uno, e la
+ * forma parlata del pannello porta l'etichetta di qualità per intero. Ciò che
+ * è stato tolto è l'inchiostro permanente a schermo, non il vincolo.
  */
-export interface ExpertInsightFlag {
+export interface ExpertInsightLabel {
   readonly id: string;
   readonly text: string;
   readonly title: string;
 }
 
-export function expertInsightFlags(view: ExpertInsightView): readonly ExpertInsightFlag[] {
-  const flags: ExpertInsightFlag[] = [];
-  flags.push({
-    id: "player-insight-flag-source",
-    text: "PARERE DI TERZI",
-    title:
-      "Scheda del Gruppo Esperti trascritta a mano prima dell'asta. È il parere di terzi, non una misura di questa app.",
-  });
+export const EXPERT_INSIGHT_LABEL_TEXT = "Scheda Esperto";
+
+export function expertInsightLabel(view: ExpertInsightView): ExpertInsightLabel {
+  // Il `title` si costruisce dai CAMPI, non da un letterale: se uno dei tre
+  // smettesse di essere `false` la frase corrispondente sparirebbe dal
+  // tooltip, e il test che le cerca tutte e tre diventerebbe rosso invece di
+  // restare verde su un payload cambiato sotto.
+  const facts: string[] = ["Scheda trascritta a mano prima dell'asta dalle fonti del Gruppo Esperti."];
   if (view.validated === false) {
-    flags.push({
-      id: "player-insight-flag-validated",
-      text: "NON VALIDATO",
-      title: "validated: false — nessuno ha verificato questo segnale contro un dato misurato.",
-    });
+    facts.push("validated: false — nessuno ha verificato questo segnale contro un dato misurato.");
   }
   if (view.directive === false) {
-    flags.push({
-      id: "player-insight-flag-directive",
-      text: "NON È UN CONSIGLIO",
-      title: "directive: false — il riquadro descrive, non raccomanda. Nessun prezzo, nessun «conviene».",
-    });
+    facts.push("directive: false — il riquadro descrive, non raccomanda. Nessun prezzo, nessun «conviene».");
   }
   if (view.contributesToIndex === false) {
-    flags.push({
-      id: "player-insight-flag-index",
-      text: "FUORI DAL CALCOLO",
-      title: "contributesToIndex: false — questo segnale non modifica nessun numero calcolato dall'app.",
-    });
+    facts.push("contributesToIndex: false — non modifica nessun numero calcolato dall'app.");
   }
-  return flags;
+  return {
+    id: "player-insight-label",
+    text: EXPERT_INSIGHT_LABEL_TEXT,
+    title: facts.join(" "),
+  };
 }
 
-export function expertInsightFlagsHtml(view: ExpertInsightView): string {
-  return `<span class="expert-flags" id="player-insight-flags">${expertInsightFlags(view)
-    .map(
-      (flag, i) =>
-        `${i === 0 ? "" : `<span class="expert-flags__sep" aria-hidden="true">·</span>`}<span class="expert-flags__item" id="${flag.id}" title="${escHtml(flag.title)}">${escHtml(flag.text)}</span>`,
-    )
-    .join("")}</span>`;
+export function expertInsightLabelHtml(view: ExpertInsightView): string {
+  const label = expertInsightLabel(view);
+  return `<span class="expert-label" id="${label.id}" title="${escHtml(label.title)}">${escHtml(
+    label.text,
+  )}</span>`;
 }
 
 // ── Lo strato visivo ─────────────────────────────────────────────────────────
 
 /**
- * La scala della titolarità: tre gradini nell'ordine, quello dichiarato
- * riempito e in maiuscolo. Gli altri due restano leggibili — servono a dare
- * la scala: «titolare» senza «riserva» accanto non dice quanto in alto sia.
+ * LA TITOLARITÀ: **solo il valore che la scheda dichiara**.
  *
- * Quando la scheda non dichiara la titolarità la scala NON si disegna: tre
- * gradini tutti spenti si leggerebbero come «riserva» a colpo d'occhio. Al suo
- * posto una riga sola che dice che manca.
+ * Qui c'era una scala a tre gradini con gli altri due spenti accanto a quello
+ * acceso. Pico l'ha tolta guardando il pannello: «non c'è bisogno di mettere
+ * più opzioni, basta soltanto quella valida nel caso specifico». Tre caselle di
+ * cui due spente sono un quiz; una casella è una risposta — e a schermo stretto
+ * la casella centrale si troncava in «BALLOTT…», che su un pannello da leggere
+ * in due secondi è un difetto, non un dettaglio.
+ *
+ * Il valore è quindi una pastiglia dimensionata sul proprio contenuto
+ * (`width: max-content`), non una cella di una griglia a tre: non può più
+ * troncarsi, e e2e/player-insight.spec.ts lo rimisura a tutte e quattro le
+ * larghezze confrontando `scrollWidth` con `clientWidth`.
+ *
+ * Quando la scheda non dichiara la titolarità non si disegna nessuna pastiglia:
+ * una pastiglia spenta si leggerebbe come un valore.
  */
-export function titolaritaLadderHtml(view: ExpertInsightView): string {
-  if (view.titolarita === null) {
-    return `<div class="expert-ladder expert-ladder--none" id="player-insight-track">
-      <span class="expert-ladder__top"><span class="expert-ladder__head">TITOLARITÀ</span><span
-        class="expert-ladder__missing" id="player-insight-track-missing">non dichiarata dalla scheda</span></span>
-    </div>`;
-  }
-  const steps = TITOLARITA_LADDER.map((step) => {
-    const on = step === view.titolarita;
-    return `<span class="expert-ladder__step${on ? " expert-ladder__step--on" : ""}"
-      id="player-insight-track-${step}"${on ? ' aria-current="true"' : ""}>${escHtml(
-        TITOLARITA_LABELS[step],
-      )}</span>`;
-  }).join("");
-  return `<div class="expert-ladder" id="player-insight-track">
-    <span class="expert-ladder__top"><span class="expert-ladder__head">TITOLARITÀ</span>${sharePercentHtml(
-      view,
-    )}</span>
-    <span class="expert-ladder__scale">${steps}</span>
+export function titolaritaHtml(view: ExpertInsightView): string {
+  const value =
+    view.titolarita === null
+      ? `<span class="expert-titolarita__missing" id="player-insight-track-missing">non dichiarata dalla scheda</span>`
+      : `<span class="expert-titolarita__value" id="player-insight-track-${view.titolarita}"
+          aria-current="true">${escHtml(TITOLARITA_LABELS[view.titolarita])}</span>`;
+  return `<div class="expert-titolarita" id="player-insight-track">
+    <span class="expert-titolarita__head">TITOLARITÀ</span>${value}${sharePercentHtml(view)}
   </div>`;
 }
 
@@ -198,6 +199,13 @@ export function titolaritaLadderHtml(view: ExpertInsightView): string {
  * col numero SCRITTO accanto. La barra è ridondante col numero, mai al suo
  * posto — una barra senza cifra costringerebbe a stimare a occhio proprio nel
  * momento in cui non c'è tempo.
+ *
+ * LA BARRA È RIMASTA anche dopo la semplificazione della titolarità, ed è una
+ * scelta motivata e non un residuo: tolta la scala a tre gradini, questa è la
+ * sola grandezza CONTINUA del riquadro, cioè l'unica cosa che si legge senza
+ * leggere. Costa 6px di altezza e nessuna riga — sta sulla stessa riga della
+ * pastiglia — quindi l'inchiostro risparmiato togliendola sarebbe stato quasi
+ * nullo, mentre «60» e «90» tornerebbero a distinguersi solo leggendo la cifra.
  */
 export function sharePercentHtml(view: ExpertInsightView): string {
   if (view.percentuale === null) return "";
@@ -342,15 +350,18 @@ export const EXPERT_INSIGHT_EMPTY_TEXT: Readonly<
 
 // ── Il corpo del riquadro ────────────────────────────────────────────────────
 
-/** Forma parlata del riquadro, per l'aria-label del pannello. */
+/**
+ * Forma parlata del riquadro, per l'aria-label del pannello.
+ *
+ * PORTA L'ETICHETTA DI QUALITÀ PER INTERO anche nello stato `available`, dove a
+ * schermo non compare più: leggerla non costa una riga a nessuno, e chi
+ * naviga a voce non ha la label «Scheda Esperto» in alto a destra a dirgli in
+ * un colpo d'occhio che cosa sta ascoltando.
+ */
 export function expertInsightSpoken(view: ExpertInsightView): string {
-  const flags = expertInsightFlags(view)
-    .map((flag) => flag.text.toLowerCase())
-    .join(", ");
+  const label = expertInsightLabel(view).text;
   if (view.availability !== "available") {
-    return `Insight giocatore: ${view.quality}. ${
-      EXPERT_INSIGHT_EMPTY_TEXT[view.availability]
-    } ${flags}.`;
+    return `${label}: ${view.quality}. ${EXPERT_INSIGHT_EMPTY_TEXT[view.availability]}`;
   }
   const titolarita =
     view.titolarita === null
@@ -362,7 +373,7 @@ export function expertInsightSpoken(view: ExpertInsightView): string {
     .map((chip) => `${chip.label} ${chip.value}`)
     .join(", ");
   const nota = view.nota === "" ? "nessuna nota scritta" : view.nota;
-  return `Insight giocatore: ${view.quality}. ${titolarita}. ${chips === "" ? "nessun altro segnale" : chips}. ${nota}. ${expertInsightMetaText(view)}. ${flags}.`;
+  return `${label}: ${view.quality}. ${titolarita}. ${chips === "" ? "nessun altro segnale" : chips}. ${nota}. ${expertInsightMetaText(view)}.`;
 }
 
 /**
@@ -375,6 +386,16 @@ export function expertInsightSpoken(view: ExpertInsightView): string {
  * costa altezza al pannello successivo, e le due frasi dicono la stessa cosa a
  * due livelli di dettaglio — separarle in due blocchi faceva sembrare il
  * riquadro pieno di testo proprio dove non ha niente da dire.
+ *
+ * NELLO STATO `available` l'etichetta di qualità NON compare più. Diceva
+ * «segnale esperto — descrittivo, non validato», cioè la stessa cosa della
+ * label «Scheda Esperto» in alto a destra, una riga più sotto e in corpo
+ * minore: due righe che dicono la stessa cosa sono una riga di troppo su
+ * questa schermata. Resta nel payload (`view.quality`, verificata dai test del
+ * contratto) e resta nella forma parlata del pannello. Negli altri quattro
+ * stati continua a comparire, perché lì NON è ridondante: è il nome dello
+ * stato, e «fonte non disponibile» e «identità non risolta» sono due cose
+ * diverse che la label non distingue.
  */
 export function expertInsightBodyHtml(view: ExpertInsightView): string {
   if (view.availability !== "available") {
@@ -385,21 +406,21 @@ export function expertInsightBodyHtml(view: ExpertInsightView): string {
         )}</p>
     </div>`;
   }
-  return `${expertInsightQualityHtml(view)}<div class="expert-insight__grid">
+  return `<div class="expert-insight__grid">
     <div class="expert-insight__visual">
-      ${titolaritaLadderHtml(view)}
+      ${titolaritaHtml(view)}
       ${expertInsightChipsHtml(view)}
     </div>
     ${expertInsightProseHtml(view)}
   </div>`;
 }
 
-/** L'etichetta di qualità, sempre visibile e sempre PORTATA DAL DATO. */
+/** L'etichetta di qualità, PORTATA DAL DATO e mai ricostruita dal renderer. */
 export function expertInsightQualityHtml(view: ExpertInsightView): string {
   return `<span class="expert-insight__quality" id="player-insight-quality">${escHtml(view.quality)}</span>`;
 }
 
-/** Guardia di sviluppo: la scala copre esattamente il vocabolario del contratto. */
-export const TITOLARITA_LADDER_COVERS_VOCABULARY =
-  TITOLARITA_LADDER.length === TITOLARITA_VALUES.length &&
-  TITOLARITA_VALUES.every((value) => TITOLARITA_LADDER.includes(value));
+/** Guardia di sviluppo: le etichette coprono esattamente il vocabolario del contratto. */
+export const TITOLARITA_LABELS_COVER_VOCABULARY =
+  Object.keys(TITOLARITA_LABELS).length === TITOLARITA_VALUES.length &&
+  TITOLARITA_VALUES.every((value) => TITOLARITA_LABELS[value] !== undefined);

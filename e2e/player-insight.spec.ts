@@ -16,7 +16,7 @@ import {
   textContrast,
 } from "./helpers.js";
 import { EXPERT_INSIGHT_QUALITY_LABELS } from "../src/expertScheda.js";
-import { EXPERT_INSIGHT_EMPTY_TEXT } from "../src/ui/expertInsight.js";
+import { EXPERT_INSIGHT_EMPTY_TEXT, EXPERT_INSIGHT_LABEL_TEXT } from "../src/ui/expertInsight.js";
 
 // INSIGHT GIOCATORE — il riquadro delle schede del Gruppo Esperti sul DOM vivo.
 //
@@ -29,10 +29,12 @@ import { EXPERT_INSIGHT_EMPTY_TEXT } from "../src/ui/expertInsight.js";
 // LE TRE COSE CHE QUESTA SPEC DIFENDE:
 //  1. TUTTI E CINQUE gli stati di disponibilità sono raggiungibili e onesti —
 //     i quattro «non lo so» non devono mai sembrare pieni;
-//  2. il riquadro DICHIARA A SCHERMO di non essere validato, di non essere un
-//     consiglio e di non entrare in nessun calcolo: i tre fatti stanno nel
-//     payload come letterali `false`, e un flag vero solo nel JSON non lo legge
-//     nessuno. La prova qui sotto diventa rossa se quella dichiarazione sparisce;
+//  2. il riquadro si dichiara per quello che è con UNA label, «Scheda Esperto»
+//     in alto a destra (decisione di Pico: quattro scritte di caveat sopra ogni
+//     giocatore smettono di essere lette). I tre letterali `false` del payload
+//     restano nel contratto e nel `title` della label, e la forma parlata del
+//     pannello porta l'etichetta di qualità per intero: la prova qui sotto
+//     diventa rossa se una di queste tre cose sparisce;
 //  3. lo strato visivo e lo strato di PROSA convivono, restano leggibili sopra
 //     AA e non fanno traboccare la schermata a nessuna delle quattro larghezze.
 
@@ -90,22 +92,37 @@ async function expectNoContent(page: Page): Promise<void> {
 }
 
 /**
- * I TRE FATTI DI ONESTÀ, A SCHERMO. Questa è la funzione che deve diventare
- * rossa se il riquadro smette di dire che il segnale non è validato: la
- * pastiglia deve esserci, deve essere VISIBILE, deve portare la parola, e la
- * stessa dichiarazione deve stare nell'aria-label del pannello — cioè anche
- * per chi il riquadro non lo vede.
+ * LA LABEL UNICA, E LA GARANZIA CHE PORTA.
+ *
+ * RIFATTA, non svuotata: cercava le quattro pastiglie di caveat («PARERE DI
+ * TERZI · NON VALIDATO · NON È UN CONSIGLIO · FUORI DAL CALCOLO»), che Pico ha
+ * ridotto a una sola label guardando il pannello. La garanzia non è sparita,
+ * si è spostata, e questa funzione la segue nei tre posti dove vive adesso:
+ *  - a schermo: UNA label, visibile, con la sua parola, e nessun residuo delle
+ *    quattro di prima (un ritorno silenzioso a quelle è rosso);
+ *  - nel `title` della label: i tre campi del payload nominati uno per uno,
+ *    così `validated: false` resta leggibile da chi va a cercarlo;
+ *  - nella forma parlata del pannello: l'etichetta di qualità DELLO STATO per
+ *    intero — chi naviga a voce non ha la label in alto a destra, e nello stato
+ *    pieno quell'etichetta è proprio «segnale esperto — descrittivo, non
+ *    validato».
  */
-async function expectHonestyVisible(page: Page): Promise<void> {
-  const validated = page.locator("#player-insight-flag-validated");
-  await expect(validated).toBeVisible();
-  await expect(validated).toHaveText("NON VALIDATO");
-  await expect(page.locator("#player-insight-flag-directive")).toHaveText("NON È UN CONSIGLIO");
-  await expect(page.locator("#player-insight-flag-index")).toHaveText("FUORI DAL CALCOLO");
-  await expect(page.locator("#player-insight-flag-source")).toHaveText("PARERE DI TERZI");
-  const spoken = await page.locator("#player-insight-panel").getAttribute("aria-label");
-  expect(spoken ?? "").toContain("non validato");
-  expect(spoken ?? "").toContain("non è un consiglio");
+async function expectHonestyVisible(
+  page: Page,
+  quality: (typeof EXPERT_INSIGHT_QUALITY_LABELS)[keyof typeof EXPERT_INSIGHT_QUALITY_LABELS],
+): Promise<void> {
+  const label = page.locator("#player-insight-label");
+  await expect(label).toBeVisible();
+  await expect(label).toHaveText(EXPERT_INSIGHT_LABEL_TEXT);
+  await expect(page.locator("#player-insight-panel")).not.toContainText("PARERE DI TERZI");
+  await expect(page.locator("#player-insight-panel")).not.toContainText("FUORI DAL CALCOLO");
+  const title = (await label.getAttribute("title")) ?? "";
+  expect(title).toContain("validated: false");
+  expect(title).toContain("directive: false");
+  expect(title).toContain("contributesToIndex: false");
+  const spoken = (await page.locator("#player-insight-panel").getAttribute("aria-label")) ?? "";
+  expect(spoken).toContain(EXPERT_INSIGHT_LABEL_TEXT);
+  expect(spoken).toContain(quality);
 }
 
 test("i cinque stati: deposito non letto, scheda non scritta, doppia scheda, fonte non di staff, scheda piena", async ({
@@ -122,7 +139,7 @@ test("i cinque stati: deposito non letto, scheda non scritta, doppia scheda, fon
     EXPERT_INSIGHT_EMPTY_TEXT.source_unavailable,
   );
   await expectNoContent(page);
-  await expectHonestyVisible(page);
+  await expectHonestyVisible(page, EXPERT_INSIGHT_QUALITY_LABELS.source_unavailable);
 
   // 2. no_expert_signal — il deposito si legge, questo giocatore non ha scheda.
   await context.unrouteAll();
@@ -138,7 +155,7 @@ test("i cinque stati: deposito non letto, scheda non scritta, doppia scheda, fon
     EXPERT_INSIGHT_EMPTY_TEXT.no_expert_signal,
   );
   await expectNoContent(page);
-  await expectHonestyVisible(page);
+  await expectHonestyVisible(page, EXPERT_INSIGHT_QUALITY_LABELS.no_expert_signal);
 
   // 3. identity_not_resolved — due schede sullo stesso giocatore.
   await context.unrouteAll();
@@ -156,7 +173,7 @@ test("i cinque stati: deposito non letto, scheda non scritta, doppia scheda, fon
   // Nessuna delle due schede trapela: né i segnali della piena né la prosa.
   await expectNoContent(page);
   await expect(page.locator("#player-insight-panel")).not.toContainText("Ballottaggio aperto");
-  await expectHonestyVisible(page);
+  await expectHonestyVisible(page, EXPERT_INSIGHT_QUALITY_LABELS.identity_not_resolved);
 
   // 4. author_authority_not_verified — fonte non di staff.
   await context.unrouteAll();
@@ -170,17 +187,22 @@ test("i cinque stati: deposito non letto, scheda non scritta, doppia scheda, fon
   );
   await expectNoContent(page);
   await expect(page.locator("#player-insight-panel")).not.toContainText("Ballottaggio aperto");
-  await expectHonestyVisible(page);
+  await expectHonestyVisible(page, EXPERT_INSIGHT_QUALITY_LABELS.author_authority_not_verified);
 
   // 5. available — la scheda piena, entrambi gli strati.
   await context.unrouteAll();
   await boot(page, context, { kind: "serve", body: schedeDeposit([FULL_SCHEDA]) });
   await callTarget(page);
-  await expect(page.locator("#player-insight-quality")).toHaveText(
-    EXPERT_INSIGHT_QUALITY_LABELS.available,
-  );
+  // Nello stato pieno l'etichetta di qualità non è più una seconda riga a
+  // schermo (diceva la stessa cosa della label): resta nel payload e nella
+  // forma parlata, che `expectHonestyVisible` verifica.
+  await expect(page.locator("#player-insight-quality")).toHaveCount(0);
   await expect(page.locator("#player-insight-empty")).toHaveCount(0);
-  await expectHonestyVisible(page);
+  await expectHonestyVisible(page, EXPERT_INSIGHT_QUALITY_LABELS.available);
+  // LA PROVA CHE DEVE MORDERE: nello stato pieno la non-validazione resta
+  // dichiarata, nel tooltip della label e nella forma parlata del pannello.
+  const spokenFull = (await page.locator("#player-insight-panel").getAttribute("aria-label")) ?? "";
+  expect(spokenFull).toContain("non validato");
 
   expect(externalRequests).toEqual([]);
   expect(requests2).toEqual([]);
@@ -193,14 +215,14 @@ test("la scheda piena: la scala si legge prima del testo, e il testo resta", asy
   });
   await callTarget(page);
 
-  // LO STRATO VISIVO. Tutti e tre i gradini restano scritti — «titolare» senza
-  // «riserva» accanto non direbbe quanto in alto sia — e uno solo è acceso.
-  await expect(page.locator("#player-insight-track-riserva")).toHaveText("riserva");
+  // LO STRATO VISIVO. Solo il valore dichiarato: le altre due opzioni non
+  // compaiono più (decisione di Pico — una casella è una risposta, tre di cui
+  // due spente sono un quiz).
   await expect(page.locator("#player-insight-track-ballottaggio")).toHaveText("ballottaggio");
-  await expect(page.locator("#player-insight-track-titolare")).toHaveText("titolare");
-  await expect(page.locator(".expert-ladder__step--on")).toHaveCount(1);
-  await expect(page.locator("#player-insight-track-ballottaggio")).toHaveAttribute("aria-current", "true");
-  // Il gradino acceso si distingue anche SENZA colore: maiuscolo e grassetto.
+  await expect(page.locator("#player-insight-track-riserva")).toHaveCount(0);
+  await expect(page.locator("#player-insight-track-titolare")).toHaveCount(0);
+  await expect(page.locator(".expert-titolarita__value")).toHaveCount(1);
+  // Il valore si distingue anche SENZA colore: maiuscolo e grassetto.
   const onStyle = await page.locator("#player-insight-track-ballottaggio").evaluate((el) => {
     const cs = getComputedStyle(el);
     return { transform: cs.textTransform, weight: Number(cs.fontWeight) };
@@ -242,14 +264,14 @@ test("la scheda piena: la scala si legge prima del testo, e il testo resta", asy
 test("una scheda di sola prosa è legittima: nessun segnale, il testo per intero", async ({ page, context }) => {
   await boot(page, context, { kind: "serve", body: schedeDeposit([PROSE_ONLY_SCHEDA]) });
   await callTarget(page);
-  await expect(page.locator("#player-insight-quality")).toHaveText(EXPERT_INSIGHT_QUALITY_LABELS.available);
+  await expect(page.locator("#player-insight-quality")).toHaveCount(0);
   await expect(page.locator("#player-insight-prose")).toContainText(PROSE_ONLY_SCHEDA.nota as string);
-  // Nessuna scala accesa e nessuna pastiglia inventata per riempire il vuoto.
-  await expect(page.locator(".expert-ladder__step")).toHaveCount(0);
+  // Nessun valore acceso e nessuna pastiglia inventata per riempire il vuoto.
+  await expect(page.locator(".expert-titolarita__value")).toHaveCount(0);
   await expect(page.locator("#player-insight-track-missing")).toBeVisible();
   await expect(page.locator("#player-insight-chips")).toHaveCount(0);
   await expect(page.locator("#player-insight-meta")).toContainText("fonte non dichiarata");
-  await expectHonestyVisible(page);
+  await expectHonestyVisible(page, EXPERT_INSIGHT_QUALITY_LABELS.available);
 });
 
 test("il riquadro pieno regge AA e non fa traboccare la schermata a 390, 1280, 1440 e 1920", async ({
@@ -268,6 +290,24 @@ test("il riquadro pieno regge AA e non fa traboccare la schermata a 390, 1280, 1
     await expect(page.locator("#search-player")).toBeVisible();
     await callTarget(page);
     await expect(page.locator("#player-insight-prose")).toBeVisible();
+
+    // LA PAROLA DELLA TITOLARITÀ NON SI TRONCA MAI. Prima era una cella di una
+    // griglia a tre colonne e a schermo stretto diventava «BALLOTT…»: su un
+    // pannello che deve leggersi in due secondi è un difetto, non un dettaglio.
+    // Adesso la pastiglia è dimensionata sul proprio contenuto, e questa è la
+    // misura che lo prova — il testo reso sta dentro la sua scatola.
+    const value = page.locator("#player-insight-track-ballottaggio");
+    await expect(value).toHaveText("ballottaggio");
+    const fit = await value.evaluate((el) => ({
+      scroll: el.scrollWidth,
+      client: el.clientWidth,
+      text: (el.textContent ?? "").trim(),
+    }));
+    expect(fit.text, `parola troncata a ${width}px`).toBe("ballottaggio");
+    expect(
+      fit.scroll,
+      `parola tagliata dentro la pastiglia a ${width}px (scroll ${fit.scroll} > client ${fit.client})`,
+    ).toBeLessThanOrEqual(fit.client + 1);
 
     // Nessuno scorrimento laterale, a nessuna delle quattro larghezze.
     expect(

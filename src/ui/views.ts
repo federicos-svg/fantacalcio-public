@@ -46,7 +46,7 @@ import type { ExpertInsightView } from "../expertScheda.js";
 import {
   EXPERT_INSIGHT_TITLE,
   expertInsightBodyHtml,
-  expertInsightFlagsHtml,
+  expertInsightLabelHtml,
   expertInsightSpoken,
 } from "./expertInsight.js";
 import {
@@ -1023,7 +1023,10 @@ export function renderPlayerInsightsBlock(props: PlayerInsightProps): HTMLElemen
 
   const head = document.createElement("div");
   head.className = "player-insight__head";
-  head.innerHTML = `<span class="panel-title">${escHtml(EXPERT_INSIGHT_TITLE)}</span>${expertInsightFlagsHtml(
+  // Titolo a sinistra, UNA label a destra. Erano quattro pastiglie di caveat:
+  // vedi `expertInsightLabel` in src/ui/expertInsight.ts per la decisione di
+  // Pico e per dove è finita la garanzia che portavano.
+  head.innerHTML = `<span class="panel-title">${escHtml(EXPERT_INSIGHT_TITLE)}</span>${expertInsightLabelHtml(
     props.view,
   )}`;
   panel.appendChild(head);
