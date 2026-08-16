@@ -51,6 +51,18 @@ test("budget, slots and the safe bid ceiling stay visible in rehearsal viewports
       C: { slots: 9, min: 9, max: 481 },
       A: { slots: 7, min: 7, max: 479 }, // 500 − hardReserve(28-7)
     };
+    // #331 punto 5: la fascia è UNA RIGA SOLA, e il dettaglio per ruolo
+    // (barra di avanzamento + inviluppo di budget) sta dietro un gesto —
+    // ridotto, non tolto. Il gesto è l'avanzamento rosa stesso, che resta
+    // sulla riga. Prima si verifica che il dettaglio sia davvero chiuso, poi
+    // lo si apre: così questa spec continua a misurare le stesse celle e in
+    // più fallisce se il gesto smette di funzionare.
+    const rosterToggle = page.locator("#critical-roster");
+    await expect(rosterToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(page.locator("#critical-role-plan-P")).toBeHidden();
+    await rosterToggle.click();
+    await expect(rosterToggle).toHaveAttribute("aria-expanded", "true");
+
     for (const role of ["P", "D", "C", "A"] as const) {
       const cell = page.locator(`#critical-role-plan-${role}`);
       await expect(cell).toBeVisible();

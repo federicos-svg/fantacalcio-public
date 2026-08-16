@@ -335,28 +335,52 @@
 }
 
 /* Rehearsal-critical accounting stays reachable while the Asta page scrolls.
-   It wraps instead of clipping at narrow widths. */
+   It wraps instead of clipping at narrow widths.
+
+   #331 punto 5 — CHROME, NON UNA SCHEDA. Pico l'ha vista in produzione e ha
+   chiesto tre cose: tutti i componenti su una riga sola, larga quanto
+   l'intestazione e attaccata all'intestazione, visibile solo nella schermata
+   di chiamata. Da qui: niente bordo/raggio/ombra/sfocatura (era una scheda
+   fluttuante indipendente), fondo --bg e gutter 24px identici a .topbar,
+   larghezza piena — è montata come fratello dell'header, fuori dalla colonna
+   da 1200px (src/main.ts, render()) — e un solo filo (border-bottom) a
+   separarla dalla pagina, come la topbar fa con lei.
+
+   Resta `position: sticky` (ora top: 0, appoggiata al bordo dell'header
+   invece che 8px sotto): l'invariante "la contabilità non scompare mentre la
+   pagina scorre" è asserita da e2e/critical-readability.spec.ts e non è in
+   discussione. `pointer-events: none` sull'intera fascia resta la ragione per
+   cui una barra ancorata non ruba i click alla pagina sotto; l'unico
+   controllo che vive dentro (.critical-roster, che è il gesto per il
+   dettaglio) se li riprende da sé. */
 .critical-auction-strip {
   position: sticky;
-  top: 8px;
+  top: 0;
   z-index: 110;
   pointer-events: none;
+  flex: none;
+  min-width: 0;
+  padding: 0 24px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+/* La riga sola: quattro metriche + avanzamento rosa per ruolo + il gesto che
+   apre il dettaglio. `flex-wrap` resta perché a 390px cinque etichette e
+   quattro pastiglie non ci stanno in una riga a corpo leggibile — meglio due
+   righe corte che un testo illeggibile o una barra da far scorrere di lato. */
+.critical-strip__row {
   display: flex;
   align-items: center;
-  gap: 12px 22px;
+  gap: 3px 16px;
   flex-wrap: wrap;
   min-width: 0;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: color-mix(in oklch, var(--panel) 94%, transparent);
-  box-shadow: 0 8px 24px color-mix(in oklch, var(--bg) 72%, transparent);
-  backdrop-filter: blur(8px);
+  padding: 7px 0;
 }
 
 .critical-metric {
-  display: grid;
-  gap: 1px;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
   min-width: max-content;
 }
 .critical-metric > span:first-child {
@@ -369,7 +393,7 @@
 .critical-metric > strong {
   color: var(--text-primary);
   font-family: var(--font-mono);
-  font-size: 15px;
+  font-size: 14px;
 }
 /* The bid ceiling carries the stop state that used to be a separate badge:
    open (green) / locked at the floor (amber) / roster not completable (red).
@@ -386,16 +410,64 @@
   font-weight: 700;
   letter-spacing: 0.03em;
 }
-/* Roster progress: its own full-width line under the metrics, so the numbers
-   that drive the next bid stay on the first line at any width. */
+/* Avanzamento rosa per ruolo, SULLA RIGA (#331 punto 5): quattro pastiglie
+   compatte, pastiglia di ruolo + filled/total + spunta di completamento. È la
+   parte che si legge fra una chiamata e l'altra, quindi non sta dietro nessun
+   gesto. Prima occupava una seconda riga a piena larghezza tutta per sé
+   (`flex: 1 1 100%`), ed è quella riga che Pico ha visto ingombrare. */
 .critical-roster {
-  flex: 1 1 100%;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  min-width: 0;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
+}
+.critical-roster:hover { border-color: var(--border); }
+/* Variante non interattiva: mentre una conferma modale è aperta la fascia
+   continua a dipingere sopra l'overlay (voluto), quindi il suo unico
+   controllo si tira indietro — vedi confirmationOverlayOpen() in main.ts. */
+.critical-roster--static {
+  pointer-events: none;
+  cursor: default;
+}
+.critical-roster__caret {
+  color: var(--text-sec);
+  font-size: 9px;
+}
+.critical-role-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.critical-role-pill > em {
+  color: var(--text-sec);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-style: normal;
+}
+.critical-role-pill--complete > em { color: var(--green); }
+
+/* Il dettaglio per ruolo: barra di avanzamento (con role/aria-value*) e
+   inviluppo di budget per ruolo. Non è stato tolto — è a un gesto di
+   distanza, e resta nel DOM anche da chiuso.
+   `[hidden]` va riaffermato: la regola dello user agent (display:none) perde
+   contro il `display: grid` di questa classe. */
+.critical-roster-detail {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 4px 16px;
-  padding-top: 9px;
+  padding: 9px 0 11px;
   border-top: 1px solid var(--border);
 }
+.critical-roster-detail[hidden] { display: none; }
 .critical-role {
   display: grid;
   gap: 4px;
@@ -455,10 +527,11 @@
 .critical-bid--stop > strong { color: var(--stop-red); }
 .critical-bid--done > strong { color: var(--text-sec); }
 @media (max-width: 520px) {
-  .critical-auction-strip {
-    top: 4px;
-    gap: 8px 14px;
-    padding: 9px 10px;
+  /* Il gutter resta 24px come .topbar a ogni larghezza: "larga quanto
+     l'intestazione" vale anche per il bordo interno, o le due barre non si
+     allineano più. Si stringono invece gli spazi fra i gruppi. */
+  .critical-strip__row {
+    gap: 2px 12px;
   }
   .critical-metric--bid {
     margin-left: 0;
@@ -467,7 +540,7 @@
   }
   /* Two columns instead of four: four role bars side by side stop being
      readable well before the strip itself stops fitting. */
-  .critical-roster {
+  .critical-roster-detail {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

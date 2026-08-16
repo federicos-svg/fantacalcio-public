@@ -287,6 +287,12 @@ interface AppState {
   // the selected player changes, so the panel never shows a previous player's
   // context under a new name. See renderNominationContextPanel.
   nominationContextOpen: boolean;
+  // #331 punto 5 — the critical strip is ONE row, so the per-role detail
+  // (progress bar + budget envelope) sits behind an explicit gesture instead
+  // of a second full-width line. Nothing was removed: this flag is what makes
+  // it reachable, and it is deliberately app state (not DOM state) because
+  // render() rebuilds the strip from scratch on every keystroke.
+  criticalPlanOpen: boolean;
   // T13 #231 — the fast-path command line. Raw text exactly as typed; the
   // interpretation is recomputed from it on every render (resolveAssignCommand
   // is pure), never cached, so it can never drift from the current log/pool.
@@ -524,6 +530,7 @@ const state: AppState = {
   call: { playerName: "", role: "", club: "", selectedPlayer: null },
   callInteractions: 0,
   nominationContextOpen: false,
+  criticalPlanOpen: false,
   assignCommand: "",
   assignCommandError: "",
   chiamataFocusPending: true,
@@ -1311,6 +1318,17 @@ function render(): void {
 
   wrapper.appendChild(renderHeader());
 
+  // #331 punto 5 — the critical strip is page CHROME, not a card inside the
+  // page column: it is mounted HERE, as the header's sibling, so it can be as
+  // wide as the header and sit flush against it (inside .screen-container it
+  // was capped at the 1200px column and floated 20px below the bar). And it is
+  // mounted ONLY in the chiamata moment: during the live asta the same numbers
+  // are answered by the player card (max per completare la rosa) and the war
+  // board MINI, and Pico asked for the vertical room back exactly there.
+  if (criticalStripMounted()) {
+    wrapper.appendChild(renderCriticalAuctionStrip(myTeam(deriveAuctionState())));
+  }
+
   if (state.recovery.kind === "recovered" || state.recovery.kind === "started-new") {
     wrapper.appendChild(
       renderRecoveryBanner(
@@ -1659,9 +1677,10 @@ function cancelPendingImport(): void {
 
 function renderImportConfirm(): HTMLElement {
   const overlay = document.createElement("div");
-  // Opens on the Asta screen, under the sticky critical strip — see the
-  // modifier's comment in src/styles/components.css.
-  overlay.className = "modal-overlay modal-overlay--clears-critical-strip";
+  // Opens on the Asta screen, under the sticky critical strip, which paints
+  // over it on purpose — `.modal-overlay`'s own top padding is what keeps the
+  // dialog's heading clear of it. See the comment in src/styles/components.css.
+  overlay.className = "modal-overlay";
   overlay.id = "import-confirm-overlay";
 
   const modal = document.createElement("div");
@@ -1712,7 +1731,7 @@ function renderImportConfirm(): HTMLElement {
     cancelBtn.disabled = true;
     state.pendingImportRaw = null;
     applyImportedRaw(raw);
-    focusAfterRender("critical-auction-strip");
+    focusAfterRender(criticalFocusAnchorId());
   });
 
   actions.append(cancelBtn, confirmBtn);
@@ -1863,8 +1882,9 @@ function renderAsta(): HTMLElement {
     wrap.appendChild(poolNotice);
   }
 
-  // Keep the critical accounting rendered above every confirmation.
-  wrap.appendChild(renderCriticalAuctionStrip(team));
+  // The critical strip used to be appended here. It now lives next to the
+  // header (see render()) so it can be header-wide and header-attached, and
+  // only in the chiamata moment — #331 punto 5.
 
   // Confirm void overlay
   if (state.confirmVoidSeq !== null) {
@@ -1884,6 +1904,41 @@ function renderAsta(): HTMLElement {
   return wrap;
 }
 
+/**
+ * Whether `#critical-auction-strip` is on screen right now — #331 punto 5
+ * moved it out of the Asta page column and restricted it to the chiamata
+ * moment, so "is the strip there?" is no longer "are we on the Asta screen?".
+ * Two things read it: where the strip is mounted (render()) and everything
+ * that used it as a focus/clearance anchor (the two confirmation overlays).
+ */
+function criticalStripMounted(): boolean {
+  return state.screen === "asta" && state.moment === "chiamata";
+}
+
+/**
+ * Where focus lands after a confirmation overlay that has no better return
+ * target. The strip was that anchor unconditionally; in the asta moment it is
+ * not rendered any more, so the anchor falls back to the price field — the
+ * control that moment is built around.
+ */
+function criticalFocusAnchorId(): string {
+  return criticalStripMounted() ? "critical-auction-strip" : "assign-price";
+}
+
+/**
+ * A modal confirmation is up. The strip keeps painting OVER it on purpose (the
+ * accounting must stay readable while you confirm), which is exactly why its
+ * one control has to stand down while that is true: a focusable, clickable
+ * button rendered outside a modal dialog would sit on top of it, escape the
+ * dialog's focus trap by pointer, and could grow the strip over the dialog's
+ * own heading. While an overlay is open the roster is a plain readout and its
+ * detail stays collapsed — `state.criticalPlanOpen` is untouched, so it comes
+ * back exactly as it was once the dialog closes.
+ */
+function confirmationOverlayOpen(): boolean {
+  return state.confirmVoidSeq !== null || state.pendingImportRaw !== null || state.mockModal !== null;
+}
+
 // Persistent, constraint-only accounting: budget/slots/max_safe come from the
 // engine and never expose gated ranking, target-band or FTM fields.
 // Absorbs what the separate BUDGET & ROSA panel used to show further down the
@@ -1891,6 +1946,13 @@ function renderAsta(): HTMLElement {
 // question as the ceiling ("how much room is left, and where"), so splitting
 // them across a sticky strip and a panel you had to scroll to meant reading
 // two places for one answer.
+//
+// #331 punto 5 — UNA RIGA SOLA, senza perdere niente. The four metrics AND the
+// per-role roster progress (chip + filled/total) share a single line; what used
+// to force a second full-width line — the four progress bars and the per-role
+// budget envelope (slot/min/max) — moved behind an explicit toggle, still one
+// key/click away, still in the DOM, still announced (aria-expanded/controls).
+// Nothing was deleted: the strip renders the same facts, in less room.
 function renderCriticalAuctionStrip(team: TeamState | undefined): HTMLElement {
   const strip = document.createElement("section");
   strip.id = "critical-auction-strip";
@@ -1899,7 +1961,7 @@ function renderCriticalAuctionStrip(team: TeamState | undefined): HTMLElement {
   strip.setAttribute("aria-label", "Budget, rosa e vincoli critici asta");
 
   if (!team) {
-    strip.innerHTML = `<div class="critical-metric critical-metric--bid critical-bid--stop"><span>Max bid sicuro</span><strong>— <em>stato squadra non disponibile</em></strong></div>`;
+    strip.innerHTML = `<div class="critical-strip__row"><div class="critical-metric critical-metric--bid critical-bid--stop"><span>Max bid sicuro</span><strong>— <em>stato squadra non disponibile</em></strong></div></div>`;
     return strip;
   }
 
@@ -1940,12 +2002,33 @@ function renderCriticalAuctionStrip(team: TeamState | undefined): HTMLElement {
   // metric above stays because it is the aggregate that drives the ceiling
   // (max_safe = budget − slot + 1) and is not readable off these four bars
   // without summing four subtractions.
-  // Per-role structural budget envelope — plan.perRole, already computed
-  // above via budgetPlan() but never rendered until now (issue #265 item
-  // #1, matrice UI §3 "Contabilità: budget, slot, hard_reserve, max_safe,
-  // violazioni | Visibile | Nessuno"). Read-only off the engine's output:
-  // no new calculation, no recommendation.
-  const roster = ROLES.map((role) => {
+  //
+  // Two renderings of the SAME four roles, deliberately:
+  //  - the pills, on the single row: chip + filled/total + the completion
+  //    tick. This is the part the operator reads between one call and the
+  //    next, so it never goes behind a gesture;
+  //  - the detail, one gesture away: the progress bar (with its progressbar
+  //    role and aria values) and the per-role structural budget envelope —
+  //    plan.perRole (issue #265 item #1, matrice UI §3 "Contabilità: budget,
+  //    slot, hard_reserve, max_safe, violazioni | Visibile | Nessuno").
+  //    Read-only off the engine's output: no new calculation, no advice.
+  const rosterPills = ROLES.map((role) => {
+    const filled = team.filled[role] ?? 0;
+    const total = ROSTER_REQUIREMENTS[role] ?? 0;
+    const complete = total > 0 && filled >= total;
+    return `<span class="critical-role-pill${complete ? " critical-role-pill--complete" : ""}">${roleChipHtml(role)}<em>${filled}/${total}${complete ? " ✓" : ""}</em></span>`;
+  }).join("");
+
+  // The pills ARE the disclosure control: pressing the roster opens the roster
+  // detail. A separate labelled toggle button cost ~137px of the single row —
+  // enough to push the row onto a second line at 768px, i.e. to spend on the
+  // gesture exactly the space the gesture exists to save. `aria-label` restates
+  // the counts so screen readers lose nothing by the pills being a button name.
+  const rosterAriaCounts = ROLES.map(
+    (role) => `${ROLE_LABELS[role]} ${team.filled[role] ?? 0} su ${ROSTER_REQUIREMENTS[role] ?? 0}`,
+  ).join(", ");
+
+  const rosterDetail = ROLES.map((role) => {
     const filled = team.filled[role] ?? 0;
     const total = ROSTER_REQUIREMENTS[role] ?? 0;
     const pct = total > 0 ? Math.round((filled / total) * 100) : 0;
@@ -1969,26 +2052,47 @@ function renderCriticalAuctionStrip(team: TeamState | undefined): HTMLElement {
       </div>`;
   }).join("");
 
+  const interactive = !confirmationOverlayOpen();
+  const planOpen = state.criticalPlanOpen && interactive;
+  const roster = interactive
+    ? `<button type="button" class="critical-roster" id="critical-roster"
+              aria-expanded="${planOpen}" aria-controls="critical-roster-detail"
+              title="Dettaglio per ruolo: avanzamento e piano budget"
+              aria-label="Avanzamento rosa — ${rosterAriaCounts}. ${planOpen ? "Chiudi" : "Apri"} il dettaglio per ruolo.">${rosterPills}<span class="critical-roster__caret" aria-hidden="true">${planOpen ? "▴" : "▾"}</span></button>`
+    : `<div class="critical-roster critical-roster--static" id="critical-roster"
+            aria-label="Avanzamento rosa — ${rosterAriaCounts}.">${rosterPills}</div>`;
   strip.innerHTML = `
-    <div class="critical-metric">
-      <span>Budget</span>
-      <strong id="critical-budget">${team.budgetResidual} cr</strong>
+    <div class="critical-strip__row">
+      <div class="critical-metric">
+        <span>Budget</span>
+        <strong id="critical-budget">${team.budgetResidual} cr</strong>
+      </div>
+      <div class="critical-metric">
+        <span>Spesi</span>
+        <strong id="critical-spent">${team.spent} cr</strong>
+      </div>
+      <div class="critical-metric">
+        <span>Slot</span>
+        <strong id="critical-slots">${team.totalSlotsRemaining}</strong>
+      </div>
+      ${roster}
+      <div class="critical-metric critical-metric--bid ${bidState}"
+           id="critical-max-bid" role="status" aria-live="polite">
+        <span>Max bid sicuro</span>
+        <strong>${bidValue}${bidNote ? ` <em>${bidNote}</em>` : ""}</strong>
+      </div>
     </div>
-    <div class="critical-metric">
-      <span>Spesi</span>
-      <strong id="critical-spent">${team.spent} cr</strong>
-    </div>
-    <div class="critical-metric">
-      <span>Slot</span>
-      <strong id="critical-slots">${team.totalSlotsRemaining}</strong>
-    </div>
-    <div class="critical-metric critical-metric--bid ${bidState}"
-         id="critical-max-bid" role="status" aria-live="polite">
-      <span>Max bid sicuro</span>
-      <strong>${bidValue}${bidNote ? ` <em>${bidNote}</em>` : ""}</strong>
-    </div>
-    <div class="critical-roster" id="critical-roster">${roster}</div>
+    <div class="critical-roster-detail" id="critical-roster-detail"${planOpen ? "" : " hidden"}>${rosterDetail}</div>
   `;
+
+  const toggle = strip.querySelector("#critical-roster");
+  toggle?.addEventListener("click", () => {
+    state.criticalPlanOpen = !state.criticalPlanOpen;
+    render();
+    // The strip is rebuilt from scratch by render(); without this the keyboard
+    // would be dropped on the body right after opening the detail.
+    focusAfterRender("critical-roster");
+  });
   return strip;
 }
 
@@ -3420,7 +3524,8 @@ function renderVoidConfirm(): HTMLElement {
   // Opens on the Asta screen, under the sticky critical strip — see the
   // modifier's comment in src/styles/components.css. Without it the heading
   // that distinguishes the non-last void from the ordinary one is covered.
-  overlay.className = "modal-overlay modal-overlay--clears-critical-strip";
+  // See renderImportConfirm and src/styles/components.css.
+  overlay.className = "modal-overlay";
   overlay.id = "void-confirm-overlay";
 
   const modal = document.createElement("div");
@@ -3458,7 +3563,7 @@ function renderVoidConfirm(): HTMLElement {
   keepBtn.className = "btn btn--secondary";
   keepBtn.dataset.dialogInitialFocus = "";
   keepBtn.addEventListener("click", () => {
-    const returnId = state.confirmVoidSeq === null ? "critical-auction-strip" : `undo-purchase-${state.confirmVoidSeq}`;
+    const returnId = state.confirmVoidSeq === null ? criticalFocusAnchorId() : `undo-purchase-${state.confirmVoidSeq}`;
     state.confirmVoidSeq = null;
     state.confirmVoidLabel = "";
     render();
@@ -3499,7 +3604,7 @@ function renderVoidConfirm(): HTMLElement {
     state.confirmVoidSeq = null;
     state.confirmVoidLabel = "";
     render();
-    focusAfterRender("critical-auction-strip");
+    focusAfterRender(criticalFocusAnchorId());
   });
 
   btnRow.appendChild(keepBtn);
@@ -3516,12 +3621,12 @@ function renderVoidConfirm(): HTMLElement {
       state.confirmVoidSeq = null;
       state.confirmVoidLabel = "";
       render();
-      focusAfterRender("critical-auction-strip");
+      focusAfterRender(criticalFocusAnchorId());
     }
   });
 
   activateAccessibleDialog(overlay, modal, () => {
-    const returnId = state.confirmVoidSeq === null ? "critical-auction-strip" : `undo-purchase-${state.confirmVoidSeq}`;
+    const returnId = state.confirmVoidSeq === null ? criticalFocusAnchorId() : `undo-purchase-${state.confirmVoidSeq}`;
     state.confirmVoidSeq = null;
     state.confirmVoidLabel = "";
     render();

@@ -178,6 +178,17 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
   };
 
   // ── ASTA — momento CHIAMATA ───────────────────────────────────────────────
+  // #331 punto 5: il dettaglio per ruolo della fascia critica (barre e
+  // micro-etichette del piano) sta dietro un gesto. Va APERTO prima di
+  // misurare: `measureAllText` salta ciò che non ha rettangolo, quindi
+  // lasciarlo chiuso non farebbe fallire nulla — farebbe smettere di misurare,
+  // che è il modo esatto in cui questa suite era già riuscita a restare verde
+  // sull'app rotta (vedi la nota su resolveTokenColors in helpers.ts).
+  // Lo stato resta aperto per le scene successive: la fascia si ricostruisce a
+  // ogni render, ma `criticalPlanOpen` è stato dell'app, non del DOM.
+  await page.locator("#critical-roster").click();
+  await expect(page.locator("#critical-role-plan-P")).toBeVisible();
+
   // I punti d'uso espliciti: micro-etichette del piano per ruolo, nota della
   // riga di comando, etichetta del filtro di stato, nota del listone.
   // Ognuno era fra 2,43:1 e 2,75:1 prima della schiaritura.
