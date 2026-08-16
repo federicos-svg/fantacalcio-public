@@ -861,12 +861,13 @@
 }
 
 /* ── MOMENTO LIVE: i due blocchi di fatti misurati ──────────────────────────
-   MOMENTO DELL'ASTA (scarsità per ruolo + mercato) e AVVERSARI (chi può
-   arrivare alla cifra) stavano affiancati su una griglia `1fr 1fr` inline,
-   quando entrambi erano segnaposto vuoti. Ora portano numeri: la griglia
-   resta a due colonne dove c'è spazio e impila sotto i 900px — due pannelli
-   densi affiancati smettono di essere leggibili molto prima di smettere di
-   entrarci. Stesso compromesso di .scarcity-grid e .nomination-context__body. */
+   MOMENTO DELL'ASTA (scarsità per ruolo + mercato) e AVVERSARI (i precedenti
+   d'asta sul giocatore chiamato) stavano affiancati su una griglia `1fr 1fr`
+   inline, quando entrambi erano segnaposto vuoti. Ora portano numeri: la
+   griglia resta a due colonne dove c'è spazio e impila sotto i 900px — due
+   pannelli densi affiancati smettono di essere leggibili molto prima di
+   smettere di entrarci. Stesso compromesso di .scarcity-grid e
+   .nomination-context__body. */
 .moment-blocks-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -877,7 +878,7 @@
   .moment-blocks-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .moment-facts,
-.opponent-reach {
+.opponent-precedents {
   align-content: start;
   min-width: 0;
   margin-bottom: 0;
@@ -1037,117 +1038,153 @@
   line-height: 1.35;
 }
 
-/* AVVERSARI — chi può arrivare alla cifra. Due gruppi sempre presenti:
-   "nessuno può arrivarci" e "possono tutti" sono fatti diversi, e un gruppo
-   che sparisce lascia l'operatore senza sapere quale dei due sta guardando. */
-.opponent-reach__headline {
+/* AVVERSARI — i precedenti d'asta sul giocatore chiamato (#331 punto 1).
+   Sostituisce il blocco «chi può arrivare alla cifra»: quello aveva due gruppi
+   fissi di righe piatte (nome + due numeri), questo ha una riga per avversario
+   e dentro la riga un fatto per riga, ognuno col proprio motivo, la propria
+   prova e la propria serie per stagione.
+   Compattezza: il pannello vive sulla schermata più lunga dell'app, e mostra
+   solo gli avversari che HANNO un precedente — tipicamente zero, uno o due,
+   contro le sette righe fisse di prima. Le misure qui sotto (gap 3-6px,
+   font 9-11,5px) tengono la nuova riga, più alta di quella vecchia, dentro
+   un'altezza complessiva minore. */
+.opponent-precedents__headline {
   color: var(--text-mid);
   font-size: 12.5px;
   line-height: 1.4;
   margin: 8px 0 10px;
 }
-.opponent-reach__body {
+.opponent-precedents__body {
   display: grid;
-  gap: 10px;
-}
-.opponent-reach__group {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-.opponent-reach__heading {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
   gap: 8px;
-  color: var(--text-sec);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
 }
-.opponent-reach__heading > b {
-  color: var(--text-mid);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  flex: none;
-}
-.opponent-reach__list {
+.opponent-precedents__list {
   display: grid;
-  gap: 3px;
+  gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.opponent-reach__row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
+/* La riga NON usa opacità per arretrare niente: stessa lezione della riga
+   esclusa del pannello precedente, dove `opacity: 0.78` si applicava al layer
+   intero e moltiplicava ogni figlio contro lo sfondo, portando il testo più
+   utile della riga a 1,99:1. Qui la gerarchia è solo di colore e di corpo. */
+.opponent-precedents__row {
+  display: grid;
+  gap: 3px;
   min-width: 0;
-  padding: 4px 8px;
+  padding: 5px 8px;
   border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
   border-radius: 6px;
   background: var(--panel-inner);
 }
-.opponent-reach__row--eligible { border-left: 2px solid var(--accent); }
-/* La riga esclusa si distingue per bordo e per il motivo scritto accanto, NON
-   per opacità. `opacity: 0.78` era il modo sbagliato di dirlo: si applica al
-   layer intero e quindi moltiplica ogni figlio contro lo sfondo del pannello,
-   spingendo il MOTIVO dell'esclusione — l'informazione più utile della riga —
-   a 1,99:1, sotto qualunque soglia leggibile e sotto la stessa banda che
-   --text-dim tiene altrove nell'app. Tolta l'opacità, ogni cifra e ogni
-   parola di questa riga risale: il motivo passa a 8,36:1, le micro-etichette
-   max/slot a 6,33:1 (esattamente il valore che .war-board-mini__nums em ha
-   già, dopo la schiaritura AA della rampa in base.css), i numeri a 13:1. Il
-   bordo neutro tiene anche l'allineamento identico a quello della riga
-   eleggibile, che ha il proprio da 2px. */
-.opponent-reach__row--excluded { border-left: 2px solid var(--border); }
-.opponent-reach__name {
-  color: var(--text-mid);
-  flex: 1;
-  font-size: 11.5px;
-  font-weight: 600;
+.opponent-precedents__name {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.opponent-reach__nums {
+.opponent-precedents__facts {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* Il fatto è un blocco di testo che va a capo da solo: motivo e prova stanno
+   sulla stessa riga finché c'è larghezza. Due righe imposte costavano ~14px
+   per fatto senza rendere nulla più leggibile. La serie, che è tabellare,
+   resta su una riga sua (è `display:flex`, quindi block-level). */
+.opponent-precedents__fact {
+  min-width: 0;
+  line-height: 1.35;
+}
+/* Il MOTIVO è ciò che quell'avversario ha fatto: sta un gradino sopra la sua
+   prova, perché è la cosa che si legge per prima in due secondi d'asta.
+   --text-mid, non --text-sec: a 11px serve AA pieno e la gerarchia con
+   l'evidenza sotto la fa il peso, non il contrasto. */
+.opponent-precedents__motive {
+  color: var(--text-mid);
+  font-size: 11px;
+  font-weight: 600;
+}
+.opponent-precedents__motive,
+.opponent-precedents__evidence {
+  display: inline;
+}
+.opponent-precedents__sep {
+  color: var(--text-sec);
+  font-size: 10.5px;
+}
+/* Sotto i 560px il flusso unico non risparmia più niente e va a capo NEL
+   MEZZO della frase: misurato, costava ~40px in più su tutta la schermata
+   rispetto alle due righe. Lì il motivo torna sulla propria riga — dove
+   almeno l'a capo cade dove ha senso — e il trattino, che separava due cose
+   ora già separate, sparisce. */
+@media (max-width: 559px) {
+  .opponent-precedents__motive { display: block; }
+  .opponent-precedents__sep { display: none; }
+}
+/* La PROVA — numeri e numerosità — resta sopra AA (--text-sec è 6,33:1 su
+   --panel-inner con la rampa schiarita di base.css): è l'informazione che
+   rende controllabile il motivo, e un motivo senza prova leggibile sarebbe
+   di nuovo un giudizio. */
+.opponent-precedents__evidence {
+  color: var(--text-sec);
+  font-size: 10.5px;
+}
+/* La serie per stagione. In riga, che va a capo: è qui che si vede la
+   differenza fra «alto per quattro stagioni e crollato nell'ultima» e «alto
+   solo nell'ultima» — due cose che una media sola renderebbe identiche. */
+.opponent-precedents__series {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
-  flex: none;
+  flex-wrap: wrap;
+  gap: 3px 8px;
+  margin-top: 1px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 10.5px;
   color: var(--text-primary);
 }
-.opponent-reach__nums em {
+.opponent-precedents__season {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  white-space: nowrap;
+}
+.opponent-precedents__season > em {
   color: var(--text-sec);
   font-family: inherit;
   font-size: 9px;
   font-style: normal;
   font-weight: 700;
   letter-spacing: 0.03em;
-  text-transform: uppercase;
-  margin-right: 3px;
 }
-/* --text-mid, non --text-dim e nemmeno --text-sec: a 10px serve AA pieno
-   (4,5:1). Con la rampa schiarita di base.css tutti e tre lo superano su
-   --panel-inner (--text-dim 4,69:1, --text-sec 6,33:1, --text-mid 8,36:1),
-   ma questo resta --text-mid: è il motivo per cui un rivale è fuori —
-   «RUOLO PIENO», «SOTTO LA SOGLIA» — e non deve leggersi peggio dei numeri
-   che ha accanto. La scelta ora è di gerarchia, non più di sola conformità. */
-.opponent-reach__reason {
-  color: var(--text-mid);
-  flex: none;
+/* Il tifo dichiarato è SUBORDINATO: sta sotto i fatti che hanno fatto nascere
+   la riga, separato da un filetto, con accanto la spesa misurata su quel club.
+   Non è mai il titolo di niente e da solo non fa comparire nessuno — la
+   garanzia è nel motore (packages/opponent-profiles/src/precedents.ts), questa
+   è solo la sua forma visibile. */
+.opponent-precedents__support {
+  display: block;
+  border-top: 1px dashed var(--border);
+  padding-top: 3px;
+  margin-top: 1px;
+  color: var(--text-sec);
   font-size: 10px;
-  font-style: normal;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+  line-height: 1.35;
 }
-.opponent-reach__empty {
-  color: var(--text-dim);
-  font-size: 11.5px;
-  line-height: 1.4;
+.opponent-precedents__support > em {
+  color: var(--text-mid);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  margin-right: 5px;
 }
 
 /* DOPO L'ACQUISTO — la quarta domanda del tavolo, dentro la riga ASSEGNA A

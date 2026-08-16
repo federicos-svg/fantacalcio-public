@@ -18,5 +18,7 @@
 export * from "./types.js";
 export * from "./profileSchema.js";
 export * from "./counters.js";
+export * from "./historySchema.js";
+export * from "./precedents.js";
 export * from "./profileView.js";
 export * from "./storage.js";

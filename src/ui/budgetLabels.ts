@@ -29,10 +29,16 @@
 // contenuta nell'altra e che nessun componente stampi più la sigla nuda «max».
 //
 // Restano fuori da questo modulo, e vanno allineate quando quei file si
-// toccano (corsie in volo su src/main.ts e src/ui/liveFacts.ts):
-// «Max bid sicuro» della fascia critica (stesso nome, forma estesa: va bene),
-// «max per completare la rosa di X» del form ASSEGNA A e «max» della riga
-// competitor di liveFacts — tutte e tre sono MAX_BID_LABEL.
+// toccano (corsia in volo su src/main.ts): «Max bid sicuro» della fascia
+// critica (stesso nome, forma estesa: va bene) e «max per completare la rosa
+// di X» del form ASSEGNA A — tutte e due sono MAX_BID_LABEL.
+//
+// La terza voce di questo elenco era la sigla nuda «max» della riga competitor
+// di src/ui/liveFacts.ts. Non è più da allineare perché non esiste più: con
+// #331 il pannello AVVERSARI ha smesso di mostrare la raggiungibilità per
+// vincolo duro, e con lei quella riga. Il max bid delle otto squadre resta
+// sulla stessa schermata, nella striscia WAR BOARD (MINI), dove porta già
+// MAX_BID_LABEL.
 
 /** Il tetto di UNA offerta (maxSafe). Forma breve, per micro-etichette. */
 export const MAX_BID_LABEL = "max bid";

@@ -12,7 +12,25 @@
 //  - nessun contatore osservato per avversario (aste ingaggiate/vinte,
 //    sovrapprezzo medio, distanza dal max bid) e nessun interesse dichiarato in
 //    intervista: sono lo strato 2 «profili avversario» di §3, perimetro #234.
-//    Si agganciano SOPRA questo insieme, non dentro: qui resta il vincolo duro.
+//
+// DOVE SI SONO AGGANCIATI, ORA CHE ESISTONO. La riga qui sopra prometteva che
+// lo strato 2 si sarebbe agganciato «SOPRA questo insieme, non dentro»: è
+// successo, e sta in packages/opponent-profiles — i contatori osservati in
+// `counters.ts`, i precedenti d'asta multi-stagione in `precedents.ts`. Nessuno
+// dei due passa da qui e nessuno dei due deve: questo file resta il vincolo
+// duro e nient'altro, ed è per questo che il pacchetto dei profili importa i
+// TIPI del motore ma mai il suo reducer né `maxSafe()`.
+//
+// CHI USA QUESTO INSIEME, OGGI. Il pannello AVVERSARI della schermata live lo
+// mostrava fino a #331; ora quel pannello mostra i precedenti d'asta, e la
+// raggiungibilità per vincolo duro è uscita DA QUEL RIQUADRO — non dall'app: il
+// max bid vero e il budget residuo di tutte le squadre stanno nella striscia
+// war board della stessa schermata, gli slot liberi per ruolo nella war board
+// COMPLETA del momento chiamata e in AVVERSARI TIER-1 su Rose. Questa funzione
+// non ha quindi, in questo momento, un consumatore nella UI: resta esportata,
+// testata e invariata perché è il contratto aritmetico di «chi può arrivare a
+// N», che una superficie futura può chiedere di nuovo, e perché cancellarla
+// non farebbe ricomparire nessuna informazione — la toglierebbe soltanto.
 //
 // MAX BID VERO = `maxSafe()` di auction.ts, importato e riusato, mai
 // riderivato: è già «budget − minimo necessario per gli slot obbligatori

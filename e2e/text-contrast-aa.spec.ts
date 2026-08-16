@@ -223,7 +223,7 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
   for (const sel of [
     "#moment-market-basis", // --text-dim su --panel-inner, 2,43:1 prima
     "#war-board-mini-note", // --text-dim, «bdg = crediti residui · max bid = …»
-    ".opponent-reach__empty", // --text-dim, «Nessun rivale è fuori…»
+    "#opponent-precedents-headline", // --text-mid, la sintesi dei precedenti
     ".moment-scarcity__called", // --accent come testo, «IN ASTA», 3,02:1 prima
     ".moment-market__head", // --text-sec su --panel-inner, 4,01:1 prima
     ".war-board-mini__name", // --text-sec su --panel-inner, 4,01:1 prima
