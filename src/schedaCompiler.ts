@@ -63,6 +63,7 @@ import {
   type SchedaTarget,
   type Titolarita,
 } from "./expertScheda.js";
+import { listonePlayerKey } from "./ui/listone.js";
 import {
   AVVISO_LABELS,
   FONTE_LABELS,
@@ -586,6 +587,153 @@ export function buildSchedaDeposit(schede: ReadonlyMap<string, ExpertScheda>): S
   }
   if (identities.length > 0) return { ok: false, reason: "duplicate", identities };
   return { ok: true, text, count: list.length };
+}
+
+// ── RIPRENDERE UN DEPOSITO GIÀ SCRITTO ───────────────────────────────────────
+//
+// PERCHÉ IL GIRO SI CHIUDE SOLO QUI. Le due ore di compilazione sono
+// distribuite su più sere, e finché il deposito usciva a senso unico —
+// si scarica, non si ricarica — il lavoro viveva SOLO in `localStorage`: un
+// browser pulito, un'altra macchina o una cronologia svuotata e le due ore
+// sparivano senza che nessuno se ne accorgesse. È la stessa classe di difetto
+// silenzioso che tutto questo pannello esiste per non avere. E c'è il caso
+// normale, non solo quello sfortunato: il deposito è su Drive da tre giorni e
+// un ballottaggio è cambiato — senza rilettura l'unica strada è riscrivere.
+//
+// L'IDENTITÀ SI RIAGGANCIA PER UGUAGLIANZA ESATTA, e non con la regola a
+// contenimento di `findSchedaCandidates`. Le due servono a cose diverse: là si
+// legge un deposito scritto da fonti che usano il nome intero contro un listone
+// che scrive il cognome, e un aggancio dedotto viene DICHIARATO a schermo prima
+// di essere creduto; qui si RISCRIVE l'archivio locale, e un aggancio dedotto
+// male attaccherebbe in silenzio la scheda di un giocatore alla riga di un
+// altro. Una scheda che non trova la sua riga non viene persa: entra con la
+// propria identità come chiave e il pannello la conta fra quelle «senza riga
+// nel listone», che è un fatto visibile invece di un'ipotesi.
+//
+// LA FUSIONE NON SI DECIDE DA SOLA. Le schede del file che NON esistono in
+// locale entrano sempre (aggiungono, non distruggono: non c'è niente da
+// perdere e quindi niente da chiedere). Le schede in CONFLITTO — stessa riga,
+// due versioni — non si sovrascrivono e non si scartano: chi chiama deve
+// portare una decisione, e senza quella `applySchedaImport` rende `null`
+// invece di sceglierne una.
+
+/** Una scheda del file, con la riga di listone su cui è finita. */
+export interface SchedaImportEntry {
+  readonly rowKey: string;
+  readonly player: string;
+  readonly club: string;
+  /** `false` quando nessuna riga del listone caricato ha questa identità. */
+  readonly matched: boolean;
+}
+
+export interface SchedaImportPlan {
+  /** riga di listone -> scheda del file. Ordine: quello del file. */
+  readonly incoming: ReadonlyMap<string, ExpertScheda>;
+  /** Le schede del file su righe che in locale non hanno ancora niente. */
+  readonly fresh: readonly SchedaImportEntry[];
+  /** Le schede del file su righe che in locale hanno GIÀ una scheda. */
+  readonly conflicts: readonly SchedaImportEntry[];
+  /** Le schede del file che non corrispondono a nessuna riga del listone. */
+  readonly unmatched: readonly SchedaImportEntry[];
+}
+
+export type SchedaImportResult =
+  | { readonly ok: true; readonly plan: SchedaImportPlan }
+  | { readonly ok: false; readonly reason: "absent" | "unreadable" | "invalid" | "empty" }
+  | { readonly ok: false; readonly reason: "duplicate"; readonly identities: readonly string[] };
+
+/** L'identità di una riga di listone: la stessa metà con cui il deposito indicizza. */
+export interface SchedaImportRow {
+  readonly rowKey: string;
+  readonly name: string;
+  readonly club: string;
+}
+
+/**
+ * Il testo di un deposito -> che cosa succederebbe a importarlo. NON importa
+ * niente: risponde soltanto, e la risposta è ciò che il pannello mostra prima
+ * di chiedere conferma.
+ *
+ * Il rifiuto passa per `parseExpertSchedaDeposit`, la funzione vera: un file
+ * illeggibile o non conforme non produce una lettura parziale e non tocca
+ * niente di ciò che c'è già — la stessa postura fail-closed del deposito
+ * servito a runtime, per la stessa ragione (metà schede sarebbe peggio di
+ * nessuna scheda, e qui in più cancellerebbe del lavoro).
+ */
+export function planSchedaImport(
+  rawText: string | null,
+  rows: Iterable<SchedaImportRow>,
+  current: ReadonlyMap<string, ExpertScheda>,
+): SchedaImportResult {
+  const store = parseExpertSchedaDeposit(rawText);
+  if (!store.ok) return { ok: false, reason: store.reason };
+
+  // identità (nome+squadra piegati) -> chiave della riga di listone. La chiave
+  // di riga può essere un `proxy:` che dal nome non si ricostruisce, quindi
+  // l'indice va costruito nel verso giusto una volta sola.
+  const identityToRow = new Map<string, string>();
+  for (const row of rows) {
+    const identity = listonePlayerKey({ name: row.name, club: row.club });
+    if (!identityToRow.has(identity)) identityToRow.set(identity, row.rowKey);
+  }
+
+  const duplicates: string[] = [];
+  for (const [, bucket] of store.byPlayerKey) {
+    const first = bucket[0];
+    if (bucket.length > 1 && first !== undefined) duplicates.push(`${first.player} (${first.club})`);
+  }
+  // Lo stesso rifiuto che `buildSchedaDeposit` oppone in uscita: due schede
+  // sulla stessa identità sono un file valido che a schermo non mostra niente.
+  if (duplicates.length > 0) return { ok: false, reason: "duplicate", identities: duplicates };
+
+  const incoming = new Map<string, ExpertScheda>();
+  const fresh: SchedaImportEntry[] = [];
+  const conflicts: SchedaImportEntry[] = [];
+  const unmatched: SchedaImportEntry[] = [];
+  for (const [identity, bucket] of store.byPlayerKey) {
+    const scheda = bucket[0];
+    if (scheda === undefined) continue;
+    const mapped = identityToRow.get(identity);
+    const entry: SchedaImportEntry = {
+      rowKey: mapped ?? identity,
+      player: scheda.player,
+      club: scheda.club,
+      matched: mapped !== undefined,
+    };
+    incoming.set(entry.rowKey, scheda);
+    (current.has(entry.rowKey) ? conflicts : fresh).push(entry);
+    if (!entry.matched) unmatched.push(entry);
+  }
+  if (incoming.size === 0) return { ok: false, reason: "empty" };
+  return { ok: true, plan: { incoming, fresh, conflicts, unmatched } };
+}
+
+/** Che cosa fare delle schede in conflitto. Non ha un valore di riposo. */
+export type SchedaImportResolution = "keep-local" | "take-file";
+
+/**
+ * L'archivio dopo l'importazione, o `null` quando manca la decisione che serve.
+ *
+ * `null` NON è un errore tecnico: è «ci sono conflitti e nessuno ha ancora
+ * detto che cosa farne». Renderlo invece di scegliere è l'intero punto di
+ * questa funzione — una fusione automatica sceglierebbe per Pico proprio dove
+ * la scelta costa del lavoro.
+ *
+ * L'ordine è deterministico: le schede locali restano dove sono, quelle nuove
+ * si accodano nell'ordine del file.
+ */
+export function applySchedaImport(
+  current: ReadonlyMap<string, ExpertScheda>,
+  plan: SchedaImportPlan,
+  resolution: SchedaImportResolution | null,
+): ReadonlyMap<string, ExpertScheda> | null {
+  if (plan.conflicts.length > 0 && resolution === null) return null;
+  const next = new Map(current);
+  for (const [rowKey, scheda] of plan.incoming) {
+    if (next.has(rowKey) && resolution === "keep-local") continue;
+    next.set(rowKey, scheda);
+  }
+  return next;
 }
 
 // ── Il riassunto di una scheda, per rileggerla senza riaprirla ───────────────

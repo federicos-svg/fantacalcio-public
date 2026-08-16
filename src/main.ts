@@ -187,9 +187,11 @@ import {
 import {
   EMPTY_SCHEDA_FORM,
   SCHEDA_DEPOSIT_FILENAME,
+  applySchedaImport,
   buildScheda,
   buildSchedaDeposit,
   loadSchedaDrafts,
+  planSchedaImport,
   saveSchedaDrafts,
   schedaProgress,
   schedaSummary,
@@ -199,7 +201,20 @@ import {
   type SchedaDraftState,
   type SchedaFieldError,
   type SchedaFormValues,
+  type SchedaImportPlan,
+  type SchedaImportResolution,
 } from "./schedaCompiler.js";
+
+/**
+ * Un'importazione letta e non ancora applicata. Vive solo in `AppState`: è la
+ * domanda che il pannello sta facendo, non un dato da conservare.
+ */
+interface PendingSchedaImport {
+  readonly fileName: string;
+  readonly plan: SchedaImportPlan;
+  /** `null` finché Pico non ha scelto. Serve solo quando ci sono conflitti. */
+  readonly resolution: SchedaImportResolution | null;
+}
 
 // Path of the shipped, Cloudflare-Access-gated static listone asset — see
 // docs/data/LISTONE_UI_LOAD_CONTRACT.md for the shape and authorization.
@@ -488,6 +503,17 @@ interface AppState {
   schedaFilter: string;
   /** La scheda per cui è stata chiesta la cancellazione, in attesa del secondo clic. */
   schedaConfirmDelete: string | null;
+  /**
+   * L'importazione LETTA e non ancora applicata: che cosa succederebbe se si
+   * confermasse, in attesa che Pico lo confermi. `null` è lo stato normale.
+   *
+   * Transitoria per scelta, e non persistita come le schede: è una domanda
+   * aperta su un file scelto adesso, non lavoro da mettere al sicuro. Un
+   * reload la chiude, e il file si ricarica con un gesto.
+   */
+  schedaImport: PendingSchedaImport | null;
+  /** Perché l'ultimo file NON è stato importato. Vuoto è lo stato normale. */
+  schedaImportError: string;
   rosterError: string;
   newPersonName: string;
   settingsArea: string;
@@ -724,6 +750,8 @@ const state: AppState = {
   schedaNotice: "",
   schedaFilter: "",
   schedaConfirmDelete: null,
+  schedaImport: null,
+  schedaImportError: "",
   rosterError: "",
   newPersonName: "",
   // Opens on the area you act on; app status is diagnostics, read on demand.
@@ -3200,6 +3228,217 @@ function copySchedaDeposit(text: string, count: number): void {
   );
 }
 
+// ── RIPRENDERE UN DEPOSITO GIÀ SCRITTO ───────────────────────────────────────
+//
+// Il giro si chiude qui. Le due ore sono distribuite su più sere e il deposito
+// finisce su Drive: senza rilettura il lavoro viveva solo in `localStorage` —
+// un browser pulito, un'altra macchina, una cronologia svuotata, e sparivano
+// senza un errore — e una scheda da correggere tre giorni dopo si poteva solo
+// riscrivere.
+//
+// LA FUSIONE NON SI DECIDE DA SOLA. Le schede del file su righe che in locale
+// sono vuote entrano sempre: aggiungono e non distruggono, quindi non c'è
+// niente da chiedere. Le schede in CONFLITTO — stessa riga, due versioni — non
+// si sovrascrivono e non si scartano: la tendina non ha nessuna opzione
+// preselezionata, esattamente come la domanda dell'aggancio in
+// src/ui/expertInsight.ts, e senza una risposta `applySchedaImport` rende
+// `null` invece di sceglierne una.
+
+const SCHEDA_IMPORT_REFUSALS: Readonly<Record<"absent" | "unreadable" | "invalid" | "empty", string>> = {
+  absent: "Nessun file letto: riprova a sceglierlo.",
+  unreadable: "Il file non è JSON leggibile. Non è stato toccato niente di quello che hai già scritto.",
+  invalid:
+    "Il file non è un deposito valido secondo il contratto (parseExpertSchedaDeposit): versione diversa, un campo fuori vocabolario o una chiave che non esiste. Non è stato toccato niente di quello che hai già scritto.",
+  empty: "Il file è un deposito valido ma non contiene nessuna scheda.",
+};
+
+/** Le righe del listone come le vede il pianificatore d'importazione. */
+function schedaImportRows(): { rowKey: string; name: string; club: string }[] {
+  return state.pool.map((p) => ({ rowKey: listonePlayerKey(p), name: p.name, club: p.club }));
+}
+
+/**
+ * Legge il file scelto e prepara la domanda. Non importa niente: mostra che
+ * cosa succederebbe, e aspetta.
+ *
+ * Il campo viene svuotato subito dopo la lettura, così riscegliere LO STESSO
+ * file torna a produrre un evento — senza, un secondo tentativo dopo un
+ * rifiuto non farebbe nulla e sembrerebbe un pannello morto.
+ */
+function readSchedaImportFile(input: HTMLInputElement): void {
+  const file = input.files?.[0] ?? null;
+  // NON si azzera qui `input.value`: ogni strada che segue finisce in un
+  // `render()`, che ricostruisce il campo vuoto da sé — e azzerarlo mentre la
+  // lettura del file è ancora in volo è un modo di far sparire il file da sotto
+  // la promessa.
+  if (file === null) {
+    state.schedaImport = null;
+    state.schedaImportError = "Nessun file letto: riprova a sceglierlo.";
+    render();
+    return;
+  }
+  const failed = (why: string): void => {
+    state.schedaImport = null;
+    state.schedaImportError = why;
+    render();
+  };
+  file
+    .text()
+    .then((text) => openSchedaImport(text, file.name))
+    // Una sola rete di sicurezza per TUTTO ciò che sta sopra, lettura e
+    // pianificazione comprese: un errore inatteso qui dentro, senza questa,
+    // resterebbe una promessa rifiutata e nessuno vedrebbe niente — il
+    // pannello sembrerebbe semplicemente non rispondere al file scelto.
+    .catch((err: unknown) =>
+      failed(
+        `Il file non è stato letto dal browser (${err instanceof Error ? err.message : String(err)}). Non è stato toccato niente.`,
+      ),
+    );
+}
+
+function openSchedaImport(text: string, fileName: string): void {
+  const result = planSchedaImport(text, schedaImportRows(), state.schedaDrafts.schede);
+  if (!result.ok) {
+    state.schedaImport = null;
+    state.schedaImportError =
+      result.reason === "duplicate"
+        ? `Il file contiene due schede sulla stessa identità (${result.identities.join("; ")}): il riquadro non ne mostrerebbe nessuna delle due. Non è stato importato niente.`
+        : SCHEDA_IMPORT_REFUSALS[result.reason];
+    render();
+    return;
+  }
+  state.schedaImport = { fileName, plan: result.plan, resolution: null };
+  state.schedaImportError = "";
+  state.schedaNotice = "";
+  render();
+  focusAfterRender(
+    result.plan.conflicts.length > 0 ? "schede-import-resolution" : "schede-import-confirm",
+  );
+}
+
+function cancelSchedaImport(): void {
+  state.schedaImport = null;
+  state.schedaImportError = "";
+  render();
+}
+
+function confirmSchedaImport(): void {
+  const pending = state.schedaImport;
+  if (pending === null) return;
+  const next = applySchedaImport(state.schedaDrafts.schede, pending.plan, pending.resolution);
+  if (next === null) {
+    state.schedaImportError =
+      "Scegli prima che cosa fare delle schede in conflitto: non ne sovrascrivo nessuna da solo.";
+    render();
+    return;
+  }
+  const { fresh, conflicts, unmatched } = pending.plan;
+  const parts = [`${fresh.length} nuov${fresh.length === 1 ? "a" : "e"}`];
+  if (conflicts.length > 0) {
+    parts.push(
+      pending.resolution === "take-file"
+        ? `${conflicts.length} sostituit${conflicts.length === 1 ? "a" : "e"} con quell${conflicts.length === 1 ? "a" : "e"} del file`
+        : `${conflicts.length} conflitt${conflicts.length === 1 ? "o risolto" : "i risolti"} tenendo le tue`,
+    );
+  }
+  if (unmatched.length > 0) {
+    parts.push(`${unmatched.length} senza riga nel listone caricato`);
+  }
+  // Il modulo eventualmente aperto si chiude: le sue caselle sono state
+  // riempite PRIMA dell'importazione, e salvarle dopo rimetterebbe in silenzio
+  // la versione vecchia sopra quella appena importata.
+  state.schedaTargetKey = null;
+  state.schedaForm = EMPTY_SCHEDA_FORM;
+  state.schedaErrors = [];
+  state.schedaConfirmDelete = null;
+  state.schedaImport = null;
+  state.schedaImportError = "";
+  persistSchedaDrafts({ schede: next, editing: null });
+  state.schedaNotice = `Deposito ripreso da «${pending.fileName}»: ${parts.join(", ")}.`;
+  render();
+  focusAfterRender("schede-player");
+}
+
+/** Che cosa succederebbe a confermare, scritto prima di chiedere. */
+function renderSchedaImportPreview(pending: PendingSchedaImport): HTMLElement {
+  const box = document.createElement("div");
+  box.id = "schede-import-preview";
+  box.className = "schede-progress";
+
+  const headline = document.createElement("p");
+  headline.id = "schede-import-headline";
+  headline.className = "schede-progress__count";
+  const total = pending.plan.incoming.size;
+  headline.textContent = `«${pending.fileName}»: ${total} sched${total === 1 ? "a" : "e"} nel file — ${pending.plan.fresh.length} nuov${pending.plan.fresh.length === 1 ? "a" : "e"}, ${pending.plan.conflicts.length} in conflitto con quelle che hai già.`;
+  box.appendChild(headline);
+
+  if (pending.plan.unmatched.length > 0) {
+    const unmatched = document.createElement("p");
+    unmatched.id = "schede-import-unmatched";
+    unmatched.className = "hint-text";
+    unmatched.textContent = `${pending.plan.unmatched.length} sched${pending.plan.unmatched.length === 1 ? "a" : "e"} non corrispond${pending.plan.unmatched.length === 1 ? "e" : "ono"} a nessuna riga del listone caricato (${pending.plan.unmatched.map((e) => `${e.player} — ${e.club}`).join("; ")}). Entrano lo stesso e restano nel deposito, ma non contano nell'avanzamento finché la riga non c'è.`;
+    box.appendChild(unmatched);
+  }
+
+  if (pending.plan.conflicts.length > 0) {
+    const list = document.createElement("p");
+    list.id = "schede-import-conflicts";
+    list.className = "hint-text";
+    list.textContent = `In conflitto: ${pending.plan.conflicts.map((e) => `${e.player} — ${e.club}`).join("; ")}.`;
+    box.appendChild(list);
+
+    // Nessuna opzione preselezionata: la scelta è di Pico, e su queste righe
+    // costa del lavoro in un verso o nell'altro.
+    const select = document.createElement("select");
+    select.id = "schede-import-resolution";
+    select.className = "field-input";
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = "— scegli che cosa fare —";
+    select.appendChild(empty);
+    for (const [value, label] of [
+      ["keep-local", "tieni le mie schede sulle righe in conflitto"],
+      ["take-file", "usa quelle del file sulle righe in conflitto"],
+    ] as const) {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = label;
+      select.appendChild(opt);
+    }
+    select.value = pending.resolution ?? "";
+    select.addEventListener("change", (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      state.schedaImport = {
+        ...pending,
+        resolution: value === "" ? null : (value as SchedaImportResolution),
+      };
+      state.schedaImportError = "";
+      render();
+    });
+    box.appendChild(schedaField("schede-import-resolution", "SCHEDE IN CONFLITTO", select));
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "schede-form__actions";
+  const confirm = document.createElement("button");
+  confirm.type = "button";
+  confirm.id = "schede-import-confirm";
+  confirm.className = "btn btn--primary";
+  confirm.textContent = "Riprendi questo deposito";
+  confirm.disabled = pending.plan.conflicts.length > 0 && pending.resolution === null;
+  confirm.addEventListener("click", () => confirmSchedaImport());
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.id = "schede-import-cancel";
+  cancel.className = "btn btn--secondary";
+  cancel.textContent = "Annulla";
+  cancel.addEventListener("click", () => cancelSchedaImport());
+  actions.append(confirm, cancel);
+  box.appendChild(actions);
+
+  return box;
+}
+
 /** Una `<label>` col suo controllo, nella forma già usata dagli altri pannelli. */
 function schedaField(id: string, caption: string, control: HTMLElement): HTMLElement {
   const field = document.createElement("label");
@@ -3786,6 +4025,38 @@ function renderSchedaDeposit(): HTMLElement {
 
   actions.append(download, copy);
   box.appendChild(actions);
+
+  // ── L'altra direzione: riprendere un deposito già scritto ────────────────
+  const importTitle = document.createElement("h3");
+  importTitle.className = "league-people-title";
+  importTitle.textContent = "RIPRENDI UN DEPOSITO GIÀ SCRITTO";
+  box.appendChild(importTitle);
+
+  const importHint = document.createElement("p");
+  importHint.className = "hint-text";
+  importHint.textContent =
+    "Carica un file di deposito per continuare da dove eri: quello che scarichi qui rientra identico, anche su un altro browser o su un'altra macchina. Il file viene letto in locale, non viene mandato da nessuna parte, e prima di applicarlo il pannello ti dice esattamente che cosa cambierebbe.";
+  box.appendChild(importHint);
+
+  const importFile = document.createElement("input");
+  importFile.type = "file";
+  importFile.id = "schede-import-file";
+  importFile.className = "field-input schede-import-file";
+  importFile.accept = "application/json,.json";
+  importFile.setAttribute("aria-label", "Scegli il file di deposito da riprendere");
+  importFile.addEventListener("change", (e) => readSchedaImportFile(e.target as HTMLInputElement));
+  box.appendChild(importFile);
+
+  if (state.schedaImportError) {
+    const error = document.createElement("p");
+    error.id = "schede-import-error";
+    error.className = "schede-alert";
+    error.setAttribute("role", "alert");
+    error.textContent = state.schedaImportError;
+    box.appendChild(error);
+  }
+
+  if (state.schedaImport !== null) box.appendChild(renderSchedaImportPreview(state.schedaImport));
 
   return box;
 }

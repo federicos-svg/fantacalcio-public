@@ -20,9 +20,11 @@ import {
   SCHEDA_DEPOSIT_FILENAME,
   SCHEDA_DRAFTS_SCHEMA_VERSION,
   SCHEDA_DRAFTS_STORAGE_KEY,
+  applySchedaImport,
   buildScheda,
   buildSchedaDeposit,
   loadSchedaDrafts,
+  planSchedaImport,
   saveSchedaDrafts,
   schedaProgress,
   schedaSummary,
@@ -443,6 +445,180 @@ describe("il deposito pronto", () => {
 
   it("il file si chiama come il deposito che il privato legge", () => {
     expect(SCHEDA_DEPOSIT_FILENAME).toBe("schede_gruppo_esperti.json");
+  });
+});
+
+describe("riprendere un deposito già scritto", () => {
+  const OTHER = { name: "Ugo Placeholder", club: "ClubQuattro" } as const;
+  const OTHER_KEY = listonePlayerKey(OTHER);
+  const ROWS = [
+    { rowKey: ROW_KEY, name: TARGET.name, club: TARGET.club },
+    { rowKey: OTHER_KEY, name: OTHER.name, club: OTHER.club },
+  ];
+
+  /** Il testo che il pannello scarica davvero, non un JSON scritto a mano. */
+  function depositOf(schede: readonly ExpertScheda[]): string {
+    const built = buildSchedaDeposit(new Map(schede.map((s, i) => [`k${i}`, s])));
+    if (!built.ok) throw new Error(`deposito non costruito: ${built.reason}`);
+    return built.text;
+  }
+
+  it("il giro si chiude: quello che esce rientra identico", () => {
+    // La prova che andata e ritorno sono la stessa cosa: due schede scritte,
+    // esportate, rilette in un archivio VUOTO — come su un browser pulito o su
+    // un'altra macchina, che è il caso in cui oggi le due ore sparivano.
+    const first = builtScheda({ titolarita: "titolare", nota: "Prima." });
+    const second = buildScheda(OTHER, form({ titolarita: "riserva" }));
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    const text = depositOf([first, second.scheda]);
+
+    const planned = planSchedaImport(text, ROWS, new Map());
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+    expect(planned.plan.conflicts).toEqual([]);
+    expect(planned.plan.fresh.map((e) => e.player)).toEqual([TARGET.name, OTHER.name]);
+
+    const applied = applySchedaImport(new Map(), planned.plan, null);
+    expect(applied).not.toBeNull();
+    expect(applied?.get(ROW_KEY)).toEqual(first);
+    expect(applied?.get(OTHER_KEY)).toEqual(second.scheda);
+  });
+
+  it("riaggancia la scheda alla RIGA del listone, anche quando la chiave è un proxy", () => {
+    // Il deposito porta nome+squadra, non la chiave di riga: senza l'indice
+    // costruito nel verso giusto, una riga con `proxyId` non ritroverebbe mai
+    // la propria scheda.
+    const scheda = builtScheda({ titolarita: "titolare" });
+    const proxyRows = [{ rowKey: "proxy:77", name: TARGET.name, club: TARGET.club }];
+    const planned = planSchedaImport(depositOf([scheda]), proxyRows, new Map());
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+    expect([...planned.plan.incoming.keys()]).toEqual(["proxy:77"]);
+    expect(planned.plan.fresh[0]?.matched).toBe(true);
+  });
+
+  it("una scheda senza riga nel listone non si perde: entra e viene contata a parte", () => {
+    const scheda = builtScheda({ titolarita: "titolare" });
+    const planned = planSchedaImport(depositOf([scheda]), [], new Map());
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+    expect(planned.plan.unmatched.map((e) => e.player)).toEqual([TARGET.name]);
+    expect(planned.plan.incoming.get(ROW_KEY)).toEqual(scheda);
+  });
+
+  it("un file illeggibile o non conforme NON tocca niente e dice perché", () => {
+    const local = new Map([[ROW_KEY, builtScheda({ titolarita: "titolare" })]]);
+    const refusals: readonly (readonly [string | null, string])[] = [
+      [null, "absent"],
+      ["{", "unreadable"],
+      ['{"schemaVersion":2,"schede":[]}', "invalid"],
+      ['{"schemaVersion":1,"schede":[{"player":"Dario Placeholder"}]}', "invalid"],
+      ['{"schemaVersion":1,"schede":[{"player":"Dario Placeholder","club":"ClubQuattro","value":9}]}', "invalid"],
+      ['{"schemaVersion":1,"schede":[]}', "empty"],
+    ];
+    for (const [raw, reason] of refusals) {
+      const planned = planSchedaImport(raw, ROWS, local);
+      expect(planned.ok, `«${String(raw).slice(0, 30)}» doveva essere rifiutato`).toBe(false);
+      if (planned.ok) continue;
+      expect(planned.reason, `«${String(raw).slice(0, 30)}»`).toBe(reason);
+    }
+    // E l'archivio locale è ancora quello di prima: il rifiuto non è distruttivo.
+    expect(local.size).toBe(1);
+  });
+
+  it("rifiuta un file con due schede sulla stessa identità, nominandola", () => {
+    const scheda = { player: TARGET.name, club: TARGET.club, titolarita: "titolare" };
+    const raw = JSON.stringify({
+      schemaVersion: EXPERT_SCHEDA_SCHEMA_VERSION,
+      schede: [scheda, { ...scheda, titolarita: "riserva" }],
+    });
+    const planned = planSchedaImport(raw, ROWS, new Map());
+    expect(planned.ok).toBe(false);
+    if (planned.ok) return;
+    expect(planned.reason).toBe("duplicate");
+    if (planned.reason !== "duplicate") return;
+    expect(planned.identities).toEqual([`${TARGET.name} (${TARGET.club})`]);
+  });
+
+  it("separa le schede nuove da quelle in conflitto", () => {
+    const local = new Map([[ROW_KEY, builtScheda({ titolarita: "titolare", nota: "La mia." })]]);
+    const fromFile = builtScheda({ titolarita: "riserva", nota: "Quella del file." });
+    const other = buildScheda(OTHER, form({ titolarita: "titolare" }));
+    expect(other.ok).toBe(true);
+    if (!other.ok) return;
+    const planned = planSchedaImport(depositOf([fromFile, other.scheda]), ROWS, local);
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+    expect(planned.plan.conflicts.map((e) => e.player)).toEqual([TARGET.name]);
+    expect(planned.plan.fresh.map((e) => e.player)).toEqual([OTHER.name]);
+  });
+
+  it("SENZA una decisione sui conflitti non fonde niente: rende null", () => {
+    // Il cuore della regola. Una fusione automatica sceglierebbe per Pico
+    // esattamente dove la scelta costa del lavoro.
+    const local = new Map([[ROW_KEY, builtScheda({ titolarita: "titolare" })]]);
+    const planned = planSchedaImport(depositOf([builtScheda({ titolarita: "riserva" })]), ROWS, local);
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+    expect(applySchedaImport(local, planned.plan, null)).toBeNull();
+  });
+
+  it("«tieni le mie» conserva le locali in conflitto e fa entrare comunque le nuove", () => {
+    const mine = builtScheda({ titolarita: "titolare", nota: "La mia." });
+    const local = new Map([[ROW_KEY, mine]]);
+    const fromFile = builtScheda({ titolarita: "riserva", nota: "Quella del file." });
+    const other = buildScheda(OTHER, form({ titolarita: "titolare" }));
+    expect(other.ok).toBe(true);
+    if (!other.ok) return;
+    const planned = planSchedaImport(depositOf([fromFile, other.scheda]), ROWS, local);
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+    const applied = applySchedaImport(local, planned.plan, "keep-local");
+    expect(applied?.get(ROW_KEY)).toEqual(mine);
+    expect(applied?.get(OTHER_KEY)).toEqual(other.scheda);
+  });
+
+  it("«usa quelle del file» sostituisce SOLO le schede in conflitto", () => {
+    const mine = builtScheda({ titolarita: "titolare", nota: "La mia." });
+    const untouched = buildScheda(OTHER, form({ nota: "Scritta stasera, non nel file." }));
+    expect(untouched.ok).toBe(true);
+    if (!untouched.ok) return;
+    const local = new Map([
+      [ROW_KEY, mine],
+      [OTHER_KEY, untouched.scheda],
+    ]);
+    const fromFile = builtScheda({ titolarita: "riserva", nota: "Quella del file." });
+    const planned = planSchedaImport(depositOf([fromFile]), ROWS, local);
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+    const applied = applySchedaImport(local, planned.plan, "take-file");
+    expect(applied?.get(ROW_KEY)).toEqual(fromFile);
+    // Ciò che il file non nomina resta intatto: importare non è azzerare.
+    expect(applied?.get(OTHER_KEY)).toEqual(untouched.scheda);
+  });
+
+  it("non tocca la mappa che riceve", () => {
+    const local = new Map([[ROW_KEY, builtScheda({ titolarita: "titolare" })]]);
+    const planned = planSchedaImport(depositOf([builtScheda({ titolarita: "riserva" })]), ROWS, local);
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+    applySchedaImport(local, planned.plan, "take-file");
+    expect(local.get(ROW_KEY)?.titolarita).toBe("titolare");
+  });
+
+  it("il deposito rientrato si riscarica ancora valido", () => {
+    // Andata, ritorno e SECONDA andata: è il giro che Pico fa fra una sera e
+    // l'altra, e deve chiudersi ogni volta.
+    const planned = planSchedaImport(depositOf([builtScheda({ titolarita: "titolare" })]), ROWS, new Map());
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+    const applied = applySchedaImport(new Map(), planned.plan, null);
+    expect(applied).not.toBeNull();
+    const again = buildSchedaDeposit(applied as ReadonlyMap<string, ExpertScheda>);
+    expect(again.ok).toBe(true);
+    if (!again.ok) return;
+    expect(parseExpertSchedaDeposit(again.text).ok).toBe(true);
   });
 });
 

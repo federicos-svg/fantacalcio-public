@@ -629,6 +629,20 @@
   display: grid;
   gap: 8px;
 }
+/* Il campo file: il controllo nativo dentro la cornice degli altri campi, senza
+   il padding verticale di .field-input che il pulsante nativo del browser
+   sballerebbe. Il testo del pulsante lo disegna il browser e non porta un token
+   della rampa — la spazzata AA lo salta, come salta ogni colore fuori rampa. */
+.schede-import-file {
+  padding: 6px 8px;
+  font-size: 12.5px;
+  color: var(--text-mid);
+}
+/* Il riquadro dell'anteprima riusa la cornice dell'avanzamento: è lo stesso
+   registro — un fatto contato, prima di un gesto. */
+#schede-import-preview {
+  gap: 8px;
+}
 
 /* Settings: menu on the left, content on the right. Vertical tablist +
    tabpanel, so the menu is arrow-key navigable and the selected item is
