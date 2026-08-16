@@ -316,6 +316,16 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
     await openSettingsSection(page, section);
     await sweepScene(`impostazioni/${section}`);
   }
+  // ARCHIVIO AVVERSARI — aperta qui a mano e non tramite `openSettingsSection`
+  // perché quell'helper è condiviso e la sua unione di id è tenuta ferma da
+  // un'altra corsia in volo: la scena entra comunque nella spazzata, che è
+  // ciò che conta. Il riquadro della forma del file è dentro un <details>
+  // chiuso, quindi va aperto o il suo testo resta fuori dalla misura.
+  await page.locator("#settings-tab-archivio").click();
+  await expect(page.locator("#settings-tab-archivio")).toHaveAttribute("aria-selected", "true");
+  await page.locator("#archive-history-shape summary").click();
+  await page.locator("#archive-profiles-shape summary").click();
+  await sweepScene("impostazioni/archivio");
 
   // La spazzata non può essere passata per vuoto: se i colori della rampa non
   // corrispondono più a nulla (token rinominato, valori cambiati senza

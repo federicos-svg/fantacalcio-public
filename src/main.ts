@@ -51,6 +51,17 @@ import {
   type OpponentProfile,
   type PastAuctionPurchase,
 } from "../packages/opponent-profiles/src/index.js";
+import {
+  applyAuctionHistoryText,
+  applyOpponentProfilesText,
+  forgetAuctionHistory,
+  forgetOpponentProfiles,
+  type ArchiveMessage,
+} from "./opponentArchive.js";
+import {
+  ARCHIVE_SETTINGS_ICON,
+  renderOpponentArchiveSettings,
+} from "./ui/opponentArchiveSettings.js";
 import { budgetPlan } from "../packages/engine/src/budget.js";
 import { purchaseFeasibility, recordPurchase, type ProposedPurchase } from "../packages/engine/src/feasibility.js";
 import type { ConfirmationInput } from "../packages/engine/src/confirmations.js";
@@ -414,6 +425,18 @@ interface AppState {
   auctionHistory: readonly PastAuctionPurchase[];
   opponentProfiles: readonly OpponentProfile[];
   /**
+   * L'esito dell'ULTIMA azione sui due archivi (Impostazioni → Archivio
+   * avversari), o `null` finché non ce n'è stata nessuna in questa sessione.
+   *
+   * In stato, non nel DOM, per la ragione di sempre in questo file: `render()`
+   * ricostruisce l'intero albero a ogni tasto, e un messaggio che vivesse solo
+   * a schermo sparirebbe al primo re-render — cioè spesso prima di essere
+   * stato letto. Non è mai persistito: è il racconto di un gesto appena
+   * compiuto, non un fatto dell'archivio.
+   */
+  archiveHistoryMessage: ArchiveMessage | null;
+  archiveProfilesMessage: ArchiveMessage | null;
+  /**
    * Le schede del Gruppo Esperti, lette a runtime dal deposito privato
    * (src/expertScheda.ts). `{ ok: false, reason: "absent" }` è lo stato di
    * partenza e resta tale finché la risposta non arriva valida: assente,
@@ -645,6 +668,10 @@ const state: AppState = {
   // sbagliato con l'aria di un fatto.
   auctionHistory: loadAuctionHistory(browserStorage).purchases,
   opponentProfiles: loadOpponentProfiles(browserStorage).profiles,
+  // Nessun messaggio al boot: non è stato compiuto nessun gesto. Lo stato
+  // degli archivi lo dice il riepilogo, che è un fatto e non un esito.
+  archiveHistoryMessage: null,
+  archiveProfilesMessage: null,
   // Nessuna scheda finché il deposito non risponde: il riquadro parte da
   // «fonte aggiuntiva non disponibile», che è la verità al primo frame.
   expertSchede: EXPERT_SCHEDE_ABSENT,
@@ -1262,6 +1289,67 @@ function opponentPrecedentsProps(): OpponentPrecedentsProps {
     }),
     teamLabels: seatLabelMap(),
   };
+}
+
+// ── ARCHIVIO AVVERSARI — la via d'ingresso dei due depositi runtime-local ────
+//
+// PERCHÉ QUESTE QUATTRO FUNZIONI ESISTONO. `opponentPrecedentsProps()` qui
+// sopra legge `state.auctionHistory` e `state.opponentProfiles`, che il boot
+// riempie da `loadAuctionHistory` / `loadOpponentProfiles`. Fino a qui nessun
+// punto dell'app chiamava mai le SCRITTURE gemelle di quelle letture: il
+// pannello AVVERSARI: I PRECEDENTI era una stanza arredata senza porta, e in
+// produzione avrebbe detto «Nessuno storico d'asta caricato» per sempre.
+// Queste sono la porta; la logica sta in src/opponentArchive.ts, dove è
+// verificabile senza un DOM.
+//
+// LO STATO RISPECCHIA LA MEMORIA, MAI L'INTENZIONE. Ogni azione riassegna
+// `state.auctionHistory` con ciò che il modulo ha RILETTO dallo storage dopo
+// l'azione — non con ciò che si è tentato di scrivere. È così che il rifiuto
+// di un file storto lascia visibile l'archivio che è rimasto, e che una
+// scrittura non attecchita si vede invece di essere promessa.
+
+function loadAuctionHistoryFromText(text: string): void {
+  const applied = applyAuctionHistoryText(browserStorage, text);
+  state.auctionHistory = applied.stored;
+  state.archiveHistoryMessage = applied.message;
+  render();
+}
+
+function loadOpponentProfilesFromText(text: string): void {
+  const applied = applyOpponentProfilesText(browserStorage, text);
+  state.opponentProfiles = applied.stored;
+  state.archiveProfilesMessage = applied.message;
+  render();
+}
+
+function forgetAuctionHistoryArchive(): void {
+  const applied = forgetAuctionHistory(browserStorage);
+  state.auctionHistory = applied.stored;
+  state.archiveHistoryMessage = applied.message;
+  render();
+}
+
+function forgetOpponentProfilesArchive(): void {
+  const applied = forgetOpponentProfiles(browserStorage);
+  state.opponentProfiles = applied.stored;
+  state.archiveProfilesMessage = applied.message;
+  render();
+}
+
+/** Il corpo dell'area Impostazioni → Archivio avversari. */
+function renderArchivioAvversariSettings(): HTMLElement {
+  return renderOpponentArchiveSettings({
+    history: state.auctionHistory,
+    profiles: state.opponentProfiles,
+    seats: state.leagueRoster.seats,
+    selfSeatId: SELF_ID,
+    historyMessage: state.archiveHistoryMessage,
+    profilesMessage: state.archiveProfilesMessage,
+    onHistoryFileText: loadAuctionHistoryFromText,
+    onProfilesFileText: loadOpponentProfilesFromText,
+    onForgetHistory: forgetAuctionHistoryArchive,
+    onForgetProfiles: forgetOpponentProfilesArchive,
+  });
 }
 
 /**
@@ -2358,6 +2446,12 @@ const SETTINGS_AREAS: readonly SettingsArea[] = [
     title: "Riconferme pre-asta",
     icon: SETTINGS_ICONS.confirm,
     body: () => renderRiconfermeSettings(),
+  },
+  {
+    id: "archivio",
+    title: "Archivio avversari",
+    icon: ARCHIVE_SETTINGS_ICON,
+    body: () => renderArchivioAvversariSettings(),
   },
   {
     id: "status",
