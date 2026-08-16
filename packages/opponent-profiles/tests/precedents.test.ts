@@ -334,6 +334,33 @@ describe("auctionPrecedents — ordine, determinismo, fail-closed", () => {
     expect(second.latest.share).toBe(1);
   });
 
+  it("più fatti non anticipano nessuno: l'ordine resta tipo di fatto, poi posto", () => {
+    const history = [
+      // Serve solo a rendere «caro» il giocatore chiamato (mediana 88), così
+      // il fatto `piu-cari` è pertinente; il suo posto esce dall'esito.
+      ...syntheticAuctionHistory().filter((r) => r.personId === SYNTHETIC_PERSON_IDS.ataturk),
+      // Un fatto solo: `club`.
+      ...syntheticAuctionHistory().filter((r) => r.personId === SYNTHETIC_PERSON_IDS.dinamo),
+      // Due fatti, `club` + `piu-cari`, e una quota di club più alta.
+      ...syntheticAuctionHistory()
+        .filter((r) => r.personId === SYNTHETIC_PERSON_ID_TORRES)
+        .map((r) => (r.price === 18 ? { ...r, club: SYNTHETIC_CLUBS.a } : r)),
+    ];
+    const out = reading({ history, selfSeatId: "ataturk" });
+    const dinamo = out.opponents.find((o) => o.fantaTeamId === "dinamo_flavietto")!;
+    const torres = out.opponents.find((o) => o.fantaTeamId === SYNTHETIC_SEAT_TORRES)!;
+    expect(dinamo.facts.map((f) => f.id)).toEqual(["club"]);
+    expect(torres.facts.map((f) => f.id)).toEqual(["club", "piu-cari"]);
+    // Torres porta PIÙ fatti dello stesso tipo di forza, e sta comunque dopo:
+    // il numero di fatti non è una misura di quanto uno voglia un giocatore, e
+    // usarlo per anticipare qualcuno sarebbe la classifica di intensità che
+    // questo pacchetto non fa.
+    expect(out.opponents.map((o) => o.fantaTeamId)).toEqual([
+      "dinamo_flavietto",
+      SYNTHETIC_SEAT_TORRES,
+    ]);
+  });
+
   it("stesso storico, stesso esito, sempre", () => {
     expect(JSON.stringify(reading())).toBe(JSON.stringify(reading()));
     const shuffled = [...syntheticAuctionHistory()].reverse();
