@@ -479,3 +479,98 @@ test("due schede possibili: l'app chiede, non sceglie — e la risposta resta do
 
   expect(externalRequests).toEqual([]);
 });
+
+test("le superfici dell'aggancio reggono AA e stanno nel pannello a 390, 1280, 1440 e 1920", async ({
+  page,
+  context,
+}) => {
+  // Le due superfici dell'aggancio non compaiono nel flusso della spec AA qui
+  // sopra — esistono solo dove i nomi divergono — quindi senza questa prova
+  // resterebbero l'unica parte del riquadro mai rimisurata a schermo vero.
+  //
+  // LA PROVA È IN DUE PEZZI, e il secondo è quello che morde davvero. La
+  // spazzata di `measureAllText` misura SOLO il testo che porta un colore
+  // della rampa: un elemento dipinto con un colore fuori rampa non è
+  // «bocciato», è SALTATO, e la spazzata resterebbe verde ignorandolo. Perciò
+  // qui si verifica prima che ciascuna superficie sia effettivamente DENTRO
+  // l'insieme misurato, e poi che l'insieme stia sopra AA.
+  const uno = schedeDeposit([FULL_NAME_SCHEDA]);
+  const due = schedeDeposit([FULL_NAME_SCHEDA, SECOND_FULL_NAME_SCHEDA]);
+  await bootShortName(page, context, uno);
+  // I token si risolvono DOPO il primo caricamento: su una pagina vuota
+  // `:root` non porta ancora il foglio di stile, i colori tornerebbero vuoti e
+  // la spazzata resterebbe verde non avendo misurato niente.
+  const tokens = await resolveTokenColors(page, [
+    "--text-dim",
+    "--text-sec",
+    "--text-mid",
+    "--text-primary",
+    "--stop-red",
+  ]);
+  const byColor = new Map(Object.entries(tokens).map(([token, hex]) => [hex, token]));
+
+  /** Il testo del riquadro che porta un livello della rampa, misurato adesso. */
+  async function rampNow(width: number, step: string): Promise<readonly string[]> {
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+      `scorrimento laterale a ${width}px (${step})`,
+    ).toBe(true);
+    const measured = await measureAllText(page, "#player-insight-panel, #player-insight-panel *");
+    const ramp = measured.filter((m) => byColor.has(m.fg) && !m.disabled);
+    const failures = ramp
+      .filter((m) => m.ratio < AA_NORMAL_TEXT)
+      .map(
+        (m) =>
+          `${width}px ${step}: ${byColor.get(m.fg)} = ${m.ratio.toFixed(2)}:1 (${m.fontSize}px) — ${m.label}`,
+      );
+    expect(failures, `contrasto sotto ${AA_NORMAL_TEXT}:1 a ${width}px (${step})`).toEqual([]);
+    return ramp.map((m) => m.label);
+  }
+
+  for (const width of [390, 1280, 1440, 1920]) {
+    await page.setViewportSize({ width, height: width < 500 ? 844 : 900 });
+
+    // 1. L'AGGANCIO DEDOTTO: una scheda sola, con un nome diverso ma compatibile.
+    await context.unrouteAll();
+    await bootShortName(page, context, uno);
+    await callShortName(page);
+    await expect(page.locator("#player-insight-match")).toBeVisible();
+    const dedotta = await rampNow(width, "dedotta");
+    expect(
+      dedotta.some((label) => label.includes("player-insight-match")),
+      `la riga di dichiarazione non è nella spazzata a ${width}px: colore fuori rampa`,
+    ).toBe(true);
+
+    // 2. LA DOMANDA, e 3. LA RISPOSTA: la tendina resta a schermo dopo la
+    // scelta, quindi va misurata in tutti e due gli stati.
+    await context.unrouteAll();
+    await bootShortName(page, context, due);
+    await callShortName(page);
+    const select = page.locator("#player-insight-choice-select");
+    await expect(select).toBeVisible();
+
+    for (const step of ["domanda", "risposta"] as const) {
+      if (step === "risposta") {
+        await select.selectOption({ label: `${SECOND_FULL_NAME} — ${SCHEDA_CLUB}` });
+        await expect(page.locator("#player-insight-prose")).toBeVisible();
+      }
+      // La tendina non deborda dal suo posto: a 390px è la riga più larga del
+      // riquadro, ed è l'unica che porta due nomi interi su una riga sola.
+      const fit = await page
+        .locator("#player-insight-choice")
+        .evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
+      expect(
+        fit.scroll,
+        `tendina più larga del suo posto a ${width}px (${step})`,
+      ).toBeLessThanOrEqual(fit.client + 1);
+
+      const labels = await rampNow(width, step);
+      for (const marker of ["expert-choice__label", "player-insight-choice-note"]) {
+        expect(
+          labels.some((label) => label.includes(marker)),
+          `«${marker}» non è nella spazzata a ${width}px (${step}): colore fuori rampa`,
+        ).toBe(true);
+      }
+    }
+  }
+});
