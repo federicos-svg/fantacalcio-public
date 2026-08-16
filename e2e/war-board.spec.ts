@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { gotoScreen, installSyntheticNetworkGuard } from "./helpers.js";
+import { gotoScreen, installSyntheticNetworkGuard, openTableDetail } from "./helpers.js";
 
 // #231 tranche 3, corsia B — war board TAVOLO in two variants, as decided by
 // Owner (2026-08-14 ~12:50Z, bacheca #222 voce 18): MINI during the live
@@ -38,8 +38,14 @@ test("the war board shows the COMPLETE variant while choosing, the MINI strip wh
   await page.goto("/");
 
   // ── Momento chiamata: the full board, and only it ─────────────────────────
-  await expect(page.locator("#war-board-full")).toBeVisible();
+  // #333 — the COMPLETE board is still a chiamata-moment block; it now sits
+  // behind the single IL TAVOLO gesture together with SCARSITÀ and SQUADRE.
+  // "One variant per moment, never both" is unchanged and is what this test
+  // exists for: the MINI strip must still be absent HERE (asserted below
+  // before the gesture is even opened) and the COMPLETE one absent there.
   await expect(page.locator("#war-board-mini")).toHaveCount(0);
+  await openTableDetail(page);
+  await expect(page.locator("#war-board-full")).toBeVisible();
   // All eight teams, "io" included — unlike opponentTier1(), warBoardRows()
   // never filters self out.
   await expect(page.locator("#war-board-full-grid > .war-board__card")).toHaveCount(8);
@@ -95,6 +101,8 @@ test("the war board shows the COMPLETE variant while choosing, the MINI strip wh
   await page.getByRole("button", { name: "Registra acquisto", exact: true }).click();
 
   // Registering a purchase returns to the chiamata moment: full board again.
+  // No second gesture is needed — `tableDetailOpen` is app state, so a group
+  // opened before the purchase is still open after it (#333).
   await expect(page.locator("#war-board-full")).toBeVisible();
   await expect(page.locator("#war-board-mini")).toHaveCount(0);
 
@@ -143,6 +151,9 @@ test("both war board variants stay readable at 390, 768 and 1280 without sideway
     await page.reload();
 
     // COMPLETE: same 1/2/4 grid as SQUADRE (LEGA) and AVVERSARI TIER-1.
+    // Aperto dentro il ciclo: ogni giro riparte da un reload, che azzera lo
+    // stato dell'app (#333).
+    await openTableDetail(page);
     await expect(page.locator("#war-board-full")).toBeVisible();
     const fullColumns = await page.evaluate(
       () =>

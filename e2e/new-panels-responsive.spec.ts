@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { gotoScreen, installSyntheticNetworkGuard } from "./helpers.js";
+import { gotoScreen, installSyntheticNetworkGuard, openTableDetail } from "./helpers.js";
 
 // #221 — responsive check for the three panels added by T12, at the three
 // viewports the task requires: 390 / 768 / 1280. Layout is asserted off the
@@ -68,6 +68,11 @@ test("every new panel is readable at 390, 768 and 1280 without sideways scrollin
     await page.locator("#assign-command-input").fill("");
 
     // 1. Scarsità per ruolo: 2 columns on a phone, 4 from 640px up.
+    //    #333: dietro il gesto IL TAVOLO. Va aperto DENTRO il ciclo — ogni
+    //    giro riparte da un reload, e `tableDetailOpen` è stato dell'app, che
+    //    un reload azzera. Aperto, il pannello è identico a prima: questa
+    //    asserzione misura le stesse colonne di sempre.
+    await openTableDetail(page);
     await expect(page.locator("#role-scarcity-panel")).toBeVisible();
     expect(await columnCount(page, "#role-scarcity-grid")).toBe(viewport.width < 640 ? 2 : 4);
     expect(await fitsHorizontally(page)).toBe(true);

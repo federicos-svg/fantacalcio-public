@@ -49,7 +49,11 @@ async function boot(page: Page): Promise<void> {
   await page.goto("/");
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await expect(page.locator("#role-scarcity-panel")).toBeVisible();
+  // #333: il segnale "la schermata di chiamata è pronta" è il campo di
+  // ricerca, non più il pannello scarsità — che ora sta dietro il gesto IL
+  // TAVOLO. Il campo di ricerca è un segnale migliore anche nel merito: è
+  // l'elemento che definisce questo momento.
+  await expect(page.locator("#search-player")).toBeVisible();
 }
 
 /** Apre il momento d'asta sul giocatore bersaglio, dalla chiamata. */

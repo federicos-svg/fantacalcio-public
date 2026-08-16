@@ -36,7 +36,13 @@ import {
   COST_FLOOR,
 } from "../packages/engine/src/types.js";
 import { reduce } from "../packages/engine/src/reduce.js";
-import { maxSafe, opponentTier1, roleScarcity, warBoardRows } from "../packages/engine/src/auction.js";
+import {
+  maxSafe,
+  opponentTier1,
+  roleScarcity,
+  warBoardRows,
+  type RoleScarcity,
+} from "../packages/engine/src/auction.js";
 import { competitorSet } from "../packages/engine/src/competitors.js";
 import { residualPressure } from "../packages/engine/src/anchors.js";
 import { budgetPlan } from "../packages/engine/src/budget.js";
@@ -293,6 +299,15 @@ interface AppState {
   // it reachable, and it is deliberately app state (not DOM state) because
   // render() rebuilds the strip from scratch on every keystroke.
   criticalPlanOpen: boolean;
+  // #333 — the table-side block (scarsità per ruolo, war board, squadre della
+  // lega) sits behind ONE gesture on the chiamata screen. It answers none of
+  // the four questions asked at auction speed from MY seat (quanto posso
+  // spendere / chi me lo contende / quanto mi serve il ruolo / quanto mi
+  // resta), and its three panels used to cost more than half the page. Nothing
+  // was removed: all three stay in the DOM, one click/Invio away, and the flag
+  // is app state (not DOM state) because render() rebuilds the tree on every
+  // keystroke of the search box.
+  tableDetailOpen: boolean;
   // T13 #231 — the fast-path command line. Raw text exactly as typed; the
   // interpretation is recomputed from it on every render (resolveAssignCommand
   // is pure), never cached, so it can never drift from the current log/pool.
@@ -531,6 +546,7 @@ const state: AppState = {
   callInteractions: 0,
   nominationContextOpen: false,
   criticalPlanOpen: false,
+  tableDetailOpen: false,
   assignCommand: "",
   assignCommandError: "",
   chiamataFocusPending: true,
@@ -999,6 +1015,18 @@ function toggleNominationContext(): void {
   // Keyboard stays on the control that now carries the new value — render()
   // rebuilds the whole tree, so the button the user pressed is gone.
   focusAfterRender("nomination-context-toggle");
+}
+
+/**
+ * #333 — the one gesture that opens the table-side block. Same shape as
+ * toggleNominationContext/the critical strip's roster toggle: app state, a
+ * full re-render, and the keyboard put back on the control that now carries
+ * the new `aria-expanded` value.
+ */
+function toggleTableDetail(): void {
+  state.tableDetailOpen = !state.tableDetailOpen;
+  render();
+  focusAfterRender("table-detail-toggle");
 }
 
 // True only when the search bar's three fields still exactly match the
@@ -1892,11 +1920,33 @@ function renderAsta(): HTMLElement {
     return wrap;
   }
 
-  // Zone 1
-  wrap.appendChild(renderZona1(aState, team));
+  // Remaining supply per role — deterministic, from the event log (slots) and
+  // the loaded listone row count (availability). Derived ONCE per render and
+  // handed to both readers: the CONTESTO CHIAMATA panel (selected role only)
+  // and the table-side block below.
+  const scarcity = roleScarcity(aState, scarcityPool());
 
-  // League teams (read-only list)
-  wrap.appendChild(renderTeamsPanel(aState));
+  // Zone 1
+  wrap.appendChild(renderZona1(aState, team, scarcity));
+
+  // #333 — where the table lives, per moment.
+  //
+  // CHIAMATA: scarsità per ruolo + war board + SQUADRE (LEGA) are one block
+  // behind one gesture (renderTableDetail). They are the same eight seats read
+  // three ways, they answer the four auction-speed questions only from the
+  // TABLE's side, and together they were more than half of this screen's
+  // height while the search field — the reason the screen exists — sat below
+  // the fold. Moved and grouped, not removed: every number is still one
+  // click/Invio away, in the DOM, in the same three panels.
+  //
+  // ASTA: unchanged. SQUADRE (LEGA) stays exactly where it was, plainly
+  // visible, because the live moment has no such block and nothing here may
+  // take information away from that screen.
+  if (state.moment === "chiamata") {
+    wrap.appendChild(renderTableDetail(aState, scarcity));
+  } else {
+    wrap.appendChild(renderTeamsPanel(aState));
+  }
 
   // Zone 4
   wrap.appendChild(renderZona4(aState));
@@ -2723,14 +2773,81 @@ function renderTeamsPanel(aState: AuctionState): HTMLElement {
   return panel;
 }
 
+// ── #333 — Il tavolo, dietro un gesto (momento chiamata) ─────────────────────
+// SCARSITÀ PER RUOLO, TAVOLO — WAR BOARD e SQUADRE (LEGA) sono le stesse otto
+// squadre lette tre volte, e nessuna delle tre risponde alle quattro domande
+// dal MIO posto (quanto posso spendere per questo · chi me lo contende ·
+// quanto mi serve questo ruolo adesso · quanto mi resta se lo prendo): quelle
+// risposte stanno nella fascia critica e nel CONTESTO CHIAMATA. Sono il
+// contorno con cui si decide fra una chiamata e l'altra, non nei due secondi
+// in cui qualcuno urla un prezzo — quindi stanno dietro un gesto solo.
+//
+// Vincolo di Pico rispettato alla lettera: RIDURRE NON TOGLIE INFORMAZIONE.
+// I tre pannelli restano nel DOM anche da chiusi (attributo `hidden`, non
+// rimozione), identici a se stessi, raggiungibili da tastiera con
+// aria-expanded/aria-controls — lo stesso idioma della fascia critica
+// (#331 punto 5, `.critical-roster` / `.critical-roster-detail`), non un
+// secondo meccanismo inventato qui.
+function renderTableDetail(
+  aState: AuctionState,
+  scarcity: Readonly<Record<Role, RoleScarcity>>,
+): HTMLElement {
+  const section = document.createElement("section");
+  section.id = "table-detail";
+  // Deliberatamente NON `.panel`: i pannelli interni lo sono già, e diverse
+  // spec localizzano SQUADRE (LEGA) con `.panel` + hasText — un antenato con
+  // la stessa classe renderebbe quel locator ambiguo.
+  section.className = "table-detail";
+  section.setAttribute("aria-label", "Tavolo: scarsità, war board e squadre");
+
+  const open = state.tableDetailOpen;
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.id = "table-detail-toggle";
+  toggle.className = "table-detail__toggle";
+  toggle.setAttribute("aria-expanded", String(open));
+  toggle.setAttribute("aria-controls", "table-detail-body");
+  toggle.innerHTML =
+    `<span class="panel-title">IL TAVOLO</span>` +
+    `<span class="table-detail__what">scarsità per ruolo · war board · squadre (lega)</span>` +
+    `<span class="table-detail__caret" aria-hidden="true">${open ? "▴" : "▾"}</span>`;
+  toggle.addEventListener("click", toggleTableDetail);
+  section.appendChild(toggle);
+
+  const body = document.createElement("div");
+  body.id = "table-detail-body";
+  body.className = "table-detail__body";
+  if (!open) body.hidden = true;
+  body.appendChild(renderRoleScarcityPanel(scarcity, state.pool.length > 0));
+  // War board COMPLETA — #231 tranche 3, decisione di Owner #222 voce 18
+  // (revisione registrata dell'invariante #86, docs/FRONTEND_STRUCTURE.md).
+  // The full table state belongs to THIS moment: choosing whom to call is
+  // when there is time to read eight cards. The live moment gets the MINI
+  // strip instead (renderMomentoAsta) — never both at once.
+  // `auctionDisplayIndex()` is the same one-index-per-render helper STORICO
+  // and Rose already use: no per-acquisition scan of the pool.
+  body.appendChild(
+    renderWarBoardFull(warBoardRows(aState, SELF_ID), seatLabelMap(), auctionDisplayIndex()),
+  );
+  body.appendChild(renderTeamsPanel(aState));
+  section.appendChild(body);
+
+  return section;
+}
+
 // ── Zone 1: Chiamata panel ────────────────────────────────────────────────────
-function renderZona1(aState: AuctionState, team: TeamState | undefined): HTMLElement {
+function renderZona1(
+  aState: AuctionState,
+  team: TeamState | undefined,
+  scarcity: Readonly<Record<Role, RoleScarcity>>,
+): HTMLElement {
   const panel = document.createElement("div");
   panel.className = "panel";
   panel.style.cssText = `padding:24px;border:1px solid ${C.border};`;
 
   if (state.moment === "chiamata") {
-    panel.appendChild(renderMomentoChiamata(aState));
+    panel.appendChild(renderMomentoChiamata(aState, scarcity));
   } else {
     panel.appendChild(renderMomentoAsta(aState, team));
   }
@@ -2738,54 +2855,42 @@ function renderZona1(aState: AuctionState, team: TeamState | undefined): HTMLEle
   return panel;
 }
 
-function renderMomentoChiamata(aState: AuctionState): HTMLElement {
+/**
+ * #333 — L'ORDINE DI QUESTA SCHERMATA È UNA DECISIONE, NON UN INVENTARIO.
+ *
+ * Le quattro domande del tavolo, in ordine di frequenza (confermate da Pico):
+ *   1. quanto posso spendere per questo;
+ *   2. chi me lo contende;
+ *   3. quanto mi serve davvero questo ruolo adesso;
+ *   4. quanto mi resta se lo prendo.
+ * Criterio: ciò che serve alla decisione più frequente sta in alto e non si
+ * scrolla; ciò che non serve a nessuna delle quattro scende. Il contesto è
+ * un'asta dal vivo: qualcuno urla un prezzo e ci sono due secondi.
+ *
+ * Da cui l'ordine qui sotto, che è l'unica cosa cambiata — nessun blocco è
+ * stato cancellato, nessun numero è sparito:
+ *   1. RICERCA GIOCATORE — è l'unica ragione per cui questa schermata esiste,
+ *      e stava sotto la piega a tutte le risoluzioni. Ora è il primo elemento
+ *      della colonna, sotto la fascia critica (che porta già D1 e D4).
+ *   2. CONTESTO CHIAMATA — l'unico blocco che risponde a D1+D2+D3 insieme per
+ *      il giocatore selezionato. Compare solo dopo la selezione (D7 Binario A:
+ *      on-demand, e resta on-demand) ma ora compare SUBITO SOTTO il campo di
+ *      ricerca, non alla quarta schermata.
+ *   3. LISTONE — la risposta alla ricerca, attaccata alla ricerca.
+ *   4. INSERIMENTO RAPIDO — è un'azione (registra un acquisto già concluso),
+ *      non una risposta: scende sotto la coppia ricerca/listone, ma resta un
+ *      pannello pieno e visibile perché lo si usa a ogni aggiudicazione.
+ *   5. GIOCATORE SUGGERITO — vuoto per costruzione (nessun motore di
+ *      suggerimento è abilitato) e non risponde a nessuna delle quattro: va in
+ *      fondo. Non è stato rimosso: rimuoverlo è una decisione di Pico.
+ * Il tavolo (scarsità, war board, squadre) non è più qui in mezzo: sta dietro
+ * un gesto solo, fuori da questo pannello — vedi renderTableDetail().
+ */
+function renderMomentoChiamata(
+  aState: AuctionState,
+  scarcity: Readonly<Record<Role, RoleScarcity>>,
+): HTMLElement {
   const wrap = document.createElement("div");
-
-  // Suggested player block — design slot "CHI CHIAMARE ORA".
-  // Honest placeholder: there is NO suggestion engine yet (richiede dati reali +
-  // gate non attivi). Mostriamo il blocco in modo stabile, senza fingere una
-  // predizione. Non è una raccomandazione.
-  const suggested = document.createElement("div");
-  suggested.style.cssText = `background:${C.panelInner};border:1px solid ${C.border};border-radius:8px;padding:12px 16px;margin-bottom:18px;`;
-  const suggestedEyebrow = document.createElement("div");
-  suggestedEyebrow.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.06em;color:${C.textSec};margin-bottom:4px;`;
-  suggestedEyebrow.textContent = "GIOCATORE SUGGERITO — CHI CHIAMARE ORA";
-  const suggestedBody = document.createElement("div");
-  suggestedBody.style.cssText = `font-size:13px;line-height:1.5;color:${C.textMid};`;
-  suggestedBody.textContent = "Nessun suggerimento automatico attivo: il motore richiede dati reali, non ancora abilitati. Inserisci manualmente il giocatore chiamato qui sotto. (Non è una predizione.)";
-  suggested.appendChild(suggestedEyebrow);
-  suggested.appendChild(suggestedBody);
-  wrap.appendChild(suggested);
-
-  // T13 #231 — the fast path, first: one line records a purchase without
-  // walking the select -> Avvia -> prezzo -> conferma sequence below, which
-  // stays exactly as it was for every other case.
-  wrap.appendChild(
-    renderAssignCommandPanel(
-      {
-        value: state.assignCommand,
-        resolution: assignCommandResolution(aState),
-        error: state.assignCommandError,
-      },
-      { onInput: onAssignCommandInput, onSubmit: () => submitAssignCommand(aState) },
-    ),
-  );
-
-  // Remaining supply per role — deterministic, from the event log (slots) and
-  // the loaded listone row count (availability). See renderRoleScarcityPanel.
-  const scarcity = roleScarcity(aState, scarcityPool());
-  wrap.appendChild(renderRoleScarcityPanel(scarcity, state.pool.length > 0));
-
-  // War board COMPLETA — #231 tranche 3, decisione di Owner #222 voce 18
-  // (revisione registrata dell'invariante #86, docs/FRONTEND_STRUCTURE.md).
-  // The full table state belongs to THIS moment: choosing whom to call is
-  // when there is time to read eight cards. The live moment gets the MINI
-  // strip instead (renderMomentoAsta below) — never both at once.
-  // `auctionDisplayIndex()` is the same one-index-per-render helper STORICO
-  // and Rose already use: no per-acquisition scan of the pool.
-  wrap.appendChild(
-    renderWarBoardFull(warBoardRows(aState, SELF_ID), seatLabelMap(), auctionDisplayIndex()),
-  );
 
   const eyebrow = document.createElement("div");
   eyebrow.className = "panel-title";
@@ -3026,6 +3131,45 @@ function renderMomentoChiamata(aState: AuctionState): HTMLElement {
     ),
   );
   wrap.appendChild(listoneWrap);
+
+  // T13 #231 — the fast path: one line records a purchase without walking the
+  // select -> Avvia -> prezzo -> conferma sequence, which stays exactly as it
+  // was for every other case. #333 moved it BELOW the search/listone pair: it
+  // is a write action performed once an aggiudicazione is already over, not
+  // one of the four questions asked while a price is being shouted. It stays a
+  // full, always-visible panel (no gesture in front of it) because it is used
+  // at every single aggiudicazione of the table, not occasionally.
+  wrap.appendChild(
+    renderAssignCommandPanel(
+      {
+        value: state.assignCommand,
+        resolution: assignCommandResolution(aState),
+        error: state.assignCommandError,
+      },
+      { onInput: onAssignCommandInput, onSubmit: () => submitAssignCommand(aState) },
+    ),
+  );
+
+  // Suggested player block — design slot "CHI CHIAMARE ORA".
+  // Honest placeholder: there is NO suggestion engine yet (richiede dati reali +
+  // gate non attivi). Mostriamo il blocco in modo stabile, senza fingere una
+  // predizione. Non è una raccomandazione.
+  // #333: sta in fondo, non in cima. È vuoto per costruzione, quindi non può
+  // rispondere a nessuna delle quattro domande, e in cima costava la posizione
+  // migliore della pagina. Spostato, non tolto — toglierlo è una decisione di
+  // prodotto che non è stata presa.
+  const suggested = document.createElement("div");
+  suggested.id = "suggested-player";
+  suggested.style.cssText = `background:${C.panelInner};border:1px solid ${C.border};border-radius:8px;padding:12px 16px;margin-top:18px;`;
+  const suggestedEyebrow = document.createElement("div");
+  suggestedEyebrow.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.06em;color:${C.textSec};margin-bottom:4px;`;
+  suggestedEyebrow.textContent = "GIOCATORE SUGGERITO — CHI CHIAMARE ORA";
+  const suggestedBody = document.createElement("div");
+  suggestedBody.style.cssText = `font-size:13px;line-height:1.5;color:${C.textMid};`;
+  suggestedBody.textContent = "Nessun suggerimento automatico attivo: il motore richiede dati reali, non ancora abilitati. Inserisci manualmente il giocatore chiamato nella ricerca qui sopra. (Non è una predizione.)";
+  suggested.appendChild(suggestedEyebrow);
+  suggested.appendChild(suggestedBody);
+  wrap.appendChild(suggested);
 
   // Focus the search input only on the first render after entering this
   // moment (boot, "← Indietro", or right after a completed purchase) — never
