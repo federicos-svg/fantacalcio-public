@@ -329,8 +329,21 @@ test("il riquadro pieno regge AA e non fa traboccare la schermata a 390, 1280, 1
     ).toBe(true);
 
     // Ogni testo del riquadro che porta un livello della rampa sta sopra AA.
-    const measured = await measureAllText(page, "#player-insight-panel, #player-insight-panel *");
-    const ramp = measured.filter((m) => byColor.has(m.fg) && !m.disabled);
+    const swept = await measureAllText(page, "#player-insight-panel, #player-insight-panel *");
+    // Un testo NON CLASSIFICABILE è un fallimento, non un salto (la regola
+    // fail-closed di e2e/helpers.ts). Senza questa riga un elemento reso non
+    // misurabile — `filter`, `mix-blend-mode` — uscirebbe da sé dal filtro sul
+    // colore qui sotto, e il riquadro resterebbe verde senza essere stato letto.
+    expect(
+      swept.flatMap((m) => (m.kind === "unclassified" ? [`${width}px: ${m.reason} — ${m.label}`] : [])),
+      `testo non classificabile nel riquadro a ${width}px`,
+    ).toEqual([]);
+    const measured = swept.flatMap((m) => (m.kind === "measured" ? [m] : []));
+    // `m.exempt !== null` è il vecchio `m.disabled`: la stessa e sola esenzione
+    // dalla soglia, quella che WCAG 1.4.3 concede agli «inactive user interface
+    // components», adesso col proprio motivo scritto accanto invece che un
+    // booleano muto (THRESHOLD_EXEMPT in e2e/helpers.ts).
+    const ramp = measured.filter((m) => byColor.has(m.fg) && m.exempt === null);
     expect(ramp.length, `nessun testo misurato nel riquadro a ${width}px`).toBeGreaterThan(4);
     const failures = ramp
       .filter((m) => m.ratio < AA_NORMAL_TEXT)
@@ -515,8 +528,17 @@ test("le superfici dell'aggancio reggono AA e stanno nel pannello a 390, 1280, 1
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
       `scorrimento laterale a ${width}px (${step})`,
     ).toBe(true);
-    const measured = await measureAllText(page, "#player-insight-panel, #player-insight-panel *");
-    const ramp = measured.filter((m) => byColor.has(m.fg) && !m.disabled);
+    const swept = await measureAllText(page, "#player-insight-panel, #player-insight-panel *");
+    // Stessa regola fail-closed del test qui sopra: non classificabile = rosso.
+    expect(
+      swept.flatMap((m) =>
+        m.kind === "unclassified" ? [`${width}px ${step}: ${m.reason} — ${m.label}`] : [],
+      ),
+      `testo non classificabile a ${width}px (${step})`,
+    ).toEqual([]);
+    const measured = swept.flatMap((m) => (m.kind === "measured" ? [m] : []));
+    // `m.exempt !== null` è il vecchio `m.disabled` — vedi il commento sopra.
+    const ramp = measured.filter((m) => byColor.has(m.fg) && m.exempt === null);
     const failures = ramp
       .filter((m) => m.ratio < AA_NORMAL_TEXT)
       .map(
