@@ -2,7 +2,13 @@ import { describe, it, expect } from "vitest";
 import { execSync } from "node:child_process";
 // Single source of truth (pure, dependency-free). Imported here (tsconfig allowJs)
 // AND by scripts/repo-guardrails.mjs which enforces the same rules over `git ls-files`.
-import { classifyTrackedFile, lintProjectState } from "../../../scripts/guardrails-core.mjs";
+import {
+  classifyTrackedFile,
+  compileDataExceptions,
+  lintProjectState,
+  DATA_EXCEPTION_CANARIES,
+  NO_DATA_EXCEPTIONS,
+} from "../../../scripts/guardrails-core.mjs";
 
 // P0 speed guardrails (logic + lock). The same functions run for real in CI/verify
 // via scripts/repo-guardrails.mjs:
@@ -212,6 +218,216 @@ describe("classifyTrackedFile — worker worktrees (PR #244 review: blocked-work
       expect(classifyTrackedFile(path)).toBe("blocked-worktree");
     }
     expect(tracked).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Injected data exceptions.
+//
+// This repository has NO exception list and must not grow one — the mechanism
+// exists so that a host repository with a written, scoped authorization can
+// inject its own list without any of its paths being pre-approved in this
+// shared core. So everything below is synthetic: it exercises the mechanism
+// and its limits, never a real path from anywhere.
+//
+// Two independent safety nets are tested separately, because they fail in
+// different places and a reader needs to know which one is doing the work:
+//   - COMPILE-TIME (canaries + shape validation) rejects a bad list when it is
+//     loaded, naming the offending entry;
+//   - RUN-TIME (the order of the rules in classifyTrackedFile) makes the
+//     absolute zones unreachable for ANY list that got past compile.
+// ---------------------------------------------------------------------------
+describe("compileDataExceptions — shape validation", () => {
+  it("rejects a spec that is not a plain object", () => {
+    expect(() => compileDataExceptions(null)).toThrow(/must be a JSON object/);
+    expect(() => compileDataExceptions([])).toThrow(/must be a JSON object/);
+    expect(() => compileDataExceptions("data/x.csv")).toThrow(/must be a JSON object/);
+  });
+  it("rejects an unknown key instead of silently ignoring it", () => {
+    // A typo'd key that no-ops is how a list that was meant to apply quietly
+    // does not — the run stays green and means nothing.
+    expect(() => compileDataExceptions({ exactPath: ["a/b.csv"] })).toThrow(
+      /unknown key "exactPath"/,
+    );
+  });
+  it("rejects non-array / non-string entries", () => {
+    expect(() => compileDataExceptions({ exactPaths: "a/b.csv" })).toThrow(/must be an array/);
+    expect(() => compileDataExceptions({ exactPaths: [42] })).toThrow(/non-empty string/);
+    expect(() => compileDataExceptions({ exactPaths: [""] })).toThrow(/non-empty string/);
+    expect(() => compileDataExceptions({ patterns: [null] })).toThrow(/non-empty string/);
+  });
+  it("rejects absolute paths, backslashes, globs and relative segments", () => {
+    expect(() => compileDataExceptions({ exactPaths: ["/etc/passwd.csv"] })).toThrow(/is absolute/);
+    expect(() => compileDataExceptions({ exactPaths: ["a\\b.csv"] })).toThrow(/backslash/);
+    expect(() => compileDataExceptions({ exactPaths: ["a/*.csv"] })).toThrow(/looks like a glob/);
+    expect(() => compileDataExceptions({ exactPaths: ["a/../b.csv"] })).toThrow(/relative segment/);
+    expect(() => compileDataExceptions({ exactPaths: ["a//b.csv"] })).toThrow(/empty path segment/);
+  });
+  it("rejects an extensionless entry — an exception names files, never a directory", () => {
+    expect(() => compileDataExceptions({ exactPaths: ["data/archivio"] })).toThrow(
+      /no extension/,
+    );
+    expect(() => compileDataExceptions({ exactPaths: ["data/archivio/"] })).toThrow(
+      /empty path segment/,
+    );
+  });
+  it("rejects duplicates in both lists", () => {
+    expect(() => compileDataExceptions({ exactPaths: ["a/b.csv", "a/b.csv"] })).toThrow(
+      /duplicate path/,
+    );
+    expect(() => compileDataExceptions({ patterns: ["^a/b\\.csv$", "^a/b\\.csv$"] })).toThrow(
+      /duplicate pattern/,
+    );
+  });
+  it("rejects an unanchored pattern", () => {
+    expect(() => compileDataExceptions({ patterns: ["a/b\\.csv$"] })).toThrow(/not anchored/);
+    expect(() => compileDataExceptions({ patterns: ["^a/b\\.csv"] })).toThrow(/not anchored/);
+  });
+  it('rejects alternation, which would defeat the anchoring check', () => {
+    // "^a|b$" starts with "^" and ends with "$" while leaving both branches
+    // half-open — the anchoring check is only sound because "|" is refused.
+    expect(() => compileDataExceptions({ patterns: ["^a|b$"] })).toThrow(/uses "\|"/);
+  });
+  it("rejects a pattern that does not compile", () => {
+    expect(() => compileDataExceptions({ patterns: ["^a/(b\\.csv$"] })).toThrow(
+      /does not compile/,
+    );
+  });
+  it("accepts an empty spec and reports size 0", () => {
+    expect(compileDataExceptions({}).size).toBe(0);
+    expect(compileDataExceptions({ exactPaths: [], patterns: [] }).size).toBe(0);
+    expect(compileDataExceptions({}).matches("anything.csv")).toBe(false);
+  });
+  it("reports the number of compiled rules", () => {
+    const compiled = compileDataExceptions({
+      exactPaths: ["data/authorized/input.csv", "data/authorized/mapping.csv"],
+      patterns: ["^data/authorized/log/[a-z0-9-]+\\.jsonl$"],
+    });
+    expect(compiled.size).toBe(3);
+  });
+});
+
+describe("compileDataExceptions — canaries (compile-time net against an over-broad list)", () => {
+  it("every canary is genuinely blocked by the default classifier", () => {
+    // Keeps the canary list honest: a path that the guard allows anyway would
+    // be a canary that can never fire, i.e. decoration.
+    for (const canary of DATA_EXCEPTION_CANARIES) {
+      expect(classifyTrackedFile(canary)).not.toBe("allowed");
+    }
+  });
+  it("rejects a list that would exempt a canary by exact path", () => {
+    expect(() => compileDataExceptions({ exactPaths: ["dump.csv"] })).toThrow(
+      /exempts "dump\.csv"/,
+    );
+    expect(() => compileDataExceptions({ exactPaths: ["public/listone.csv"] })).toThrow(
+      /must stay blocked in every repository/,
+    );
+  });
+  it("rejects a directory-wide pattern that reaches a canary", () => {
+    // The realistic mistake this is here to catch: a rule written as a
+    // directory prefix instead of a file list.
+    expect(() => compileDataExceptions({ patterns: ["^public/.*\\.csv$"] })).toThrow(
+      /exempts "public\/listone\.csv"/,
+    );
+    expect(() => compileDataExceptions({ patterns: ["^.*\\.csv$"] })).toThrow(/exempts/);
+    expect(() => compileDataExceptions({ patterns: ["^node_modules/.*$"] })).toThrow(/exempts/);
+  });
+});
+
+describe("classifyTrackedFile — injected exceptions (run-time behaviour)", () => {
+  const spec = {
+    exactPaths: ["data/authorized/input.csv", "data/authorized/notes.jsonl"],
+    patterns: ["^data/authorized/storico/report_\\d{4}\\.csv$"],
+  };
+  const exceptions = compileDataExceptions(spec);
+
+  it("keeps the strict default when no matcher is passed", () => {
+    expect(classifyTrackedFile("data/authorized/input.csv")).toBe("blocked-data");
+    expect(classifyTrackedFile("data/authorized/input.csv", "", NO_DATA_EXCEPTIONS)).toBe(
+      "blocked-data",
+    );
+    // Explicit null/undefined must not crash and must not exempt.
+    expect(classifyTrackedFile("data/authorized/input.csv", "", null)).toBe("blocked-data");
+    expect(classifyTrackedFile("data/authorized/input.csv", "", undefined)).toBe("blocked-data");
+  });
+  it("exempts an exact path from the data-extension rule", () => {
+    expect(classifyTrackedFile("data/authorized/input.csv", "", exceptions)).toBe("allowed");
+  });
+  it("exempts an exact path from the unknown-extension rule too", () => {
+    // .jsonl is in neither DATA_EXTS nor ALLOWED_EXTS — without the exception
+    // it is blocked-ext, and the mechanism is what admits the format at all.
+    expect(classifyTrackedFile("data/authorized/notes.jsonl")).toBe("blocked-ext");
+    expect(classifyTrackedFile("data/authorized/notes.jsonl", "", exceptions)).toBe("allowed");
+  });
+  it("exempts a path matched by an anchored pattern", () => {
+    expect(classifyTrackedFile("data/authorized/storico/report_2024.csv", "", exceptions)).toBe(
+      "allowed",
+    );
+  });
+  it("does not leak to siblings, near-misses or parent directories", () => {
+    expect(classifyTrackedFile("data/authorized/other.csv", "", exceptions)).toBe("blocked-data");
+    expect(classifyTrackedFile("data/authorized/input.csv.bak", "", exceptions)).toBe(
+      "blocked-ext",
+    );
+    expect(classifyTrackedFile("data/input.csv", "", exceptions)).toBe("blocked-data");
+    expect(classifyTrackedFile("other/data/authorized/input.csv", "", exceptions)).toBe(
+      "blocked-data",
+    );
+    // Pattern is anchored on both ends: a longer path must not match.
+    expect(
+      classifyTrackedFile("data/authorized/storico/report_2024.csv.old", "", exceptions),
+    ).toBe("blocked-ext");
+    expect(classifyTrackedFile("data/authorized/storico/report_24.csv", "", exceptions)).toBe(
+      "blocked-data",
+    );
+  });
+  it("waives the extension rule but NEVER the content rule (binary sniff still wins)", () => {
+    expect(classifyTrackedFile("data/authorized/input.csv", "PK\x03\x04rest", exceptions)).toBe(
+      "blocked-binary",
+    );
+    expect(classifyTrackedFile("data/authorized/input.csv", "a" + NUL + "b", exceptions)).toBe(
+      "blocked-binary",
+    );
+    expect(
+      classifyTrackedFile("data/authorized/storico/report_2024.csv", "PKzip", exceptions),
+    ).toBe("blocked-binary");
+    // …and a genuinely textual sample still passes.
+    expect(classifyTrackedFile("data/authorized/input.csv", "id,name\n1,x\n", exceptions)).toBe(
+      "allowed",
+    );
+  });
+});
+
+describe("classifyTrackedFile — the absolute zones an injected list can never reach", () => {
+  // These specs all pass compile (none of them touches a canary literally),
+  // so what blocks them at run time is the ORDER of the rules, not validation.
+  // That is the point: the guarantee must not depend on the canary list being
+  // exhaustive, because no finite list of samples ever is.
+  it("public/ stays blocked — the published bundle is never exempt", () => {
+    const exceptions = compileDataExceptions({ patterns: ["^public/data/report\\.csv$"] });
+    expect(exceptions.matches("public/data/report.csv")).toBe(true);
+    expect(classifyTrackedFile("public/data/report.csv", "", exceptions)).toBe("blocked-data");
+  });
+  it("graphify-out/ stays blocked-graphify", () => {
+    const exceptions = compileDataExceptions({ exactPaths: ["graphify-out/notes.csv"] });
+    expect(exceptions.matches("graphify-out/notes.csv")).toBe(true);
+    expect(classifyTrackedFile("graphify-out/notes.csv", "", exceptions)).toBe("blocked-graphify");
+  });
+  it(".graphify-tools/ stays blocked-graphify", () => {
+    const exceptions = compileDataExceptions({ exactPaths: [".graphify-tools/uv/other.db"] });
+    expect(classifyTrackedFile(".graphify-tools/uv/other.db", "", exceptions)).toBe(
+      "blocked-graphify",
+    );
+  });
+  it("a root graph.json stays blocked-graphify", () => {
+    const exceptions = compileDataExceptions({ exactPaths: ["graph.json"] });
+    expect(classifyTrackedFile("graph.json", "", exceptions)).toBe("blocked-graphify");
+  });
+  it(".claude/worktrees/ stays blocked-worktree", () => {
+    const exceptions = compileDataExceptions({ exactPaths: [".claude/worktrees/agent-y/x.csv"] });
+    expect(classifyTrackedFile(".claude/worktrees/agent-y/x.csv", "", exceptions)).toBe(
+      "blocked-worktree",
+    );
   });
 });
 

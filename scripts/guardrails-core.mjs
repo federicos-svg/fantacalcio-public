@@ -45,6 +45,202 @@ const CLUB_LOGO_ASSET_EXTS = new Set([".svg", ".png"]);
 const SUPABASE_MIGRATIONS_DIR = "supabase/migrations/";
 const SUPABASE_MIGRATIONS_EXTS = new Set([".sql"]);
 
+// ---------------------------------------------------------------------------
+// Data-extension exceptions — INJECTED BY THE HOST REPOSITORY, never listed here
+// ---------------------------------------------------------------------------
+//
+// Some repositories that share this core have a written, scoped authorization
+// to track a handful of files whose extension `DATA_EXTS` (or the
+// `ALLOWED_EXTS` allowlist) would otherwise reject. Those file lists are
+// PROPERTY OF THE REPOSITORY THAT OWNS THE AUTHORIZATION, not of this module:
+// a path that does not exist here must never be pre-approved here, because a
+// rule for an absent directory is indistinguishable from a hole if that
+// directory ever appears. So this file ships the MECHANISM and the LIMITS; the
+// list itself is injected by the caller (scripts/repo-guardrails.mjs loads it
+// from a tracked JSON file when the host repository has one).
+//
+// Default is strict: with no injected list, `classifyTrackedFile` behaves
+// exactly as it did before this mechanism existed. THIS repository is one of
+// the strict ones and stays that way — its publication gate's closed top-level
+// allowlist already refuses a root `guardrails.exceptions.json`, and a test in
+// packages/engine/tests/publication_gate.test.ts pins that so the loader can
+// never become reachable here by accident.
+//
+// WHAT AN EXCEPTION CAN AND CANNOT DO. It waives the EXTENSION rules —
+// `blocked-data` and `blocked-ext` — for exact paths. It can never waive:
+//   - the binary content sniff (a .csv whose bytes start with `PK`, or carry a
+//     NUL, is still `blocked-binary` — enforced by ORDER below, not by trust);
+//   - `.claude/worktrees/` (checked first, unconditionally);
+//   - `graphify-out/`, `.graphify-tools/`, a root `graph.json` (checked before
+//     the exemption is allowed to return "allowed");
+//   - anything under `public/` — the directory that gets built and served to a
+//     browser. Raw data files never belong in a published bundle, in any
+//     repository, whatever a local authorization says.
+// Those five are STRUCTURAL: they hold for any injected list, including a
+// malformed or hostile one, because the exemption is never consulted before
+// them.
+//
+// `DATA_EXCEPTION_CANARIES` is the second, independent net: a behavioural check
+// run at compile time against paths that must stay blocked everywhere. It
+// catches an over-broad rule (`^public/.*\.csv$`) at the moment the list is
+// loaded, with a message naming the path it would have opened, rather than
+// leaving it to be noticed by a reader.
+//
+// HONEST LIMIT: the injected spec is a tracked, reviewed file in the host
+// repository, and this module does not attempt to bound regular-expression
+// runtime. A pathological pattern can make the guard slow; it cannot make it
+// permissive.
+
+// Paths that must stay blocked no matter what a host repository injects.
+// Sampled across every absolute zone plus the two shapes the guard exists for
+// (a stray dump at the root, a real spreadsheet under data/).
+export const DATA_EXCEPTION_CANARIES = Object.freeze([
+  "public/listone.csv",
+  "public/assets/clubs/atalanta.xlsx",
+  "dump.csv",
+  "data/Voti_2021_22_G38.xlsx",
+  ".claude/worktrees/agent-x/data.csv",
+  "graphify-out/graph.csv",
+  ".graphify-tools/uv-tool-dir/cache.db",
+  "node_modules/some-pkg/data.csv",
+  "src/tool.exe",
+]);
+
+// The published bundle. An exemption never applies here — see the block above.
+const PUBLISHED_DIR = "public/";
+
+const EXCEPTION_SPEC_KEYS = new Set(["exactPaths", "patterns"]);
+
+/**
+ * A compiled exception list. Annotated explicitly so the shape stays a
+ * contract: inferring it from the frozen default below would type `size` as
+ * the literal `0` and make every real matcher unassignable.
+ *
+ * @typedef {{ size: number, matches: (path: string) => boolean }} DataExceptionMatcher
+ */
+
+/**
+ * The strict default: no file is exempt from the extension rules.
+ * @type {DataExceptionMatcher}
+ */
+export const NO_DATA_EXCEPTIONS = Object.freeze({
+  size: 0,
+  matches() {
+    return false;
+  },
+});
+
+function failSpec(detail) {
+  throw new Error(`invalid data-exception spec: ${detail}`);
+}
+
+function readStringArray(spec, key) {
+  const value = spec[key];
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) failSpec(`"${key}" must be an array of strings`);
+  for (const entry of value) {
+    if (typeof entry !== "string" || entry.length === 0) {
+      failSpec(`"${key}" contains an entry that is not a non-empty string`);
+    }
+  }
+  return value;
+}
+
+function validateExactPath(entry) {
+  if (entry.startsWith("/")) failSpec(`"${entry}" is absolute — use a repo-root-relative path`);
+  if (entry.includes("\\")) failSpec(`"${entry}" uses a backslash — git paths use "/"`);
+  if (entry.includes("*") || entry.includes("?")) {
+    failSpec(`"${entry}" looks like a glob — express variable rules in "patterns"`);
+  }
+  const segments = entry.split("/");
+  for (const segment of segments) {
+    if (segment.length === 0) failSpec(`"${entry}" has an empty path segment`);
+    if (segment === "." || segment === "..") {
+      failSpec(`"${entry}" has a relative segment ("." or "..")`);
+    }
+  }
+  const base = segments[segments.length - 1];
+  if (base.lastIndexOf(".") <= 0) {
+    failSpec(`"${entry}" has no extension — an exception names files, never a directory`);
+  }
+}
+
+function compilePattern(source) {
+  // Alternation would defeat the anchoring check below (`^a|b$` starts with
+  // "^" and ends with "$" while leaving both branches half-open), so it is
+  // rejected outright: one entry per alternative costs nothing and keeps the
+  // check sound.
+  if (source.includes("|")) {
+    failSpec(`pattern ${JSON.stringify(source)} uses "|" — list one entry per alternative`);
+  }
+  if (!source.startsWith("^") || !source.endsWith("$")) {
+    failSpec(`pattern ${JSON.stringify(source)} is not anchored — it must start "^" and end "$"`);
+  }
+  try {
+    return new RegExp(source);
+  } catch (err) {
+    failSpec(`pattern ${JSON.stringify(source)} does not compile: ${err.message}`);
+  }
+  return null; // unreachable — failSpec throws
+}
+
+/**
+ * Validate a plain-JSON exception spec and compile it into a matcher for
+ * `classifyTrackedFile`. Throws — loudly, naming the offending entry — on any
+ * malformed, over-broad or dead rule. Never returns a partially-valid matcher.
+ *
+ * Spec shape: `{ exactPaths?: string[], patterns?: string[] }`, where every
+ * pattern is an anchored, alternation-free regular expression source.
+ *
+ * @param {unknown} spec
+ * @returns {DataExceptionMatcher}
+ */
+export function compileDataExceptions(spec) {
+  if (spec === null || typeof spec !== "object" || Array.isArray(spec)) {
+    failSpec("the spec must be a JSON object");
+  }
+  for (const key of Object.keys(spec)) {
+    if (!EXCEPTION_SPEC_KEYS.has(key)) {
+      failSpec(`unknown key "${key}" (allowed: exactPaths, patterns)`);
+    }
+  }
+
+  const exact = new Set();
+  for (const entry of readStringArray(spec, "exactPaths")) {
+    validateExactPath(entry);
+    if (exact.has(entry)) failSpec(`duplicate path "${entry}"`);
+    exact.add(entry);
+  }
+
+  const patterns = [];
+  const seenPatterns = new Set();
+  for (const source of readStringArray(spec, "patterns")) {
+    if (seenPatterns.has(source)) failSpec(`duplicate pattern ${JSON.stringify(source)}`);
+    seenPatterns.add(source);
+    patterns.push(compilePattern(source));
+  }
+
+  const compiled = Object.freeze({
+    size: exact.size + patterns.length,
+    matches(path) {
+      if (typeof path !== "string" || path.length === 0) return false;
+      if (exact.has(path)) return true;
+      for (const pattern of patterns) {
+        if (pattern.test(path)) return true;
+      }
+      return false;
+    },
+  });
+
+  for (const canary of DATA_EXCEPTION_CANARIES) {
+    if (compiled.matches(canary)) {
+      failSpec(`a rule exempts "${canary}", which must stay blocked in every repository`);
+    }
+  }
+
+  return compiled;
+}
+
 // Graphify knowledge-graph artifacts (CLAUDE.md §"Graphify — on-demand";
 // detail: .claude/skills/graphify/PROJECT_PROTOCOL.md). Nothing under
 // graphify-out/ is tracked, portable-looking or
@@ -87,7 +283,17 @@ const WORKTREES_DIR = ".claude/worktrees/";
 // Pure classifier — no I/O. contentSample = first bytes of the file (may be empty).
 // Returns: "allowed" | "blocked-data" | "blocked-ext" | "blocked-binary" |
 // "blocked-graphify" | "blocked-worktree".
-export function classifyTrackedFile(path, contentSample = "") {
+//
+// `dataExceptions` is a matcher from `compileDataExceptions()`; omitting it
+// keeps the strict default. Where it is consulted in the sequence below is the
+// whole safety argument — see the exception block above.
+/**
+ * @param {string} path
+ * @param {string} [contentSample]
+ * @param {DataExceptionMatcher | null} [dataExceptions]
+ * @returns {"allowed"|"blocked-data"|"blocked-ext"|"blocked-binary"|"blocked-graphify"|"blocked-worktree"}
+ */
+export function classifyTrackedFile(path, contentSample = "", dataExceptions = NO_DATA_EXCEPTIONS) {
   const base = path.split("/").pop() ?? path;
   const dot = base.lastIndexOf(".");
   const ext = dot > 0 ? base.slice(dot).toLowerCase() : "";
@@ -97,18 +303,31 @@ export function classifyTrackedFile(path, contentSample = "") {
   // migrations, allowed extensions), not just the blocklists.
   if (path.startsWith(WORKTREES_DIR)) return "blocked-worktree";
   if (path.startsWith(CLUB_LOGO_ASSET_DIR) && CLUB_LOGO_ASSET_EXTS.has(ext)) return "allowed";
-  if (DATA_EXTS.has(ext)) return "blocked-data";
+  // Injected exception, resolved once. Never applies under public/: that
+  // directory is built and served to a browser, and a raw data file has no
+  // business in a published bundle whatever a host repository authorized.
+  // Computed here but NOT returned here — see the two rules it must not
+  // outrank immediately below, and the graphify rules further down.
+  const dataExempt =
+    !path.startsWith(PUBLISHED_DIR) &&
+    dataExceptions != null &&
+    dataExceptions.matches(path) === true;
+  if (DATA_EXTS.has(ext) && !dataExempt) return "blocked-data";
   // binary sniff: NUL byte or ZIP/OOXML magic (xlsx is a renamed zip).
-  // Runs BEFORE the supabase/migrations/ .sql exception below — unlike club
-  // logos (deliberately binary), a .sql file is expected to always be text;
-  // one with a NUL byte or a `PK` (zip) magic header is never a real
-  // migration, so it must still hit blocked-binary instead of being waved
-  // through by the directory exception.
+  // Runs BEFORE the supabase/migrations/ .sql exception below AND before any
+  // injected data exception — unlike club logos (deliberately binary), a .sql
+  // migration or an authorized .csv is expected to always be text; one with a
+  // NUL byte or a `PK` (zip) magic header is never the real thing, so it must
+  // still hit blocked-binary instead of being waved through. The exception
+  // waives the EXTENSION rule, never the CONTENT rule.
   if (contentSample.includes(NUL) || contentSample.startsWith("PK")) return "blocked-binary";
   if (path.startsWith(SUPABASE_MIGRATIONS_DIR) && SUPABASE_MIGRATIONS_EXTS.has(ext)) return "allowed";
   if (path === "graph.json") return "blocked-graphify";
   if (path.startsWith(GRAPHIFY_OUT_DIR)) return "blocked-graphify";
   if (path.startsWith(GRAPHIFY_TOOLS_DIR)) return "blocked-graphify";
+  // Only now: after the content sniff and after every absolute zone. An
+  // injected list cannot reach a path any of the rules above already claimed.
+  if (dataExempt) return "allowed";
   if (ext === "" && ALLOWED_NOEXT.has(base)) return "allowed";
   if (!ALLOWED_EXTS.has(ext)) return "blocked-ext";
   return "allowed";
