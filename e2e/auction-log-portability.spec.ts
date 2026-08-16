@@ -11,6 +11,40 @@ import {
 import { LOG_STORAGE_KEY } from "../src/logRecovery.js";
 import { CONFIRMATIONS_STORAGE_KEY } from "../src/confirmationsStore.js";
 
+/**
+ * The riconferma target, DERIVED from the pool this spec itself injects rather
+ * than restated by hand. What these tests need is a PROPERTY — "the role-D row
+ * of the injected pool" — never the name that row happens to carry: the name
+ * was written out eight times below, so a rename in
+ * e2e/fixtures/synthetic-listone.ts turned this spec red for a reason it does
+ * not test. Same posture as e2e/shipped-listone.ts: follow the data by
+ * identity, and fail loudly (throw, at import time) rather than silently if the
+ * pool can no longer exercise the case.
+ */
+const RICONFERMA_PLAYER = (() => {
+  const row = SYNTHETIC_LISTONE_POOL.find((p) => p.role === "D");
+  if (!row) {
+    throw new Error(
+      'auction-log-portability: nessuna riga di ruolo "D" in SYNTHETIC_LISTONE_POOL ' +
+        "(e2e/fixtures/synthetic-listone.ts). Queste spec riconfermano un difensore tramite " +
+        "#riconferme-picker-Io-D: senza una riga D il caso non è esercitabile.",
+    );
+  }
+  if (!row.club) {
+    throw new Error(
+      'auction-log-portability: la riga di ruolo "D" di SYNTHETIC_LISTONE_POOL non ha club. ' +
+        "L'etichetta dell'option vale `nome (club)` solo quando il club c'è (src/main.ts, " +
+        "costruzione delle option di #riconferme-picker-…), quindi RICONFERMA_OPTION_LABEL " +
+        "non descriverebbe più ciò che il DOM mostra.",
+    );
+  }
+  return row;
+})();
+
+/** Exactly how src/main.ts labels that row's `option` in the picker — composed
+ *  from the same fields, never a second hand-written copy of the string. */
+const RICONFERMA_OPTION_LABEL = `${RICONFERMA_PLAYER.name} (${RICONFERMA_PLAYER.club})`;
+
 test("exports, confirms replacement, imports, and survives reload without external network", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
@@ -71,13 +105,13 @@ test("v2 export carries the riconferme batch, and reimporting on a wiped device 
   await page.goto("/");
   await expect(page.locator(".listone-row").first()).toBeVisible();
 
-  // A riconferma via the panel (role D — "Beatrice Fittizia").
+  // A riconferma via the panel, on the injected pool's role-D row.
   await gotoScreen(page, "Impostazioni");
   await openSettingsSection(page, "riconferme");
-  await page.locator("#riconferme-picker-Io-D").selectOption({ label: "Beatrice Fittizia (ClubDue)" });
+  await page.locator("#riconferme-picker-Io-D").selectOption({ label: RICONFERMA_OPTION_LABEL });
   await page.locator("#riconferme-price-Io-D").fill("15");
   await page.locator("#riconferme-confirm-Io-D").click();
-  await expect(page.locator("#riconferme-slot-Io-D")).toContainText("Beatrice Fittizia");
+  await expect(page.locator("#riconferme-slot-Io-D")).toContainText(RICONFERMA_PLAYER.name);
 
   // A live purchase makes the log non-empty too.
   await gotoScreen(page, "Asta");
@@ -116,7 +150,7 @@ test("v2 export carries the riconferme batch, and reimporting on a wiped device 
 
   await gotoScreen(page, "Impostazioni");
   await openSettingsSection(page, "riconferme");
-  await expect(page.locator("#riconferme-slot-Io-D")).toContainText("Beatrice Fittizia");
+  await expect(page.locator("#riconferme-slot-Io-D")).toContainText(RICONFERMA_PLAYER.name);
   await expect(page.locator("#riconferme-slot-Io-D")).toContainText("15 cr");
 
   expect(externalRequests).toEqual([]);
@@ -137,10 +171,10 @@ test("a v1 legacy file with no confirmations key still imports, validated agains
   // Device already has a riconferma unrelated to the imported (empty) log.
   await gotoScreen(page, "Impostazioni");
   await openSettingsSection(page, "riconferme");
-  await page.locator("#riconferme-picker-Io-D").selectOption({ label: "Beatrice Fittizia (ClubDue)" });
+  await page.locator("#riconferme-picker-Io-D").selectOption({ label: RICONFERMA_OPTION_LABEL });
   await page.locator("#riconferme-price-Io-D").fill("15");
   await page.locator("#riconferme-confirm-Io-D").click();
-  await expect(page.locator("#riconferme-slot-Io-D")).toContainText("Beatrice Fittizia");
+  await expect(page.locator("#riconferme-slot-Io-D")).toContainText(RICONFERMA_PLAYER.name);
 
   await gotoScreen(page, "Asta");
   await expect(page.locator("#critical-budget")).toHaveText("485 cr"); // 500 - 15
@@ -164,7 +198,7 @@ test("a v1 legacy file with no confirmations key still imports, validated agains
   // The device's riconferma was untouched by a v1 import (it carries none).
   await gotoScreen(page, "Impostazioni");
   await openSettingsSection(page, "riconferme");
-  await expect(page.locator("#riconferme-slot-Io-D")).toContainText("Beatrice Fittizia");
+  await expect(page.locator("#riconferme-slot-Io-D")).toContainText(RICONFERMA_PLAYER.name);
 
   expect(externalRequests).toEqual([]);
 });
@@ -186,10 +220,10 @@ test("v2 import onto an empty log with riconferme already entered shows the repl
 
   await gotoScreen(page, "Impostazioni");
   await openSettingsSection(page, "riconferme");
-  await page.locator("#riconferme-picker-Io-D").selectOption({ label: "Beatrice Fittizia (ClubDue)" });
+  await page.locator("#riconferme-picker-Io-D").selectOption({ label: RICONFERMA_OPTION_LABEL });
   await page.locator("#riconferme-price-Io-D").fill("15");
   await page.locator("#riconferme-confirm-Io-D").click();
-  await expect(page.locator("#riconferme-slot-Io-D")).toContainText("Beatrice Fittizia");
+  await expect(page.locator("#riconferme-slot-Io-D")).toContainText(RICONFERMA_PLAYER.name);
 
   await gotoScreen(page, "Asta");
   await expect(page.locator("#critical-budget")).toHaveText("485 cr"); // 500 - 15
@@ -214,7 +248,7 @@ test("v2 import onto an empty log with riconferme already entered shows the repl
   await expect(page.locator("#critical-budget")).toHaveText("485 cr");
   await gotoScreen(page, "Impostazioni");
   await openSettingsSection(page, "riconferme");
-  await expect(page.locator("#riconferme-slot-Io-D")).toContainText("Beatrice Fittizia");
+  await expect(page.locator("#riconferme-slot-Io-D")).toContainText(RICONFERMA_PLAYER.name);
   expect(await readLocalStorageRaw(page, CONFIRMATIONS_STORAGE_KEY)).toBe(confirmationsBefore);
   expect(await readLocalStorageRaw(page, LOG_STORAGE_KEY)).toBe(logBefore);
 

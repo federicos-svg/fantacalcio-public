@@ -36,6 +36,43 @@ const ROWS = [
   { name: "Dario 𝔘nicode", role: "A", club: "ClubQuattro", quotation: 20 },
 ] as const;
 
+/**
+ * The single-accent corruption the two tamper tests below apply, DERIVED from
+ * the row it rewrites instead of restated by hand, so the corrupted name the
+ * page must NOT show cannot drift out of sync with the row that produced it.
+ *
+ * The `ò` → `à` pair is NOT decoration and NOT fixture content: it is the
+ * PROPERTY this file turns on. Same UTF-8 byte length means the size check
+ * cannot catch the change, so only the digest computed in the browser can —
+ * which is why both tamper tests assert `data-integrity-code` is
+ * `hash-mismatch`. Swap characters of a different width and the gate answers
+ * `size-mismatch` instead, and the tests silently stop proving what they exist
+ * to prove. Both halves of that invariant are ENFORCED here, at import time,
+ * instead of left as a comment that a later rename can quietly invalidate.
+ */
+const TAMPERED_ROW_NAME = (() => {
+  const original = ROWS[0].name;
+  const tampered = original.replace("ò", "à");
+  if (tampered === original) {
+    throw new Error(
+      `bundle-integrity: ROWS[0].name ("${original}") non contiene "ò", quindi la corruzione a ` +
+        "parità di byte su cui poggiano i due test di tampering non è applicabile. Serve una riga " +
+        "accentata, o una coppia di caratteri di pari lunghezza UTF-8.",
+    );
+  }
+  const before = Buffer.byteLength(original, "utf8");
+  const after = Buffer.byteLength(tampered, "utf8");
+  if (before !== after) {
+    throw new Error(
+      `bundle-integrity: la corruzione "${original}" -> "${tampered}" cambia la lunghezza UTF-8 ` +
+        `(${before} -> ${after} byte). Il controllo di dimensione la intercetterebbe per primo e il ` +
+        'verdetto diventerebbe "size-mismatch": i due test di tampering smetterebbero di esercitare ' +
+        "il digest nel browser, che è esattamente ciò che devono provare.",
+    );
+  }
+  return tampered;
+})();
+
 const CANDIDATE_TEXT = JSON.stringify(ROWS, null, 2) + "\n";
 
 /** The real packaging output: bundle bytes + the manifest that declares them. */
@@ -66,6 +103,10 @@ const BUILT = buildListoneLiveBundle({
     },
   },
 });
+
+/** The builder's own bytes with that one row's name corrupted — the only
+ *  difference from what the manifest declares. */
+const tamperedBundleText = (): string => BUILT.bundleText.replace(ROWS[0].name, TAMPERED_ROW_NAME);
 
 interface RouteOptions {
   /** Body served for the bundle. Defaults to the builder's own bytes. */
@@ -188,7 +229,7 @@ test.describe("BUNDLE-01 — runtime hash verification", () => {
     const externalRequests: string[] = [];
     // One ACCENT different, identical UTF-8 byte length: the size check cannot
     // catch it, so this really exercises the digest in the browser.
-    const tampered = BUILT.bundleText.replace("Niccolò", "Niccolà");
+    const tampered = tamperedBundleText();
     expect(tampered).not.toBe(BUILT.bundleText);
     await installBundleRoutes(context, externalRequests, { bundleText: tampered });
     await page.goto("/");
@@ -202,7 +243,7 @@ test.describe("BUNDLE-01 — runtime hash verification", () => {
 
     // Fail-closed: neither the tampered row nor the original one was loaded,
     // and nothing was written to the local pool copy.
-    await expect(page.getByText("Niccolà Barattù", { exact: true })).toHaveCount(0);
+    await expect(page.getByText(TAMPERED_ROW_NAME, { exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => window.localStorage.getItem("fac_pool"))).toBeNull();
     expect(await integrityStatus(page)).toBe("failed");
     expect(externalRequests).toEqual([]);
@@ -293,7 +334,7 @@ test.describe("BUNDLE-01 — runtime hash verification", () => {
     // a hash that does not match IS an artifact problem, and the screen must
     // still say what to do about it.
     const externalRequests: string[] = [];
-    const tampered = BUILT.bundleText.replace("Niccolò", "Niccolà");
+    const tampered = tamperedBundleText();
     await installBundleRoutes(context, externalRequests, { bundleText: tampered });
     await page.goto("/");
 
