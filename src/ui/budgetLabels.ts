@@ -28,12 +28,18 @@
 // src/ui/maxLabels.test.ts vigila che restino distinte, che nessuna sia
 // contenuta nell'altra e che nessun componente stampi più la sigla nuda «max».
 //
-// Restano fuori da questo modulo, e vanno allineate quando quei file si
-// toccano (corsia in volo su src/main.ts): «Max bid sicuro» della fascia
-// critica (stesso nome, forma estesa: va bene) e «max per completare la rosa
-// di X» del form ASSEGNA A — tutte e due sono MAX_BID_LABEL.
+// L'ELENCO DELLE ECCEZIONI È CHIUSO. Fino a qui questo commento dichiarava due
+// superfici ancora fuori dal modulo, «da allineare quando quei file si
+// toccano»: la metrica «Max bid sicuro» della fascia critica e la nota «max per
+// completare la rosa di X» sotto «Prezzo da pagare». #333 §A le contava come
+// due delle tre formulazioni per una cifra sola. Quei file sono stati toccati
+// (issue #331 punti 2-3, riordino della schermata d'asta) e l'eccezione è
+// rientrata: entrambe leggono adesso le costanti qui sotto, e src/ui/
+// maxLabels.test.ts asserisce sul SORGENTE di src/main.ts che nessuna delle due
+// formulazioni scritte a mano possa tornare. Non resta nessuna eccezione da
+// allineare: chi aggiunge una superficie importa da qui.
 //
-// La terza voce di questo elenco era la sigla nuda «max» della riga competitor
+// La terza voce di quell'elenco era la sigla nuda «max» della riga competitor
 // di src/ui/liveFacts.ts. Non è più da allineare perché non esiste più: con
 // #331 il pannello AVVERSARI ha smesso di mostrare la raggiungibilità per
 // vincolo duro, e con lei quella riga. Il max bid delle otto squadre resta
@@ -49,6 +55,16 @@ export const MAX_BID_LABEL = "max bid";
  * aggettivo in più — non un secondo nome.
  */
 export const MAX_BID_LABEL_LONG = "max bid sicuro";
+
+/**
+ * La stessa forma estesa con l'iniziale maiuscola, per le superfici che la
+ * usano come TITOLO di riga (la metrica della fascia critica, la nota sotto
+ * «Prezzo da pagare»). È DERIVATA, non riscritta: una seconda stringa a mano
+ * qui sarebbe esattamente il difetto che questo modulo esiste per impedire —
+ * cambiando il nome, la maiuscola lo segue da sé.
+ */
+export const MAX_BID_LABEL_LONG_SENTENCE =
+  MAX_BID_LABEL_LONG.charAt(0).toUpperCase() + MAX_BID_LABEL_LONG.slice(1);
 
 /** Che cosa è, in parole, per le note sotto i pannelli. */
 export const MAX_BID_GLOSS =

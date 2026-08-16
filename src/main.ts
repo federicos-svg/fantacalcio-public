@@ -56,6 +56,10 @@ import { purchaseFeasibility, recordPurchase, type ProposedPurchase } from "../p
 import type { ConfirmationInput } from "../packages/engine/src/confirmations.js";
 import { C, escHtml, roleChipHtml, renderRoleChip } from "./ui/theme.js";
 import { ROLE_LABELS, ROLE_LABEL_SING } from "./ui/labels.js";
+// #333 §A — un nome solo per grandezza, e viene da qui. Le due superfici di
+// questo file che stampavano una formulazione propria (la metrica della fascia
+// critica e la nota sotto «Prezzo da pagare») leggono adesso la costante.
+import { MAX_BID_LABEL_LONG, MAX_BID_LABEL_LONG_SENTENCE } from "./ui/budgetLabels.js";
 import {
   addPerson,
   assignSeat,
@@ -350,6 +354,13 @@ interface AppState {
   // is app state (not DOM state) because render() rebuilds the tree on every
   // keystroke of the search box.
   tableDetailOpen: boolean;
+  // #331 punto 2 — MOMENTO DELL'ASTA è ridotto al ruolo chiamato dentro la
+  // scheda del giocatore; gli altri tre ruoli, il censimento MERCATO e la nota
+  // metodologica stanno dietro questo gesto. Come le due bandiere qui sopra è
+  // stato dell'app e non del DOM, perché render() ricostruisce l'albero a ogni
+  // tasto battuto nel campo del prezzo: una `aria-expanded` tenuta solo nel DOM
+  // si richiuderebbe da sola alla prima cifra.
+  momentFactsDetailOpen: boolean;
   // T13 #231 — the fast-path command line. Raw text exactly as typed; the
   // interpretation is recomputed from it on every render (resolveAssignCommand
   // is pure), never cached, so it can never drift from the current log/pool.
@@ -619,6 +630,7 @@ const state: AppState = {
   nominationContextOpen: false,
   criticalPlanOpen: false,
   tableDetailOpen: false,
+  momentFactsDetailOpen: false,
   assignCommand: "",
   assignCommandError: "",
   chiamataFocusPending: true,
@@ -1149,6 +1161,18 @@ function toggleTableDetail(): void {
   focusAfterRender("table-detail-toggle");
 }
 
+/**
+ * #331 punto 2 — il gesto che apre gli altri tre ruoli e il censimento MERCATO
+ * dentro la scheda del giocatore. Stessa forma di toggleTableDetail: stato
+ * dell'app, re-render intero, tastiera rimessa sul controllo che adesso porta
+ * il nuovo `aria-expanded`.
+ */
+function toggleMomentFactsDetail(): void {
+  state.momentFactsDetailOpen = !state.momentFactsDetailOpen;
+  render();
+  focusAfterRender("moment-facts-toggle");
+}
+
 // True only when the search bar's three fields still exactly match the
 // player last clicked in the Listone — editing playerName/role/club after
 // selecting breaks this until another row is clicked. Gates both the Avvia
@@ -1572,8 +1596,9 @@ function render(): void {
   // wide as the header and sit flush against it (inside .screen-container it
   // was capped at the 1200px column and floated 20px below the bar). And it is
   // mounted ONLY in the chiamata moment: during the live asta the same numbers
-  // are answered by the player card (max per completare la rosa) and the war
-  // board MINI, and Pico asked for the vertical room back exactly there.
+  // are answered by the player card (la nota «max bid sicuro» sotto «Prezzo da
+  // pagare») and the war board MINI, and Pico asked for the vertical room back
+  // exactly there.
   if (criticalStripMounted()) {
     wrapper.appendChild(renderCriticalAuctionStrip(myTeam(deriveAuctionState())));
   }
@@ -2232,7 +2257,7 @@ function renderCriticalAuctionStrip(team: TeamState | undefined): HTMLElement {
   strip.setAttribute("aria-label", "Budget, rosa e vincoli critici asta");
 
   if (!team) {
-    strip.innerHTML = `<div class="critical-strip__row"><div class="critical-metric critical-metric--bid critical-bid--stop"><span>Max bid sicuro</span><strong>— <em>stato squadra non disponibile</em></strong></div></div>`;
+    strip.innerHTML = `<div class="critical-strip__row"><div class="critical-metric critical-metric--bid critical-bid--stop"><span>${MAX_BID_LABEL_LONG_SENTENCE}</span><strong>— <em>stato squadra non disponibile</em></strong></div></div>`;
     return strip;
   }
 
@@ -2349,7 +2374,7 @@ function renderCriticalAuctionStrip(team: TeamState | undefined): HTMLElement {
       ${roster}
       <div class="critical-metric critical-metric--bid ${bidState}"
            id="critical-max-bid" role="status" aria-live="polite">
-        <span>Max bid sicuro</span>
+        <span>${MAX_BID_LABEL_LONG_SENTENCE}</span>
         <strong>${bidValue}${bidNote ? ` <em>${bidNote}</em>` : ""}</strong>
       </div>
     </div>
@@ -3412,12 +3437,17 @@ function renderMomentoChiamata(
 // digitando, e a due secondi dal rilancio quel conto si faceva a mente.
 //
 // DOVE STA, E PERCHÉ LÌ. Dentro la riga ASSEGNA A, fra il campo del prezzo e
-// «Registra acquisto». Non in alto accanto a «Prezzo da pagare»: misurato sul
-// DOM vivo, mentre il campo del prezzo è a fuoco quel blocco è già fuori
-// schermo (a 1440×900 il suo bordo superiore sta a −65 px), quindi una
-// proiezione lì non la vedrebbe nessuno proprio nell'istante in cui serve. Qui
-// invece occupa lo spazio orizzontale che la riga aveva già libero, e per
-// questo non allunga una schermata che è già lunga il doppio del viewport.
+// «Registra acquisto», dove occupa lo spazio orizzontale che quella riga aveva
+// già libero e non allunga la schermata di una riga.
+//
+// La motivazione originale era un'altra e non vale più: quando questo blocco è
+// nato, «Prezzo da pagare» era in cima allo schermo e il campo del prezzo
+// 1000px più giù, quindi mentre si digitava quel blocco era già fuori (bordo
+// superiore a −65px a 1440×900) e una proiezione lì non l'avrebbe vista
+// nessuno. Con #331 punti 2-3 i due stanno nella stessa scheda e sono in vista
+// insieme: la posizione resta questa perché è quella che non costa altezza e
+// che mette la conseguenza PRIMA del bottone nell'ordine di lettura e di
+// tabulazione, non più perché l'alternativa fosse invisibile.
 //
 // DI CHI PARLA. Della squadra selezionata nel menu ASSEGNA A — quella che sta
 // per ricevere l'acquisto — e lo dice per esteso nell'etichetta. Sulla stessa
@@ -3528,6 +3558,29 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   });
   wrap.appendChild(back);
 
+  // ── LA SCHEDA DEL GIOCATORE ────────────────────────────────────────────────
+  // #331 punti 2 e 3, e il numero che li ha resi urgenti. Misurato con Chromium
+  // su pool sintetico da 532 righe e log vuoto: «ASSEGNA A» — il gesto per cui
+  // questa schermata esiste — cominciava a 1154px in produzione (254px sotto la
+  // piega a 1440×900, 74px sotto a 1920×1080) e a 1262px una volta arrivato il
+  // pannello FASCIA DEL CHIAMATO (362px e 182px sotto). Ogni corsia misurava il
+  // proprio pannello; nessuna misurava la schermata risultante.
+  //
+  // La scheda porta, in quest'ordine, le tre cose che si guardano nei due
+  // secondi in cui qualcuno urla un prezzo: chi è chiamato e quanto costa
+  // (con «max bid sicuro» accanto), come sta il mercato PER QUEL RUOLO, e il
+  // gesto che registra l'acquisto. Tutto il resto della schermata sta sotto.
+  //
+  // PERCHÉ UNA SCHEDA E NON TRE BLOCCHI SPOSTATI. Sopra il gesto resta soltanto
+  // la riga d'identità del giocatore: un pannello aggiunto domani finisce sotto
+  // la scheda e non può più spingere «ASSEGNA A» fuori dallo schermo. È
+  // l'invariante che e2e/asta-gesto-principale.spec.ts asserisce per ordine,
+  // non solo per pixel, proprio perché la schermata continuerà a crescere.
+  const card = document.createElement("section");
+  card.id = "call-card";
+  card.className = "call-card";
+  card.setAttribute("aria-label", "Giocatore chiamato: prezzo, momento del ruolo e assegnazione");
+
   // Player info + maxSafe row
   const topRow = document.createElement("div");
   topRow.style.cssText = `display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:18px;`;
@@ -3572,9 +3625,16 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
     priceDisplay.className = "kpi-value";
     priceDisplay.style.cssText = `font-size:32px;color:${C.textPrimary};background:${C.panelInner};border-radius:7px;padding:6px 16px;display:inline-block;`;
     priceDisplay.textContent = state.assign.price ? `${state.assign.price} cr` : "— cr";
+    // #333 §A — QUESTO NUMERO SI CHIAMA COME SI CHIAMA ALTROVE. Era «max per
+    // completare la rosa di X»: terza formulazione per la cifra che la fascia
+    // critica chiama «Max bid sicuro» e la war board «max bid», e la sola per
+    // cui src/ui/budgetLabels.ts dichiarava ancora un'eccezione «da allineare
+    // quando quei file si toccano». Si stanno toccando: l'eccezione è rientrata
+    // e l'etichetta viene dalla costante, non da una stringa scritta a mano.
     const maxSafeNote = document.createElement("div");
+    maxSafeNote.id = "call-card-max-bid";
     maxSafeNote.style.cssText = `font-size:11.5px;color:${C.textSec};margin-top:5px;`;
-    maxSafeNote.textContent = `max per completare la rosa di ${displayTeamLabel(state.assign.fantaTeamId)}: ${ms.biddable ? ms.maxSafe + " cr" : "n/d"}`;
+    maxSafeNote.textContent = `${MAX_BID_LABEL_LONG} di ${displayTeamLabel(state.assign.fantaTeamId)}: ${ms.biddable ? ms.maxSafe + " cr" : "n/d"}`;
     maxSafeWrap.appendChild(priceLabel);
     maxSafeWrap.appendChild(priceDisplay);
     maxSafeWrap.appendChild(maxSafeNote);
@@ -3582,68 +3642,53 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
 
   topRow.appendChild(playerInfo);
   topRow.appendChild(maxSafeWrap);
-  wrap.appendChild(topRow);
+  card.appendChild(topRow);
 
-  // War board MINI — #231 tranche 3, decisione di Owner #222 voce 18
-  // (revisione registrata dell'invariante #86, docs/FRONTEND_STRUCTURE.md).
-  // Placed straight under "what is being called and for how much": during a
-  // live auction the next question is always "who else can still go there,
-  // and up to where". Two numbers per team, no detail — the detail lives in
-  // the COMPLETA variant of the chiamata moment.
-  wrap.appendChild(renderWarBoardMini(warBoardRows(aState, SELF_ID), seatLabelMap()));
-
-  wrap.appendChild(renderPlayerInsightsBlock(playerInsightProps()));
-
-  // The two blocks below used to be DEV STATICO placeholders on the tightest
-  // screen of the app. They now carry the facts the engine already knew:
-  //  - MOMENTO DELL'ASTA: roleScarcity() — the same panel the chiamata moment
-  //    shows, brought to the live screen where the role's remaining supply is
-  //    what the next bid is decided against — plus residualPressure(), the
-  //    census of credits and slots still on the table (anchors.ts);
-  //  - AVVERSARI: auctionPrecedents() — cosa ogni avversario ha già fatto che
-  //    riguardi il giocatore chiamato, contato sullo storico d'asta
-  //    multi-stagione (packages/opponent-profiles). Prima qui c'era
-  //    competitorSet(), cioè chi poteva arrivare alla cifra per solo vincolo
-  //    duro: quei numeri non sono spariti dall'app — max bid e budget di tutte
-  //    le squadre stanno nella striscia WAR BOARD (MINI) poche righe sopra,
-  //    gli slot per ruolo nella war board COMPLETA del momento CHIAMATA e in
-  //    AVVERSARI TIER-1 su Rose — hanno smesso di essere ricontati qui (#331).
-  // Both are pure functions of the reduced AuctionState (+ the listone row
-  // count for availability): no model field, no network, no receipt needed —
-  // docs/AUCTION_2026_EXECUTION_PLAN.md §3, rows "Scarsità" and "Contabilità".
-  // The grid keeps its two columns and gains a stacking breakpoint (see
-  // .moment-blocks-grid in src/styles/asta.css): two dense panels side by side
-  // stop being readable on a phone well before they stop fitting.
-  const suggestionsGrid = document.createElement("div");
-  suggestionsGrid.className = "moment-blocks-grid";
-  suggestionsGrid.appendChild(
+  // MOMENTO DELL'ASTA — ridotto al ruolo chiamato, dentro la scheda (#331
+  // punto 2). Le altre tre celle di ruolo, il censimento MERCATO e la nota
+  // metodologica restano nel DOM dietro un gesto: la motivazione per esteso e
+  // il vincolo «ridurre non toglie informazione» stanno sopra
+  // renderMomentInsightsBlock in src/ui/views.ts.
+  card.appendChild(
     renderMomentInsightsBlock({
       scarcity: roleScarcity(aState, scarcityPool()),
       poolLoaded: state.pool.length > 0,
       calledRole: state.call.role,
       pressure: residualPressure(aState),
+      detailOpen: state.momentFactsDetailOpen,
+      onToggleDetail: toggleMomentFactsDetail,
     }),
   );
-  suggestionsGrid.appendChild(renderOpponentPrecedentsBlock(opponentPrecedentsProps()));
-  wrap.appendChild(suggestionsGrid);
 
-  // FASCIA DEL CHIAMATO — in che fascia d'asta sta il giocatore sul tavolo e
-  // quali prezzi sono stati DAVVERO pagati in quella fascia stasera
-  // (packages/engine/src/tiers.ts, via src/tierOrdering.ts). Sta qui, subito
-  // sopra ASSEGNA A, perché il registro di quella fascia è il numero che si
-  // guarda mentre si batte la cifra — e perché senza indice di appetibilità il
-  // riquadro DICE che non lo sa, invece di lasciare la domanda senza risposta.
-  wrap.appendChild(renderTierBandBlock(tierBandProps(aState)));
-
-  // Assign form
+  // ── ASSEGNA A — il gesto, dentro la scheda e rimpicciolito ────────────────
+  // #331 punto 3. Era una sezione a sé in fondo alla pagina, sotto la griglia a
+  // due colonne e (dal ramo delle fasce) sotto anche FASCIA DEL CHIAMATO. Le
+  // stesse tre cose — squadra, prezzo, registrazione — e la proiezione «dopo
+  // l'acquisto» stanno adesso nella scheda, subito sotto ciò che si sta
+  // comprando e a che punto è il mercato di quel ruolo.
+  //
+  // RIMPICCIOLITO, NON SVUOTATO: nessun controllo, nessuna etichetta e nessuna
+  // nota sono spariti. È cambiata la scatola — il titolo e la nota di esito
+  // condividono una riga sola invece di prenderne due, e la riga di campi non
+  // porta più il bordo/padding di una sezione separata, perché la scheda che
+  // la contiene fa già quel lavoro.
   const divider = document.createElement("div");
-  divider.style.cssText = `border-top:1px solid ${C.border};padding-top:18px;`;
+  divider.id = "assign-block";
+  divider.className = "assign-block";
+
+  const assignHead = document.createElement("div");
+  assignHead.className = "assign-block__head";
 
   const assignLabel = document.createElement("div");
   assignLabel.className = "panel-title";
-  assignLabel.style.marginBottom = "14px";
   assignLabel.textContent = "ASSEGNA A";
-  divider.appendChild(assignLabel);
+  assignHead.appendChild(assignLabel);
+
+  const headNote = document.createElement("div");
+  headNote.className = "hint-text assign-block__note";
+  headNote.textContent = "Il prezzo viene registrato nello storico; il piano rosa viene rivalutato subito dopo.";
+  assignHead.appendChild(headNote);
+  divider.appendChild(assignHead);
 
   const formRow = document.createElement("div");
   formRow.className = "form-row";
@@ -3667,8 +3712,8 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   }
   teamSelect.addEventListener("change", (e) => {
     state.assign.fantaTeamId = (e.target as HTMLSelectElement).value;
-    // The "max per completare la rosa" note below reads the selected team,
-    // not always "my" team — it must reflect the switch. See #219.
+    // The «max bid sicuro di X» note above reads the selected team, not always
+    // "my" team — it must reflect the switch. See #219.
     render();
   });
   teamGroup.appendChild(teamLabel);
@@ -3739,13 +3784,47 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
     divider.appendChild(errEl);
   }
 
-  const note = document.createElement("div");
-  note.className = "hint-text";
-  note.style.marginTop = "10px";
-  note.textContent = "Il prezzo viene registrato nello storico; il piano rosa viene rivalutato subito dopo.";
-  divider.appendChild(note);
+  card.appendChild(divider);
+  wrap.appendChild(card);
 
-  wrap.appendChild(divider);
+  // ── Sotto la scheda: tutto ciò che informa la decisione senza esserne il
+  // gesto. L'ordine segue le quattro domande del tavolo confermate da Pico
+  // (#333): la fascia del chiamato resta la più vicina al campo del prezzo,
+  // perché il registro di quella fascia è il numero che si guarda mentre si
+  // batte la cifra; poi chi me lo contende (war board MINI, AVVERSARI); poi la
+  // scheda esperto. Niente di tutto questo può più spingere «ASSEGNA A» sotto
+  // la piega: sta tutto DOPO la scheda che lo contiene.
+  wrap.appendChild(renderTierBandBlock(tierBandProps(aState)));
+
+  // War board MINI — #231 tranche 3, decisione di Owner #222 voce 18
+  // (revisione registrata dell'invariante #86, docs/FRONTEND_STRUCTURE.md).
+  // "Chi altro può ancora arrivarci, e fin dove": due numeri per squadra,
+  // nessun dettaglio — il dettaglio vive nella variante COMPLETA del momento
+  // di chiamata.
+  wrap.appendChild(renderWarBoardMini(warBoardRows(aState, SELF_ID), seatLabelMap()));
+
+  wrap.appendChild(renderPlayerInsightsBlock(playerInsightProps()));
+
+  // AVVERSARI — auctionPrecedents(): cosa ogni avversario ha già fatto che
+  // riguardi il giocatore chiamato, contato sullo storico d'asta multi-stagione
+  // (packages/opponent-profiles). Prima qui c'era competitorSet(), cioè chi
+  // poteva arrivare alla cifra per solo vincolo duro: quei numeri non sono
+  // spariti dall'app — max bid e budget di tutte le squadre stanno nella
+  // striscia WAR BOARD (MINI) qui sopra, gli slot per ruolo nella war board
+  // COMPLETA del momento CHIAMATA e in AVVERSARI TIER-1 su Rose — hanno
+  // smesso di essere ricontati qui (#331 punto 1).
+  //
+  // LA FASCIA A DUE COLONNE RESTA, con un pannello solo dentro. Non è un
+  // residuo: è la casa che #331 punto 4 destina alla divisione «interessati /
+  // non interessati», e toglierla adesso vorrebbe dire ricostruirla poi. Il
+  // pannello superstite attraversa entrambe le colonne (.moment-blocks-grid--
+  // single) invece di lasciarne una vuota; le colonne e il loro breakpoint di
+  // impilamento sono quelli di prima.
+  const suggestionsGrid = document.createElement("div");
+  suggestionsGrid.className = "moment-blocks-grid moment-blocks-grid--single";
+  suggestionsGrid.appendChild(renderOpponentPrecedentsBlock(opponentPrecedentsProps()));
+  wrap.appendChild(suggestionsGrid);
+
   return wrap;
 }
 

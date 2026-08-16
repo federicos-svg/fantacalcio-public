@@ -877,6 +877,12 @@
 @media (min-width: 900px) {
   .moment-blocks-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+/* #331 punto 2 ha portato MOMENTO DELL'ASTA dentro la scheda del giocatore e
+   la fascia è rimasta con un pannello solo. Le colonne NON spariscono — sono
+   la casa che #331 punto 4 destina alla divisione «interessati / non
+   interessati», e toglierle adesso vorrebbe dire ricostruirle poi — ma il
+   pannello superstite le attraversa entrambe invece di lasciarne una vuota. */
+.moment-blocks-grid--single > * { grid-column: 1 / -1; }
 .moment-facts,
 .opponent-precedents {
   align-content: start;
@@ -1235,6 +1241,123 @@
    una terza riga. */
 @media (max-width: 479px) {
   .assign-after { flex: 1 1 120px; }
+}
+
+/* ── LA SCHEDA DEL GIOCATORE (#331 punti 2-3, src/main.ts renderMomentoAsta)
+   Il gesto principale della schermata d'asta — «ASSEGNA A» — cominciava a
+   1154px in produzione e a 1262px con il pannello delle fasce: sotto la piega
+   a 1440×900 e a 1920×1080, misurato con Chromium su pool sintetico da 532
+   righe. La scheda mette in cima, in un contenitore solo, chi è chiamato, come
+   sta il mercato del SUO ruolo e il gesto che registra l'acquisto.
+
+   Perché un contenitore e non tre blocchi riordinati: sopra il gesto resta
+   soltanto la riga d'identità del giocatore, quindi un pannello aggiunto
+   domani finisce sotto la scheda e non può più spingerlo fuori dallo schermo.
+   e2e/asta-gesto-principale.spec.ts asserisce quell'ordine, non solo i pixel.
+
+   Non è `.panel`: la colonna della vista asta è già un pannello e diverse spec
+   localizzano i riquadri con `.panel` + hasText — un antenato con la stessa
+   classe renderebbe quei locator ambigui. Stessa cautela di .table-detail. */
+.call-card {
+  display: block;
+  min-width: 0;
+  margin-bottom: 18px;
+}
+
+/* MOMENTO DELL'ASTA dentro la scheda: stessa sezione, non una scatola dentro
+   la scatola. Perde il cromo del pannello (sfondo, bordo, angoli, padding) e
+   si separa dalla riga d'identità con un filetto, come farebbe un sottotitolo.
+   Il markup e gli id restano quelli del pannello: cambia solo dove vive. */
+.moment-facts--inline {
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  padding: 14px 0 0;
+  margin: 0;
+}
+.moment-facts--inline > .panel-title { margin-bottom: 0; }
+/* Con una cella sola la griglia dei ruoli non deve stirarla su tutta la
+   larghezza: resta della misura delle altre tre, che stanno dietro il gesto. */
+.moment-facts--inline .moment-scarcity__grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 8px 0 0;
+}
+@media (max-width: 560px) {
+  .moment-facts--inline .moment-scarcity__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+/* Il gesto che apre gli altri tre ruoli e il censimento MERCATO. Stesso idioma
+   di .table-detail__toggle — un <button> con aria-expanded/aria-controls,
+   tastiera nativa, `[hidden]` riaffermato sul corpo — non un secondo
+   meccanismo: qui è solo più basso, perché sta dentro una scheda e non è il
+   titolo di una sezione. */
+.moment-facts__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px 10px;
+  flex-wrap: wrap;
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-inner);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.moment-facts__toggle:hover { border-color: var(--text-dim); }
+.moment-facts__what {
+  color: var(--text-sec);
+  font-size: 11.5px;
+  min-width: 0;
+}
+.moment-facts__caret {
+  margin-left: auto;
+  color: var(--text-sec);
+  font-size: 10px;
+}
+.moment-facts__detail {
+  display: grid;
+  gap: 10px;
+  padding-top: 10px;
+}
+/* La regola dello user agent (display:none) perde contro il `display` di
+   questa classe: `[hidden]` va riaffermato o il corpo resta a schermo. */
+.moment-facts__detail[hidden] { display: none; }
+.moment-facts__detail > .moment-scarcity__grid { margin: 0; }
+.moment-facts__detail > .hint-text { margin: 0; }
+
+/* ASSEGNA A dentro la scheda — rimpicciolito, non svuotato. Il titolo e la
+   nota di esito condividono una riga sola invece di prenderne due, e la riga
+   di campi non porta più il bordo/padding di una sezione separata perché la
+   scheda che la contiene fa già quel lavoro. Nessun controllo e nessun testo
+   sono usciti. */
+.assign-block {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  margin-top: 14px;
+}
+.assign-block__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 16px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.assign-block__head > .panel-title { margin-bottom: 0; }
+/* La nota sta sulla stessa riga del titolo dove c'è larghezza e va a capo
+   sotto di lui dove non ce n'è: il testo non cambia, cambia quante righe
+   costa. */
+.assign-block__note {
+  margin: 0;
+  min-width: 0;
+  text-align: right;
+  flex: 1 1 260px;
+}
+@media (max-width: 719px) {
+  .assign-block__note { text-align: left; }
 }
 
 /* ── INSIGHT GIOCATORE — le schede del Gruppo Esperti (src/ui/expertInsight.ts)
