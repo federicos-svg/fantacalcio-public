@@ -19,6 +19,19 @@ export interface ProposedPurchase {
   readonly role: Role;
   readonly fantaTeamId: string;
   readonly price: number;
+  /**
+   * Operator's explicit declaration, made in the same gesture as this
+   * purchase, that LEAGUE_RULES.md §6's zero-cost exception applies: same
+   * real club as a portiere already on this team's roster, and no other
+   * participant interested. Both are facts about the table this engine
+   * cannot observe (competitors.ts deliberately does not model "interest",
+   * and PoolPlayer carries no real-club field) — so eligibility here is
+   * never inferred, only declared. Declaring it does NOT by itself admit
+   * anything: purchaseFeasibility below still requires this purchase to
+   * structurally BE the team's third portiere slot. Irrelevant (ignored) on
+   * any purchase priced at COST_FLOOR or above.
+   */
+  readonly declareThirdGoalkeeperZero?: boolean;
 }
 
 export type FeasibilityViolation =
@@ -40,6 +53,24 @@ export interface FeasibilityResult {
  * Returns every violation found (not just the first) so the UI can explain why.
  * A purchase is feasible iff it leaves the roster completable: residual minus
  * price must still cover every OTHER still-empty mandatory slot at COST_FLOOR.
+ *
+ * ONE exception to `price >= COST_FLOOR`: LEAGUE_RULES.md §6, third portiere
+ * at 0. It only ever applies when BOTH hold together:
+ *  (a) STRUCTURAL, checked here from state — role is "P" and
+ *      `team.slotsRemaining.P === 1`, i.e. this purchase completes the
+ *      team's third (last) portiere slot. A contested first or second
+ *      portiere, or any other role, never qualifies — this is the only
+ *      branch price 0 can ever pass through.
+ *  (b) DECLARED, never inferred — `proposed.declareThirdGoalkeeperZero ===
+ *      true`. The rule's actual conditions (same real club as a portiere
+ *      already rostered; no other participant interested) are facts about
+ *      the table this engine cannot observe on its own, so it never assumes
+ *      them — the operator states them, in the same gesture, at the moment.
+ * (a) without (b) still rejects price 0 (a genuinely contested third
+ * portiere costs at least COST_FLOOR). (b) without (a) is inert — a
+ * declaration attached to any other slot changes nothing. Every price below
+ * COST_FLOOR that is not this exact, declared case is rejected exactly as
+ * before.
  */
 export function purchaseFeasibility(
   state: AuctionState,
@@ -52,6 +83,12 @@ export function purchaseFeasibility(
 
   const violations: FeasibilityViolation[] = [];
 
+  const isDeclaredThirdGoalkeeperZero =
+    proposed.price === 0 &&
+    proposed.role === "P" &&
+    team.slotsRemaining.P === 1 &&
+    proposed.declareThirdGoalkeeperZero === true;
+
   // Checked FIRST and separately from the floor: every comparison with NaN is
   // false, so NaN slips past `price < COST_FLOOR`, past the budget check and
   // past the hard reserve, and the whole admission layer reports `ok: true`.
@@ -60,7 +97,9 @@ export function purchaseFeasibility(
   // than what callers treat as admission. This does not replace
   // "price-below-floor": a negative fractional price reports both.
   if (!Number.isInteger(proposed.price)) violations.push("price-invalid");
-  if (proposed.price < COST_FLOOR) violations.push("price-below-floor");
+  if (proposed.price < COST_FLOOR && !isDeclaredThirdGoalkeeperZero) {
+    violations.push("price-below-floor");
+  }
   if (team.slotsRemaining[proposed.role] <= 0) violations.push("role-full");
   if (state.purchasedPlayerIds.includes(proposed.playerId)) {
     violations.push("duplicate-player");
@@ -96,6 +135,12 @@ export function recordPurchase(
     );
   }
   const nextSeq = log.length > 0 ? log[log.length - 1]!.seq + 1 : 0;
+  // By this point `feasibility.ok` is true, so a price of 0 can only have
+  // been admitted through the declared-third-portiere exception above — but
+  // this re-checks `declareThirdGoalkeeperZero` explicitly rather than
+  // inferring "price === 0 implies declared", so the field written to the
+  // log always reflects what the operator actually declared, not what
+  // purchaseFeasibility happened to accept it through.
   const event: PurchaseEvent = {
     type: "PURCHASE",
     seq: nextSeq,
@@ -104,6 +149,9 @@ export function recordPurchase(
     role: proposed.role,
     fantaTeamId: proposed.fantaTeamId,
     price: proposed.price,
+    ...(proposed.price === 0 && proposed.declareThirdGoalkeeperZero === true
+      ? { thirdGoalkeeperZeroDeclared: true as const }
+      : {}),
   };
   return appendEvent(log, event);
 }
