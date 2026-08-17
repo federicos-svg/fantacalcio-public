@@ -29,3 +29,9 @@ export * from "./livePlan.js";
 export * from "./opportunities.js";
 export * from "./callScreen.js";
 export * from "./identityName.js";
+// Fasce d'asta — l'ordinamento arriva INIETTATO col proprio contratto di
+// provenienza (mai calcolato né cablato qui) e il motore ne ricava la fascia
+// del giocatore chiamato più la contabilità che le sta intorno. Vedi
+// packages/engine/src/tiers.ts §"Il contratto di iniezione" e
+// docs/DECISIONS.md §"Eccezioni operative scritte" (2026-08-16).
+export * from "./tiers.js";

@@ -249,6 +249,58 @@
   font-style: normal;
 }
 
+/* ── IL TAVOLO, DIETRO UN GESTO (#333, momento chiamata) ──────────────────────
+   SCARSITÀ PER RUOLO + TAVOLO — WAR BOARD + SQUADRE (LEGA) sono le stesse otto
+   squadre lette tre volte, e occupavano più di metà della pagina mentre il
+   campo di ricerca — l'unica ragione per cui la schermata esiste — stava sotto
+   la piega. Qui il gruppo è una riga sola con un solo controllo; il corpo resta
+   nel DOM da chiuso (`hidden`), esattamente come .critical-roster-detail.
+
+   Stesso idioma della fascia critica (#331 punto 5), non un secondo
+   meccanismo: un <button> con aria-expanded/aria-controls, tastiera nativa,
+   e `[hidden]` riaffermato perché la regola dello user agent (display:none)
+   perde contro il `display` di questa classe. */
+.table-detail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.table-detail__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px 14px;
+  flex-wrap: wrap;
+  width: 100%;
+  padding: 14px 24px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.table-detail__toggle:hover { border-color: var(--text-dim); }
+/* La descrizione dice cosa c'è dentro PRIMA di aprirlo: un gesto che non
+   dichiara il proprio contenuto nasconde informazione invece di riordinarla. */
+.table-detail__what {
+  color: var(--text-sec);
+  font-size: 12px;
+  min-width: 0;
+}
+.table-detail__caret {
+  margin-left: auto;
+  color: var(--text-sec);
+  font-size: 10px;
+}
+.table-detail__body {
+  display: block;
+  padding-top: 18px;
+}
+.table-detail__body[hidden] { display: none; }
+/* Dentro il gruppo l'ultimo pannello non porta il margine di coda: la
+   spaziatura fra i tre la danno già i loro margin-bottom. */
+.table-detail__body > :last-child { margin-bottom: 0; }
+
 /* SCARSITÀ PER RUOLO (Chiamata moment, src/ui/views.ts
    renderRoleScarcityPanel): four role cells. Two per row on a phone — four
    side by side stop being readable well before they stop fitting, the same
@@ -809,12 +861,13 @@
 }
 
 /* ── MOMENTO LIVE: i due blocchi di fatti misurati ──────────────────────────
-   MOMENTO DELL'ASTA (scarsità per ruolo + mercato) e AVVERSARI (chi può
-   arrivare alla cifra) stavano affiancati su una griglia `1fr 1fr` inline,
-   quando entrambi erano segnaposto vuoti. Ora portano numeri: la griglia
-   resta a due colonne dove c'è spazio e impila sotto i 900px — due pannelli
-   densi affiancati smettono di essere leggibili molto prima di smettere di
-   entrarci. Stesso compromesso di .scarcity-grid e .nomination-context__body. */
+   MOMENTO DELL'ASTA (scarsità per ruolo + mercato) e AVVERSARI (i precedenti
+   d'asta sul giocatore chiamato) stavano affiancati su una griglia `1fr 1fr`
+   inline, quando entrambi erano segnaposto vuoti. Ora portano numeri: la
+   griglia resta a due colonne dove c'è spazio e impila sotto i 900px — due
+   pannelli densi affiancati smettono di essere leggibili molto prima di
+   smettere di entrarci. Stesso compromesso di .scarcity-grid e
+   .nomination-context__body. */
 .moment-blocks-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -825,7 +878,7 @@
   .moment-blocks-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .moment-facts,
-.opponent-reach {
+.opponent-precedents {
   align-content: start;
   min-width: 0;
   margin-bottom: 0;
@@ -985,115 +1038,423 @@
   line-height: 1.35;
 }
 
-/* AVVERSARI — chi può arrivare alla cifra. Due gruppi sempre presenti:
-   "nessuno può arrivarci" e "possono tutti" sono fatti diversi, e un gruppo
-   che sparisce lascia l'operatore senza sapere quale dei due sta guardando. */
-.opponent-reach__headline {
+/* AVVERSARI — i precedenti d'asta sul giocatore chiamato (#331 punto 1).
+   Sostituisce il blocco «chi può arrivare alla cifra»: quello aveva due gruppi
+   fissi di righe piatte (nome + due numeri), questo ha una riga per avversario
+   e dentro la riga un fatto per riga, ognuno col proprio motivo, la propria
+   prova e la propria serie per stagione.
+   Compattezza: il pannello vive sulla schermata più lunga dell'app, e mostra
+   solo gli avversari che HANNO un precedente — tipicamente zero, uno o due,
+   contro le sette righe fisse di prima. Le misure qui sotto (gap 3-6px,
+   font 9-11,5px) tengono la nuova riga, più alta di quella vecchia, dentro
+   un'altezza complessiva minore. */
+.opponent-precedents__headline {
   color: var(--text-mid);
   font-size: 12.5px;
   line-height: 1.4;
   margin: 8px 0 10px;
 }
-.opponent-reach__body {
+.opponent-precedents__body {
   display: grid;
-  gap: 10px;
-}
-.opponent-reach__group {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-.opponent-reach__heading {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
   gap: 8px;
-  color: var(--text-sec);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
 }
-.opponent-reach__heading > b {
-  color: var(--text-mid);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  flex: none;
-}
-.opponent-reach__list {
+.opponent-precedents__list {
   display: grid;
-  gap: 3px;
+  gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.opponent-reach__row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
+/* La riga NON usa opacità per arretrare niente: stessa lezione della riga
+   esclusa del pannello precedente, dove `opacity: 0.78` si applicava al layer
+   intero e moltiplicava ogni figlio contro lo sfondo, portando il testo più
+   utile della riga a 1,99:1. Qui la gerarchia è solo di colore e di corpo. */
+.opponent-precedents__row {
+  display: grid;
+  gap: 3px;
   min-width: 0;
-  padding: 4px 8px;
+  padding: 5px 8px;
   border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
   border-radius: 6px;
   background: var(--panel-inner);
 }
-.opponent-reach__row--eligible { border-left: 2px solid var(--accent); }
-/* La riga esclusa si distingue per bordo e per il motivo scritto accanto, NON
-   per opacità. `opacity: 0.78` era il modo sbagliato di dirlo: si applica al
-   layer intero e quindi moltiplica ogni figlio contro lo sfondo del pannello,
-   spingendo il MOTIVO dell'esclusione — l'informazione più utile della riga —
-   a 1,99:1, sotto qualunque soglia leggibile e sotto la stessa banda che
-   --text-dim tiene altrove nell'app. Tolta l'opacità, ogni cifra e ogni
-   parola di questa riga risale: il motivo passa a 8,36:1, le micro-etichette
-   max/slot a 6,33:1 (esattamente il valore che .war-board-mini__nums em ha
-   già, dopo la schiaritura AA della rampa in base.css), i numeri a 13:1. Il
-   bordo neutro tiene anche l'allineamento identico a quello della riga
-   eleggibile, che ha il proprio da 2px. */
-.opponent-reach__row--excluded { border-left: 2px solid var(--border); }
-.opponent-reach__name {
-  color: var(--text-mid);
-  flex: 1;
-  font-size: 11.5px;
-  font-weight: 600;
+.opponent-precedents__name {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.opponent-reach__nums {
+.opponent-precedents__facts {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* Il fatto è un blocco di testo che va a capo da solo: motivo e prova stanno
+   sulla stessa riga finché c'è larghezza. Due righe imposte costavano ~14px
+   per fatto senza rendere nulla più leggibile. La serie, che è tabellare,
+   resta su una riga sua (è `display:flex`, quindi block-level). */
+.opponent-precedents__fact {
+  min-width: 0;
+  line-height: 1.35;
+}
+/* Il MOTIVO è ciò che quell'avversario ha fatto: sta un gradino sopra la sua
+   prova, perché è la cosa che si legge per prima in due secondi d'asta.
+   --text-mid, non --text-sec: a 11px serve AA pieno e la gerarchia con
+   l'evidenza sotto la fa il peso, non il contrasto. */
+.opponent-precedents__motive {
+  color: var(--text-mid);
+  font-size: 11px;
+  font-weight: 600;
+}
+.opponent-precedents__motive,
+.opponent-precedents__evidence {
+  display: inline;
+}
+.opponent-precedents__sep {
+  color: var(--text-sec);
+  font-size: 10.5px;
+}
+/* Sotto i 560px il flusso unico non risparmia più niente e va a capo NEL
+   MEZZO della frase: misurato, costava ~40px in più su tutta la schermata
+   rispetto alle due righe. Lì il motivo torna sulla propria riga — dove
+   almeno l'a capo cade dove ha senso — e il trattino, che separava due cose
+   ora già separate, sparisce. */
+@media (max-width: 559px) {
+  .opponent-precedents__motive { display: block; }
+  .opponent-precedents__sep { display: none; }
+}
+/* La PROVA — numeri e numerosità — resta sopra AA (--text-sec è 6,33:1 su
+   --panel-inner con la rampa schiarita di base.css): è l'informazione che
+   rende controllabile il motivo, e un motivo senza prova leggibile sarebbe
+   di nuovo un giudizio. */
+.opponent-precedents__evidence {
+  color: var(--text-sec);
+  font-size: 10.5px;
+}
+/* La serie per stagione. In riga, che va a capo: è qui che si vede la
+   differenza fra «alto per quattro stagioni e crollato nell'ultima» e «alto
+   solo nell'ultima» — due cose che una media sola renderebbe identiche. */
+.opponent-precedents__series {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
-  flex: none;
+  flex-wrap: wrap;
+  gap: 3px 8px;
+  margin-top: 1px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 10.5px;
   color: var(--text-primary);
 }
-.opponent-reach__nums em {
+.opponent-precedents__season {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  white-space: nowrap;
+}
+.opponent-precedents__season > em {
   color: var(--text-sec);
   font-family: inherit;
   font-size: 9px;
   font-style: normal;
   font-weight: 700;
   letter-spacing: 0.03em;
-  text-transform: uppercase;
-  margin-right: 3px;
 }
-/* --text-mid, non --text-dim e nemmeno --text-sec: a 10px serve AA pieno
-   (4,5:1). Con la rampa schiarita di base.css tutti e tre lo superano su
-   --panel-inner (--text-dim 4,69:1, --text-sec 6,33:1, --text-mid 8,36:1),
-   ma questo resta --text-mid: è il motivo per cui un rivale è fuori —
-   «RUOLO PIENO», «SOTTO LA SOGLIA» — e non deve leggersi peggio dei numeri
-   che ha accanto. La scelta ora è di gerarchia, non più di sola conformità. */
-.opponent-reach__reason {
+/* Il tifo dichiarato è SUBORDINATO: sta sotto i fatti che hanno fatto nascere
+   la riga, separato da un filetto, con accanto la spesa misurata su quel club.
+   Non è mai il titolo di niente e da solo non fa comparire nessuno — la
+   garanzia è nel motore (packages/opponent-profiles/src/precedents.ts), questa
+   è solo la sua forma visibile. */
+.opponent-precedents__support {
+  display: block;
+  border-top: 1px dashed var(--border);
+  padding-top: 3px;
+  margin-top: 1px;
+  color: var(--text-sec);
+  font-size: 10px;
+  line-height: 1.35;
+}
+.opponent-precedents__support > em {
   color: var(--text-mid);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  margin-right: 5px;
+}
+
+/* DOPO L'ACQUISTO — la quarta domanda del tavolo, dentro la riga ASSEGNA A
+   (src/main.ts, renderAssignAfterBlock/fillAssignAfter). Sta fra il campo del
+   prezzo e «Registra acquisto» e occupa lo spazio orizzontale che quella riga
+   aveva già libero: la schermata dell'asta è lunga il doppio del viewport, e
+   una risposta che costasse altezza sarebbe una risposta che si legge dopo
+   aver perso il giocatore.
+
+   Il colore non è decorativo. L'etichetta sta un gradino sotto (--text-sec),
+   i numeri sono il contenuto (--text-primary, mono come ogni altra cifra
+   dell'app), l'allarme è --stop-red. Tutti e tre sono token della rampa già
+   conforme AA di base.css: nessun colore nuovo, nessuna eccezione. */
+.assign-after {
+  flex: 0 1 250px;
+  min-width: 0;
+  align-self: flex-end;
+  /* Il filetto esiste sempre, trasparente: in allarme cambia solo colore, così
+     la larghezza del blocco non salta mentre si digita. */
+  border-left: 2px solid transparent;
+  padding-left: 10px;
+}
+.assign-after--alarm { border-left-color: var(--stop-red); }
+.assign-after__label {
+  color: var(--text-sec);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.assign-after__value {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+/* Vuota quando non c'è niente da dire: `:empty` la fa collassare senza un
+   secondo ramo di costruzione nel DOM. */
+.assign-after__alarm {
+  color: var(--stop-red);
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+.assign-after__alarm:empty { display: none; }
+
+/* Sotto i 480 px la riga ASSEGNA A è già satura (campo squadra e campo prezzo
+   riempiono la prima riga, il bottone la seconda): il blocco prende la base
+   minima che gli consente di stare ACCANTO al bottone invece di spingerlo su
+   una terza riga. */
+@media (max-width: 479px) {
+  .assign-after { flex: 1 1 120px; }
+}
+
+/* ── INSIGHT GIOCATORE — le schede del Gruppo Esperti (src/ui/expertInsight.ts)
+   Due strati, e la CSS serve a tenerli entrambi leggibili nello stesso
+   riquadro: lo STRATO VISIVO (scala della titolarità + pastiglie) e la PROSA.
+   Su desktop stanno in due colonne affiancate — la prosa non è una didascalia
+   sotto le icone, è metà del contenuto — e sotto i 900px si impilano, alla
+   stessa soglia a cui .moment-blocks-grid qui sopra smette di affiancare i due
+   pannelli successivi: la schermata cambia forma in un punto solo.
+
+   Il padding è più stretto di .panel (14/16 invece di 20/24) perché questo
+   riquadro esiste già nella schermata più lunga dell'app e deve stare dentro
+   lo spazio che il segnaposto occupava, non oltre.
+
+   IL COLORE NON PORTA NULLA DA SOLO. Il gradino attivo della scala si
+   distingue per riempimento, maiuscolo e peso oltre che per tinta; le
+   pastiglie di avviso hanno un marcatore «!» testuale oltre al bordo rosso.
+   Tutto il testo sta sui livelli della rampa di base.css (≥ 4,5:1 su ogni
+   fondo su cui compare), che e2e/text-contrast-aa.spec.ts rimisura a ogni
+   run. */
+.player-insight {
+  padding: 12px 14px;
+}
+.player-insight__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* LA LABEL UNICA, in alto a destra. Qui c'erano quattro scritte di caveat
+   (parere di terzi / non validato / non è un consiglio / fuori dal calcolo):
+   decisione di Pico, una sola. Il perché sta in src/ui/expertInsight.ts
+   (`expertInsightLabel`), la garanzia che portavano è nel contratto e nei suoi
+   test, e il `title` di questa label nomina i tre campi uno per uno. */
+.expert-label {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-sec);
   flex: none;
   font-size: 10px;
-  font-style: normal;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  padding: 2px 7px;
+  white-space: nowrap;
 }
-.opponent-reach__empty {
+/* L'etichetta di qualità compare ora SOLO nei quattro stati vuoti, dove apre
+   il paragrafo: è il nome dello stato, non un secondo caveat. */
+.expert-insight__quality {
+  color: var(--text-sec);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.expert-insight__grid { margin-top: 8px; }
+
+.expert-insight__grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 9px 18px;
+}
+@media (min-width: 900px) {
+  .expert-insight__grid { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); }
+}
+.expert-insight__visual {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-width: 0;
+}
+
+/* LA TITOLARITÀ: etichetta, il valore dichiarato, la quota — una riga sola
+   dove ci sta, che va a capo dove non ci sta.
+
+   IL VALORE NON PUÒ PIÙ TRONCARSI, ed è il motivo per cui non è più una cella
+   di una griglia a tre colonne: `width: max-content` lo dimensiona sul proprio
+   contenuto, quindi «BALLOTTAGGIO» non diventa «BALLOTT…» a schermo stretto
+   come faceva prima. Niente `overflow: hidden`, niente `text-overflow`:
+   e2e/player-insight.spec.ts confronta scrollWidth e clientWidth a tutte e
+   quattro le larghezze. */
+.expert-titolarita {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 9px;
+  min-width: 0;
+}
+.expert-titolarita__head,
+.expert-chips-head {
+  color: var(--text-sec);
+  flex: none;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+.expert-titolarita__value {
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--text-primary);
+  flex: none;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  line-height: 1.25;
+  padding: 3px 8px;
+  text-transform: uppercase;
+  width: max-content;
+}
+.expert-titolarita__missing {
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+
+/* La quota del ballottaggio: barra E cifra. La barra da sola costringerebbe a
+   stimare a occhio proprio quando non c'è tempo. */
+.expert-share {
+  align-items: center;
+  display: flex;
+  flex: 0 1 auto;
+  gap: 7px;
+  min-width: 0;
+}
+.expert-share__track {
+  background: var(--panel-inner);
+  border-radius: 3px;
+  flex: 1 1 60px;
+  height: 6px;
+  min-width: 40px;
+  overflow: hidden;
+}
+.expert-share__fill {
+  background: var(--accent);
+  display: block;
+  height: 100%;
+}
+.expert-share__value {
+  color: var(--text-mid);
+  flex: none;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.expert-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.expert-chip {
+  align-items: baseline;
+  background: var(--panel-inner);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: inline-flex;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 2px 6px;
+}
+.expert-chip em {
+  color: var(--text-sec);
+  font-size: 9.5px;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.expert-chip b {
+  color: var(--text-primary);
+  font-size: 11.5px;
+  font-weight: 700;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* L'avviso non si distingue per la sola tinta del bordo: porta un marcatore
+   «!» che è testo, e la parola dell'avviso resta scritta per esteso. */
+.expert-chip--warn { border-color: var(--stop-red); }
+.expert-chip__mark {
+  color: var(--stop-red);
+  font-size: 11.5px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+/* LA PROSA. Corpo pieno, interlinea larga, misura contenuta: è la seconda
+   metà del contenuto, non una didascalia. */
+.expert-prose {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+}
+.expert-prose__text {
+  color: var(--text-mid);
+  font-size: 12.5px;
+  line-height: 1.5;
+  max-width: 62ch;
+}
+.expert-prose__empty {
   color: var(--text-dim);
   font-size: 11.5px;
   line-height: 1.4;
+}
+.expert-prose__meta {
+  color: var(--text-sec);
+  font-size: 10.5px;
+  line-height: 1.3;
+}
+
+/* I quattro stati «non lo so»: una frase sola, e nessun contenitore vuoto che
+   possa leggersi come «pieno ma senza niente dentro». */
+.expert-insight__empty { margin-top: 7px; }
+.expert-insight__empty-text {
+  color: var(--text-mid);
+  font-size: 12.5px;
+  line-height: 1.45;
+  max-width: 82ch;
 }

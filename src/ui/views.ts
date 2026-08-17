@@ -41,17 +41,22 @@ import {
   warBoardMiniHtml,
 } from "./warBoard.js";
 import type { ResidualPressure } from "../../packages/engine/src/anchors.js";
-import type { CompetitorSet } from "../../packages/engine/src/competitors.js";
+import type { PrecedentsReading } from "../../packages/opponent-profiles/src/types.js";
+import type { ExpertInsightView } from "../expertScheda.js";
+import {
+  EXPERT_INSIGHT_TITLE,
+  expertInsightBodyHtml,
+  expertInsightLabelHtml,
+  expertInsightSpoken,
+} from "./expertInsight.js";
 import {
   MOMENT_FACTS_NOTE,
-  OPPONENT_REACH_NOTE,
-  OPPONENT_REACH_NO_ROLE,
-  OPPONENT_REACH_TITLE,
-  type ReachThresholdSource,
-  competitorReachHeadline,
-  competitorReachHtml,
+  OPPONENT_PRECEDENTS_NOTE,
+  OPPONENT_PRECEDENTS_TITLE,
   marketPressureHtml,
   momentScarcityHtml,
+  opponentPrecedentsHeadline,
+  opponentPrecedentsHtml,
 } from "./liveFacts.js";
 
 export interface ListonePanelState {
@@ -984,24 +989,62 @@ export function renderAssignCommandPanel(
 }
 
 // ── Insight giocatore (Asta moment) ───────────────────────────────────────────
-// STILL a devStaticPanel, on purpose, while the two blocks below it stopped
-// being one. Every PLAYER-LEVEL measured fact the engine can produce today
-// needs the anchor book (`AnchorBook`, packages/engine/src/anchors.ts): the
-// current anchor, the cliff to the next available player of the role, the
-// tension band — all three take `book` as a required input, and the book is
-// built from the listone's Qt.A, which this app does not yet declare. The
-// only player-level fact reachable without it is "is he still available",
-// which in this moment is a tautology (the moment is open on him).
-// The listone quotation cannot fill the gap either: the UI matrix
-// (docs/AUCTION_2026_EXECUTION_PLAN.md §3) admits it display-only and
-// forbids deriving scarcity, ranking or any suggestion from it.
-// An honest empty block beats a number nobody measured — so this one waits.
-export function renderPlayerInsightsBlock(): HTMLElement {
-  return devStaticPanel(
-    "INSIGHT GIOCATORE",
-    "Richiede insight statici sul giocatore chiamato (non implementati).",
-    "Nessun insight disponibile per questo giocatore.",
-  );
+//
+// ERA un devStaticPanel, e la sua nota diceva perché: ogni fatto MISURATO a
+// livello di giocatore che il motore sa produrre passa dall'anchor book
+// (packages/engine/src/anchors.ts), che poggia sulle Qt.A del listone, e la
+// quotazione del listone è display-only per la matrice UI
+// (docs/AUCTION_2026_EXECUTION_PLAN.md §3). Quella strada resta chiusa e
+// questo blocco non l'ha riaperta.
+//
+// Ciò che è cambiato è la FONTE, non il gate: le schede del Gruppo Esperti non
+// sono un numero che l'app calcola, sono un PARERE DI TERZI che Pico trascrive
+// a mano prima dell'asta e che il deposito privato serve a runtime
+// (src/expertScheda.ts per il contratto, src/ui/expertInsight.ts per la resa).
+// Un parere descrittivo non ha bisogno del gate che governa gli output
+// direttivi, e infatti qui non compare nessun punteggio, nessuna classifica,
+// nessuna banda di prezzo: il riquadro dichiara a schermo, in tutti e cinque i
+// suoi stati, di non essere validato e di non essere un consiglio.
+//
+// Il marcatore DEV STATICO se ne va perché significa esattamente «questo
+// blocco non fa nulla di reale» (src/ui/devStatic.ts): tenerlo sopra una
+// scheda scritta davvero sarebbe la stessa disonestà al contrario. Nulla di
+// ciò che c'era è sparito — il segnaposto mostrava una frase che diceva di non
+// avere niente, e quella frase ora è uno dei quattro stati onesti.
+export interface PlayerInsightProps {
+  readonly view: ExpertInsightView;
+}
+
+export function renderPlayerInsightsBlock(props: PlayerInsightProps): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "player-insight-panel";
+  panel.className = "panel player-insight";
+  panel.setAttribute("aria-label", expertInsightSpoken(props.view));
+
+  const head = document.createElement("div");
+  head.className = "player-insight__head";
+  // Titolo a sinistra, UNA label a destra. Erano quattro pastiglie di caveat:
+  // vedi `expertInsightLabel` in src/ui/expertInsight.ts per la decisione di
+  // Pico e per dove è finita la garanzia che portavano.
+  head.innerHTML = `<span class="panel-title">${escHtml(EXPERT_INSIGHT_TITLE)}</span>${expertInsightLabelHtml(
+    props.view,
+  )}`;
+  panel.appendChild(head);
+
+  const body = document.createElement("div");
+  body.innerHTML = expertInsightBodyHtml(props.view);
+  panel.appendChild(body);
+
+  // QUESTO PANNELLO NON HA UNA NOTA IN FONDO, e non è una dimenticanza: gli
+  // altri due blocchi di questa schermata ce l'hanno perché devono spiegare da
+  // quale calcolo nascono i loro numeri, mentre qui non c'è nessun calcolo da
+  // spiegare. I tre caveat che una nota porterebbe sono già a schermo, e più in
+  // alto: le pastiglie di onestà nella testata (parere di terzi, non validato,
+  // non è un consiglio, fuori dal calcolo) e la riga di provenienza sotto la
+  // prosa, che dice che la scheda è trascritta a mano prima dell'asta. Una nota
+  // che ripetesse quelle cose costava 47px misurati a 390px su una schermata
+  // che è già la più lunga dell'app.
+  return panel;
 }
 
 // ── Momento dell'asta (Asta moment) ──────────────────────────────────────────
@@ -1059,98 +1102,100 @@ export function renderMomentInsightsBlock(props: MomentFactsProps): HTMLElement 
   return panel;
 }
 
-// ── Avversari: chi può arrivare alla cifra (Asta moment) ─────────────────────
-// Was a devStaticPanel with two empty lists ("POTENZIALMENTE INTERESSATI:
-// nessuno tra quelli tracciati" / "PROBABILMENTE NON INTERESSATI: nessuno")
-// and a note naming the missing logic: "slot mancanti + budget avversario".
-// That is exactly `competitorSet()` (packages/engine/src/competitors.ts),
-// whose inputs — AuctionState, role, threshold — are all already on this
-// screen. Both groups survive, in the same order and the same place; what
-// changes is that they now carry the eight teams' real numbers instead of a
-// placeholder, and their headings state the basis that actually produced them
-// ("può arrivarci", a hard constraint) rather than an interest the engine
-// explicitly refuses to infer (§D9: no behavioural score, no declared intent).
+// ── Avversari: i precedenti d'asta sul giocatore chiamato (Asta moment) ─────
 //
-// The PANEL TITLE follows the same rule as the headings, and for the same
-// reason. It used to read "AVVERSARI — INTERESSE SUL GIOCATORE", inherited
-// from the placeholder: an assertion about intent that `competitorSet` does
-// not compute and §D9 forbids inferring. It now names what is actually
-// measured — arithmetic reachability. The disclaimer in OPPONENT_REACH_NOTE
-// («può arrivarci non significa lo vuole») stays: with the title corrected it
-// is no longer a rebuttal of the panel's own heading, but it still guards the
-// reading of the numbers, and a precision that costs one line does no harm.
+// Il blocco nasce come segnaposto DEV STATICO («POTENZIALMENTE INTERESSATI» /
+// «PROBABILMENTE NON INTERESSATI»), diventa `competitorSet()` — chi, per
+// vincolo duro, può arrivare alla cifra — e ora, per decisione di Pico
+// registrata (#331 punto 1), cambia di nuovo mestiere: mostra i PRECEDENTI
+// D'ASTA, cioè cosa ogni avversario ha già fatto che riguardi il giocatore
+// chiamato.
+//
+// PERCHÉ IL VINCOLO DURO È USCITO DA QUI. Su un giocatore per cui non è ancora
+// stata detta una cifra la soglia degradava al rilancio minimo, e la risposta
+// diventava «7 rivali su 7 possono arrivare a 1 cr»: vera, inutile, e in un
+// riquadro che dava l'impressione di parlare di interesse.
+//
+// NESSUNA CIFRA È SPARITA DALL'APP, e la verifica non è un'impressione:
+//  - max bid sicuro e budget residuo di tutte le squadre stanno nella
+//    striscia WAR BOARD (MINI) di questa stessa schermata, poche righe sopra
+//    (renderWarBoardMini, chiamata da renderMomentoAsta in main.ts);
+//  - gli slot liberi per ruolo, squadra per squadra, stanno nella war board
+//    COMPLETA del momento CHIAMATA (renderWarBoardFull) e nel pannello
+//    AVVERSARI TIER-1 della schermata Rose (renderOpponentTier1Panel);
+//  - gli slot liberi del ruolo su tutto il tavolo stanno nel blocco MOMENTO
+//    DELL'ASTA, nella colonna qui accanto (momentScarcityHtml).
+// A cambiare è chi risponde alla domanda, non quali numeri esistono.
+//
+// Il TITOLO nomina ciò che il pannello contiene — gesti passati, contati — e
+// non l'intenzione presente: la motivazione per esteso sta in liveFacts.ts,
+// sopra `OPPONENT_PRECEDENTS_TITLE`, insieme al precedente che la impone (il
+// titolo del segnaposto affermava un interesse che nessun calcolo produceva).
 
-export interface OpponentReachProps {
-  /** `null` when the moment carries no role — see OPPONENT_REACH_NO_ROLE. */
-  readonly set: CompetitorSet | null;
+export interface OpponentPrecedentsProps {
+  readonly reading: PrecedentsReading;
   readonly teamLabels: Readonly<Record<string, string>>;
-  readonly thresholdSource: ReachThresholdSource;
 }
 
-export function renderOpponentInterestBlock(props: OpponentReachProps): HTMLElement {
+export function renderOpponentPrecedentsBlock(props: OpponentPrecedentsProps): HTMLElement {
   const panel = document.createElement("section");
-  panel.id = "opponent-reach-panel";
-  panel.className = "panel opponent-reach";
-  // The visible title is short on purpose — it sits on the tightest screen of
-  // the app, must stay on one line down to 390px, and echoes the two group
-  // headings word for word so title, headline and groups read as one
-  // statement. The aria-label carries the same fact spelled out in full,
-  // where there is no width to fight for.
+  panel.id = "opponent-precedents-panel";
+  panel.className = "panel opponent-precedents";
+  // Il titolo visibile è corto perché vive sulla schermata più stretta
+  // dell'app; l'aria-label porta la stessa cosa per esteso, dove non c'è
+  // larghezza da contendere.
   panel.setAttribute(
     "aria-label",
-    "Avversari: chi può ancora arrivare alla cifra, per solo vincolo duro",
+    "Avversari: i precedenti d'asta che riguardano il giocatore chiamato, misurati sullo storico",
   );
 
   const title = document.createElement("div");
   title.className = "panel-title";
-  title.textContent = OPPONENT_REACH_TITLE;
+  title.textContent = OPPONENT_PRECEDENTS_TITLE;
   panel.appendChild(title);
 
   const headline = document.createElement("p");
-  headline.id = "opponent-reach-headline";
-  headline.className = "opponent-reach__headline";
-  // aria-live: mid-auction this line changes as the price is typed, without a
-  // full re-render (see updateOpponentReach in main.ts), so the change has to
-  // be announced rather than only repainted.
+  headline.id = "opponent-precedents-headline";
+  headline.className = "opponent-precedents__headline";
+  // aria-live: la riga cambia quando cambia il giocatore chiamato o quando lo
+  // storico viene caricato, e in entrambi i casi cambia il SIGNIFICATO del
+  // riquadro (fra i tre silenzi e l'elenco), non solo il suo contenuto.
   headline.setAttribute("role", "status");
   headline.setAttribute("aria-live", "polite");
   panel.appendChild(headline);
 
   const body = document.createElement("div");
-  body.id = "opponent-reach-body";
-  body.className = "opponent-reach__body";
+  body.id = "opponent-precedents-body";
+  body.className = "opponent-precedents__body";
   panel.appendChild(body);
 
-  fillOpponentReach(panel, props);
+  fillOpponentPrecedents(panel, props);
 
   const note = document.createElement("p");
   note.className = "hint-text";
-  note.id = "opponent-reach-note";
-  note.textContent = OPPONENT_REACH_NOTE;
+  note.id = "opponent-precedents-note";
+  note.textContent = OPPONENT_PRECEDENTS_NOTE;
   panel.appendChild(note);
 
   return panel;
 }
 
 /**
- * Writes the headline + the two groups into an already-mounted panel. Split
- * out of the builder above because the live screen updates this block WITHOUT
- * re-rendering: the price field deliberately does not call render() (it would
- * lose focus and caret mid-auction — see main.ts), so the same in-place patch
- * idiom `#price-display` already uses is what keeps the threshold shown here
- * equal to the figure actually typed.
+ * Scrive sintesi ed elenco dentro un pannello già montato.
+ *
+ * Resta separato dal costruttore — come lo era `fillOpponentReach` — perché il
+ * pannello si aggiorna anche SENZA un re-render completo. Il contenuto non
+ * dipende più dalla cifra che si sta battendo (i precedenti sono del
+ * giocatore, non del prezzo), ma la separazione è ciò che permette di
+ * ridipingerlo in place quando lo storico viene caricato o cambia, senza
+ * togliere fuoco e cursore al campo del prezzo in mezzo a un'asta.
  */
-export function fillOpponentReach(root: ParentNode, props: OpponentReachProps): void {
-  const headline = root.querySelector("#opponent-reach-headline");
-  const body = root.querySelector("#opponent-reach-body");
+export function fillOpponentPrecedents(root: ParentNode, props: OpponentPrecedentsProps): void {
+  const headline = root.querySelector("#opponent-precedents-headline");
+  const body = root.querySelector("#opponent-precedents-body");
   if (headline === null || body === null) return;
-  if (props.set === null) {
-    headline.textContent = OPPONENT_REACH_NO_ROLE;
-    body.innerHTML = "";
-    return;
-  }
-  headline.textContent = competitorReachHeadline(props.set, props.thresholdSource);
-  body.innerHTML = competitorReachHtml(props.set, props.teamLabels);
+  headline.textContent = opponentPrecedentsHeadline(props.reading);
+  body.innerHTML = opponentPrecedentsHtml(props.reading, props.teamLabels);
 }
 
 // ── Impostazioni — left menu, content on the right ──────────────────────────

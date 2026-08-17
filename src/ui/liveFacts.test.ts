@@ -1,19 +1,33 @@
 import { describe, it, expect } from "vitest";
 import {
   MOMENT_FACTS_NOTE,
-  OPPONENT_REACH_NOTE,
-  OPPONENT_REACH_NO_ROLE,
-  OPPONENT_REACH_TITLE,
-  competitorBlockerDetail,
-  competitorBlockerLabel,
-  competitorReachHeadline,
-  competitorReachHtml,
+  OPPONENT_PRECEDENTS_NOTE,
+  OPPONENT_PRECEDENTS_NO_CALL,
+  OPPONENT_PRECEDENTS_NO_HISTORY,
+  OPPONENT_PRECEDENTS_TITLE,
   formatDecimal1,
+  formatPercent,
   formatSignedPercent,
   marketPressureHtml,
   momentScarcityHtml,
+  opponentPrecedentsHeadline,
+  opponentPrecedentsHtml,
+  precedentEvidence,
+  precedentMotive,
+  seasonsSpan,
+  shortSeason,
 } from "./liveFacts.js";
-import { competitorSet } from "../../packages/engine/src/competitors.js";
+import {
+  DEFAULT_PRECEDENT_THRESHOLDS,
+  auctionPrecedents,
+} from "../../packages/opponent-profiles/src/index.js";
+import {
+  CONFIRMED_PROFILE,
+  PRECEDENT_SEATS_TO_PEOPLE,
+  SUPPORTER_WITHOUT_SPEND_PROFILE,
+  SYNTHETIC_CALLED_PLAYER,
+  syntheticAuctionHistory,
+} from "../../packages/opponent-profiles/fixtures/synthetic.js";
 import { residualPressure } from "../../packages/engine/src/anchors.js";
 import { roleScarcity } from "../../packages/engine/src/auction.js";
 import type { AuctionState, PoolPlayer, Role, TeamState } from "../../packages/engine/src/types.js";
@@ -226,114 +240,267 @@ describe("marketPressureHtml", () => {
   });
 });
 
-// ── AVVERSARI — chi può arrivare alla cifra ────────────────────────────────
 
-describe("competitorBlockerLabel / competitorBlockerDetail", () => {
-  it("names each hard constraint separately, never one for another", () => {
-    expect(competitorBlockerLabel("role-full")).toBe("ruolo pieno");
-    expect(competitorBlockerLabel("budget-locked")).toBe("budget bloccato");
-    expect(competitorBlockerLabel("below-threshold")).toBe("sotto la soglia");
-    expect(competitorBlockerDetail("role-full")).toContain("non le serve");
-    expect(competitorBlockerDetail("budget-locked")).toContain("riserva dura");
-    expect(competitorBlockerDetail("below-threshold")).toContain("max bid sicuro");
+// ── AVVERSARI — i precedenti d'asta sul giocatore chiamato ─────────────────
+//
+// Il blocco che stava qui copriva `competitorReachHeadline` /
+// `competitorReachHtml`, cioè la raggiungibilità per vincolo duro. Quelle
+// asserzioni sono state SOSTITUITE, non tolte: la funzione che descrivevano è
+// uscita da questo pannello per decisione di Pico (#331 punto 1) e non esiste
+// più in questo modulo. Ognuna ha una erede qui sotto — l'elenco dei rivali
+// diventa l'elenco di chi ha un precedente, la riga di sintesi diventa la
+// sintesi dei precedenti, la difesa contro l'iniezione di markup e quella
+// contro l'output direttivo restano identiche nella forma nuova — più le
+// asserzioni che il vecchio pannello non poteva avere: numerosità, serie per
+// stagione, e il divieto di far comparire qualcuno per il solo tifo.
+//
+// `competitorSet()` resta coperto dai suoi test di motore
+// (packages/engine/tests/competitors.test.ts), che non cambiano: la funzione
+// non è cambiata, è cambiato chi la mostra.
+
+const PRECEDENT_LABELS: Record<string, string> = {
+  ac_vostra: "AC Vostra",
+  ataturk: "Ataturk Sintetica",
+  dinamo_flavietto: "Dinamo Sintetica",
+  psg: "PSG Sintetica",
+  torres_sintetica: "Torres Sintetica",
+};
+
+function precedents(overrides: Partial<Parameters<typeof auctionPrecedents>[0]> = {}) {
+  return auctionPrecedents({
+    called: SYNTHETIC_CALLED_PLAYER,
+    history: syntheticAuctionHistory(),
+    seats: PRECEDENT_SEATS_TO_PEOPLE,
+    profiles: [CONFIRMED_PROFILE, SUPPORTER_WITHOUT_SPEND_PROFILE],
+    ...overrides,
+  });
+}
+
+describe("formatPercent / shortSeason / seasonsSpan", () => {
+  it("stampa una quota come percentuale intera senza segno: la quota non ha direzione", () => {
+    expect(formatPercent(0.6)).toBe("60%");
+    expect(formatPercent(0)).toBe("0%");
+    expect(formatPercent(0.036)).toBe("4%");
+    expect(formatPercent(Number.NaN)).toBe("n/d");
+  });
+
+  it("abbrevia la stagione solo nella serie, mai perdendo l'anno", () => {
+    expect(shortSeason("2021/22")).toBe("21/22");
+    expect(shortSeason("boh")).toBe("boh");
+  });
+
+  it("dichiara gli estremi dello storico invece di un numero nudo", () => {
+    expect(seasonsSpan(["2021/22", "2022/23", "2025/26"])).toBe("3 stagioni (2021/22 → 2025/26)");
+    expect(seasonsSpan(["2025/26"])).toBe("1 stagione (2025/26)");
+    expect(seasonsSpan([])).toBe("nessuna stagione");
   });
 });
 
-describe("competitorReachHeadline", () => {
-  it("counts rivals against the typed figure", () => {
-    const set = competitorSet(freshState(), "P", 30, "Io");
-    expect(competitorReachHeadline(set, "price")).toBe("7 rivali su 7 possono arrivare a 30 cr");
+describe("precedentMotive / precedentEvidence", () => {
+  const facts = precedents().opponents.find((o) => o.fantaTeamId === "ataturk")!.facts;
+
+  it("il motivo è sempre un GESTO al passato, mai un aggettivo sulla persona", () => {
+    for (const fact of facts) {
+      const motive = precedentMotive(fact);
+      expect(motive).toMatch(/^(l'ha|ha) /);
+      expect(motive).not.toMatch(/è un|tipo|carattere|aggressiv|tirchio|generoso/i);
+    }
+    expect(precedentMotive(facts[0]!)).toBe("l'ha ricomprato all'asta");
   });
 
-  it("declares the fallback threshold instead of pretending a price was said", () => {
-    const set = competitorSet(freshState(), "P", 1, "Io");
-    expect(competitorReachHeadline(set, "floor")).toContain("al rilancio minimo (1 cr)");
-    expect(competitorReachHeadline(set, "floor")).toContain("nessun prezzo ancora inserito");
+  it("il riacquisto porta conteggio, prezzi, stagioni e i rinnovi che NON ha contato", () => {
+    const evidence = precedentEvidence(facts[0]!);
+    expect(evidence).toContain("2 volte");
+    expect(evidence).toContain("80 cr nel 2022/23");
+    expect(evidence).toContain("95 cr nel 2024/25");
+    expect(evidence).toContain("misurato su 5 stagioni");
+    // Il rinnovo è la PROVENIENZA del 2, non un terzo precedente.
+    expect(evidence).toContain("1 rinnovo non contato");
   });
 
-  it("reports the threshold actually applied, rounded up as the engine rounds it", () => {
-    // competitorSet ceils the threshold: you cannot beat 32,4 with 32.
-    const set = competitorSet(freshState(), "P", 32.4, "Io");
-    expect(competitorReachHeadline(set, "price")).toContain("a 33 cr");
+  it("ogni prova porta la propria numerosità: quante stagioni, e quante sopra soglia", () => {
+    const club = facts.find((f) => f.id === "club")!;
+    const evidence = precedentEvidence(club);
+    expect(evidence).toContain("30% nel 2025/26");
+    // La numerosità è il DENOMINATORE della frase — «su 5 misurate» — e non
+    // una seconda cifra accanto: ripeterla costerebbe una riga di altezza e
+    // direbbe lo stesso numero due volte.
+    expect(evidence).toContain("3 stagioni su 5 misurate dal 15% in su");
+    expect(club.seasonsMeasured).toBe(5);
+  });
+
+  it("una stagione sola si dice al singolare, non «1 stagioni»", () => {
+    const single = precedents({
+      history: syntheticAuctionHistory().filter((r) => r.season === "2025/26"),
+    });
+    expect(single.opponents.length).toBeGreaterThan(0);
+    for (const opponent of single.opponents) {
+      for (const fact of opponent.facts) {
+        const evidence = precedentEvidence(fact);
+        expect(evidence).not.toContain("1 stagioni");
+        expect(evidence).toMatch(/1 stagione/);
+      }
+    }
   });
 });
 
-describe("competitorReachHtml", () => {
-  it("lists every rival with max bid and free slots, in the engine's order", () => {
-    const html = competitorReachHtml(competitorSet(freshState(), "P", 30, "Io"), LABELS);
-    // maxSafe for an untouched team = 500 − 27 = 473.
-    expect(html).toContain(`id="opponent-reach-Squadra2"`);
-    expect(html).toContain("<em>max</em>473");
-    expect(html).toContain("<em>slot</em>3");
-    // Self is never among the rivals.
-    expect(html).not.toContain(`id="opponent-reach-Io"`);
-    expect(html).toContain("PUÒ ARRIVARE A 30 CR");
-    // The display label wins over the seat id.
-    expect(html).toContain(">Bea<");
+describe("opponentPrecedentsHeadline — i tre silenzi sono tre frasi diverse", () => {
+  it("conta chi ha un precedente, su quanti avversari, e su quale storico", () => {
+    const line = opponentPrecedentsHeadline(precedents());
+    expect(line).toContain("3 avversari hanno un precedente d'asta su questo giocatore");
+    expect(line).toContain("su 5 avversari esaminati");
+    expect(line).toContain("Storico: 5 stagioni (2021/22 → 2025/26)");
+    // Un posto senza persona è dichiarato: su di lui non esiste storico, e
+    // tacerlo lo farebbe leggere come «non ha precedenti».
+    expect(line).toContain("1 posto non ha una persona assegnata");
   });
 
-  it("keeps both groups present even when one of them is empty", () => {
-    const html = competitorReachHtml(competitorSet(freshState(), "P", 30, "Io"), LABELS);
-    expect(html).toContain(`id="opponent-reach-eligible"`);
-    expect(html).toContain(`id="opponent-reach-excluded"`);
-    expect(html).toContain("Nessun rivale è fuori: tutti possono arrivarci.");
+  it("nessuno storico caricato: lo dice, e dice che non è «nessuno lo vuole»", () => {
+    const line = opponentPrecedentsHeadline(precedents({ history: [] }));
+    expect(line).toContain(OPPONENT_PRECEDENTS_NO_HISTORY);
+    expect(line).toContain("non significa «nessuno lo vuole»");
   });
 
-  it("separates the three exclusion reasons instead of collapsing them", () => {
-    const mixed = stateOf([
-      team({ fantaTeamId: "Io" }),
-      // role-full: no P slot left at all.
-      team({ fantaTeamId: "Squadra2", slotsRemaining: { P: 0, D: 9, C: 9, A: 7 }, budgetResidual: 400 }),
-      // below-threshold: can still bid, but not that high.
-      team({ fantaTeamId: "Squadra3", budgetResidual: 40 }),
-      // budget-locked: residual below the hard reserve of the other slots.
-      team({ fantaTeamId: "Squadra4", budgetResidual: 3 }),
-      // eligible.
-      team({ fantaTeamId: "Squadra5" }),
-    ]);
-    const set = competitorSet(mixed, "P", 30, "Io");
-    expect(set.eligibleCount).toBe(1);
-    const html = competitorReachHtml(set, LABELS);
-    expect(html).toMatch(/id="opponent-reach-Squadra2"[\s\S]*?ruolo pieno/);
-    expect(html).toMatch(/id="opponent-reach-Squadra3"[\s\S]*?sotto la soglia/);
-    expect(html).toMatch(/id="opponent-reach-Squadra4"[\s\S]*?budget bloccato/);
-    expect(html).toMatch(/id="opponent-reach-Squadra5"[\s\S]*?opponent-reach__bid/);
-    // A locked team's ceiling is reported as 0, never as a sub-floor figure
-    // dressed up as a bid.
-    expect(html).toMatch(/id="opponent-reach-Squadra4"[\s\S]*?<em>max<\/em>0/);
+  it("nessun giocatore chiamato: nessun soggetto, e nessun elenco", () => {
+    const reading = precedents({ called: null });
+    expect(opponentPrecedentsHeadline(reading)).toBe(OPPONENT_PRECEDENTS_NO_CALL);
+    expect(opponentPrecedentsHtml(reading, PRECEDENT_LABELS)).toBe("");
   });
 
-  it("says so in words when nobody else can reach the figure", () => {
-    const broke = stateOf([
-      team({ fantaTeamId: "Io" }),
-      team({ fantaTeamId: "Squadra2", budgetResidual: 40 }),
-    ]);
-    const set = competitorSet(broke, "P", 200, "Io");
-    expect(set.eligibleCount).toBe(0);
-    const html = competitorReachHtml(set, LABELS);
-    expect(html).toContain("Nessun rivale può arrivare a questa cifra.");
-    // The excluded rival is still listed with its numbers: "nobody can" is
-    // not a reason to stop showing who was checked.
-    expect(html).toContain(`id="opponent-reach-Squadra2"`);
+  it("storico presente e nessun precedente: distinto dai due silenzi precedenti", () => {
+    const reading = precedents({ called: { playerId: "sint-mai-visto", club: "Club Sintetico Z" } });
+    const line = opponentPrecedentsHeadline(reading);
+    expect(line).toContain("Nessun precedente d'asta su questo giocatore");
+    expect(line).toContain("«lo storico non dice niente su di lui»");
+    expect(line).not.toContain(OPPONENT_PRECEDENTS_NO_HISTORY);
+    // Nessun contenitore vuoto accanto alla frase: sembrerebbe un elenco di
+    // «nessuno», che è esattamente la lettura da evitare.
+    expect(opponentPrecedentsHtml(reading, PRECEDENT_LABELS)).toBe("");
   });
 
-  it("escapes a display label instead of letting it reach the DOM as markup", () => {
-    const set = competitorSet(freshState(), "P", 5, "Io");
-    const html = competitorReachHtml(set, { ...LABELS, Squadra2: `<img src=x onerror="boom">` });
+  it("un avversario solo si dice al singolare", () => {
+    const reading = precedents({
+      history: syntheticAuctionHistory().filter((r) => r.personId.endsWith("0002")),
+    });
+    expect(opponentPrecedentsHeadline(reading)).toContain("1 avversario ha un precedente");
+  });
+});
+
+describe("opponentPrecedentsHtml — motivo, prova e numerosità, per ogni avversario", () => {
+  it("una riga per avversario, nell'ordine dichiarato dei tipi di fatto", () => {
+    const html = opponentPrecedentsHtml(precedents(), PRECEDENT_LABELS);
+    const order = [
+      ...html.matchAll(/class="opponent-precedents__row"\s+id="opponent-precedents-([a-z_]+)"/g),
+    ].map((m) => m[1]);
+    expect(order).toEqual(["ataturk", "dinamo_flavietto", "torres_sintetica"]);
+    // L'etichetta di visualizzazione vince sull'id del posto.
+    expect(html).toContain(">Ataturk Sintetica<");
+  });
+
+  it("ogni fatto porta il proprio motivo accanto alla propria prova", () => {
+    const html = opponentPrecedentsHtml(precedents(), PRECEDENT_LABELS);
+    expect(html).toMatch(
+      /id="opponent-precedents-ataturk-ricomprato"[\s\S]*?l'ha ricomprato all'asta[\s\S]*?2 volte/,
+    );
+    expect(html).toMatch(
+      /id="opponent-precedents-dinamo_flavietto-club"[\s\S]*?ha speso su Club Sintetico A/,
+    );
+    expect(html).toMatch(
+      /id="opponent-precedents-torres_sintetica-piu-cari"[\s\S]*?ha speso sui propri 3 più cari/,
+    );
+  });
+
+  it("la serie per stagione è tutta lì: quattro alte e il crollo non si appiattiscono", () => {
+    const html = opponentPrecedentsHtml(precedents(), PRECEDENT_LABELS);
+    const row = html.split(`id="opponent-precedents-dinamo_flavietto"`)[1]!.split("</li>\n    </ul>")[0]!;
+    for (const [season, value] of [
+      ["21/22", "40%"],
+      ["22/23", "35%"],
+      ["23/24", "30%"],
+      ["24/25", "28%"],
+      ["25/26", "0%"],
+    ]) {
+      expect(row).toContain(`<em>${season}</em>${value}`);
+    }
+  });
+
+  it("un tratto che si regge sull'ultima stagione si legge come tale", () => {
+    const html = opponentPrecedentsHtml(precedents(), PRECEDENT_LABELS);
+    expect(html).toMatch(
+      /id="opponent-precedents-torres_sintetica-piu-cari"[\s\S]*?1 stagione su 5 misurate dal 50% in su/,
+    );
+  });
+
+  it("la riga parla anche per chi non la vede: aria-label con tutto per esteso", () => {
+    const html = opponentPrecedentsHtml(precedents(), PRECEDENT_LABELS);
+    const label = /id="opponent-precedents-dinamo_flavietto"[\s\S]*?aria-label="([^"]+)"/.exec(html)![1]!;
+    expect(label).toContain("Dinamo Sintetica");
+    expect(label).toContain("ha speso su Club Sintetico A");
+    expect(label).toContain("Per stagione: 2021/22 40%");
+    expect(label).toContain("2025/26 0%");
+  });
+
+  it("escapa un'etichetta invece di lasciarla arrivare al DOM come markup", () => {
+    const html = opponentPrecedentsHtml(precedents(), {
+      ...PRECEDENT_LABELS,
+      ataturk: `<img src=x onerror="boom">`,
+    });
     expect(html).not.toContain("<img");
     expect(html).toContain("&lt;img");
   });
+});
 
-  it("orders rivals by max bid descending, then by id — same list every time", () => {
-    const uneven = stateOf([
-      team({ fantaTeamId: "Io" }),
-      team({ fantaTeamId: "Squadra2", budgetResidual: 100 }),
-      team({ fantaTeamId: "Squadra3", budgetResidual: 300 }),
-      team({ fantaTeamId: "Squadra4", budgetResidual: 200 }),
-    ]);
-    const html = competitorReachHtml(competitorSet(uneven, "P", 10, "Io"), LABELS);
-    const order = [...html.matchAll(/id="opponent-reach-(Squadra\d)"/g)].map((m) => m[1]);
-    expect(order).toEqual(["Squadra3", "Squadra4", "Squadra2"]);
+describe("il tifo non fa comparire nessuno, e non è il titolo di niente", () => {
+  it("chi tifa il club del chiamato ma non ci ha speso non ha nemmeno una riga", () => {
+    const html = opponentPrecedentsHtml(precedents(), PRECEDENT_LABELS);
+    // Persona 3 tifa il club A (profilo confermato) e ci ha speso il 3,6% e
+    // poi lo 0%. La riga stessa sarebbe l'affermazione «lo vuole».
+    expect(html).not.toContain("PSG Sintetica");
+    expect(html).not.toContain(`id="opponent-precedents-psg"`);
+  });
+
+  it("dove la riga esiste già, il tifo è subordinato e porta la spesa misurata accanto", () => {
+    const html = opponentPrecedentsHtml(precedents(), PRECEDENT_LABELS);
+    const row = html.split(`id="opponent-precedents-ataturk"`)[1]!.split(`id="opponent-precedents-dinamo`)[0]!;
+    expect(row).toContain("tifo dichiarato");
+    expect(row).toContain("Club Sintetico A");
+    expect(row).toContain("spesa misurata su quel club: 30% nel 2025/26, su 5 stagioni");
+    // …e la serie per stagione NON è ristampata: la riga porta già il fatto
+    // `club`, con la stessa misura e le stesse stagioni, due righe sopra.
+    expect(row.split("opponent-precedents__support")[1]).not.toContain(
+      "opponent-precedents__series",
+    );
+    // E sta DOPO i fatti che hanno fatto nascere la riga, mai prima.
+    expect(row.indexOf("opponent-precedents__support")).toBeGreaterThan(
+      row.indexOf("opponent-precedents__facts"),
+    );
+  });
+});
+
+describe("la raggiungibilità per vincolo duro è uscita da questo modulo", () => {
+  it("nessuna stringa del pannello parla più di slot, max bid o soglia raggiungibile", () => {
+    const html =
+      opponentPrecedentsHtml(precedents(), PRECEDENT_LABELS) +
+      opponentPrecedentsHeadline(precedents()) +
+      OPPONENT_PRECEDENTS_TITLE +
+      OPPONENT_PRECEDENTS_NO_CALL +
+      OPPONENT_PRECEDENTS_NO_HISTORY;
+    expect(html).not.toMatch(/può arrivar|arrivarci|max bid|slot liber|sotto la soglia|ruolo pieno|budget bloccato/i);
+  });
+
+  it("il modulo non esporta più i costruttori del vecchio pannello", async () => {
+    const api = await import("./liveFacts.js");
+    for (const gone of [
+      "competitorReachHtml",
+      "competitorReachHeadline",
+      "competitorBlockerLabel",
+      "competitorBlockerDetail",
+      "OPPONENT_REACH_TITLE",
+      "OPPONENT_REACH_NOTE",
+      "OPPONENT_REACH_NO_ROLE",
+    ]) {
+      expect(Object.keys(api)).not.toContain(gone);
+    }
   });
 });
 
@@ -341,52 +508,81 @@ describe("competitorReachHtml", () => {
 
 describe("no directive output reaches the live blocks", () => {
   const role: Role = "A";
+  /** Ogni famiglia di parole che afferma un giudizio sulla persona invece di un gesto. */
+  const PSYCHOLOGY =
+    /punteggio|score|indice|intensit|classifica|aggressiv|big.?spender|tirchio|generoso|avido|probabil|prever|prevedibil/i;
 
   it("keeps every rendered string inside measured facts", () => {
     const pool: readonly PoolPlayer[] = [{ playerId: "a1", role, name: "Delta Sintetico" }];
     const html =
       momentScarcityHtml(roleScarcity(freshState(), pool), true, role) +
       marketPressureHtml(residualPressure(freshState())) +
-      competitorReachHtml(competitorSet(freshState(), role, 30, "Io"), LABELS) +
-      competitorReachHeadline(competitorSet(freshState(), role, 30, "Io"), "price") +
+      opponentPrecedentsHtml(precedents(), PRECEDENT_LABELS) +
+      opponentPrecedentsHeadline(precedents()) +
       MOMENT_FACTS_NOTE +
-      OPPONENT_REACH_NOTE +
-      OPPONENT_REACH_NO_ROLE;
+      OPPONENT_PRECEDENTS_NOTE +
+      OPPONENT_PRECEDENTS_NO_CALL +
+      OPPONENT_PRECEDENTS_NO_HISTORY;
     expect(html).not.toMatch(DIRECTIVE);
   });
 
-  it("states the basis of the opponent block, so no reader can take it for intent", () => {
-    expect(OPPONENT_REACH_NOTE).toContain("Solo vincolo duro");
-    expect(OPPONENT_REACH_NOTE).toContain("non significa «lo vuole»");
-    expect(OPPONENT_REACH_NOTE).toContain("nessun indice comportamentale");
+  it("nessuna parola di punteggio, intensità o previsione su ciò che il pannello AFFERMA", () => {
+    // Il divieto che governa questo pannello: fatti sì, giudizi sui caratteri
+    // no. Una regressione che facesse entrare una di queste parole sarebbe una
+    // violazione di prodotto, non un difetto di stile.
+    //
+    // La NOTA è deliberatamente fuori da questa misura, ed è l'unico posto in
+    // cui quelle parole possono comparire: lì dichiarano ciò che il pannello
+    // NON fa, e vietarle anche nella negazione significherebbe non poter più
+    // scrivere «nessun punteggio». Il test qui sotto verifica che nella nota
+    // ci stiano solo così.
+    const html =
+      opponentPrecedentsHtml(precedents(), PRECEDENT_LABELS) +
+      opponentPrecedentsHeadline(precedents()) +
+      OPPONENT_PRECEDENTS_TITLE +
+      OPPONENT_PRECEDENTS_NO_CALL +
+      OPPONENT_PRECEDENTS_NO_HISTORY;
+    expect(html).not.toMatch(PSYCHOLOGY);
   });
 
-  it("titles the opponent block by what it measures, never by an intent", () => {
-    // Il titolo ereditato dal segnaposto affermava un interesse che
-    // `competitorSet` non calcola (`basis: "hard-constraints"`) e che §D9
-    // vieta di inferire. Deve dire raggiungibilità, e col verbo modale: «chi
-    // arriva» sarebbe una previsione, «chi PUÒ arrivare» è aritmetica.
-    expect(OPPONENT_REACH_TITLE).toBe("AVVERSARI: CHI PUÒ ARRIVARCI");
-    expect(OPPONENT_REACH_TITLE).not.toMatch(/interess/i);
-    expect(OPPONENT_REACH_TITLE).toMatch(/PUÒ/);
-    // Il soggetto resta quello: a essere sbagliato era il predicato.
-    expect(OPPONENT_REACH_TITLE).toMatch(/^AVVERSARI/);
-    // Più corto della stringa che sostituisce: non può traboccare dove quella
-    // non traboccava, a nessuna delle tre larghezze.
-    expect(OPPONENT_REACH_TITLE.length).toBeLessThan("AVVERSARI — INTERESSE SUL GIOCATORE".length);
-    // Stessa parola delle intestazioni dei due gruppi: una frase sola.
-    const html = competitorReachHtml(competitorSet(freshState(), "P", 30, "Io"), LABELS);
-    expect(html).toContain("PUÒ ARRIVARE A 30 CR");
-    expect(html).toContain("NON PUÒ ARRIVARCI");
+  it("nella nota quelle parole compaiono solo negate, mai come qualcosa che il pannello offre", () => {
+    for (const match of OPPONENT_PRECEDENTS_NOTE.match(new RegExp(PSYCHOLOGY, "gi")) ?? []) {
+      expect(OPPONENT_PRECEDENTS_NOTE).toMatch(
+        new RegExp(`(nessun|nessuna|non)[^.]{0,40}${match}`, "i"),
+      );
+    }
+  });
+
+  it("la nota dichiara la provenienza, i rinnovi esclusi e il limite del tifo", () => {
+    expect(OPPONENT_PRECEDENTS_NOTE).toContain("gesti già compiuti");
+    expect(OPPONENT_PRECEDENTS_NOTE).toContain("storico d'asta");
+    expect(OPPONENT_PRECEDENTS_NOTE).toContain("rinnovare non è ricomprare");
+    expect(OPPONENT_PRECEDENTS_NOTE).toContain("tifare una squadra non è averci speso");
+    expect(OPPONENT_PRECEDENTS_NOTE).toContain("il giudizio è tuo");
+  });
+
+  it("il titolo nomina ciò che il pannello contiene, non l'intenzione che non misura", () => {
+    // Stessa regola che aveva già portato via «AVVERSARI — INTERESSE SUL
+    // GIOCATORE»: il titolo non afferma ciò che nessun calcolo dietro di lui
+    // produce, e la nota sotto non deve essere la smentita della propria
+    // intestazione. Il mestiere del pannello è rispondere a «chi lo vuole»;
+    // il suo contenuto sono precedenti, ed è quello che il titolo dice.
+    expect(OPPONENT_PRECEDENTS_TITLE).toBe("AVVERSARI: I PRECEDENTI");
+    expect(OPPONENT_PRECEDENTS_TITLE).not.toMatch(/vuole|interess|arrivarci/i);
+    expect(OPPONENT_PRECEDENTS_TITLE).toMatch(/^AVVERSARI/);
+    // Più corto del titolo che sostituisce, che a 390px stava su una riga
+    // sola con 2px di margine misurati: non può traboccare dove quello non
+    // traboccava.
+    expect(OPPONENT_PRECEDENTS_TITLE.length).toBeLessThan("AVVERSARI: CHI PUÒ ARRIVARCI".length);
+  });
+
+  it("le soglie in vigore viaggiano nell'esito, ispezionabili accanto al numero che filtrano", () => {
+    expect(precedents().thresholds).toEqual(DEFAULT_PRECEDENT_THRESHOLDS);
   });
 
   it("states the two provenances of the moment block", () => {
     expect(MOMENT_FACTS_NOTE).toContain("derivata dal log dell'asta");
     expect(MOMENT_FACTS_NOTE).toContain("listone caricato");
     expect(MOMENT_FACTS_NOTE).toContain("nessun dato di modello");
-  });
-
-  it("explains, rather than hides, the block with no role", () => {
-    expect(OPPONENT_REACH_NO_ROLE).toContain("senza ruolo");
   });
 });

@@ -1,0 +1,363 @@
+import { expect, test, type Page } from "@playwright/test";
+import type { ListonePlayer } from "../src/ui/listone.js";
+import { LISTONE_PAGE_SIZE } from "../src/ui/listone.js";
+import { installSyntheticNetworkGuard, openTableDetail } from "./helpers.js";
+
+// #333 — L'ORDINE DELLA SCHERMATA DI RICERCA È UNA DECISIONE, E QUESTA SPEC LA
+// TIENE FERMA.
+//
+// Le quattro domande del tavolo, in ordine di frequenza (confermate da Pico):
+//   1. quanto posso spendere per questo;
+//   2. chi me lo contende;
+//   3. quanto mi serve davvero questo ruolo adesso;
+//   4. quanto mi resta se lo prendo.
+// Criterio: ciò che serve alla decisione più frequente sta in alto e non si
+// scrolla; ciò che non serve a nessuna delle quattro scende.
+//
+// IL DIFETTO CHE QUESTA SPEC IMPEDISCE DI RIFARE. `#search-player` — l'unica
+// ragione per cui questa schermata esiste — stava sotto la piega a TUTTE e
+// quattro le risoluzioni: a 390px a 2507px dall'inizio del documento, cioè la
+// terza schermata, con davanti un blocco vuoto per costruzione (GIOCATORE
+// SUGGERITO), un'azione (INSERIMENTO RAPIDO) e due letture del tavolo
+// (SCARSITÀ, WAR BOARD). Misurato, non stimato.
+//
+// PERCHÉ MORDE. Non basta asserire che il campo esista: un campo che esiste
+// 2500px più in basso esisteva anche prima. Le tre asserzioni sono
+// complementari e ciascuna da sola diventa rossa se il campo torna giù:
+//  a. geometria — il rettangolo del campo sta interamente dentro la finestra
+//     a scroll 0;
+//  b. hit-test — `elementFromPoint` sul centro del campo restituisce IL CAMPO:
+//     copre il caso in cui è sì dentro la finestra ma sotto la fascia critica
+//     appiccicata in alto, che dipinge sopra la pagina di proposito;
+//  c. ordine — nessuno dei blocchi che erano davanti gli è tornato davanti.
+//
+// LA FIXTURE NON PUÒ MENTIRE SULLA SCALA. Il listone spedito da questo
+// repository ha 6 righe; quello privato ne spedisce 532 (vedi
+// e2e/shipped-listone.ts). Ogni caso qui gira su ENTRAMBI: con 532 righe la
+// paginazione smette di essere «Pagina 1 di 1» inerte e diventa un controllo
+// usato a ogni ricerca, quindi ha anch'essa un limite di quota qui.
+//
+// Tutte le righe sono sintetiche e il network guard aborta qualunque altra
+// cosa.
+
+const VIEWPORTS = [
+  { width: 390, height: 844 },
+  { width: 1280, height: 720 },
+  { width: 1440, height: 900 },
+  { width: 1920, height: 1080 },
+] as const;
+
+const ROLES = ["P", "D", "C", "A"] as const;
+
+/** Pool sintetico della SCALA del listone privato (532 righe), zero dati reali. */
+function syntheticPoolOfSize(rows: number): readonly ListonePlayer[] {
+  return Array.from({ length: rows }, (_, i) => ({
+    name: `Sintetico ${String(i + 1).padStart(3, "0")}`,
+    role: ROLES[i % ROLES.length]!,
+    club: `Club${(i % 20) + 1}`,
+    quotation: 1 + (i % 40),
+  }));
+}
+
+const SMALL_POOL = syntheticPoolOfSize(6);
+const LARGE_POOL = syntheticPoolOfSize(532);
+
+const POOLS = [
+  { label: "6 righe", pool: SMALL_POOL },
+  { label: "532 righe", pool: LARGE_POOL },
+] as const;
+
+interface FoldReport {
+  readonly rect: { top: number; bottom: number; height: number };
+  readonly viewportHeight: number;
+  readonly hitTestHitsSelf: boolean;
+  readonly coveredByStickyChrome: boolean;
+}
+
+/** Il campo è dentro la finestra, e nel punto in cui si vede c'è LUI. */
+async function foldReport(page: Page, selector: string): Promise<FoldReport> {
+  return page.evaluate((sel) => {
+    const el = document.querySelector(sel);
+    if (el === null) throw new Error(`piega: nessun elemento per ${sel}`);
+    const r = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    const strip = document.getElementById("critical-auction-strip");
+    const stripBottom = strip === null ? 0 : strip.getBoundingClientRect().bottom;
+    return {
+      rect: { top: r.top, bottom: r.bottom, height: r.height },
+      viewportHeight: window.innerHeight,
+      hitTestHitsSelf: hit !== null && (hit === el || el.contains(hit)),
+      coveredByStickyChrome: r.top < stripBottom,
+    };
+  }, selector);
+}
+
+/** Posizione assoluta nel documento del bordo superiore di un elemento. */
+async function documentTop(page: Page, selector: string): Promise<number> {
+  return page.evaluate((sel) => {
+    const el = document.querySelector(sel);
+    if (el === null) throw new Error(`ordine: nessun elemento per ${sel}`);
+    return el.getBoundingClientRect().top + window.scrollY;
+  }, selector);
+}
+
+async function boot(page: Page, viewport: { width: number; height: number }): Promise<void> {
+  await page.setViewportSize(viewport);
+  await page.goto("/");
+  // Ogni giro riparte da un'asta vuota: il log persiste attraverso un goto(),
+  // e uno stato residuo cambierebbe le altezze che questa spec misura.
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.locator("#search-player")).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 0));
+}
+
+test("il campo di ricerca è sopra la piega a 390, 1280, 1440 e 1920 — con 6 righe e con 532", async ({
+  page,
+  context,
+}) => {
+  for (const { label, pool } of POOLS) {
+    const externalRequests: string[] = [];
+    await installSyntheticNetworkGuard(context, pool, externalRequests);
+
+    for (const viewport of VIEWPORTS) {
+      const where = `${label} @ ${viewport.width}px`;
+      await boot(page, viewport);
+
+      // a. GEOMETRIA — dentro la finestra, senza scrollare di un pixel.
+      const search = await foldReport(page, "#search-player");
+      expect(search.rect.height, `${where}: il campo deve avere un'altezza`).toBeGreaterThan(0);
+      expect(
+        search.rect.bottom,
+        `${where}: il campo di ricerca finisce a ${Math.round(search.rect.bottom)}px, ` +
+          `oltre la piega a ${search.viewportHeight}px`,
+      ).toBeLessThanOrEqual(search.viewportHeight);
+
+      // b. HIT-TEST — nel punto dove si vede c'è il campo, non la fascia
+      //    critica appiccicata in alto (che dipinge sopra la pagina di
+      //    proposito) né altro.
+      expect(search.coveredByStickyChrome, `${where}: il campo finisce sotto la fascia critica`).toBe(
+        false,
+      );
+      expect(search.hitTestHitsSelf, `${where}: il centro del campo non è cliccabile`).toBe(true);
+
+      // c. ORDINE — i quattro blocchi che stavano davanti al campo stanno
+      //    dietro. Posizioni assolute nel documento: il confronto vale anche
+      //    per ciò che è fuori dalla finestra.
+      const searchTop = await documentTop(page, "#search-player");
+      for (const behind of [
+        ["#assign-command-panel", "INSERIMENTO RAPIDO"],
+        ["#suggested-player", "GIOCATORE SUGGERITO"],
+        ["#table-detail", "IL TAVOLO"],
+      ] as const) {
+        expect(
+          await documentTop(page, behind[0]),
+          `${where}: ${behind[1]} è tornato sopra il campo di ricerca`,
+        ).toBeGreaterThan(searchTop);
+      }
+
+      // La pagina non scorre mai di lato.
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+        `${where}: scroll orizzontale`,
+      ).toBe(true);
+    }
+
+    expect(externalRequests, `${label}: richieste esterne`).toEqual([]);
+  }
+});
+
+test("con 532 righe la paginazione è un controllo raggiungibile, non la sesta schermata", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, LARGE_POOL, externalRequests);
+
+  const expectedPages = Math.ceil(LARGE_POOL.length / LISTONE_PAGE_SIZE);
+
+  for (const viewport of VIEWPORTS) {
+    await boot(page, viewport);
+    // La paginazione esiste davvero: con 532 righe non è più «Pagina 1 di 1».
+    const indicator = page.getByText(`Pagina 1 di ${expectedPages}`, { exact: true });
+    await expect(indicator, `${viewport.width}px: indicatore di pagina`).toBeVisible();
+
+    const top = await documentTop(page, "#search-player");
+    const indicatorTop = await page.evaluate((text) => {
+      const el = [...document.querySelectorAll("span")].find((s) => s.textContent === text);
+      if (el === undefined) throw new Error("paginazione non trovata");
+      return el.getBoundingClientRect().top + window.scrollY;
+    }, `Pagina 1 di ${expectedPages}`);
+
+    // Attaccata alla ricerca: la tabella che la separa dal campo è al massimo
+    // una pagina di LISTONE_PAGE_SIZE righe, quindi il controllo che serve a
+    // ogni ricerca sta entro DUE schermate — prima stava alla quinta a 390px.
+    expect(
+      indicatorTop - top,
+      `${viewport.width}px: la paginazione è a ${Math.round(indicatorTop - top)}px dal campo di ricerca`,
+    ).toBeLessThan(viewport.height * 2);
+  }
+
+  expect(externalRequests).toEqual([]);
+});
+
+test("ridurre non toglie: il tavolo è dietro UN gesto, nel DOM, raggiungibile da tastiera", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, SMALL_POOL, externalRequests);
+  await boot(page, { width: 1280, height: 720 });
+
+  const toggle = page.locator("#table-detail-toggle");
+  const body = page.locator("#table-detail-body");
+
+  // 1. CHIUSO DI DEFAULT, MA NEL DOM. I tre pannelli non sono stati rimossi:
+  //    sono presenti e nascosti, che è una cosa diversa e verificabile.
+  await expect(body).toBeHidden();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(toggle).toHaveAttribute("aria-controls", "table-detail-body");
+  // Il gesto dichiara cosa contiene PRIMA di essere aperto.
+  await expect(toggle).toContainText("IL TAVOLO");
+  await expect(toggle).toContainText("scarsità per ruolo");
+  await expect(toggle).toContainText("war board");
+  await expect(toggle).toContainText("squadre");
+  for (const selector of [
+    "#role-scarcity-panel",
+    "#war-board-full",
+    "#war-board-full-grid",
+    "#role-scarcity-grid",
+  ]) {
+    await expect(page.locator(selector), `${selector} nel DOM da chiuso`).toHaveCount(1);
+    await expect(page.locator(selector), `${selector} nascosto da chiuso`).toBeHidden();
+  }
+  // SQUADRE (LEGA) è dentro il gruppo e continua a esistere: la sua
+  // eliminazione è una decisione che non è stata presa.
+  const teams = page.locator("#table-detail-body .panel", { hasText: "SQUADRE (LEGA)" });
+  await expect(teams).toHaveCount(1);
+
+  // 2. RAGGIUNGIBILE DA TASTIERA. Un <button> vero, tabbabile, che si apre con
+  //    Invio — non un div con un listener di click.
+  const control = await page.evaluate(() => {
+    const el = document.getElementById("table-detail-toggle")!;
+    return { tag: el.tagName, tabIndex: el.tabIndex, disabled: (el as HTMLButtonElement).disabled };
+  });
+  expect(control.tag).toBe("BUTTON");
+  expect(control.tabIndex).toBeGreaterThanOrEqual(0);
+  expect(control.disabled).toBe(false);
+
+  await toggle.focus();
+  await expect(toggle).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(body).toBeVisible();
+  // La tastiera resta sul controllo che ora porta il valore nuovo: render()
+  // ricostruisce l'albero da zero, quindi senza il rientro esplicito il fuoco
+  // finirebbe sul body.
+  await expect(toggle).toBeFocused();
+
+  // 3. APERTO, I TRE PANNELLI SONO QUELLI DI SEMPRE — stessi numeri, stessa
+  //    struttura: otto schede di war board, otto di SQUADRE, quattro celle di
+  //    scarsità. Nessuna informazione è stata tolta lungo la strada.
+  await expect(page.locator("#role-scarcity-panel")).toBeVisible();
+  await expect(page.locator("#role-scarcity-grid > .scarcity-cell")).toHaveCount(4);
+  await expect(page.locator("#war-board-full")).toBeVisible();
+  await expect(page.locator("#war-board-full-grid > .war-board__card")).toHaveCount(8);
+  await expect(teams).toBeVisible();
+  await expect(teams.locator(".teams-grid > div")).toHaveCount(8);
+
+  // 4. REVERSIBILE, E LO STATO SOPRAVVIVE A UN RE-RENDER (la schermata si
+  //    ricostruisce a ogni battuta di tasto nella ricerca).
+  await page.locator("#search-player").fill("Sint");
+  await expect(body).toBeVisible();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await page.locator("#search-player").fill("");
+  // `locator.press` mette il fuoco sul controllo e poi batte il tasto: dopo la
+  // fill() la tastiera è nel campo di ricerca, dove Invio significa «Avvia».
+  await toggle.press("Enter");
+  await expect(body).toBeHidden();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+  // 5. GIOCATORE SUGGERITO non è stato cancellato: è sceso in fondo, visibile,
+  //    e dice ancora esattamente quello che diceva.
+  const suggested = page.locator("#suggested-player");
+  await expect(suggested).toHaveCount(1);
+  await expect(suggested).toContainText("GIOCATORE SUGGERITO — CHI CHIAMARE ORA");
+  await expect(suggested).toContainText("Nessun suggerimento automatico attivo");
+
+  expect(externalRequests).toEqual([]);
+});
+
+test("selezionato un giocatore, «chi me lo contende» è a un gesto sopra la piega", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, SMALL_POOL, externalRequests);
+
+  for (const viewport of VIEWPORTS) {
+    const where = `${viewport.width}px`;
+    await boot(page, viewport);
+
+    // La selezione avviene cliccando una riga del listone, come sempre.
+    await page.locator(".listone-row--clickable").first().click();
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    // CONTESTO CHIAMATA resta on-demand (D7 Binario A: si apre solo con un
+    // gesto esplicito, e questa spec non cambia quella decisione). Ciò che
+    // cambia è DOVE sta il gesto: sopra la piega, subito sotto la ricerca,
+    // non alla quarta schermata.
+    const toggleReport = await foldReport(page, "#nomination-context-toggle");
+    expect(
+      toggleReport.rect.bottom,
+      `${where}: il gesto del contesto chiamata finisce a ` +
+        `${Math.round(toggleReport.rect.bottom)}px, oltre la piega a ${toggleReport.viewportHeight}px`,
+    ).toBeLessThanOrEqual(toggleReport.viewportHeight);
+    expect(toggleReport.hitTestHitsSelf, `${where}: il gesto non è cliccabile dove si vede`).toBe(
+      true,
+    );
+
+    // E il campo di ricerca non è stato spinto giù dalla comparsa del pannello.
+    const search = await foldReport(page, "#search-player");
+    expect(search.rect.bottom, `${where}: campo di ricerca dopo la selezione`).toBeLessThanOrEqual(
+      search.viewportHeight,
+    );
+
+    // Aperto, risponde a tre delle quattro domande insieme: prezzi già pagati
+    // nel ruolo (D1), avversari con credito e slot (D2), scarsità del ruolo (D3).
+    await page.locator("#nomination-context-toggle").click();
+    await expect(page.locator("#nomination-context-prices")).toBeVisible();
+    await expect(page.locator("#nomination-context-opponents-list")).toBeVisible();
+    await expect(page.locator("#nomination-context-scarcity")).toBeVisible();
+  }
+
+  expect(externalRequests).toEqual([]);
+});
+
+test("il tavolo torna al suo posto nel momento d'asta: SQUADRE (LEGA) resta in chiaro", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, SMALL_POOL, externalRequests);
+  await boot(page, { width: 1280, height: 720 });
+
+  // Nella chiamata: dentro il gruppo, dietro il gesto.
+  await expect(page.locator("#table-detail")).toHaveCount(1);
+  await expect(page.locator(".panel", { hasText: "SQUADRE (LEGA)" })).toBeHidden();
+
+  await page.locator(".listone-row--clickable").first().click();
+  await page.getByRole("button", { name: /^Avvia/ }).click();
+  await expect(page.locator("#assign-price")).toBeVisible();
+
+  // Nel momento d'asta il gruppo non esiste — e SQUADRE (LEGA) è esattamente
+  // dov'era, in chiaro, senza gesti: quella schermata non ha perso nulla.
+  await expect(page.locator("#table-detail")).toHaveCount(0);
+  await expect(page.locator(".panel", { hasText: "SQUADRE (LEGA)" })).toBeVisible();
+  // E il gruppo non ha portato con sé la war board COMPLETA nel momento
+  // sbagliato: lì vive la MINI, come prima (e2e/war-board.spec.ts).
+  await expect(page.locator("#war-board-full")).toHaveCount(0);
+  await expect(page.locator("#war-board-mini")).toBeVisible();
+
+  expect(externalRequests).toEqual([]);
+});
