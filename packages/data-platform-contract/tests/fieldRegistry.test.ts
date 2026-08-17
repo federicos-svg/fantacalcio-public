@@ -24,13 +24,33 @@ describe("data field registry", () => {
     expect(getField("api_football_rating").providers[0]?.providerScopedName).toBe(
       "api_football_rating",
     );
-    expect(getField("transfermarkt_market_value").providers[0]?.providerScopedName).toBe(
-      "transfermarkt_market_value",
-    );
     expect(
       getField("player_date_of_birth").providers.find((provider) => provider.sourceId === "wikidata")
         ?.role,
     ).toBe("CROSS_CHECK");
+  });
+
+  it("still enforces the provider-name prefix rule for every remaining prefixed origin", () => {
+    const entries = DATA_FIELD_REGISTRY.map((entry) =>
+      entry.id === "api_football_rating"
+        ? {
+            ...entry,
+            providers: [{ ...entry.providers[0]!, providerScopedName: "rating" }],
+          }
+        : entry,
+    );
+    expect(validateFieldRegistry(entries)).toContain(
+      "api_football_rating: api_football field must start with api_football_",
+    );
+  });
+
+  it("carries no field for the removed market-value source — not renamed, not kept as a placeholder", () => {
+    expect(DATA_FIELD_REGISTRY.some((entry) => entry.family === "market_value")).toBe(false);
+    expect(
+      DATA_FIELD_REGISTRY.some((entry) =>
+        entry.providers.some((provider) => provider.providerScopedName.includes("market_value")),
+      ),
+    ).toBe(false);
   });
 
   it("rejects an external provider as target authority", () => {

@@ -1,0 +1,128 @@
+// Storico d'asta multi-stagione — schema zod versionato + validator.
+//
+// Stessa postura fail-closed del resto del pacchetto (profileSchema.ts,
+// packages/engine/src/events.ts): `.strict()` ovunque, `safeParse` al confine,
+// e un input non interpretabile viene RIFIUTATO, non riparato.
+//
+// `.strict()` è portante per la PRIVACY, non per l'ordine: lo storico d'asta
+// di una lega reale dice chi ha speso quanto, e la chiave che lo lega a una
+// persona è un `personId` opaco. Una chiave `name`/`displayName`/`email`
+// finita per sbaglio su una riga è un errore di validazione, non un dato
+// salvato in silenzio — esattamente come per i profili, e il test di privacy
+// lo verifica per entrambi.
+//
+// Perché uno schema separato da `profileSchema.ts`: quello descrive
+// l'INTERVISTA (giudizi dichiarati, confermati riga per riga); questo descrive
+// GESTI GIÀ COMPIUTI (acquisti, prezzi, stagioni). Le due metà non si mescolano
+// da nessuna parte in questo pacchetto, e due schemi separati sono il modo
+// meccanico di tenerle separate anche quando qualcuno avrà fretta.
+
+import { z } from "zod";
+import {
+  ACQUISITION_KINDS,
+  AUCTION_HISTORY_SCHEMA_VERSION,
+  LABEL_MAX_LENGTH,
+  PERSON_ID_PATTERN,
+  SEASON_PATTERN,
+  type AuctionHistoryStore,
+  type PastAuctionPurchase,
+} from "./types.js";
+import { zodIssuesToProfileIssues, type ProfileIssue } from "./profileSchema.js";
+
+/**
+ * Limite superiore alla lunghezza di un `playerId`. Strutturale, non
+ * semantico: l'identità del giocatore è riconciliata a monte (il layer
+ * privato), qui serve solo che la chiave sia una chiave e non un paragrafo.
+ */
+export const PLAYER_ID_MAX_LENGTH = 120;
+
+/**
+ * Tetto al prezzo di una riga. `INITIAL_BUDGET` di lega è 500; il tetto qui è
+ * volutamente più alto e non uguale, perché questo pacchetto non conosce — e
+ * non deve conoscere — il regolamento delle stagioni passate, che poteva avere
+ * una dotazione diversa. Serve a rifiutare un numero palesemente rotto, non a
+ * riaffermare una regola che vive altrove.
+ */
+export const PAST_PRICE_MAX = 10_000;
+
+export const pastAuctionPurchaseSchema = z
+  .object({
+    season: z.string().regex(SEASON_PATTERN),
+    personId: z.string().regex(PERSON_ID_PATTERN),
+    playerId: z.string().trim().min(1).max(PLAYER_ID_MAX_LENGTH),
+    club: z.string().trim().min(1).max(LABEL_MAX_LENGTH),
+    // Crediti interi e non negativi. Zero è ammesso: in alcune leghe una
+    // riconferma può non costare nulla, e rifiutarla renderebbe impossibile
+    // registrare una stagione vera.
+    price: z.number().int().min(0).max(PAST_PRICE_MAX),
+    acquisition: z.enum(ACQUISITION_KINDS),
+  })
+  .strict();
+
+export const auctionHistoryStoreSchema = z
+  .object({
+    schemaVersion: z.literal(AUCTION_HISTORY_SCHEMA_VERSION),
+    purchases: z.array(pastAuctionPurchaseSchema),
+  })
+  .strict()
+  // Una persona non può aver comprato DUE VOLTE lo stesso giocatore nella
+  // stessa stagione: il tavolo lo mette all'asta una volta sola. Due righe
+  // uguali non sono uno storico «un po' sporco», sono un conteggio di
+  // precedenti gonfiato — cioè esattamente il numero che questo pacchetto
+  // mette sullo schermo. Rifiutare, mai deduplicare in silenzio.
+  .refine(
+    (store) =>
+      new Set(
+        // Chiave composta via JSON e non concatenata a mano: un separatore
+        // scelto a occhio o si trova dentro un valore — e allora due righe
+        // diverse collidono — oppure è un carattere di controllo, e allora il
+        // file smette di essere testo per git. Nessuna delle due.
+        store.purchases.map((p) => JSON.stringify([p.season, p.personId, p.playerId])),
+      ).size ===
+      store.purchases.length,
+    { message: "duplicate season+personId+playerId in auction history" },
+  );
+
+export type HistoryValidation =
+  | { readonly ok: true; readonly store: AuctionHistoryStore }
+  | { readonly ok: false; readonly issues: readonly ProfileIssue[] };
+
+/**
+ * Validator non lanciante. Riusa `zodIssuesToProfileIssues` — path + codice,
+ * mai il valore che ha fallito — perché un rapporto di validazione su uno
+ * storico reale deve restare sicuro da stampare tanto quanto quello su un
+ * profilo.
+ */
+export function validateAuctionHistoryStore(input: unknown): HistoryValidation {
+  const parsed = auctionHistoryStoreSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, issues: zodIssuesToProfileIssues(parsed.error) };
+  return { ok: true, store: parsed.data as AuctionHistoryStore };
+}
+
+/** Variante lanciante, per i chiamanti che hanno già validato a monte. */
+export function parsePastAuctionPurchase(input: unknown): PastAuctionPurchase {
+  return pastAuctionPurchaseSchema.parse(input) as PastAuctionPurchase;
+}
+
+/**
+ * Riassunto STRUTTURALE di uno storico, sicuro da scrivere in un log o in un
+ * rapporto d'errore: conteggi e stagioni, mai una persona, mai un giocatore,
+ * mai un prezzo. Stesso patto di `profileLogSummary()`, e per lo stesso
+ * motivo: la promessa «nessun dato personale reale nei log» regge solo se il
+ * riassunto è sicuro per costruzione invece che per attenzione.
+ */
+export interface HistoryLogSummary {
+  readonly schemaVersion: number;
+  readonly purchaseCount: number;
+  readonly peopleCount: number;
+  readonly seasons: readonly string[];
+}
+
+export function historyLogSummary(store: AuctionHistoryStore): HistoryLogSummary {
+  return {
+    schemaVersion: store.schemaVersion,
+    purchaseCount: store.purchases.length,
+    peopleCount: new Set(store.purchases.map((p) => p.personId)).size,
+    seasons: [...new Set(store.purchases.map((p) => p.season))].sort(),
+  };
+}

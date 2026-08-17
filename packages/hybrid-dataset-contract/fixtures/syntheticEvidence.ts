@@ -4,8 +4,8 @@ import type {
   ProvenanceRecord,
 } from "../src/types.js";
 
-// All entity names/IDs below are fictitious. No real Transfermarkt or API-Football
-// payload, player, club or coach appears in this file.
+// All entity names/IDs below are fictitious. No real API-Football payload,
+// player, club or coach appears in this file.
 
 export const syntheticCompleteEvidence: FieldSeasonSourceEvidence = {
   field: "standings",
@@ -62,7 +62,7 @@ export const syntheticSnapshotOnlyEvidence: FieldSeasonSourceEvidence = {
 export const syntheticNotHistoricalEvidence: FieldSeasonSourceEvidence = {
   field: "squad_roster_by_season",
   season: "2018_19",
-  source: "transfermarkt",
+  source: "api_football",
   tested: true,
   accessible: true,
   planRestricted: false,
@@ -75,7 +75,7 @@ export const syntheticNotHistoricalEvidence: FieldSeasonSourceEvidence = {
 export const syntheticNotTestedEvidence: FieldSeasonSourceEvidence = {
   field: "injuries",
   season: "2015_16",
-  source: "transfermarkt",
+  source: "api_football",
   tested: false,
   accessible: false,
   planRestricted: false,
@@ -133,8 +133,8 @@ function pointInTimeDeclaration(input: {
 
 export const syntheticBuildablePointInTime: PointInTimeFeatureDeclaration =
   pointInTimeDeclaration({
-    feature: "transfermarkt_appearances_prev_season",
-    source: "transfermarkt",
+    feature: "api_football_appearances_prev_season",
+    source: "api_football",
     sourceEntityId: "synthetic_player_001",
     season: "2023_24",
     observedAt: "2024-06-01T00:00:00Z",
@@ -168,7 +168,7 @@ export const syntheticLeakageAfterCutoff: PointInTimeFeatureDeclaration =
 export const syntheticLeakageCurrentValueOverlay: PointInTimeFeatureDeclaration =
   pointInTimeDeclaration({
     feature: "team_context_current_squad_overlay",
-    source: "transfermarkt",
+    source: "api_football",
     sourceEntityId: "synthetic_player_003",
     season: "2016_17",
     observedAt: "2026-07-01T00:00:00Z",
@@ -182,8 +182,8 @@ export const syntheticLeakageCurrentValueOverlay: PointInTimeFeatureDeclaration 
 
 export const syntheticNotBuildableMissing: PointInTimeFeatureDeclaration =
   pointInTimeDeclaration({
-    feature: "transfermarkt_injuries_history",
-    source: "transfermarkt",
+    feature: "api_football_injuries_history",
+    source: "api_football",
     sourceEntityId: "synthetic_player_004",
     season: "2015_16",
     observedAt: "2015-08-01T00:00:00Z",
@@ -197,8 +197,8 @@ export const syntheticNotBuildableMissing: PointInTimeFeatureDeclaration =
 
 export const syntheticAvailableEqualsCutoff: PointInTimeFeatureDeclaration =
   pointInTimeDeclaration({
-    feature: "transfermarkt_transfer_event_at_cutoff",
-    source: "transfermarkt",
+    feature: "api_football_transfer_event_at_cutoff",
+    source: "api_football",
     sourceEntityId: "synthetic_player_005",
     season: "2023_24",
     observedAt: "2024-08-25T00:00:00Z",
@@ -214,7 +214,7 @@ export const syntheticAvailableEqualsCutoff: PointInTimeFeatureDeclaration =
 export const syntheticInvalidObservedAt: PointInTimeFeatureDeclaration =
   pointInTimeDeclaration({
     feature: "invalid_observed_at_case",
-    source: "transfermarkt",
+    source: "api_football",
     sourceEntityId: "synthetic_player_006",
     season: "2023_24",
     observedAt: "not-a-timestamp",
@@ -231,7 +231,7 @@ export const syntheticInvalidObservedAt: PointInTimeFeatureDeclaration =
 export const syntheticTimezoneInvalid: PointInTimeFeatureDeclaration =
   pointInTimeDeclaration({
     feature: "timezone_invalid_case",
-    source: "transfermarkt",
+    source: "api_football",
     sourceEntityId: "synthetic_player_007",
     season: "2023_24",
     observedAt: "2024-06-01T00:00:00Z",
@@ -268,7 +268,7 @@ export const syntheticMissingObservedAt = {
 // (finding 2, round 3).
 export const syntheticInvalidFeb30: PointInTimeFeatureDeclaration = pointInTimeDeclaration({
   feature: "invalid_feb_30_case",
-  source: "transfermarkt",
+  source: "api_football",
   sourceEntityId: "synthetic_player_008",
   season: "2023_24",
   observedAt: "2024-02-30T12:00:00Z",
@@ -284,7 +284,7 @@ export const syntheticInvalidFeb30: PointInTimeFeatureDeclaration = pointInTimeD
 export const syntheticInvalidFeb29NonLeapYear: PointInTimeFeatureDeclaration =
   pointInTimeDeclaration({
     feature: "invalid_feb_29_non_leap_case",
-    source: "transfermarkt",
+    source: "api_football",
     sourceEntityId: "synthetic_player_009",
     season: "2022_23",
     observedAt: "2023-02-29T00:00:00Z",
@@ -301,7 +301,7 @@ export const syntheticInvalidFeb29NonLeapYear: PointInTimeFeatureDeclaration =
 export const syntheticValidFeb29LeapYear: PointInTimeFeatureDeclaration = pointInTimeDeclaration(
   {
     feature: "valid_feb_29_leap_case",
-    source: "transfermarkt",
+    source: "api_football",
     sourceEntityId: "synthetic_player_010",
     season: "2023_24",
     observedAt: "2024-02-29T00:00:00Z",
@@ -317,7 +317,7 @@ export const syntheticValidFeb29LeapYear: PointInTimeFeatureDeclaration = pointI
 // Deliberately invalid: month 13 does not exist.
 export const syntheticInvalidMonth13: PointInTimeFeatureDeclaration = pointInTimeDeclaration({
   feature: "invalid_month_13_case",
-  source: "transfermarkt",
+  source: "api_football",
   sourceEntityId: "synthetic_player_011",
   season: "2023_24",
   observedAt: "2024-13-01T00:00:00Z",
@@ -333,7 +333,7 @@ export const syntheticInvalidMonth13: PointInTimeFeatureDeclaration = pointInTim
 // silently rolled over to 00:00 the next day.
 export const syntheticInvalidHour24: PointInTimeFeatureDeclaration = pointInTimeDeclaration({
   feature: "invalid_hour_24_case",
-  source: "transfermarkt",
+  source: "api_football",
   sourceEntityId: "synthetic_player_012",
   season: "2023_24",
   observedAt: "2024-06-01T24:00:00Z",
@@ -350,7 +350,7 @@ export const syntheticInvalidHour24: PointInTimeFeatureDeclaration = pointInTime
 export const syntheticInvalidTimezoneOffset: PointInTimeFeatureDeclaration =
   pointInTimeDeclaration({
     feature: "invalid_timezone_offset_case",
-    source: "transfermarkt",
+    source: "api_football",
     sourceEntityId: "synthetic_player_013",
     season: "2023_24",
     observedAt: "2024-06-01T12:00:00+25:00",
@@ -366,7 +366,7 @@ export const syntheticInvalidTimezoneOffset: PointInTimeFeatureDeclaration =
 export const syntheticValidWithMilliseconds: PointInTimeFeatureDeclaration =
   pointInTimeDeclaration({
     feature: "valid_with_milliseconds_case",
-    source: "transfermarkt",
+    source: "api_football",
     sourceEntityId: "synthetic_player_014",
     season: "2023_24",
     observedAt: "2024-06-01T12:00:00.123Z",

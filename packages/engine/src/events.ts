@@ -12,6 +12,11 @@ export const purchaseSchema = z.object({
   role: roleSchema,
   fantaTeamId: z.string().min(1),
   price: z.number().int().nonnegative(),
+  // See PurchaseEvent.thirdGoalkeeperZeroDeclared (types.ts) — optional so
+  // every existing event (and every non-zero purchase) is unaffected; must
+  // stay `z.literal(true)` (never a plain boolean) so the schema itself
+  // rejects `false`, which would only ever be a bug, never a real fact.
+  thirdGoalkeeperZeroDeclared: z.literal(true).optional(),
 });
 
 export const voidSchema = z.object({

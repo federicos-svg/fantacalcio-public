@@ -1,7 +1,23 @@
-// Hybrid dataset contract: target = Fantacalcio votes/results, feature = Transfermarkt / API-Football.
-// Never alias target and feature fields (see docs/data/HYBRID_ALGORITHM_DATASET_CONTRACT.md).
+// Hybrid dataset contract: target = Fantacalcio votes/results (sole ground truth,
+// never a feature source), feature = structured external sources. Never alias
+// target and feature fields (see docs/data/HYBRID_ALGORITHM_DATASET_CONTRACT.md).
+//
+// Provider-agnostic precedence architecture. The removed source is gone entirely:
+// no replacement value is derived for anything it used to cover — a missing feature
+// stays MISSING, never backfilled from Fantacalcio quotations, from another provider
+// or from any proxy. No remaining source is promoted to PRIMARY for a field merely
+// because the removed one is gone: only fields/seasons backed by a real, documented,
+// passed pilot are PRIMARY here, everything else stays exactly as unresolved as it
+// was before the removal.
+//
+// `PrecedenceResponsibility` names a source explicitly via a `source`/`sources`
+// field instead of baking each provider into its own enum value (the older
+// PRIMARY_<PROVIDER> / CROSS_CHECK_ONLY_<PROVIDER> shape required a brand new enum
+// value per source). Registering a newly approved source only requires adding it to
+// `FeatureSourceName` and a precedence rule in precedencePolicy.ts — never touching
+// the logic in conflictClassifier.ts or coverageClassifier.ts.
 
-export type FeatureSourceName = "transfermarkt" | "api_football";
+export type FeatureSourceName = "api_football";
 export type SourceName = "fantacalcio" | FeatureSourceName;
 
 export type CoverageStatus =
@@ -14,19 +30,31 @@ export type CoverageStatus =
   | "CONFLICT"
   | "NOT_TESTED";
 
+/**
+ * Generic precedence responsibility. `source`/`sources` always name a real,
+ * pilot-verified `FeatureSourceName` — Fantacalcio is the sole target/ground-truth
+ * source and is never a `PRIMARY`/`DERIVED_FROM_MULTIPLE` feature responsibility
+ * here. `MISSING` is the only legal value when no source has a real, pilot-verified
+ * claim to a field: a missing optional feature always fails open to `MISSING`, never
+ * silently to an invented fallback or to a value derived from another source.
+ */
 export type PrecedenceResponsibility =
-  | "PRIMARY_TRANSFERMARKT"
-  | "PRIMARY_API_FOOTBALL"
-  | "CROSS_CHECK_ONLY_TRANSFERMARKT"
-  | "CROSS_CHECK_ONLY_API_FOOTBALL"
-  | "DERIVED_FROM_BOTH"
-  | "MISSING";
+  | { readonly kind: "PRIMARY"; readonly source: FeatureSourceName }
+  | { readonly kind: "DERIVED_FROM_MULTIPLE"; readonly sources: readonly FeatureSourceName[] }
+  | { readonly kind: "MISSING" };
 
-// The source the hybrid architecture *wants* to lean on for a field, independent of
-// whether a real pilot has actually verified it yet. Never used directly by
-// classifyConflict() — only `effectiveResponsibility()` (precedencePolicy.ts), which
-// downgrades an unverified candidate to MISSING, may be passed as conflict precedence.
-export type PreferredSourceCandidate = "transfermarkt" | "api_football" | "both" | "none";
+/**
+ * An ordered list of sources, used both for the sources eligible to become
+ * `PRIMARY`/`DERIVED_FROM_MULTIPLE` for a field once pilot-verified and for the ones
+ * structurally capped at cross-check (see `PrecedenceRule` in precedencePolicy.ts).
+ * An empty array means no source is proposed at all — never invented. Adding a newly
+ * approved source as a candidate for more fields never requires changing this type.
+ *
+ * Never used directly by classifyConflict(): only `effectiveResponsibility()`
+ * (precedencePolicy.ts), which downgrades an unverified or cross-check-only candidate
+ * to `MISSING`, may be passed as conflict precedence.
+ */
+export type PreferredSourceCandidate = readonly FeatureSourceName[];
 
 export type PointInTimeStatus =
   | "BUILDABLE_POINT_IN_TIME"

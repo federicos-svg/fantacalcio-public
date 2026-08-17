@@ -51,18 +51,43 @@ test("budget, slots and the safe bid ceiling stay visible in rehearsal viewports
       C: { slots: 9, min: 9, max: 481 },
       A: { slots: 7, min: 7, max: 479 }, // 500 − hardReserve(28-7)
     };
+    // #331 punto 5: la fascia è UNA RIGA SOLA, e il dettaglio per ruolo
+    // (barra di avanzamento + inviluppo di budget) sta dietro un gesto —
+    // ridotto, non tolto. Il gesto è l'avanzamento rosa stesso, che resta
+    // sulla riga. Prima si verifica che il dettaglio sia davvero chiuso, poi
+    // lo si apre: così questa spec continua a misurare le stesse celle e in
+    // più fallisce se il gesto smette di funzionare.
+    const rosterToggle = page.locator("#critical-roster");
+    await expect(rosterToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(page.locator("#critical-role-plan-P")).toBeHidden();
+    await rosterToggle.click();
+    await expect(rosterToggle).toHaveAttribute("aria-expanded", "true");
+
     for (const role of ["P", "D", "C", "A"] as const) {
       const cell = page.locator(`#critical-role-plan-${role}`);
       await expect(cell).toBeVisible();
       const { slots, min, max } = perRole[role];
       await expect(cell).toContainText(`slot${slots}`);
       await expect(cell).toContainText(`min${min}`);
-      await expect(cell).toContainText(`max${max}`);
+      // «max reparto», non «max»: maxAllocatable è quanto l'intero reparto di
+      // quel ruolo può ancora assorbire, non quanto si può mettere su una
+      // sola offerta — che è maxSafe, la metrica «Max bid sicuro» qui sopra,
+      // a poche decine di pixel. Le due coincidono solo con UN solo slot
+      // libero nel reparto; con due o più divergono e la sigla condivisa le
+      // faceva leggere come la stessa cifra (src/ui/budgetLabels.ts).
+      await expect(cell).toContainText(`max reparto${max}`);
       // Contabilità, non consigli: no directive/advisory wording anywhere
       // in the cell (docs/NO_GO.md §Prodotto).
       const text = ((await cell.textContent()) ?? "").toLowerCase();
       expect(text).not.toMatch(/consigli|suggeri|target|prezzo equo/);
+      // …e mai il nome dell'ALTRA grandezza dentro la cella di questa.
+      expect(text).not.toContain("max bid");
     }
+
+    // Le due grandezze convivono nella stessa banda: qui si verifica che
+    // portino due nomi diversi, non che stiano lontane.
+    await expect(page.locator("#critical-max-bid")).toContainText("Max bid sicuro");
+    await expect(page.locator("#critical-max-bid")).not.toContainText("max reparto");
 
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await expect(strip).toBeInViewport();

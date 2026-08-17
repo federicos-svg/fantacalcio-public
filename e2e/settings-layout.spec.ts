@@ -9,11 +9,13 @@ test("the settings menu swaps the right-hand panel and survives a re-render", as
   await gotoScreen(page, "Impostazioni");
 
   // Opens on the area you act on; each menu entry carries its own icon.
-  // Three areas since tranche 2b (#231): teams, riconferme pre-asta, status.
+  // Four areas: teams, riconferme pre-asta (#231), schede Gruppo Esperti,
+  // status.
   await expect(page.locator("#settings-tab-teams")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#settings-tab-riconferme")).toHaveAttribute("aria-selected", "false");
+  await expect(page.locator("#settings-tab-schede")).toHaveAttribute("aria-selected", "false");
   await expect(page.locator("#settings-tab-status")).toHaveAttribute("aria-selected", "false");
-  await expect(page.locator("#settings-menu svg")).toHaveCount(3);
+  await expect(page.locator("#settings-menu svg")).toHaveCount(4);
   await expect(page.locator("#new-person-name")).toBeVisible();
 
   // Only the selected area is built, so the other one is absent from the DOM
@@ -35,11 +37,14 @@ test("the settings menu swaps the right-hand panel and survives a re-render", as
   await expect(page.locator("#settings-tab-teams")).toHaveAttribute("aria-selected", "true");
 
   // Arrow keys move within the menu, and focus follows across the re-render.
-  // Three stops now (teams -> riconferme -> status -> wraps to teams).
+  // Four stops now (teams -> riconferme -> schede -> status -> wraps to teams).
   await page.locator("#settings-tab-teams").focus();
   await page.keyboard.press("ArrowDown");
   await expect(page.locator("#settings-tab-riconferme")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#settings-tab-riconferme")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.locator("#settings-tab-schede")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#settings-tab-schede")).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(page.locator("#settings-tab-status")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#settings-tab-status")).toBeFocused();
@@ -49,6 +54,7 @@ test("the settings menu swaps the right-hand panel and survives a re-render", as
   // Roving tabindex: the menu is a single tab stop, not one per entry.
   await expect(page.locator("#settings-tab-teams")).toHaveAttribute("tabindex", "0");
   await expect(page.locator("#settings-tab-riconferme")).toHaveAttribute("tabindex", "-1");
+  await expect(page.locator("#settings-tab-schede")).toHaveAttribute("tabindex", "-1");
   await expect(page.locator("#settings-tab-status")).toHaveAttribute("tabindex", "-1");
 
   // No development placeholder left on this screen.

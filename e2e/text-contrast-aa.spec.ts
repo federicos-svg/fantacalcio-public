@@ -7,6 +7,7 @@ import {
   installSyntheticNetworkGuard,
   measureAllText,
   openSettingsSection,
+  openTableDetail,
   resolveTokenColors,
   selectStatusFilter,
   textContrast,
@@ -39,6 +40,21 @@ import {
 //     un token della rampa, e il glifo bianco su D (3,02:1) e su A (4,07:1)
 //     era l'ultima famiglia di testo sotto soglia rimasta in questa app.
 //
+// LA SPAZZATA È FAIL-CLOSED. Fino a poco fa la guardia n. 2 misurava solo il
+// testo il cui colore composito corrispondeva a un token della rampa, e solo i
+// nodi di testo. C'erano quindi TRE modi di rendere illeggibile un testo senza
+// che questa spec lo dicesse: dipingerlo di un colore qualsiasi; mettere un
+// `opacity` su un pannello, che il colore composito lo cambia da sé; scriverlo
+// con `::before` / `::after { content: … }`, che la spazzata non guardava
+// proprio. Nei primi due casi l'elemento usciva dall'insieme misurato invece
+// di essere bocciato; nel terzo non ci entrava mai. Tutte e tre le fughe sono
+// state verificate rompendo davvero, non ragionando. Adesso ogni testo
+// visibile — nodi di testo e pseudo-elementi — finisce in una di tre caselle:
+// misurato e sopra AA, misurato e sotto AA (rosso), non classificabile
+// (rosso, col motivo e il selettore stampati). Le uniche esclusioni sono
+// dichiarate in helpers.ts — UNMEASURABLE_TEXT e THRESHOLD_EXEMPT — e ognuna
+// porta scritto perché esiste.
+//
 // Tutte le righe sono sintetiche e il network guard aborta qualunque altra
 // cosa.
 
@@ -53,17 +69,19 @@ const POOL: readonly ListonePlayer[] = [
 ];
 
 /**
- * I quattro livelli della rampa del testo di base.css. La spazzata usa QUESTI
- * per decidere cosa è "testo dell'app" e va misurato — non un elenco di
- * selettori, e non un elenco di colori attesi: i valori vengono risolti dal
- * documento a runtime (resolveTokenColors), così la spazzata segue il token
- * ovunque il token vada.
+ * I quattro livelli della rampa del testo di base.css.
  *
- * Perché non colori scritti a mano: con una costante di colori attesi, riportare
- * --text-sec al valore vecchio faceva cambiare colore agli elementi che lo
- * usano, quelli non corrispondevano più alla costante, la spazzata li saltava e
- * il test restava VERDE mentre l'app era tornata sotto soglia. Verificato sul
- * campo mentre si controllava che questa guardia mordesse davvero.
+ * A COSA SERVONO, ADESSO. Solo a due cose, entrambe descrittive:
+ *  - dire QUALE token è finito sotto soglia nel messaggio d'errore, perché
+ *    «--text-dim su #26292f» si corregge e «#a8a9ae su #26292f» no;
+ *  - provare che la rampa è ancora viva e ancora in uso (l'asserzione in fondo
+ *    al test), così un token rinominato o smesso di usare si vede.
+ *
+ * NON decidono più CHI viene misurato. Lo facevano, ed era il difetto: un
+ * testo dipinto fuori rampa non veniva bocciato, veniva escluso dall'insieme.
+ * I valori restano risolti dal documento a runtime (resolveTokenColors) e mai
+ * scritti a mano, perché anche l'etichetta diagnostica deve seguire il token
+ * ovunque il token vada.
  */
 const TEXT_RAMP_TOKENS = [
   "--text-dim",
@@ -83,38 +101,73 @@ async function boot(page: Page): Promise<void> {
   await page.goto("/");
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await expect(page.locator("#role-scarcity-panel")).toBeVisible();
+  // #333: il segnale di «schermata di chiamata pronta» è il campo di ricerca —
+  // SCARSITÀ PER RUOLO ora sta dietro il gesto IL TAVOLO.
+  await expect(page.locator("#search-player")).toBeVisible();
 }
 
+/** Quanti elementi una scena ha davvero misurato, e quanti di questi
+ *  portavano un colore della rampa. Il secondo numero non è un cancello: è la
+ *  prova che la rampa è ancora in uso. */
+type SweepCount = { readonly measured: number; readonly onRamp: number };
+
 /**
- * La spazzata: ogni elemento a schermo che porta testo proprio, visibile, e il
- * cui colore è uno dei quattro livelli della rampa, deve stare sopra AA.
+ * LA SPAZZATA, FAIL-CLOSED: ogni elemento a schermo che porta testo proprio e
+ * visibile o sta sopra AA, o fa fallire questo test — e se non è stato
+ * possibile classificarlo, fa fallire questo test lo stesso, col motivo e il
+ * selettore stampati.
  *
- * Cosa resta fuori, e perché — le uniche due esclusioni, entrambe motivate:
- *  - i controlli DISABILITATI: WCAG 1.4.3 li esenta esplicitamente ("inactive
- *    user interface component"), e l'attenuazione È il segnale che il comando
- *    non è premibile. Con la rampa schiarita passano comunque da 2,11:1 a
- *    4,07:1, ma non sono tenuti alla soglia e non devono far fallire la suite;
- *  - i colori FUORI dalla rampa del testo (verde crediti, rosso STOP,
- *    accent): hanno ciascuno la propria motivazione di prodotto, non sono
- *    "il testo secondario dell'app" e non è questa la spec che decide di
- *    cambiarli. Le pastiglie di ruolo NON sono più fra questi: hanno la loro
- *    guardia dedicata qui sotto, expectRoleChipsAboveAA.
+ * NIENTE FILTRO SUL COLORE. Il colore non decide più chi viene misurato: i
+ * colori della rampa servono soltanto a scrivere «--text-dim» invece di
+ * «#a8a9ae» nel messaggio d'errore. Prima decidevano, e allora un testo
+ * dipinto fuori rampa — o un `opacity` su un antenato, che cambia il colore
+ * composito e basta — usciva dall'insieme misurato invece di essere bocciato.
+ * Il modo più facile di rendere illeggibile un testo era anche il modo più
+ * facile di farlo sparire dalla prova che doveva impedirlo.
+ *
+ * E NIENTE FILTRO SULLA PROVENIENZA: il `content` di `::before` / `::after` è
+ * testo dipinto a schermo esattamente come un nodo di testo, e viene misurato
+ * come tale (helpers.ts, measureAllText).
+ *
+ * Cosa resta fuori, e perché: SOLO ciò che è dichiarato in helpers.ts —
+ * UNMEASURABLE_TEXT (contenuto di <head>, testo del widget nativo di
+ * <select>) e THRESHOLD_EXEMPT (controlli disabilitati, che WCAG 1.4.3 esenta
+ * esplicitamente e che qui restano misurati e riportati, solo non tenuti alla
+ * soglia). Ogni voce porta scritto accanto il proprio perché.
+ *
+ * In particolare NON sono più fuori i colori che non appartengono alla rampa —
+ * verde crediti, rosso STOP, accent, glifi delle pastiglie, bianco sui
+ * bottoni: sono testo dell'app, si leggono o non si leggono, e adesso la
+ * spazzata lo dice.
  */
-async function expectRampAboveAA(page: Page, scene: string): Promise<number> {
+async function expectAllTextAboveAA(page: Page, scene: string): Promise<SweepCount> {
   const resolved = await resolveTokenColors(page, TEXT_RAMP_TOKENS);
   const byColor = new Map(Object.entries(resolved).map(([token, hex]) => [hex, token]));
-  const measured = await measureAllText(page);
-  const ramp = measured.filter((m) => byColor.has(m.fg) && !m.disabled);
-  const failures = ramp
-    .filter((m) => m.ratio < AA_NORMAL_TEXT)
+  const swept = await measureAllText(page);
+
+  // Categoria 3 — NON CLASSIFICABILE: rossa, non saltata. È l'intero motivo
+  // per cui questa spazzata è stata riscritta.
+  const unclassified = swept
+    .filter((m) => m.kind === "unclassified")
+    .map((m) => `${scene}: ${m.reason} — ${m.label}`);
+  expect(
+    unclassified,
+    `testo non classificabile in «${scene}»: la spazzata non può dirlo leggibile, quindi lo boccia`,
+  ).toEqual([]);
+
+  const measured = swept.flatMap((m) => (m.kind === "measured" ? [m] : []));
+  // Categoria 2 — MISURATO E SOTTO SOGLIA.
+  const failures = measured
+    .filter((m) => m.exempt === null && m.ratio < AA_NORMAL_TEXT)
     .map(
       (m) =>
-        `${scene}: ${byColor.get(m.fg)} su ${m.bg} @opacity ${m.opacity.toFixed(2)} = ` +
+        `${scene}: ${byColor.get(m.fg) ?? m.fg} su ${m.bg} @opacity ${m.opacity.toFixed(2)} = ` +
         `${m.ratio.toFixed(2)}:1 (${m.fontSize}px) — ${m.label}`,
     );
   expect(failures, `contrasto sotto ${AA_NORMAL_TEXT}:1 in «${scene}»`).toEqual([]);
-  return ramp.length;
+
+  const held = measured.filter((m) => m.exempt === null);
+  return { measured: held.length, onRamp: held.filter((m) => byColor.has(m.fg)).length };
 }
 
 /**
@@ -148,7 +201,14 @@ function relativeLuminance(hex: string): number {
 
 async function expectRoleChipsAboveAA(page: Page, scene: string): Promise<Set<string>> {
   const chips = await measureAllText(page, `.${ROLE_CHIP_CLASS}`);
-  const failures = chips
+  // Stessa regola della spazzata: una pastiglia che non si riesce a
+  // classificare non è una pastiglia da saltare.
+  expect(
+    chips.flatMap((m) => (m.kind === "unclassified" ? [`${scene}: ${m.reason} — ${m.label}`] : [])),
+    `pastiglia di ruolo non classificabile in «${scene}»`,
+  ).toEqual([]);
+  const measured = chips.flatMap((m) => (m.kind === "measured" ? [m] : []));
+  const failures = measured
     .filter((m) => m.ratio < AA_NORMAL_TEXT)
     .map(
       (m) =>
@@ -156,7 +216,7 @@ async function expectRoleChipsAboveAA(page: Page, scene: string): Promise<Set<st
         `${m.ratio.toFixed(2)}:1 (${m.fontSize}px)`,
     );
   expect(failures, `pastiglie di ruolo sotto ${AA_NORMAL_TEXT}:1 in «${scene}»`).toEqual([]);
-  return new Set(chips.map((m) => m.text));
+  return new Set(measured.map((m) => m.text));
 }
 
 test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pastiglia", async ({
@@ -168,16 +228,38 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
   await boot(page);
 
   let sampled = 0;
+  let onRamp = 0;
   // I ruoli le cui pastiglie sono state DAVVERO misurate almeno una volta.
   // Serve a rendere impossibile un verde per assenza: vedi l'asserzione in
   // fondo al test.
   const rolesSeen = new Set<string>();
   const sweepScene = async (scene: string): Promise<void> => {
-    sampled += await expectRampAboveAA(page, scene);
+    const count = await expectAllTextAboveAA(page, scene);
+    sampled += count.measured;
+    onRamp += count.onRamp;
     for (const role of await expectRoleChipsAboveAA(page, scene)) rolesSeen.add(role);
   };
 
   // ── ASTA — momento CHIAMATA ───────────────────────────────────────────────
+  // #331 punto 5: il dettaglio per ruolo della fascia critica (barre e
+  // micro-etichette del piano) sta dietro un gesto. Va APERTO prima di
+  // misurare: `measureAllText` salta ciò che non ha rettangolo, quindi
+  // lasciarlo chiuso non farebbe fallire nulla — farebbe smettere di misurare,
+  // che è il modo esatto in cui questa suite era già riuscita a restare verde
+  // sull'app rotta (vedi la nota su resolveTokenColors in helpers.ts).
+  // Lo stato resta aperto per le scene successive: la fascia si ricostruisce a
+  // ogni render, ma `criticalPlanOpen` è stato dell'app, non del DOM.
+  await page.locator("#critical-roster").click();
+  await expect(page.locator("#critical-role-plan-P")).toBeVisible();
+
+  // #333: stessa ragione, secondo gesto. SCARSITÀ PER RUOLO, WAR BOARD e
+  // SQUADRE (LEGA) stanno dietro IL TAVOLO: da chiusi non hanno rettangolo, e
+  // `measureAllText` salta ciò che non ne ha — lasciarli chiusi non farebbe
+  // fallire nulla, farebbe SMETTERE DI MISURARE tre pannelli interi (compreso
+  // `.scarcity-metric > span`, uno dei punti d'uso espliciti qui sotto).
+  // Anche questo stato resta aperto per le scene successive.
+  await openTableDetail(page);
+
   // I punti d'uso espliciti: micro-etichette del piano per ruolo, nota della
   // riga di comando, etichetta del filtro di stato, nota del listone.
   // Ognuno era fra 2,43:1 e 2,75:1 prima della schiaritura.
@@ -198,10 +280,18 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
   // ── ASTA — momento LIVE ───────────────────────────────────────────────────
   await callPlayer(page, "Quarto Portiere");
   await page.locator("#assign-price").fill("30");
+  // #331 punto 2 — MOMENTO DELL'ASTA è ridotto al ruolo chiamato dentro la
+  // scheda del giocatore, e gli altri tre ruoli più il censimento MERCATO
+  // stanno dietro un gesto. La spazzata misura solo ciò che è VISIBILE: senza
+  // aprire, questi selettori uscirebbero dalla misura in silenzio e il
+  // contrasto smetterebbe di essere sorvegliato proprio dove nessuno guarda.
+  // Restano nell'elenco esplicito, e per starci il gesto va fatto.
+  await page.locator("#moment-facts-toggle").click();
+  await expect(page.locator("#moment-facts-detail")).toBeVisible();
   for (const sel of [
     "#moment-market-basis", // --text-dim su --panel-inner, 2,43:1 prima
-    "#war-board-mini-note", // --text-dim, «bdg = crediti residui · max = …»
-    ".opponent-reach__empty", // --text-dim, «Nessun rivale è fuori…»
+    "#war-board-mini-note", // --text-dim, «bdg = crediti residui · max bid = …»
+    "#opponent-precedents-headline", // --text-mid, la sintesi dei precedenti
     ".moment-scarcity__called", // --accent come testo, «IN ASTA», 3,02:1 prima
     ".moment-market__head", // --text-sec su --panel-inner, 4,01:1 prima
     ".war-board-mini__name", // --text-sec su --panel-inner, 4,01:1 prima
@@ -216,7 +306,7 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
   // badge «Assegnato» a 1,67:1 e il NOME del giocatore a 4,28:1.
   await page.locator("#assign-team").selectOption("Io");
   await page.getByRole("button", { name: "Registra acquisto", exact: true }).click();
-  await expect(page.locator("#role-scarcity-panel")).toBeVisible();
+  await expect(page.locator("#search-player")).toBeVisible();
   await selectStatusFilter(page, "all");
   const assignedRow = page.locator(".listone-row--assigned").first();
   await expect(assignedRow).toBeVisible();
@@ -256,9 +346,12 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
   // arretrata (theme.ts, mutedBg) lo rimette giù senza opacità e senza
   // toccare il testo; qui si verifica che ci resti, confrontando lo STESSO
   // ruolo fra una riga assegnata e una libera.
-  const assignedChips = await measureAllText(page, `.listone-row--assigned .${ROLE_CHIP_CLASS}`);
-  const freeChips = await measureAllText(
-    page,
+  // Anche qui una pastiglia non classificabile non vale come confronto: si
+  // prendono solo le misurate, e si esige che ce ne sia almeno una.
+  const measuredChips = async (sel: string): Promise<{ bg: string; text: string }[]> =>
+    (await measureAllText(page, sel)).flatMap((m) => (m.kind === "measured" ? [m] : []));
+  const assignedChips = await measuredChips(`.listone-row--assigned .${ROLE_CHIP_CLASS}`);
+  const freeChips = await measuredChips(
     `.listone-row:not(.listone-row--assigned) .${ROLE_CHIP_CLASS}`,
   );
   expect(assignedChips.length, "serve almeno una pastiglia in riga assegnata").toBeGreaterThan(0);
@@ -290,16 +383,62 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
 
   // ── IMPOSTAZIONI ──────────────────────────────────────────────────────────
   await gotoScreen(page, "Impostazioni");
-  for (const section of ["teams", "riconferme", "status"] as const) {
+  for (const section of ["teams", "riconferme", "schede", "status"] as const) {
     await openSettingsSection(page, section);
     await sweepScene(`impostazioni/${section}`);
   }
 
-  // La spazzata non può essere passata per vuoto: se i colori della rampa non
-  // corrispondono più a nulla (token rinominato, valori cambiati senza
-  // aggiornare TEXT_RAMP) questo test lo dice, invece di restare verde
-  // misurando zero elementi.
-  expect(sampled, "la spazzata non ha trovato testo della rampa: TEXT_RAMP è disallineata")
+  // SCHEDE — il modulo e il riquadro d'allarme esistono solo dopo un gesto:
+  // da chiusi non hanno rettangolo, e `measureAllText` salta ciò che non ne
+  // ha. Senza questi due gesti la spazzata resterebbe verde su un pannello
+  // intero mai misurato — lo stesso modo in cui questa suite era già riuscita
+  // a restare verde sull'app rotta.
+  await openSettingsSection(page, "schede");
+  await page.locator("#schede-player").selectOption({ index: 1 });
+  await expect(page.locator("#schede-form")).toBeVisible();
+  // I punti d'uso ESPLICITI del pannello, misurati uno per uno come quelli
+  // delle altre schermate. Non sono un doppione della spazzata: la spazzata
+  // salta ciò che sta dentro un gruppo di composizione (il colore composito
+  // non corrisponde più al token, vedi expectRampAboveAA), quindi da sola
+  // resterebbe verde se domani qualcuno attenuasse questo pannello con
+  // un'`opacity`. Questi selettori misurano il colore REALE, qualunque esso
+  // sia diventato.
+  for (const sel of [
+    "#schede-progress-count", // l'avanzamento delle due ore
+    "#schede-progress-percent", // la cifra accanto alla barra
+    "#schede-identity-note", // perché nome e squadra non si scrivono
+    "#schede-nota-counter", // il contatore della nota, --text-dim
+    ".schede-check", // le etichette delle checkbox del vocabolario
+  ]) {
+    expect(await textContrast(page, sel), `schede: ${sel}`).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+  }
+  await sweepScene("impostazioni/schede-modulo");
+
+  // Il modulo vuoto rifiutato: misura il riquadro d'allarme e il contatore
+  // della nota, cioè le due superfici che compaiono solo quando qualcosa va
+  // storto — che è esattamente quando devono essere leggibili.
+  await page.locator("#schede-save").click();
+  await expect(page.locator("#schede-errors")).toBeVisible();
+  for (const sel of ["#schede-errors li", "#schede-deposit-status"]) {
+    expect(await textContrast(page, sel), `schede: ${sel}`).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+  }
+  await sweepScene("impostazioni/schede-errori");
+
+  // La spazzata non può essere passata per vuoto — due pavimenti distinti,
+  // perché adesso misurano due cose diverse.
+  //
+  // 1. QUANTO TESTO È STATO DAVVERO MISURATO. Con il filtro sul colore tolto
+  //    questo è il conto di tutto il testo dell'app, non del solo sottoinsieme
+  //    riconosciuto: se crolla, qualcosa ha smesso di renderizzare o la
+  //    spazzata ha ricominciato a saltare.
+  expect(sampled, "la spazzata non ha misurato quasi nulla: schermate vuote o spazzata inerte")
+    .toBeGreaterThan(1500);
+
+  // 2. QUANTO DI QUEL TESTO PORTA ANCORA UN COLORE DELLA RAMPA. È la difesa
+  //    che c'era prima, conservata intatta: un token rinominato o smesso di
+  //    usare lo si vede qui invece che da un verde silenzioso. Non è più un
+  //    cancello sull'insieme misurato — è un'osservazione sull'app.
+  expect(onRamp, "nessun testo usa più la rampa: TEXT_RAMP_TOKENS è disallineata")
     .toBeGreaterThan(400);
 
   // Stessa difesa per le pastiglie: tutti e quattro i ruoli devono essere

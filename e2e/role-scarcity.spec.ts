@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { installSyntheticNetworkGuard } from "./helpers.js";
+import { installSyntheticNetworkGuard, openTableDetail } from "./helpers.js";
 
 // #221 (1) — packages/engine/src/auction.ts roleScarcity() wired to the call
 // screen. Two differently-sourced numbers per role: free slots across the whole
@@ -17,6 +17,12 @@ test("role scarcity is on the call screen and follows the real log", async ({ pa
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
   await page.goto("/");
 
+  // #333 — il pannello è ancora sulla schermata di chiamata, dietro il gesto
+  // IL TAVOLO: risponde alla domanda «quanto mi serve questo ruolo» dal lato
+  // del TAVOLO (slot liberi sommati sulle 8 squadre), non dal mio, e non è una
+  // delle risposte da leggere nei due secondi di una chiamata. Aperto una
+  // volta resta aperto per tutto il flusso — lo stato è dell'app.
+  await openTableDetail(page);
   await expect(page.locator("#role-scarcity-panel")).toBeVisible();
   for (const role of ["P", "D", "C", "A"] as const) {
     await expect(page.locator(`#scarcity-slots-${role}`)).toHaveText(String(LEAGUE_SLOTS[role]));

@@ -132,6 +132,11 @@ describe("warBoardMiniHtml", () => {
     const html = warBoardMiniHtml([rows[1]!], labels);
     expect(html).toContain("440");
     expect(html).toContain("414");
+    // La sigla del tetto è quella della variante COMPLETA — stesso numero,
+    // stesso nome — e non più il «max» nudo, che era anche il nome del tetto
+    // di REPARTO nella fascia critica (src/ui/budgetLabels.ts).
+    expect(html).toContain("<em>max bid</em>414");
+    expect(html).not.toContain("<em>max</em>");
     // The compact variant must stay two numbers: no slots, no acquisitions.
     // That compactness is the reason it is admitted on the live auction
     // screen at all (docs/FRONTEND_STRUCTURE.md, revisione invariante #86).

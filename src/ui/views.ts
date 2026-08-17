@@ -41,18 +41,45 @@ import {
   warBoardMiniHtml,
 } from "./warBoard.js";
 import type { ResidualPressure } from "../../packages/engine/src/anchors.js";
-import type { CompetitorSet } from "../../packages/engine/src/competitors.js";
+import type { PrecedentsReading } from "../../packages/opponent-profiles/src/types.js";
+import type { RoleDepletionReading } from "../roleDepletion.js";
+import {
+  ROLE_DEPLETION_NOTE,
+  ROLE_DEPLETION_TITLE,
+  roleDepletionBuyersHtml,
+  roleDepletionCensusHtml,
+  roleDepletionHeadline,
+  roleDepletionRoleHtml,
+  roleDepletionSpoken,
+} from "./roleDepletion.js";
+import type { ExpertInsightView } from "../expertScheda.js";
+import {
+  EXPERT_INSIGHT_TITLE,
+  expertInsightBodyHtml,
+  expertInsightLabelHtml,
+  expertInsightSpoken,
+  SCHEDA_CHOICE_CLEAR_VALUE,
+} from "./expertInsight.js";
 import {
   MOMENT_FACTS_NOTE,
-  OPPONENT_REACH_NOTE,
-  OPPONENT_REACH_NO_ROLE,
-  OPPONENT_REACH_TITLE,
-  type ReachThresholdSource,
-  competitorReachHeadline,
-  competitorReachHtml,
+  OPPONENT_PRECEDENTS_NOTE,
+  OPPONENT_PRECEDENTS_TITLE,
   marketPressureHtml,
   momentScarcityHtml,
+  opponentPrecedentsHeadline,
+  opponentPrecedentsHtml,
 } from "./liveFacts.js";
+import type { TierBandReading } from "../tierOrdering.js";
+import {
+  TIER_BAND_NOTE,
+  TIER_BAND_TITLE,
+  tierBandHeadline,
+  tierBandSpoken,
+  tierBandWord,
+  tierOccupancyHtml,
+  tierPricesHtml,
+  tierProvenanceText,
+} from "./tierBand.js";
 
 export interface ListonePanelState {
   /** Full loaded listone, unfiltered — drives column discovery and the "N giocatori caricati" note. */
@@ -984,24 +1011,87 @@ export function renderAssignCommandPanel(
 }
 
 // ── Insight giocatore (Asta moment) ───────────────────────────────────────────
-// STILL a devStaticPanel, on purpose, while the two blocks below it stopped
-// being one. Every PLAYER-LEVEL measured fact the engine can produce today
-// needs the anchor book (`AnchorBook`, packages/engine/src/anchors.ts): the
-// current anchor, the cliff to the next available player of the role, the
-// tension band — all three take `book` as a required input, and the book is
-// built from the listone's Qt.A, which this app does not yet declare. The
-// only player-level fact reachable without it is "is he still available",
-// which in this moment is a tautology (the moment is open on him).
-// The listone quotation cannot fill the gap either: the UI matrix
-// (docs/AUCTION_2026_EXECUTION_PLAN.md §3) admits it display-only and
-// forbids deriving scarcity, ranking or any suggestion from it.
-// An honest empty block beats a number nobody measured — so this one waits.
-export function renderPlayerInsightsBlock(): HTMLElement {
-  return devStaticPanel(
-    "INSIGHT GIOCATORE",
-    "Richiede insight statici sul giocatore chiamato (non implementati).",
-    "Nessun insight disponibile per questo giocatore.",
-  );
+//
+// ERA un devStaticPanel, e la sua nota diceva perché: ogni fatto MISURATO a
+// livello di giocatore che il motore sa produrre passa dall'anchor book
+// (packages/engine/src/anchors.ts), che poggia sulle Qt.A del listone, e la
+// quotazione del listone è display-only per la matrice UI
+// (docs/AUCTION_2026_EXECUTION_PLAN.md §3). Quella strada resta chiusa e
+// questo blocco non l'ha riaperta.
+//
+// Ciò che è cambiato è la FONTE, non il gate: le schede del Gruppo Esperti non
+// sono un numero che l'app calcola, sono un PARERE DI TERZI che Pico trascrive
+// a mano prima dell'asta e che il deposito privato serve a runtime
+// (src/expertScheda.ts per il contratto, src/ui/expertInsight.ts per la resa).
+// Un parere descrittivo non ha bisogno del gate che governa gli output
+// direttivi, e infatti qui non compare nessun punteggio, nessuna classifica,
+// nessuna banda di prezzo: il riquadro dichiara a schermo, in tutti e cinque i
+// suoi stati, di non essere validato e di non essere un consiglio.
+//
+// Il marcatore DEV STATICO se ne va perché significa esattamente «questo
+// blocco non fa nulla di reale» (src/ui/devStatic.ts): tenerlo sopra una
+// scheda scritta davvero sarebbe la stessa disonestà al contrario. Nulla di
+// ciò che c'era è sparito — il segnaposto mostrava una frase che diceva di non
+// avere niente, e quella frase ora è uno dei quattro stati onesti.
+export interface PlayerInsightProps {
+  readonly view: ExpertInsightView;
+  /**
+   * `false` quando l'ultima risposta di Pico non ha attecchito nello storage:
+   * il riquadro lo dichiara invece di prometterle una durata che non ha.
+   */
+  readonly choicePersisted: boolean;
+  /**
+   * La scelta di Pico fra le schede candidate: la chiave della scheda, o `null`
+   * per «nessuna di queste». Chiamata solo dalla tendina — non c'è nessun altro
+   * modo di creare un aggancio a mano, e non deve essercene uno.
+   */
+  readonly onChooseScheda: (schedaKey: string | null) => void;
+}
+
+export function renderPlayerInsightsBlock(props: PlayerInsightProps): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "player-insight-panel";
+  panel.className = "panel player-insight";
+  panel.setAttribute("aria-label", expertInsightSpoken(props.view));
+
+  const head = document.createElement("div");
+  head.className = "player-insight__head";
+  // Titolo a sinistra, UNA label a destra. Erano quattro pastiglie di caveat:
+  // vedi `expertInsightLabel` in src/ui/expertInsight.ts per la decisione di
+  // Pico e per dove è finita la garanzia che portavano.
+  head.innerHTML = `<span class="panel-title">${escHtml(EXPERT_INSIGHT_TITLE)}</span>${expertInsightLabelHtml(
+    props.view,
+  )}`;
+  panel.appendChild(head);
+
+  const body = document.createElement("div");
+  body.innerHTML = expertInsightBodyHtml(props.view, !props.choicePersisted);
+  panel.appendChild(body);
+
+  // La tendina esiste solo quando c'è più di un candidato (schedaChoiceHtml
+  // rende stringa vuota altrimenti), quindi questa query è null nella
+  // stragrande maggioranza dei render e non c'è niente da agganciare.
+  const choice = body.querySelector<HTMLSelectElement>("#player-insight-choice-select");
+  if (choice !== null) {
+    choice.addEventListener("change", () => {
+      const value = choice.value;
+      // L'opzione segnaposto è `disabled`, quindi il browser non la rende
+      // scegliibile: se il valore vuoto arriva comunque, non è una risposta.
+      if (value === "") return;
+      props.onChooseScheda(value === SCHEDA_CHOICE_CLEAR_VALUE ? null : value);
+    });
+  }
+
+  // QUESTO PANNELLO NON HA UNA NOTA IN FONDO, e non è una dimenticanza: gli
+  // altri due blocchi di questa schermata ce l'hanno perché devono spiegare da
+  // quale calcolo nascono i loro numeri, mentre qui non c'è nessun calcolo da
+  // spiegare. I tre caveat che una nota porterebbe sono già a schermo, e più in
+  // alto: le pastiglie di onestà nella testata (parere di terzi, non validato,
+  // non è un consiglio, fuori dal calcolo) e la riga di provenienza sotto la
+  // prosa, che dice che la scheda è trascritta a mano prima dell'asta. Una nota
+  // che ripetesse quelle cose costava 47px misurati a 390px su una schermata
+  // che è già la più lunga dell'app.
+  return panel;
 }
 
 // ── Momento dell'asta (Asta moment) ──────────────────────────────────────────
@@ -1020,6 +1110,26 @@ export function renderPlayerInsightsBlock(): HTMLElement {
 // dishonesty in the opposite direction. Nothing that was displayed here has
 // been dropped: the placeholder displayed one sentence saying it had nothing.
 
+// #331 PUNTO 2 — RIDOTTO AL RUOLO CHIAMATO, DENTRO LA SCHEDA DEL GIOCATORE.
+//
+// Il pannello iterava su tutti e quattro i ruoli e stava in una griglia a due
+// colonne sotto la scheda: 463px di altezza, di cui tre quarti su ruoli che
+// mentre è in asta un attaccante non decidono niente. Adesso rende la cella del
+// SOLO ruolo chiamato ed è montato dentro la scheda del giocatore, dove la
+// domanda «quanto mi serve questo ruolo adesso» viene fatta.
+//
+// RIDURRE NON TOGLIE INFORMAZIONE (vincolo di Pico, #333). Le altre tre celle,
+// il censimento MERCATO e la nota metodologica non sono spariti: stanno dentro
+// lo stesso pannello, dietro UN gesto, nel DOM anche da chiusi (`hidden`, non
+// rimozione) e annunciati con aria-expanded/aria-controls. È lo stesso idioma
+// di renderTableDetail() e della fascia critica, non un secondo meccanismo. Le
+// quattro celle restano quattro, con gli stessi id e la stessa provenienza:
+// cambia solo quale delle due chiamate a `momentScarcityHtml` le rende.
+//
+// SENZA RUOLO CHIAMATO (difensivo: il momento live si raggiunge solo da una
+// riga di listone correlata, che il ruolo ce l'ha sempre) non c'è niente da
+// ridurre e la parte sempre visibile torna a essere tutte e quattro le celle.
+
 export interface MomentFactsProps {
   readonly scarcity: Readonly<Record<Role, RoleScarcity>>;
   /** False when no listone is loaded — availability shows `n/d`, never 0. */
@@ -1027,130 +1137,176 @@ export interface MomentFactsProps {
   /** The called player's role, marked in the grid. `""` marks nothing. */
   readonly calledRole: Role | "";
   readonly pressure: ResidualPressure;
+  /** Se il dettaglio (altri ruoli + mercato + nota) è aperto adesso. */
+  readonly detailOpen: boolean;
+  /** Il gesto che lo apre e lo chiude. */
+  readonly onToggleDetail: () => void;
 }
 
 export function renderMomentInsightsBlock(props: MomentFactsProps): HTMLElement {
   const panel = document.createElement("section");
   panel.id = "moment-facts-panel";
-  panel.className = "panel moment-facts";
+  panel.className = "panel moment-facts moment-facts--inline";
   panel.setAttribute("aria-label", "Momento dell'asta: scarsità per ruolo e mercato");
+
+  const called: readonly Role[] = props.calledRole === "" ? ROLES : [props.calledRole];
+  const others: readonly Role[] =
+    props.calledRole === "" ? [] : ROLES.filter((r) => r !== props.calledRole);
 
   const title = document.createElement("div");
   title.className = "panel-title";
-  title.textContent = "MOMENTO DELL'ASTA";
+  title.id = "moment-facts-title";
+  // Il titolo dice DI CHI parla: «MOMENTO DELL'ASTA» su una cella sola di
+  // ruolo lascerebbe credere che quella cella sia il tavolo intero.
+  title.textContent =
+    props.calledRole === ""
+      ? "MOMENTO DELL'ASTA"
+      : `MOMENTO DELL'ASTA — ${ROLE_LABELS[props.calledRole].toUpperCase()}`;
   panel.appendChild(title);
 
   const grid = document.createElement("div");
   grid.id = "moment-scarcity-grid";
   grid.className = "moment-scarcity__grid";
-  grid.innerHTML = momentScarcityHtml(props.scarcity, props.poolLoaded, props.calledRole);
+  grid.innerHTML = momentScarcityHtml(props.scarcity, props.poolLoaded, props.calledRole, called);
   panel.appendChild(grid);
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.id = "moment-facts-toggle";
+  toggle.className = "moment-facts__toggle";
+  toggle.setAttribute("aria-expanded", String(props.detailOpen));
+  toggle.setAttribute("aria-controls", "moment-facts-detail");
+  // Dichiara il proprio contenuto PRIMA di aprirlo: un gesto che non dice cosa
+  // contiene nasconde informazione invece di riordinarla.
+  toggle.innerHTML =
+    `<span class="moment-facts__what">${
+      others.length === 0 ? "mercato: crediti e slot sul tavolo" : "altri tre ruoli · mercato: crediti e slot sul tavolo"
+    }</span>` + `<span class="moment-facts__caret" aria-hidden="true">${props.detailOpen ? "▴" : "▾"}</span>`;
+  toggle.addEventListener("click", props.onToggleDetail);
+  panel.appendChild(toggle);
+
+  const detail = document.createElement("div");
+  detail.id = "moment-facts-detail";
+  detail.className = "moment-facts__detail";
+  if (!props.detailOpen) detail.hidden = true;
+
+  if (others.length > 0) {
+    const rest = document.createElement("div");
+    rest.id = "moment-scarcity-rest";
+    rest.className = "moment-scarcity__grid";
+    rest.innerHTML = momentScarcityHtml(props.scarcity, props.poolLoaded, props.calledRole, others);
+    detail.appendChild(rest);
+  }
 
   const market = document.createElement("div");
   market.innerHTML = marketPressureHtml(props.pressure);
-  panel.appendChild(market);
+  detail.appendChild(market);
 
   const note = document.createElement("p");
   note.className = "hint-text";
   note.id = "moment-facts-note";
   note.textContent = MOMENT_FACTS_NOTE;
-  panel.appendChild(note);
+  detail.appendChild(note);
+
+  panel.appendChild(detail);
 
   return panel;
 }
 
-// ── Avversari: chi può arrivare alla cifra (Asta moment) ─────────────────────
-// Was a devStaticPanel with two empty lists ("POTENZIALMENTE INTERESSATI:
-// nessuno tra quelli tracciati" / "PROBABILMENTE NON INTERESSATI: nessuno")
-// and a note naming the missing logic: "slot mancanti + budget avversario".
-// That is exactly `competitorSet()` (packages/engine/src/competitors.ts),
-// whose inputs — AuctionState, role, threshold — are all already on this
-// screen. Both groups survive, in the same order and the same place; what
-// changes is that they now carry the eight teams' real numbers instead of a
-// placeholder, and their headings state the basis that actually produced them
-// ("può arrivarci", a hard constraint) rather than an interest the engine
-// explicitly refuses to infer (§D9: no behavioural score, no declared intent).
+// ── Avversari: i precedenti d'asta sul giocatore chiamato (Asta moment) ─────
 //
-// The PANEL TITLE follows the same rule as the headings, and for the same
-// reason. It used to read "AVVERSARI — INTERESSE SUL GIOCATORE", inherited
-// from the placeholder: an assertion about intent that `competitorSet` does
-// not compute and §D9 forbids inferring. It now names what is actually
-// measured — arithmetic reachability. The disclaimer in OPPONENT_REACH_NOTE
-// («può arrivarci non significa lo vuole») stays: with the title corrected it
-// is no longer a rebuttal of the panel's own heading, but it still guards the
-// reading of the numbers, and a precision that costs one line does no harm.
+// Il blocco nasce come segnaposto DEV STATICO («POTENZIALMENTE INTERESSATI» /
+// «PROBABILMENTE NON INTERESSATI»), diventa `competitorSet()` — chi, per
+// vincolo duro, può arrivare alla cifra — e ora, per decisione di Pico
+// registrata (#331 punto 1), cambia di nuovo mestiere: mostra i PRECEDENTI
+// D'ASTA, cioè cosa ogni avversario ha già fatto che riguardi il giocatore
+// chiamato.
+//
+// PERCHÉ IL VINCOLO DURO È USCITO DA QUI. Su un giocatore per cui non è ancora
+// stata detta una cifra la soglia degradava al rilancio minimo, e la risposta
+// diventava «7 rivali su 7 possono arrivare a 1 cr»: vera, inutile, e in un
+// riquadro che dava l'impressione di parlare di interesse.
+//
+// NESSUNA CIFRA È SPARITA DALL'APP, e la verifica non è un'impressione:
+//  - max bid sicuro e budget residuo di tutte le squadre stanno nella
+//    striscia WAR BOARD (MINI) di questa stessa schermata, poche righe sopra
+//    (renderWarBoardMini, chiamata da renderMomentoAsta in main.ts);
+//  - gli slot liberi per ruolo, squadra per squadra, stanno nella war board
+//    COMPLETA del momento CHIAMATA (renderWarBoardFull) e nel pannello
+//    AVVERSARI TIER-1 della schermata Rose (renderOpponentTier1Panel);
+//  - gli slot liberi del ruolo su tutto il tavolo stanno nel blocco MOMENTO
+//    DELL'ASTA, nella colonna qui accanto (momentScarcityHtml).
+// A cambiare è chi risponde alla domanda, non quali numeri esistono.
+//
+// Il TITOLO nomina ciò che il pannello contiene — gesti passati, contati — e
+// non l'intenzione presente: la motivazione per esteso sta in liveFacts.ts,
+// sopra `OPPONENT_PRECEDENTS_TITLE`, insieme al precedente che la impone (il
+// titolo del segnaposto affermava un interesse che nessun calcolo produceva).
 
-export interface OpponentReachProps {
-  /** `null` when the moment carries no role — see OPPONENT_REACH_NO_ROLE. */
-  readonly set: CompetitorSet | null;
+export interface OpponentPrecedentsProps {
+  readonly reading: PrecedentsReading;
   readonly teamLabels: Readonly<Record<string, string>>;
-  readonly thresholdSource: ReachThresholdSource;
 }
 
-export function renderOpponentInterestBlock(props: OpponentReachProps): HTMLElement {
+export function renderOpponentPrecedentsBlock(props: OpponentPrecedentsProps): HTMLElement {
   const panel = document.createElement("section");
-  panel.id = "opponent-reach-panel";
-  panel.className = "panel opponent-reach";
-  // The visible title is short on purpose — it sits on the tightest screen of
-  // the app, must stay on one line down to 390px, and echoes the two group
-  // headings word for word so title, headline and groups read as one
-  // statement. The aria-label carries the same fact spelled out in full,
-  // where there is no width to fight for.
+  panel.id = "opponent-precedents-panel";
+  panel.className = "panel opponent-precedents";
+  // Il titolo visibile è corto perché vive sulla schermata più stretta
+  // dell'app; l'aria-label porta la stessa cosa per esteso, dove non c'è
+  // larghezza da contendere.
   panel.setAttribute(
     "aria-label",
-    "Avversari: chi può ancora arrivare alla cifra, per solo vincolo duro",
+    "Avversari: i precedenti d'asta che riguardano il giocatore chiamato, misurati sullo storico",
   );
 
   const title = document.createElement("div");
   title.className = "panel-title";
-  title.textContent = OPPONENT_REACH_TITLE;
+  title.textContent = OPPONENT_PRECEDENTS_TITLE;
   panel.appendChild(title);
 
   const headline = document.createElement("p");
-  headline.id = "opponent-reach-headline";
-  headline.className = "opponent-reach__headline";
-  // aria-live: mid-auction this line changes as the price is typed, without a
-  // full re-render (see updateOpponentReach in main.ts), so the change has to
-  // be announced rather than only repainted.
+  headline.id = "opponent-precedents-headline";
+  headline.className = "opponent-precedents__headline";
+  // aria-live: la riga cambia quando cambia il giocatore chiamato o quando lo
+  // storico viene caricato, e in entrambi i casi cambia il SIGNIFICATO del
+  // riquadro (fra i tre silenzi e l'elenco), non solo il suo contenuto.
   headline.setAttribute("role", "status");
   headline.setAttribute("aria-live", "polite");
   panel.appendChild(headline);
 
   const body = document.createElement("div");
-  body.id = "opponent-reach-body";
-  body.className = "opponent-reach__body";
+  body.id = "opponent-precedents-body";
+  body.className = "opponent-precedents__body";
   panel.appendChild(body);
 
-  fillOpponentReach(panel, props);
+  fillOpponentPrecedents(panel, props);
 
   const note = document.createElement("p");
   note.className = "hint-text";
-  note.id = "opponent-reach-note";
-  note.textContent = OPPONENT_REACH_NOTE;
+  note.id = "opponent-precedents-note";
+  note.textContent = OPPONENT_PRECEDENTS_NOTE;
   panel.appendChild(note);
 
   return panel;
 }
 
 /**
- * Writes the headline + the two groups into an already-mounted panel. Split
- * out of the builder above because the live screen updates this block WITHOUT
- * re-rendering: the price field deliberately does not call render() (it would
- * lose focus and caret mid-auction — see main.ts), so the same in-place patch
- * idiom `#price-display` already uses is what keeps the threshold shown here
- * equal to the figure actually typed.
+ * Scrive sintesi ed elenco dentro un pannello già montato.
+ *
+ * Resta separato dal costruttore — come lo era `fillOpponentReach` — perché il
+ * pannello si aggiorna anche SENZA un re-render completo. Il contenuto non
+ * dipende più dalla cifra che si sta battendo (i precedenti sono del
+ * giocatore, non del prezzo), ma la separazione è ciò che permette di
+ * ridipingerlo in place quando lo storico viene caricato o cambia, senza
+ * togliere fuoco e cursore al campo del prezzo in mezzo a un'asta.
  */
-export function fillOpponentReach(root: ParentNode, props: OpponentReachProps): void {
-  const headline = root.querySelector("#opponent-reach-headline");
-  const body = root.querySelector("#opponent-reach-body");
+export function fillOpponentPrecedents(root: ParentNode, props: OpponentPrecedentsProps): void {
+  const headline = root.querySelector("#opponent-precedents-headline");
+  const body = root.querySelector("#opponent-precedents-body");
   if (headline === null || body === null) return;
-  if (props.set === null) {
-    headline.textContent = OPPONENT_REACH_NO_ROLE;
-    body.innerHTML = "";
-    return;
-  }
-  headline.textContent = competitorReachHeadline(props.set, props.thresholdSource);
-  body.innerHTML = competitorReachHtml(props.set, props.teamLabels);
+  headline.textContent = opponentPrecedentsHeadline(props.reading);
+  body.innerHTML = opponentPrecedentsHtml(props.reading, props.teamLabels);
 }
 
 // ── Impostazioni — left menu, content on the right ──────────────────────────
@@ -1164,6 +1320,8 @@ export const SETTINGS_ICONS = {
     '<circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 14c0-2.4 2-3.9 4.5-3.9s4.5 1.5 4.5 3.9"/><path d="M11 3.4a2.5 2.5 0 0 1 0 4.6"/><path d="M12.6 10.4c1.3.6 1.9 1.8 1.9 3.6"/>',
   confirm: '<path d="M2 8.4 6 12l8-8"/>',
   status: '<path d="M1.5 8h3l2-4.6L9.6 12l1.9-4h3"/>',
+  // Un foglio scritto: la scheda che si compila a mano prima dell'asta.
+  scheda: '<rect x="2.5" y="1.5" width="11" height="13" rx="1.5"/><path d="M5 5h6"/><path d="M5 8h6"/><path d="M5 11h3.5"/>',
 } as const;
 
 export interface SettingsArea {
@@ -1960,4 +2118,168 @@ export function renderConfirmationsQuarantineBanner(
   banner.appendChild(exportBtn);
 
   return banner;
+}
+
+// ── FASCIA DEL CHIAMATO (momento asta) ───────────────────────────────────────
+// Montaggio nel DOM del riquadro delle fasce d'asta. Wrapper SOTTILE, come
+// renderWarBoardMini: ogni scelta di resa (le parole delle fasce, le frasi dei
+// modi di non sapere, la forma del registro dei prezzi) vive nei costruttori
+// puri di ./tierBand.ts, verificati senza DOM; il calcolo vive in
+// src/tierOrdering.ts, che è l'unico a parlare col motore
+// (packages/engine/src/tiers.ts, in sola lettura).
+//
+// Questo file non deriva un numero suo, non ricalcola una fascia e non ordina
+// niente: riceve una lettura già fatta e la appende.
+
+export interface TierBandProps {
+  readonly reading: TierBandReading;
+  /** Il ruolo del chiamato, per la forma parlata; `""` quando non c'è chiamata. */
+  readonly role: Role | "";
+}
+
+/**
+ * Il riquadro sta SEMPRE sulla schermata live, anche quando non ha una fascia
+ * da mostrare: è la resa della regola per cui «quando il dato non c'è, il
+ * pannello lo dice». Nasconderlo nei casi senza indice riporterebbe il
+ * silenzio che le frasi di ./tierBand.ts esistono per rompere.
+ */
+export function renderTierBandBlock(props: TierBandProps): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "tier-band-panel";
+  panel.className = "panel tier-band";
+  panel.setAttribute("aria-label", tierBandSpoken(props.reading, props.role));
+
+  const title = document.createElement("div");
+  title.className = "panel-title";
+  title.textContent = TIER_BAND_TITLE;
+  panel.appendChild(title);
+
+  // La parola della fascia per intero, mai una sigla: è il primo dei tre
+  // contenuti del riquadro. Il colore non porta nulla che non sia scritto.
+  const word = document.createElement("div");
+  word.id = "tier-band-name";
+  word.className = "tier-band__name";
+  word.textContent = tierBandWord(props.reading);
+  panel.appendChild(word);
+
+  // aria-live: la riga cambia significato — non solo contenuto — quando cambia
+  // il giocatore chiamato o quando il listone arriva con o senza indice.
+  const headline = document.createElement("p");
+  headline.id = "tier-band-headline";
+  headline.className = "tier-band__headline";
+  headline.setAttribute("role", "status");
+  headline.setAttribute("aria-live", "polite");
+  headline.textContent = tierBandHeadline(props.reading);
+  panel.appendChild(headline);
+
+  const facts = props.reading.kind === "facts" ? props.reading.facts : null;
+  const coverage = props.reading.kind === "no-call" ? null : props.reading.coverage;
+
+  if (facts !== null) {
+    const body = document.createElement("div");
+    body.id = "tier-band-body";
+    body.className = "tier-band__body";
+    body.innerHTML = `${tierOccupancyHtml(facts)}${tierPricesHtml(facts)}`;
+    // Fuori fascia i due blocchi sono entrambi vuoti (occupancy e registro
+    // sono `null`, non zero): un contenitore vuoto sotto la frase che spiega
+    // perché si leggerebbe come un elenco di «niente».
+    if (body.innerHTML.trim() !== "") panel.appendChild(body);
+  }
+
+  const provenance = document.createElement("p");
+  provenance.id = "tier-band-provenance";
+  provenance.className = "tier-band__provenance";
+  provenance.textContent = tierProvenanceText(facts, coverage);
+  panel.appendChild(provenance);
+
+  const note = document.createElement("p");
+  note.className = "hint-text";
+  note.id = "tier-band-note";
+  note.textContent = TIER_BAND_NOTE;
+  panel.appendChild(note);
+
+  return panel;
+}
+
+// ── IL RUOLO STASERA (momento asta) ──────────────────────────────────────────
+// Montaggio nel DOM del riquadro di svuotamento del ruolo. Wrapper SOTTILE,
+// come renderWarBoardMini e renderMomentInsightsBlock: ogni scelta di resa —
+// quali numeri si dicono, in che ordine, e quale frase si dice quando un
+// numero non c'è — vive nei costruttori puri di ./roleDepletion.ts, verificati
+// senza DOM; il calcolo vive in src/roleDepletion.ts, che legge SOLO l'event
+// log di stasera e il censimento dei posti delle squadre.
+//
+// Questo file non deriva un numero suo, non riordina niente e non conosce
+// nessuna quotazione: riceve una lettura già fatta e la appende.
+
+export interface RoleDepletionProps {
+  readonly reading: RoleDepletionReading;
+  /** Etichette delle squadre, per nominare chi ha preso invece del solo id. */
+  readonly teamLabels: Readonly<Record<string, string>>;
+}
+
+/**
+ * Il riquadro sta SEMPRE sulla schermata live, anche quando non ha un ruolo di
+ * cui parlare: è la resa della regola per cui «quando il dato non c'è, il
+ * pannello lo dice». Nasconderlo nel caso senza chiamata, o nel caso in cui
+ * stasera non è ancora passato nessuno di quel ruolo, riporterebbe il silenzio
+ * che le frasi di ./roleDepletion.ts esistono per rompere.
+ */
+export function renderRoleDepletionBlock(props: RoleDepletionProps): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "role-depletion-panel";
+  panel.className = "panel role-depletion";
+  panel.setAttribute("aria-label", roleDepletionSpoken(props.reading));
+
+  const title = document.createElement("div");
+  title.className = "panel-title";
+  title.textContent = ROLE_DEPLETION_TITLE;
+  panel.appendChild(title);
+
+  // Il ruolo per esteso accanto alla pastiglia, mai la sola sigla: la stessa
+  // regola delle quattro celle della scarsità. Assente quando non c'è chiamata,
+  // perché non c'è un ruolo da nominare.
+  const role = document.createElement("div");
+  role.id = "role-depletion-role";
+  role.className = "role-depletion__role";
+  role.innerHTML = roleDepletionRoleHtml(props.reading);
+  if (role.innerHTML !== "") panel.appendChild(role);
+
+  // aria-live: la riga cambia SIGNIFICATO — non solo contenuto — quando cambia
+  // il giocatore chiamato e quando il primo acquisto di quel ruolo entra nel
+  // registro, cioè quando si passa dal silenzio onesto ai fatti.
+  const headline = document.createElement("p");
+  headline.id = "role-depletion-headline";
+  headline.className = "role-depletion__headline";
+  headline.setAttribute("role", "status");
+  headline.setAttribute("aria-live", "polite");
+  headline.textContent = roleDepletionHeadline(props.reading);
+  panel.appendChild(headline);
+
+  if (props.reading.kind === "facts") {
+    const facts = props.reading.facts;
+    const buyers = roleDepletionBuyersHtml(facts, props.teamLabels);
+    if (buyers !== "") {
+      const body = document.createElement("div");
+      body.id = "role-depletion-body";
+      body.className = "role-depletion__body";
+      body.innerHTML = buyers;
+      panel.appendChild(body);
+    }
+
+    // Il censimento resta anche quando stasera non è passato nessuno: non è un
+    // campione, non ha cold start, e tacerlo perché manca l'altra metà
+    // significherebbe nascondere ciò che si sa per colpa di ciò che non si sa.
+    const census = document.createElement("div");
+    census.innerHTML = roleDepletionCensusHtml(facts);
+    panel.appendChild(census);
+  }
+
+  const note = document.createElement("p");
+  note.className = "hint-text";
+  note.id = "role-depletion-note";
+  note.textContent = ROLE_DEPLETION_NOTE;
+  panel.appendChild(note);
+
+  return panel;
 }

@@ -12,7 +12,7 @@ import type {
 } from "../../hybrid-dataset-contract/src/types.js";
 import type { DataSourceId } from "./types.js";
 
-export type ModelSourceId = "fantacalcio_votes" | "api_football" | "transfermarkt";
+export type ModelSourceId = "fantacalcio_votes" | "api_football";
 
 export interface PlatformPointInTimeInput {
   readonly feature: string;
@@ -34,11 +34,7 @@ export function toHybridSourceName(sourceId: ModelSourceId): SourceName {
 }
 
 export function isModelSource(sourceId: DataSourceId): sourceId is ModelSourceId {
-  return (
-    sourceId === "fantacalcio_votes" ||
-    sourceId === "api_football" ||
-    sourceId === "transfermarkt"
-  );
+  return sourceId === "fantacalcio_votes" || sourceId === "api_football";
 }
 
 export function buildPointInTimeDeclaration(

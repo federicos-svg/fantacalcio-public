@@ -20,8 +20,16 @@ test("a price of 0 is rejected with the exact validation message and no purchase
   // Nothing was applied: no log written, budget untouched, still on the
   // asta moment with the same call in progress.
   expect(await readLocalStorageRaw(page, "fac_log")).toBeNull();
+  // #331 punto 5: la fascia critica vive solo nel momento CHIAMATA, quindi in
+  // questo momento il budget si legge dal TAVOLO — BUDGET E MAX BID.
+  await expect(page.locator("#war-board-mini-Io .war-board-mini__budget")).toContainText("500");
+  await expect(page.locator("#price-display")).toBeVisible();
+  // …e poi lo si verifica anche là dove la fascia ora vive: tornando alla
+  // chiamata, budget e spesi devono essere ancora quelli di partenza. Le due
+  // asserzioni di prima non sono state tolte, sono state spostate nel momento
+  // in cui la fascia esiste — più un controllo in più nel momento d'asta.
+  await page.getByText("← Indietro alla ricerca").click();
   await expect(page.locator("#critical-budget")).toHaveText("500 cr");
   await expect(page.locator("#critical-spent")).toHaveText("0 cr");
-  await expect(page.locator("#price-display")).toBeVisible();
   expect(externalRequests).toEqual([]);
 });
