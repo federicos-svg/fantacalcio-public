@@ -78,6 +78,7 @@ import {
 } from "./postPurchaseProjection.js";
 import { executeVoidCommand, voidErrorText } from "./voidCommand.js";
 import { rolePriceFacts, roleTopPurchases } from "./nominationContext.js";
+import { tierBandReading } from "./tierOrdering.js";
 import {
   executeAssignCommand,
   resolveAssignCommand,
@@ -90,6 +91,8 @@ import {
   type PlayerInsightProps,
   renderMomentInsightsBlock,
   renderOpponentPrecedentsBlock,
+  renderTierBandBlock,
+  type TierBandProps,
   renderImpostazioniScreen,
   SETTINGS_ICONS,
   type SettingsArea,
@@ -1363,6 +1366,37 @@ function opponentPrecedentsProps(): OpponentPrecedentsProps {
       selfSeatId: SELF_ID,
     }),
     teamLabels: seatLabelMap(),
+  };
+}
+
+/**
+ * Ingressi del riquadro FASCIA DEL CHIAMATO (views.ts `renderTierBandBlock`):
+ * in che fascia d'asta sta il giocatore chiamato e cosa è stato davvero pagato
+ * in quella fascia stasera.
+ *
+ * Tutto il lavoro sta in `tierBandReading` (src/tierOrdering.ts), che è puro e
+ * testato senza DOM: qui si passano soltanto i pezzi di stato che quella
+ * funzione non può conoscere. `listonePlayerKey` è la STESSA chiave con cui
+ * l'event log registra un acquisto — usarne una seconda qui significherebbe
+ * cercare le fasce di un giocatore diverso da quello comprato.
+ *
+ * `role` viene dalla riga selezionata e non da `state.call.role`: sono lo
+ * stesso valore finché la chiamata è correlata (isCallCorrelated), e la riga è
+ * la sola delle due a essere anche l'identità su cui la fascia è costruita.
+ */
+function tierBandProps(aState: AuctionState): TierBandProps {
+  const selected = state.call.selectedPlayer;
+  return {
+    reading: tierBandReading({
+      pool: state.pool,
+      source: state.poolSource,
+      state: aState,
+      log: state.log,
+      called:
+        selected === null ? null : { playerId: listonePlayerKey(selected), role: selected.role },
+      selfId: SELF_ID,
+    }),
+    role: selected === null ? "" : selected.role,
   };
 }
 
@@ -4822,6 +4856,14 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   );
   suggestionsGrid.appendChild(renderOpponentPrecedentsBlock(opponentPrecedentsProps()));
   wrap.appendChild(suggestionsGrid);
+
+  // FASCIA DEL CHIAMATO — in che fascia d'asta sta il giocatore sul tavolo e
+  // quali prezzi sono stati DAVVERO pagati in quella fascia stasera
+  // (packages/engine/src/tiers.ts, via src/tierOrdering.ts). Sta qui, subito
+  // sopra ASSEGNA A, perché il registro di quella fascia è il numero che si
+  // guarda mentre si batte la cifra — e perché senza indice di appetibilità il
+  // riquadro DICE che non lo sa, invece di lasciare la domanda senza risposta.
+  wrap.appendChild(renderTierBandBlock(tierBandProps(aState)));
 
   // Assign form
   const divider = document.createElement("div");

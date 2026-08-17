@@ -59,6 +59,17 @@ import {
   opponentPrecedentsHeadline,
   opponentPrecedentsHtml,
 } from "./liveFacts.js";
+import type { TierBandReading } from "../tierOrdering.js";
+import {
+  TIER_BAND_NOTE,
+  TIER_BAND_TITLE,
+  tierBandHeadline,
+  tierBandSpoken,
+  tierBandWord,
+  tierOccupancyHtml,
+  tierPricesHtml,
+  tierProvenanceText,
+} from "./tierBand.js";
 
 export interface ListonePanelState {
   /** Full loaded listone, unfiltered — drives column discovery and the "N giocatori caricati" note. */
@@ -2033,4 +2044,85 @@ export function renderConfirmationsQuarantineBanner(
   banner.appendChild(exportBtn);
 
   return banner;
+}
+
+// ── FASCIA DEL CHIAMATO (momento asta) ───────────────────────────────────────
+// Montaggio nel DOM del riquadro delle fasce d'asta. Wrapper SOTTILE, come
+// renderWarBoardMini: ogni scelta di resa (le parole delle fasce, le frasi dei
+// modi di non sapere, la forma del registro dei prezzi) vive nei costruttori
+// puri di ./tierBand.ts, verificati senza DOM; il calcolo vive in
+// src/tierOrdering.ts, che è l'unico a parlare col motore
+// (packages/engine/src/tiers.ts, in sola lettura).
+//
+// Questo file non deriva un numero suo, non ricalcola una fascia e non ordina
+// niente: riceve una lettura già fatta e la appende.
+
+export interface TierBandProps {
+  readonly reading: TierBandReading;
+  /** Il ruolo del chiamato, per la forma parlata; `""` quando non c'è chiamata. */
+  readonly role: Role | "";
+}
+
+/**
+ * Il riquadro sta SEMPRE sulla schermata live, anche quando non ha una fascia
+ * da mostrare: è la resa della regola per cui «quando il dato non c'è, il
+ * pannello lo dice». Nasconderlo nei casi senza indice riporterebbe il
+ * silenzio che le frasi di ./tierBand.ts esistono per rompere.
+ */
+export function renderTierBandBlock(props: TierBandProps): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "tier-band-panel";
+  panel.className = "panel tier-band";
+  panel.setAttribute("aria-label", tierBandSpoken(props.reading, props.role));
+
+  const title = document.createElement("div");
+  title.className = "panel-title";
+  title.textContent = TIER_BAND_TITLE;
+  panel.appendChild(title);
+
+  // La parola della fascia per intero, mai una sigla: è il primo dei tre
+  // contenuti del riquadro. Il colore non porta nulla che non sia scritto.
+  const word = document.createElement("div");
+  word.id = "tier-band-name";
+  word.className = "tier-band__name";
+  word.textContent = tierBandWord(props.reading);
+  panel.appendChild(word);
+
+  // aria-live: la riga cambia significato — non solo contenuto — quando cambia
+  // il giocatore chiamato o quando il listone arriva con o senza indice.
+  const headline = document.createElement("p");
+  headline.id = "tier-band-headline";
+  headline.className = "tier-band__headline";
+  headline.setAttribute("role", "status");
+  headline.setAttribute("aria-live", "polite");
+  headline.textContent = tierBandHeadline(props.reading);
+  panel.appendChild(headline);
+
+  const facts = props.reading.kind === "facts" ? props.reading.facts : null;
+  const coverage = props.reading.kind === "no-call" ? null : props.reading.coverage;
+
+  if (facts !== null) {
+    const body = document.createElement("div");
+    body.id = "tier-band-body";
+    body.className = "tier-band__body";
+    body.innerHTML = `${tierOccupancyHtml(facts)}${tierPricesHtml(facts)}`;
+    // Fuori fascia i due blocchi sono entrambi vuoti (occupancy e registro
+    // sono `null`, non zero): un contenitore vuoto sotto la frase che spiega
+    // perché si leggerebbe come un elenco di «niente».
+    if (body.innerHTML.trim() !== "") panel.appendChild(body);
+  }
+
+  const provenance = document.createElement("p");
+  provenance.id = "tier-band-provenance";
+  provenance.className = "tier-band__provenance";
+  provenance.textContent = tierProvenanceText(facts, coverage);
+  panel.appendChild(provenance);
+
+  const note = document.createElement("p");
+  note.className = "hint-text";
+  note.id = "tier-band-note";
+  note.textContent = TIER_BAND_NOTE;
+  panel.appendChild(note);
+
+  return panel;
 }
