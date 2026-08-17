@@ -42,6 +42,16 @@ import {
 } from "./warBoard.js";
 import type { ResidualPressure } from "../../packages/engine/src/anchors.js";
 import type { PrecedentsReading } from "../../packages/opponent-profiles/src/types.js";
+import type { RoleDepletionReading } from "../roleDepletion.js";
+import {
+  ROLE_DEPLETION_NOTE,
+  ROLE_DEPLETION_TITLE,
+  roleDepletionBuyersHtml,
+  roleDepletionCensusHtml,
+  roleDepletionHeadline,
+  roleDepletionRoleHtml,
+  roleDepletionSpoken,
+} from "./roleDepletion.js";
 import type { ExpertInsightView } from "../expertScheda.js";
 import {
   EXPERT_INSIGHT_TITLE,
@@ -2122,6 +2132,89 @@ export function renderTierBandBlock(props: TierBandProps): HTMLElement {
   note.className = "hint-text";
   note.id = "tier-band-note";
   note.textContent = TIER_BAND_NOTE;
+  panel.appendChild(note);
+
+  return panel;
+}
+
+// ── IL RUOLO STASERA (momento asta) ──────────────────────────────────────────
+// Montaggio nel DOM del riquadro di svuotamento del ruolo. Wrapper SOTTILE,
+// come renderWarBoardMini e renderMomentInsightsBlock: ogni scelta di resa —
+// quali numeri si dicono, in che ordine, e quale frase si dice quando un
+// numero non c'è — vive nei costruttori puri di ./roleDepletion.ts, verificati
+// senza DOM; il calcolo vive in src/roleDepletion.ts, che legge SOLO l'event
+// log di stasera e il censimento dei posti delle squadre.
+//
+// Questo file non deriva un numero suo, non riordina niente e non conosce
+// nessuna quotazione: riceve una lettura già fatta e la appende.
+
+export interface RoleDepletionProps {
+  readonly reading: RoleDepletionReading;
+  /** Etichette delle squadre, per nominare chi ha preso invece del solo id. */
+  readonly teamLabels: Readonly<Record<string, string>>;
+}
+
+/**
+ * Il riquadro sta SEMPRE sulla schermata live, anche quando non ha un ruolo di
+ * cui parlare: è la resa della regola per cui «quando il dato non c'è, il
+ * pannello lo dice». Nasconderlo nel caso senza chiamata, o nel caso in cui
+ * stasera non è ancora passato nessuno di quel ruolo, riporterebbe il silenzio
+ * che le frasi di ./roleDepletion.ts esistono per rompere.
+ */
+export function renderRoleDepletionBlock(props: RoleDepletionProps): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "role-depletion-panel";
+  panel.className = "panel role-depletion";
+  panel.setAttribute("aria-label", roleDepletionSpoken(props.reading));
+
+  const title = document.createElement("div");
+  title.className = "panel-title";
+  title.textContent = ROLE_DEPLETION_TITLE;
+  panel.appendChild(title);
+
+  // Il ruolo per esteso accanto alla pastiglia, mai la sola sigla: la stessa
+  // regola delle quattro celle della scarsità. Assente quando non c'è chiamata,
+  // perché non c'è un ruolo da nominare.
+  const role = document.createElement("div");
+  role.id = "role-depletion-role";
+  role.className = "role-depletion__role";
+  role.innerHTML = roleDepletionRoleHtml(props.reading);
+  if (role.innerHTML !== "") panel.appendChild(role);
+
+  // aria-live: la riga cambia SIGNIFICATO — non solo contenuto — quando cambia
+  // il giocatore chiamato e quando il primo acquisto di quel ruolo entra nel
+  // registro, cioè quando si passa dal silenzio onesto ai fatti.
+  const headline = document.createElement("p");
+  headline.id = "role-depletion-headline";
+  headline.className = "role-depletion__headline";
+  headline.setAttribute("role", "status");
+  headline.setAttribute("aria-live", "polite");
+  headline.textContent = roleDepletionHeadline(props.reading);
+  panel.appendChild(headline);
+
+  if (props.reading.kind === "facts") {
+    const facts = props.reading.facts;
+    const buyers = roleDepletionBuyersHtml(facts, props.teamLabels);
+    if (buyers !== "") {
+      const body = document.createElement("div");
+      body.id = "role-depletion-body";
+      body.className = "role-depletion__body";
+      body.innerHTML = buyers;
+      panel.appendChild(body);
+    }
+
+    // Il censimento resta anche quando stasera non è passato nessuno: non è un
+    // campione, non ha cold start, e tacerlo perché manca l'altra metà
+    // significherebbe nascondere ciò che si sa per colpa di ciò che non si sa.
+    const census = document.createElement("div");
+    census.innerHTML = roleDepletionCensusHtml(facts);
+    panel.appendChild(census);
+  }
+
+  const note = document.createElement("p");
+  note.className = "hint-text";
+  note.id = "role-depletion-note";
+  note.textContent = ROLE_DEPLETION_NOTE;
   panel.appendChild(note);
 
   return panel;
