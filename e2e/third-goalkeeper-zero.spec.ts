@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { ListonePlayer } from "../src/ui/listone.js";
+import { MAX_BID_LABEL } from "../src/ui/budgetLabels.js";
 import {
   AA_NORMAL_TEXT,
   installSyntheticNetworkGuard,
@@ -290,8 +291,25 @@ test("al confine budgetResidual === otherSlots la schermata e il bottone dicono 
     "Io (io): budget residuo 24 crediti, nessun max bid: budget bloccato, solo al minimo",
   );
   // E la forma abbreviata, quella che l'occhio legge davvero sulla striscia.
+  //
+  // La sigla del tetto NON è battuta a mano qui. Questa spec sorveglia il
+  // terzo portiere a 0, non il vocabolario dei tetti di spesa: quel nome lo
+  // possiede `src/ui/budgetLabels.ts`, che lo tiene distinto da «max reparto»
+  // (il tetto dell'INTERO reparto, un'altra grandezza) e lo dà a ogni
+  // superficie che lo mostra. Copiarlo qui alla lettera creava un secondo
+  // esemplare della stessa stringa in un file che non la governa: la copia
+  // resta indietro appena il nome cambia, e il rosso che ne segue racconta una
+  // rinomina invece del difetto che questa spec esiste per prendere.
+  //
+  // Leggendo la costante l'asserzione non si allenta di un millimetro: resta
+  // un'UGUAGLIANZA sul testo intero della cella — non un contains, non una
+  // regex — e continua a pretendere due cose insieme, il nome canonico del
+  // tetto E il trattino al posto della cifra. Se l'app rende un'etichetta che
+  // non è quella canonica, qui è rosso; e che la canonica non possa tornare a
+  // essere la sigla nuda «max» lo tiene fermo `src/ui/maxLabels.test.ts`, che
+  // vieta `<em>max</em>` nel markup reso. Due guardie diverse, nessun cerchio.
   await expect(selfTableRow(page).locator(".war-board-mini__budget")).toHaveText("bdg24");
-  await expect(selfTableRow(page).locator(".war-board-mini__bid")).toHaveText("max—");
+  await expect(selfTableRow(page).locator(".war-board-mini__bid")).toHaveText(`${MAX_BID_LABEL}—`);
 
   // Il gesto che la nota dichiara possibile lo è davvero — e non legge il
   // campo prezzo, che è rimasto a 1.
