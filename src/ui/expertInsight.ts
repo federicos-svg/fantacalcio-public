@@ -52,6 +52,7 @@ import type {
   Avviso,
   ExpertInsightAvailability,
   ExpertInsightView,
+  ExpertSchedaCandidate,
   Fonte,
   Piazzati,
   Rigori,
@@ -348,6 +349,151 @@ export const EXPERT_INSIGHT_EMPTY_TEXT: Readonly<
     "La scheda dichiara una fonte che non è la scheda ufficiale né una risposta di staff: non è attribuibile, quindi non la mostro.",
 };
 
+/**
+ * `identity_not_resolved` copre DUE situazioni che portano a due gesti diversi,
+ * e scriverle allo stesso modo manderebbe Pico a cercare un problema che non ha:
+ *
+ *  - due schede sotto la STESSA identità — niente da scegliere, vanno unite a
+ *    mano nel deposito: è la frase storica qui sopra;
+ *  - più schede con NOMI DIVERSI che potrebbero essere sue — c'è eccome da
+ *    scegliere, e la tendina è lì sotto: è questa frase.
+ *
+ * Lo stato resta uno solo perché il vocabolario dei cinque è chiuso e copiato
+ * alla lettera dal privato (`EXPERT_INSIGHT_QUALITY_LABELS`): un sesto stato
+ * inventato qui aprirebbe una divergenza fra i due repository proprio nel
+ * dizionario che deve restare identico.
+ */
+export const EXPERT_INSIGHT_CHOICE_PENDING_TEXT =
+  "Più schede potrebbero essere di questo giocatore, scritte con nomi diversi: la scelta è tua, qui sotto.";
+
+/** La frase dello stato, con la distinzione qui sopra già applicata. */
+export function expertInsightEmptyText(view: ExpertInsightView): string {
+  if (view.availability === "available") return "";
+  if (
+    view.availability === "identity_not_resolved" &&
+    view.candidates.length > 1 &&
+    view.chosenSchedaKey === null
+  ) {
+    return EXPERT_INSIGHT_CHOICE_PENDING_TEXT;
+  }
+  return EXPERT_INSIGHT_EMPTY_TEXT[view.availability];
+}
+
+// ── L'AGGANCIO: quando la scheda è dedotta, e quando si chiede ───────────────
+//
+// Due superfici, per due situazioni diverse, e nessuna delle due esiste quando
+// l'aggancio è ovvio (nome identico a quello del listone: la stragrande
+// maggioranza delle righe, dove questo blocco è stringa vuota e non costa un
+// pixel).
+//
+//  1. LA DICHIARAZIONE. La scheda è UNA sola, ma il nome non era identico —
+//     «Rossi» sul listone, «Mario Rossi» sulla scheda. L'aggancio si fa, e si
+//     DICE su quale nome la scheda è scritta. Un aggancio dedotto e taciuto è
+//     la stessa classe di difetto che questo lavoro è nato per chiudere, a
+//     specchio: prima spariva una scheda scritta, qui comparirebbe la scheda di
+//     un altro — e in entrambi i casi chi legge non ha modo di accorgersene.
+//  2. LA DOMANDA. Le schede candidate sono più d'una: la scelta è di Pico, non
+//     dell'app. NESSUNA OPZIONE È PRESELEZIONATA — un `<select>` che parte su un
+//     valore verrebbe letto come una risposta già data, e sarebbe l'app a
+//     decidere fingendo di chiedere. Finché non sceglie, il riquadro non mostra
+//     niente e lo dichiara.
+//
+// La scelta RESTA CAMBIABILE dopo che è stata data: il `<select>` non sparisce
+// una volta agganciata la scheda, si sposta sotto il contenuto. Una risposta
+// sbagliata data in due secondi durante un'asta deve costare altri due secondi,
+// non un giro nelle impostazioni.
+
+/** Testo dell'opzione vuota. Non è una scelta: è il posto dove non c'è ancora. */
+export const SCHEDA_CHOICE_PLACEHOLDER = "Scegli la scheda…";
+
+/**
+ * Valore dell'opzione che ANNULLA la scelta. Non può collidere con la chiave di
+ * una scheda: `listonePlayerKey` rende solo `[a-z0-9-]*__[a-z0-9-]*` (o
+ * `proxy:<id>`, che qui non arriva mai — l'indice del deposito è su nome+
+ * squadra), e questo valore contiene un `:` dopo un prefisso alfabetico che
+ * quella forma non può produrre.
+ */
+export const SCHEDA_CHOICE_CLEAR_VALUE = "scheda-choice:nessuna";
+export const SCHEDA_CHOICE_CLEAR_LABEL = "Nessuna di queste";
+
+export const SCHEDA_CHOICE_QUESTION = "Più di una scheda potrebbe essere sua. Quale?";
+export const SCHEDA_CHOICE_PENDING_NOTE =
+  "Finché non scegli, il riquadro non mostra nessuna di queste schede.";
+export const SCHEDA_CHOICE_LINKED_NOTE = "Scelta tua: cambiabile qui, e resta al prossimo avvio.";
+
+/** Quando la scelta non si è potuta salvare, il riquadro lo DICE invece di prometterlo. */
+export const SCHEDA_CHOICE_NOT_PERSISTED =
+  "Scelta valida per questa sessione ma non salvata in locale (spazio del browser pieno o negato): al prossimo avvio la domanda torna.";
+
+/** L'etichetta di un candidato nella tendina: il nome COME SCRITTO sulla scheda. */
+export function schedaCandidateLabel(candidate: ExpertSchedaCandidate): string {
+  const base = `${candidate.player} — ${candidate.club}`;
+  // `count > 1` non è un dettaglio da nascondere: sceglierla lascia comunque due
+  // schede sotto la stessa identità, e il riquadro dirà che vanno unite.
+  return candidate.count > 1 ? `${base} (${candidate.count} schede)` : base;
+}
+
+/**
+ * La riga che dichiara un aggancio DEDOTTO. Stringa vuota per l'aggancio
+ * ovvio (`exact`) e per la scelta esplicita (`chosen`, che ha già la sua
+ * tendina sotto): si scrive solo ciò che chi legge non può vedere da sé.
+ */
+export function schedaMatchNoteText(view: ExpertInsightView): string {
+  if (view.matchedBy !== "contained" || view.matchedPlayer === null) return "";
+  return `Scheda scritta su «${view.matchedPlayer}»: agganciata a questa riga perché il nome è contenuto.`;
+}
+
+export function schedaMatchNoteHtml(view: ExpertInsightView): string {
+  const text = schedaMatchNoteText(view);
+  if (text === "") return "";
+  return `<p class="expert-match" id="player-insight-match">${escHtml(text)}</p>`;
+}
+
+/**
+ * La tendina della scelta, o stringa vuota quando non c'è niente da chiedere.
+ * `notPersisted` viene da chi conosce l'esito dell'ultima scrittura: questo
+ * modulo non tocca lo storage e non lo indovina.
+ */
+export function schedaChoiceHtml(view: ExpertInsightView, notPersisted = false): string {
+  if (view.candidates.length < 2) return "";
+  const chosen = view.chosenSchedaKey;
+  const options = [
+    `<option value="" disabled${chosen === null ? " selected" : ""}>${escHtml(
+      SCHEDA_CHOICE_PLACEHOLDER,
+    )}</option>`,
+    ...view.candidates.map(
+      (candidate) =>
+        `<option value="${escHtml(candidate.schedaKey)}"${
+          candidate.schedaKey === chosen ? " selected" : ""
+        }>${escHtml(schedaCandidateLabel(candidate))}</option>`,
+    ),
+  ];
+  // «Nessuna di queste» esiste solo dopo una scelta: prima è già lo stato in cui
+  // si è, e un'opzione che non cambia niente è rumore in un momento in cui si
+  // legge in due secondi.
+  if (chosen !== null) {
+    options.push(
+      `<option value="${SCHEDA_CHOICE_CLEAR_VALUE}">${escHtml(SCHEDA_CHOICE_CLEAR_LABEL)}</option>`,
+    );
+  }
+  const note = chosen === null ? SCHEDA_CHOICE_PENDING_NOTE : SCHEDA_CHOICE_LINKED_NOTE;
+  return `<div class="expert-choice" id="player-insight-choice">
+    <label class="expert-choice__label" for="player-insight-choice-select">${escHtml(
+      SCHEDA_CHOICE_QUESTION,
+    )}</label>
+    <select class="expert-choice__select" id="player-insight-choice-select" name="player-insight-choice">${options.join(
+      "",
+    )}</select>
+    <span class="expert-choice__note" id="player-insight-choice-note">${escHtml(note)}</span>${
+      notPersisted
+        ? `<span class="expert-choice__warn" id="player-insight-choice-warn">${escHtml(
+            SCHEDA_CHOICE_NOT_PERSISTED,
+          )}</span>`
+        : ""
+    }
+  </div>`;
+}
+
 // ── Il corpo del riquadro ────────────────────────────────────────────────────
 
 /**
@@ -358,10 +504,32 @@ export const EXPERT_INSIGHT_EMPTY_TEXT: Readonly<
  * naviga a voce non ha la label «Scheda Esperto» in alto a destra a dirgli in
  * un colpo d'occhio che cosa sta ascoltando.
  */
+/**
+ * Ciò che l'aggancio aggiunge alla forma parlata. Chi naviga a voce non vede né
+ * la riga di dichiarazione né la tendina: se la frase non le nomina, per lui la
+ * scheda è semplicemente comparsa (o mancata) senza ragione.
+ */
+export function expertInsightLinkSpoken(view: ExpertInsightView): string {
+  const parts: string[] = [];
+  const note = schedaMatchNoteText(view);
+  if (note !== "") parts.push(note);
+  if (view.candidates.length > 1) {
+    const chosen = view.candidates.find((c) => c.schedaKey === view.chosenSchedaKey);
+    parts.push(
+      chosen === undefined
+        ? `${SCHEDA_CHOICE_QUESTION} ${view.candidates.map(schedaCandidateLabel).join("; ")}.`
+        : `Scheda scelta da te: ${schedaCandidateLabel(chosen)}. ${SCHEDA_CHOICE_LINKED_NOTE}`,
+    );
+  }
+  return parts.join(" ");
+}
+
 export function expertInsightSpoken(view: ExpertInsightView): string {
   const label = expertInsightLabel(view).text;
+  const link = expertInsightLinkSpoken(view);
+  const suffix = link === "" ? "" : ` ${link}`;
   if (view.availability !== "available") {
-    return `${label}: ${view.quality}. ${EXPERT_INSIGHT_EMPTY_TEXT[view.availability]}`;
+    return `${label}: ${view.quality}. ${expertInsightEmptyText(view)}${suffix}`;
   }
   const titolarita =
     view.titolarita === null
@@ -373,7 +541,7 @@ export function expertInsightSpoken(view: ExpertInsightView): string {
     .map((chip) => `${chip.label} ${chip.value}`)
     .join(", ");
   const nota = view.nota === "" ? "nessuna nota scritta" : view.nota;
-  return `${label}: ${view.quality}. ${titolarita}. ${chips === "" ? "nessun altro segnale" : chips}. ${nota}. ${expertInsightMetaText(view)}.`;
+  return `${label}: ${view.quality}. ${titolarita}. ${chips === "" ? "nessun altro segnale" : chips}. ${nota}. ${expertInsightMetaText(view)}.${suffix}`;
 }
 
 /**
@@ -397,22 +565,26 @@ export function expertInsightSpoken(view: ExpertInsightView): string {
  * stato, e «fonte non disponibile» e «identità non risolta» sono due cose
  * diverse che la label non distingue.
  */
-export function expertInsightBodyHtml(view: ExpertInsightView): string {
+export function expertInsightBodyHtml(view: ExpertInsightView, notPersisted = false): string {
+  // La tendina della scelta sta SOTTO il contenuto in entrambi i rami, e non
+  // sopra: quando la scheda è agganciata ciò che conta è la scheda, e la
+  // possibilità di cambiare idea è un ripensamento, non il titolo del riquadro.
+  const choice = schedaChoiceHtml(view, notPersisted);
   if (view.availability !== "available") {
-    return `<div class="expert-insight__empty" id="player-insight-empty">
+    return `${schedaMatchNoteHtml(view)}<div class="expert-insight__empty" id="player-insight-empty">
       <p class="expert-insight__empty-text">${expertInsightQualityHtml(view)}<span
         class="expert-insight__empty-sep" aria-hidden="true"> — </span>${escHtml(
-          EXPERT_INSIGHT_EMPTY_TEXT[view.availability],
+          expertInsightEmptyText(view),
         )}</p>
-    </div>`;
+    </div>${choice}`;
   }
-  return `<div class="expert-insight__grid">
+  return `${schedaMatchNoteHtml(view)}<div class="expert-insight__grid">
     <div class="expert-insight__visual">
       ${titolaritaHtml(view)}
       ${expertInsightChipsHtml(view)}
     </div>
     ${expertInsightProseHtml(view)}
-  </div>`;
+  </div>${choice}`;
 }
 
 /** L'etichetta di qualità, PORTATA DAL DATO e mai ricostruita dal renderer. */

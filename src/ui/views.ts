@@ -48,6 +48,7 @@ import {
   expertInsightBodyHtml,
   expertInsightLabelHtml,
   expertInsightSpoken,
+  SCHEDA_CHOICE_CLEAR_VALUE,
 } from "./expertInsight.js";
 import {
   MOMENT_FACTS_NOTE,
@@ -1013,6 +1014,17 @@ export function renderAssignCommandPanel(
 // avere niente, e quella frase ora è uno dei quattro stati onesti.
 export interface PlayerInsightProps {
   readonly view: ExpertInsightView;
+  /**
+   * `false` quando l'ultima risposta di Pico non ha attecchito nello storage:
+   * il riquadro lo dichiara invece di prometterle una durata che non ha.
+   */
+  readonly choicePersisted: boolean;
+  /**
+   * La scelta di Pico fra le schede candidate: la chiave della scheda, o `null`
+   * per «nessuna di queste». Chiamata solo dalla tendina — non c'è nessun altro
+   * modo di creare un aggancio a mano, e non deve essercene uno.
+   */
+  readonly onChooseScheda: (schedaKey: string | null) => void;
 }
 
 export function renderPlayerInsightsBlock(props: PlayerInsightProps): HTMLElement {
@@ -1032,8 +1044,22 @@ export function renderPlayerInsightsBlock(props: PlayerInsightProps): HTMLElemen
   panel.appendChild(head);
 
   const body = document.createElement("div");
-  body.innerHTML = expertInsightBodyHtml(props.view);
+  body.innerHTML = expertInsightBodyHtml(props.view, !props.choicePersisted);
   panel.appendChild(body);
+
+  // La tendina esiste solo quando c'è più di un candidato (schedaChoiceHtml
+  // rende stringa vuota altrimenti), quindi questa query è null nella
+  // stragrande maggioranza dei render e non c'è niente da agganciare.
+  const choice = body.querySelector<HTMLSelectElement>("#player-insight-choice-select");
+  if (choice !== null) {
+    choice.addEventListener("change", () => {
+      const value = choice.value;
+      // L'opzione segnaposto è `disabled`, quindi il browser non la rende
+      // scegliibile: se il valore vuoto arriva comunque, non è una risposta.
+      if (value === "") return;
+      props.onChooseScheda(value === SCHEDA_CHOICE_CLEAR_VALUE ? null : value);
+    });
+  }
 
   // QUESTO PANNELLO NON HA UNA NOTA IN FONDO, e non è una dimenticanza: gli
   // altri due blocchi di questa schermata ce l'hanno perché devono spiegare da

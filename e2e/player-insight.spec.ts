@@ -2,10 +2,17 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
 import {
   COMMUNITY_SCHEDA,
+  FULL_NAME_SCHEDA,
   FULL_SCHEDA,
+  OTHER_CLUB,
+  OTHER_PLAYER,
   OTHER_PLAYER_SCHEDA,
   PROSE_ONLY_SCHEDA,
+  SCHEDA_CLUB,
   SCHEDA_PLAYER,
+  SECOND_FULL_NAME,
+  SECOND_FULL_NAME_SCHEDA,
+  SHORT_NAME,
   schedeDeposit,
 } from "./fixtures/synthetic-schede.js";
 import {
@@ -16,7 +23,13 @@ import {
   textContrast,
 } from "./helpers.js";
 import { EXPERT_INSIGHT_QUALITY_LABELS } from "../src/expertScheda.js";
-import { EXPERT_INSIGHT_EMPTY_TEXT, EXPERT_INSIGHT_LABEL_TEXT } from "../src/ui/expertInsight.js";
+import {
+  EXPERT_INSIGHT_CHOICE_PENDING_TEXT,
+  EXPERT_INSIGHT_EMPTY_TEXT,
+  EXPERT_INSIGHT_LABEL_TEXT,
+  SCHEDA_CHOICE_CLEAR_LABEL,
+  SCHEDA_CHOICE_LINKED_NOTE,
+} from "../src/ui/expertInsight.js";
 
 // INSIGHT GIOCATORE — il riquadro delle schede del Gruppo Esperti sul DOM vivo.
 //
@@ -316,8 +329,21 @@ test("il riquadro pieno regge AA e non fa traboccare la schermata a 390, 1280, 1
     ).toBe(true);
 
     // Ogni testo del riquadro che porta un livello della rampa sta sopra AA.
-    const measured = await measureAllText(page, "#player-insight-panel, #player-insight-panel *");
-    const ramp = measured.filter((m) => byColor.has(m.fg) && !m.disabled);
+    const swept = await measureAllText(page, "#player-insight-panel, #player-insight-panel *");
+    // Un testo NON CLASSIFICABILE è un fallimento, non un salto (la regola
+    // fail-closed di e2e/helpers.ts). Senza questa riga un elemento reso non
+    // misurabile — `filter`, `mix-blend-mode` — uscirebbe da sé dal filtro sul
+    // colore qui sotto, e il riquadro resterebbe verde senza essere stato letto.
+    expect(
+      swept.flatMap((m) => (m.kind === "unclassified" ? [`${width}px: ${m.reason} — ${m.label}`] : [])),
+      `testo non classificabile nel riquadro a ${width}px`,
+    ).toEqual([]);
+    const measured = swept.flatMap((m) => (m.kind === "measured" ? [m] : []));
+    // `m.exempt !== null` è il vecchio `m.disabled`: la stessa e sola esenzione
+    // dalla soglia, quella che WCAG 1.4.3 concede agli «inactive user interface
+    // components», adesso col proprio motivo scritto accanto invece che un
+    // booleano muto (THRESHOLD_EXEMPT in e2e/helpers.ts).
+    const ramp = measured.filter((m) => byColor.has(m.fg) && m.exempt === null);
     expect(ramp.length, `nessun testo misurato nel riquadro a ${width}px`).toBeGreaterThan(4);
     const failures = ramp
       .filter((m) => m.ratio < AA_NORMAL_TEXT)
@@ -332,6 +358,241 @@ test("il riquadro pieno regge AA e non fa traboccare la schermata a 390, 1280, 1
     for (const selector of ["#player-insight-track-ballottaggio", "#player-insight-chip-mercato .expert-chip__mark"]) {
       const ratio = await textContrast(page, selector);
       expect(ratio, `${selector} sotto AA a ${width}px`).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+    }
+  }
+});
+
+// ── L'AGGANCIO DEL NOME, SUL DOM VIVO ────────────────────────────────────────
+//
+// PERCHÉ QUESTA SPEC ESISTE. Le fonti del Gruppo Esperti scrivono «Dario
+// Placeholder»; il listone della lega, sulla stessa riga, scrive «Placeholder».
+// Prima dell'aggancio le due chiavi non si incontravano e il riquadro
+// dichiarava «la scheda non è ancora stata scritta» su una scheda che ESISTE:
+// un difetto invisibile, che avrebbe potuto mangiare una parte delle ~200
+// schede compilate a mano prima del 3 settembre senza lasciare traccia a
+// schermo. Qui la stessa asimmetria passa dal canale vero — `/api/schede`,
+// content-type, validazione, indicizzazione — e non da una porta di servizio.
+//
+// LE TRE COSE CHE DIFENDE:
+//  1. una scheda scritta con un nome diverso ma compatibile ARRIVA a schermo, e
+//     l'aggancio dedotto è DICHIARATO (un aggancio taciuto sarebbe lo stesso
+//     difetto a specchio: la scheda di un altro, senza modo di accorgersene);
+//  2. con più schede possibili l'app NON sceglie: chiede, e nessuna opzione
+//     parte selezionata;
+//  3. la risposta di Pico aggancia la scheda giusta, resta cambiabile, e
+//     sopravvive al reload — altrimenti la stessa domanda tornerebbe a ogni
+//     chiamata e rispondere non varrebbe il tempo speso.
+
+/** Il listone della lega scrive il cognome nudo: è la riga che cerca le schede. */
+const SHORT_NAME_POOL = [
+  { name: SHORT_NAME, role: "A", club: SCHEDA_CLUB, quotation: 20 },
+  { name: OTHER_PLAYER, role: "P", club: OTHER_CLUB, quotation: 5 },
+] as const;
+
+async function bootShortName(page: Page, context: BrowserContext, body: string): Promise<string[]> {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, SHORT_NAME_POOL, externalRequests);
+  await routeSchede(context, { kind: "serve", body });
+  await page.goto("/");
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.locator("#search-player")).toBeVisible();
+  return externalRequests;
+}
+
+/** Apre il momento LIVE sulla riga scritta col cognome nudo. */
+async function callShortName(page: Page): Promise<void> {
+  await page.getByText(SHORT_NAME, { exact: true }).click();
+  await page.getByRole("button", { name: /^Avvia/ }).click();
+  await expect(page.locator("#player-insight-panel")).toBeVisible();
+}
+
+test("una scheda scritta col nome intero arriva sulla riga scritta col cognome, e lo dichiara", async ({
+  page,
+  context,
+}) => {
+  const externalRequests = await bootShortName(page, context, schedeDeposit([FULL_NAME_SCHEDA]));
+  await callShortName(page);
+
+  // La scheda c'è: prima non ci sarebbe stata, e il riquadro avrebbe detto che
+  // non era stata scritta.
+  await expect(page.locator("#player-insight-prose")).toContainText("come la scrivono le fonti");
+  await expect(page.locator("#player-insight-track-titolare")).toBeVisible();
+  await expect(page.locator("#player-insight-empty")).toHaveCount(0);
+
+  // L'aggancio è dedotto, quindi è scritto: su quale nome la scheda è scritta.
+  await expect(page.locator("#player-insight-match")).toContainText(SCHEDA_PLAYER);
+  // Nessuna domanda da fare: un candidato solo.
+  await expect(page.locator("#player-insight-choice")).toHaveCount(0);
+  await expectHonestyVisible(page, EXPERT_INSIGHT_QUALITY_LABELS.available);
+  expect(externalRequests).toEqual([]);
+});
+
+test("due schede possibili: l'app chiede, non sceglie — e la risposta resta dopo il reload", async ({
+  page,
+  context,
+}) => {
+  const externalRequests = await bootShortName(
+    page,
+    context,
+    schedeDeposit([FULL_NAME_SCHEDA, SECOND_FULL_NAME_SCHEDA]),
+  );
+  await callShortName(page);
+
+  // 1. LA DOMANDA. Nessun contenuto delle due schede trapela: metà scheda
+  // mostrata mentre si dichiara di non sapere si legge come «pieno».
+  await expect(page.locator("#player-insight-quality")).toHaveText(
+    EXPERT_INSIGHT_QUALITY_LABELS.identity_not_resolved,
+  );
+  await expect(page.locator("#player-insight-empty")).toContainText(
+    EXPERT_INSIGHT_CHOICE_PENDING_TEXT,
+  );
+  await expectNoContent(page);
+
+  const select = page.locator("#player-insight-choice-select");
+  await expect(select).toBeVisible();
+  // NESSUNA OPZIONE PRESELEZIONATA: un `<select>` che parte su un valore è una
+  // risposta data dall'app con l'aria di una domanda.
+  await expect(select).toHaveValue("");
+  const options = await select.locator("option:not([disabled])").allTextContents();
+  expect(options).toEqual([
+    `${SCHEDA_PLAYER} — ${SCHEDA_CLUB}`,
+    `${SECOND_FULL_NAME} — ${SCHEDA_CLUB}`,
+  ]);
+
+  // 2. LA RISPOSTA. Aggancia quella scheda, e solo quella.
+  await select.selectOption({ label: `${SECOND_FULL_NAME} — ${SCHEDA_CLUB}` });
+  await expect(page.locator("#player-insight-prose")).toContainText("Seconda scheda");
+  await expect(page.locator("#player-insight-panel")).not.toContainText("come la scrivono le fonti");
+  await expect(page.locator("#player-insight-track-riserva")).toBeVisible();
+  // La tendina non sparisce: la scelta è cambiabile, e lo dice.
+  await expect(page.locator("#player-insight-choice-note")).toContainText(SCHEDA_CHOICE_LINKED_NOTE);
+  await expect(page.locator("#player-insight-choice-warn")).toHaveCount(0);
+
+  // 3. IL RELOAD. Senza persistenza la stessa domanda tornerebbe a ogni
+  // chiamata, e rispondere non varrebbe il tempo speso.
+  await page.reload();
+  await expect(page.locator("#search-player")).toBeVisible();
+  await callShortName(page);
+  await expect(page.locator("#player-insight-prose")).toContainText("Seconda scheda");
+  await expect(page.locator("#player-insight-choice-select")).toHaveValue(
+    /placeholder/,
+  );
+
+  // 4. CAMBIARE IDEA. «Nessuna di queste» riporta alla domanda, non a un'altra
+  // scheda scelta dall'app.
+  await page
+    .locator("#player-insight-choice-select")
+    .selectOption({ label: SCHEDA_CHOICE_CLEAR_LABEL });
+  await expect(page.locator("#player-insight-empty")).toContainText(
+    EXPERT_INSIGHT_CHOICE_PENDING_TEXT,
+  );
+  await expect(page.locator("#player-insight-choice-select")).toHaveValue("");
+  await expectNoContent(page);
+
+  expect(externalRequests).toEqual([]);
+});
+
+test("le superfici dell'aggancio reggono AA e stanno nel pannello a 390, 1280, 1440 e 1920", async ({
+  page,
+  context,
+}) => {
+  // Le due superfici dell'aggancio non compaiono nel flusso della spec AA qui
+  // sopra — esistono solo dove i nomi divergono — quindi senza questa prova
+  // resterebbero l'unica parte del riquadro mai rimisurata a schermo vero.
+  //
+  // LA PROVA È IN DUE PEZZI, e il secondo è quello che morde davvero. La
+  // spazzata di `measureAllText` misura SOLO il testo che porta un colore
+  // della rampa: un elemento dipinto con un colore fuori rampa non è
+  // «bocciato», è SALTATO, e la spazzata resterebbe verde ignorandolo. Perciò
+  // qui si verifica prima che ciascuna superficie sia effettivamente DENTRO
+  // l'insieme misurato, e poi che l'insieme stia sopra AA.
+  const uno = schedeDeposit([FULL_NAME_SCHEDA]);
+  const due = schedeDeposit([FULL_NAME_SCHEDA, SECOND_FULL_NAME_SCHEDA]);
+  await bootShortName(page, context, uno);
+  // I token si risolvono DOPO il primo caricamento: su una pagina vuota
+  // `:root` non porta ancora il foglio di stile, i colori tornerebbero vuoti e
+  // la spazzata resterebbe verde non avendo misurato niente.
+  const tokens = await resolveTokenColors(page, [
+    "--text-dim",
+    "--text-sec",
+    "--text-mid",
+    "--text-primary",
+    "--stop-red",
+  ]);
+  const byColor = new Map(Object.entries(tokens).map(([token, hex]) => [hex, token]));
+
+  /** Il testo del riquadro che porta un livello della rampa, misurato adesso. */
+  async function rampNow(width: number, step: string): Promise<readonly string[]> {
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+      `scorrimento laterale a ${width}px (${step})`,
+    ).toBe(true);
+    const swept = await measureAllText(page, "#player-insight-panel, #player-insight-panel *");
+    // Stessa regola fail-closed del test qui sopra: non classificabile = rosso.
+    expect(
+      swept.flatMap((m) =>
+        m.kind === "unclassified" ? [`${width}px ${step}: ${m.reason} — ${m.label}`] : [],
+      ),
+      `testo non classificabile a ${width}px (${step})`,
+    ).toEqual([]);
+    const measured = swept.flatMap((m) => (m.kind === "measured" ? [m] : []));
+    // `m.exempt !== null` è il vecchio `m.disabled` — vedi il commento sopra.
+    const ramp = measured.filter((m) => byColor.has(m.fg) && m.exempt === null);
+    const failures = ramp
+      .filter((m) => m.ratio < AA_NORMAL_TEXT)
+      .map(
+        (m) =>
+          `${width}px ${step}: ${byColor.get(m.fg)} = ${m.ratio.toFixed(2)}:1 (${m.fontSize}px) — ${m.label}`,
+      );
+    expect(failures, `contrasto sotto ${AA_NORMAL_TEXT}:1 a ${width}px (${step})`).toEqual([]);
+    return ramp.map((m) => m.label);
+  }
+
+  for (const width of [390, 1280, 1440, 1920]) {
+    await page.setViewportSize({ width, height: width < 500 ? 844 : 900 });
+
+    // 1. L'AGGANCIO DEDOTTO: una scheda sola, con un nome diverso ma compatibile.
+    await context.unrouteAll();
+    await bootShortName(page, context, uno);
+    await callShortName(page);
+    await expect(page.locator("#player-insight-match")).toBeVisible();
+    const dedotta = await rampNow(width, "dedotta");
+    expect(
+      dedotta.some((label) => label.includes("player-insight-match")),
+      `la riga di dichiarazione non è nella spazzata a ${width}px: colore fuori rampa`,
+    ).toBe(true);
+
+    // 2. LA DOMANDA, e 3. LA RISPOSTA: la tendina resta a schermo dopo la
+    // scelta, quindi va misurata in tutti e due gli stati.
+    await context.unrouteAll();
+    await bootShortName(page, context, due);
+    await callShortName(page);
+    const select = page.locator("#player-insight-choice-select");
+    await expect(select).toBeVisible();
+
+    for (const step of ["domanda", "risposta"] as const) {
+      if (step === "risposta") {
+        await select.selectOption({ label: `${SECOND_FULL_NAME} — ${SCHEDA_CLUB}` });
+        await expect(page.locator("#player-insight-prose")).toBeVisible();
+      }
+      // La tendina non deborda dal suo posto: a 390px è la riga più larga del
+      // riquadro, ed è l'unica che porta due nomi interi su una riga sola.
+      const fit = await page
+        .locator("#player-insight-choice")
+        .evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
+      expect(
+        fit.scroll,
+        `tendina più larga del suo posto a ${width}px (${step})`,
+      ).toBeLessThanOrEqual(fit.client + 1);
+
+      const labels = await rampNow(width, step);
+      for (const marker of ["expert-choice__label", "player-insight-choice-note"]) {
+        expect(
+          labels.some((label) => label.includes(marker)),
+          `«${marker}» non è nella spazzata a ${width}px (${step}): colore fuori rampa`,
+        ).toBe(true);
+      }
     }
   }
 });

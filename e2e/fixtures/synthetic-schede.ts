@@ -60,3 +60,37 @@ export const OTHER_PLAYER_SCHEDA: ExpertScheda = {
 export function schedeDeposit(schede: readonly ExpertScheda[]): string {
   return JSON.stringify({ schemaVersion: EXPERT_SCHEDA_SCHEMA_VERSION, schede });
 }
+
+// ── L'AGGANCIO DEL NOME ──────────────────────────────────────────────────────
+//
+// Il caso reale che l'aggancio esiste per non perdere: le fonti del Gruppo
+// Esperti scrivono il nome intero, il listone della lega scrive il cognome
+// nudo. Le schede qui sotto sono scritte sul nome INTERO, e la riga di listone
+// che le cerca porta solo `SHORT_NAME` — la stessa asimmetria di un deposito
+// vero, riprodotta con nomi che restano segnaposto.
+
+/** Il cognome nudo, come lo scrive il listone della lega. */
+export const SHORT_NAME = "Placeholder";
+
+/** Un secondo nome intero sullo stesso cognome e nella stessa squadra. */
+export const SECOND_FULL_NAME = "Bruna Placeholder";
+
+/** Scheda scritta sul nome intero: la riga «Placeholder» deve trovarla. */
+export const FULL_NAME_SCHEDA: ExpertScheda = {
+  player: SCHEDA_PLAYER,
+  club: SCHEDA_CLUB,
+  titolarita: "titolare",
+  nota: "Scheda scritta col nome intero, come la scrivono le fonti.",
+  aggiornata: "2026-08-30",
+  fonte: "scheda",
+};
+
+/** La seconda scheda: due nomi interi diversi, un cognome solo. Qui si chiede. */
+export const SECOND_FULL_NAME_SCHEDA: ExpertScheda = {
+  player: SECOND_FULL_NAME,
+  club: SCHEDA_CLUB,
+  titolarita: "riserva",
+  nota: "Seconda scheda, altro nome intero sullo stesso cognome.",
+  aggiornata: "2026-08-30",
+  fonte: "staff",
+};

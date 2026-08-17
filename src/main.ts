@@ -157,7 +157,15 @@ import {
   parseExpertSchedaDeposit,
   resolveExpertInsight,
   type ExpertSchedaStore,
+  type SchedaTarget,
 } from "./expertScheda.js";
+import {
+  loadSchedaLinks,
+  saveSchedaLinks,
+  schedaLinkRowKey,
+  withSchedaLink,
+  type SchedaLinks,
+} from "./schedaLinks.js";
 
 // Path of the shipped, Cloudflare-Access-gated static listone asset — see
 // docs/data/LISTONE_UI_LOAD_CONTRACT.md for the shape and authorization.
@@ -414,6 +422,14 @@ interface AppState {
    * «non c'è nulla da dire su questo giocatore».
    */
   expertSchede: ExpertSchedaStore;
+  /**
+   * Le risposte già date da Pico su quale scheda appartenga a quale riga di
+   * listone, quando ce n'era più d'una possibile (src/schedaLinks.ts). Vuota è
+   * lo stato normale: la domanda si pone solo dove i nomi divergono.
+   */
+  schedaLinks: SchedaLinks;
+  /** `false` solo quando l'ULTIMA risposta non è stata scritta nello storage. */
+  schedaLinksPersisted: boolean;
   rosterError: string;
   newPersonName: string;
   settingsArea: string;
@@ -632,6 +648,8 @@ const state: AppState = {
   // Nessuna scheda finché il deposito non risponde: il riquadro parte da
   // «fonte aggiuntiva non disponibile», che è la verità al primo frame.
   expertSchede: EXPERT_SCHEDE_ABSENT,
+  schedaLinks: loadSchedaLinks(browserStorage),
+  schedaLinksPersisted: true,
   rosterError: "",
   newPersonName: "",
   // Opens on the area you act on; app status is diagnostics, read on demand.
@@ -1247,28 +1265,57 @@ function opponentPrecedentsProps(): OpponentPrecedentsProps {
 }
 
 /**
+ * L'identità con cui il riquadro INSIGHT GIOCATORE cerca la scheda: NOME +
+ * SQUADRA della riga selezionata, `null` quando non c'è nessuna riga.
+ *
+ * `proxyId` è deliberatamente FUORI. Pico scrive nome e squadra come li legge
+ * nel listone e non ha modo di conoscere un `proxyId`: passarlo qui farebbe
+ * cercare `proxy:…` in un deposito indicizzato su nome+squadra, e il riquadro
+ * direbbe «non è ancora scritta» su una scheda che esiste. Da quando
+ * `resolveExpertInsight` riceve la coppia invece di una chiave già calcolata,
+ * questo è un fatto della firma e non più un patto scritto in un commento.
+ */
+function playerInsightTarget(): SchedaTarget | null {
+  const selected = state.call.selectedPlayer;
+  if (selected === null) return null;
+  return { name: selected.name, club: selected.club ?? state.call.club };
+}
+
+/**
  * La vista del riquadro INSIGHT GIOCATORE per il giocatore attualmente in
- * asta.
+ * asta, con la risposta che Pico ha già dato per questa riga quando ce n'era
+ * una da dare.
  *
- * IDENTITÀ. La chiave è `listonePlayerKey` calcolata su NOME + SQUADRA, ed è
- * la stessa ricetta con cui `indexSchede` indicizza il deposito: Pico scrive
- * nome e squadra come li legge nel listone, e non ha modo di conoscere un
- * `proxyId`. Per questo `proxyId` è deliberatamente NON passato qui — con una
- * riga che ne porta uno, `listonePlayerKey(riga)` renderebbe `proxy:…` mentre
- * la scheda resterebbe indicizzata su `nome__squadra`, e il riquadro direbbe
- * «non è ancora scritta» su una scheda che invece esiste. Le due ricette
- * devono restare identiche: se una cambia, cambiano entrambe.
- *
- * SENZA GIOCATORE SELEZIONATO la chiave è `null` e la risoluzione rende lo
+ * SENZA GIOCATORE SELEZIONATO la ricerca non parte e la risoluzione rende lo
  * stato onesto: non si cerca «una scheda qualsiasi».
  */
 function playerInsightProps(): PlayerInsightProps {
-  const selected = state.call.selectedPlayer;
-  const key =
-    selected === null
-      ? null
-      : listonePlayerKey({ name: selected.name, club: selected.club ?? state.call.club });
-  return { view: resolveExpertInsight(state.expertSchede, key) };
+  const target = playerInsightTarget();
+  const chosen = target === null ? null : state.schedaLinks.get(schedaLinkRowKey(target)) ?? null;
+  return {
+    view: resolveExpertInsight(state.expertSchede, target, chosen),
+    choicePersisted: state.schedaLinksPersisted,
+    onChooseScheda: chooseScheda,
+  };
+}
+
+/**
+ * Pico risponde alla domanda «quale di queste schede è sua», o la ritira
+ * («nessuna di queste», `schedaKey === null`).
+ *
+ * La risposta è una preferenza di lettura, non un dato d'asta: non entra
+ * nell'event log, non tocca il deposito (che è in sola lettura) e non cambia
+ * nessun numero. Una scrittura fallita NON viene nascosta — `state
+ * .schedaLinksPersisted` la porta a schermo — perché una scelta che sparisce al
+ * prossimo avvio senza dirlo è esattamente il difetto silenzioso che questo
+ * riquadro esiste per non avere.
+ */
+function chooseScheda(schedaKey: string | null): void {
+  const target = playerInsightTarget();
+  if (target === null) return;
+  state.schedaLinks = withSchedaLink(state.schedaLinks, schedaLinkRowKey(target), schedaKey);
+  state.schedaLinksPersisted = saveSchedaLinks(browserStorage, state.schedaLinks);
+  render();
 }
 
 // ── Command line di inserimento (T13 #231) ───────────────────────────────────
