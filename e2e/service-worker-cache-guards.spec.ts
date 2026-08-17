@@ -20,24 +20,15 @@
 // Request from script, it is a forbidden header name, which is precisely why
 // the production case cannot be staged by hand.
 import { expect, test, type Page } from "@playwright/test";
+// `waitForServiceWorkerControl` viveva in tre copie identiche (qui,
+// e2e/offline-cold-start.spec.ts, e ora anche le spec del listone che devono
+// aspettare la fine del precache). Una sola, in e2e/helpers.ts: tre copie della
+// stessa attesa possono divergere proprio sulla condizione che fa da guardia.
+import { waitForServiceWorkerControl } from "./helpers.js";
 
 const LISTONE_PATH = "/data/listone_2025_26.json";
 const PRECACHED_MARKER = '[{"name":"Cache Precaricata","role":"P","club":"ClubCache","quotation":1}]';
 const POISON_MARKER = '[{"name":"Cache Avvelenata","role":"P","club":"ClubVeleno","quotation":99}]';
-
-/** Resolves once the worker controls the page — i.e. install (and its
- *  `cache.addAll`) completed and activate claimed this client. */
-async function waitForServiceWorkerControl(page: Page): Promise<void> {
-  await page.waitForFunction(
-    async () => {
-      if (!("serviceWorker" in navigator)) return false;
-      await navigator.serviceWorker.ready;
-      return navigator.serviceWorker.controller !== null;
-    },
-    undefined,
-    { timeout: 15_000 },
-  );
-}
 
 /** The one cache this build owns. */
 async function currentCacheName(page: Page): Promise<string> {
