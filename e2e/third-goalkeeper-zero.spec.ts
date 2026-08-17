@@ -94,6 +94,21 @@ function storico(page: Page) {
   return page.locator(".panel", { hasText: "STORICO ACQUISTI" });
 }
 
+/**
+ * LA RIGA «IO» DEL PANNELLO «TAVOLO — BUDGET E MAX BID», cioè dove la
+ * contabilità della squadra di Pico sta scritta nel momento ASTA.
+ *
+ * Nel momento CHIAMATA quei numeri li porta la striscia critica
+ * (`#critical-budget`, `#critical-max-bid`); in asta no — la striscia è chrome
+ * del solo momento chiamata, e lo spazio verticale torna al gesto. La war
+ * board MINI invece è a schermo in entrambi, e porta per ogni squadra
+ * esattamente due numeri: budget residuo e max bid. Sono gli stessi numeri
+ * della striscia, dalla stessa derivazione — non una copia più povera.
+ */
+function selfTableRow(page: Page) {
+  return page.locator(".war-board-mini__item--self");
+}
+
 test("il bottone del terzo portiere a 0 registra l'acquisto, e lo storico dice che quello 0 è una dichiarazione", async ({
   page,
   context,
@@ -239,19 +254,44 @@ test("al confine budgetResidual === otherSlots la schermata e il bottone dicono 
   await page.locator("#assign-price").fill("1");
   await page.getByRole("button", { name: "Registra acquisto", exact: true }).click();
   await expect(page.getByText(/hard reserve violata/)).toBeVisible();
-  // IL BUDGET NON SI È MOSSO — letto dove si legge in QUESTO momento.
-  // Un acquisto rifiutato non fa tornare indietro la schermata: si resta nel
-  // momento ASTA, col chiamato ancora davanti. La striscia critica è chrome del
-  // momento CHIAMATA e lì non è montata: gli stessi numeri, in asta, li portano
-  // la nota «max bid sicuro» sotto «Prezzo da pagare» e la war board MINI.
-  // Cercare `#critical-budget` qui misurerebbe il montaggio della striscia
-  // invece del budget, e resterebbe rosso anche con l'app perfettamente onesta.
-  // La difesa è la stessa e alla cifra esatta: 1 cr è stato RIFIUTATO, quindi i
-  // 24 crediti devono essere ancora tutti lì. La riga «io» della MINI è dove
-  // quel numero sta adesso.
-  await expect(page.locator(".war-board-mini__item--self .war-board-mini__budget")).toHaveText(
-    "bdg24",
+  // LA CONTABILITÀ NON SI È MOSSA — letta dove si legge in QUESTO momento.
+  //
+  // Un acquisto rifiutato non fa tornare indietro la schermata:
+  // `commitPurchase()` sul ramo infeasible scrive l'errore, ri-renderizza e
+  // ritorna, quindi si resta nel momento ASTA col chiamato ancora davanti —
+  // solo il ramo che RIESCE riporta al momento chiamata. Lì la striscia non è
+  // (`criticalStripMounted()` = schermo asta E momento chiamata): non per un
+  // guasto, ma perché quel momento non la mostra. Cercare `#critical-budget`
+  // qui misurerebbe il montaggio della striscia invece del budget, e sarebbe
+  // rosso anche con l'app perfettamente onesta.
+  //
+  // Il punto di lettura cambia, la pretesa no — anzi cresce. 1 cr è stato
+  // RIFIUTATO, quindi devono essere fermi ENTRAMBI i numeri della squadra:
+  //  - i 24 crediti, tutti lì;
+  //  - il max bid ancora NON offribile, perché al confine
+  //    budgetResidual === otherSlots max_safe vale 0.
+  // Il secondo non è ornamento: max_safe = budget − slot residui + 1, quindi
+  // un acquisto fantasma che consumasse uno slot SENZA togliere crediti
+  // lascerebbe «bdg24» immobile e sbloccherebbe il max bid a 1. Il solo
+  // budget non lo vedrebbe; questa coppia sì. Ed è il conteggio della rosa —
+  // i 25 slot su cui questo confine è costruito — che finora nessuna
+  // asserzione sorvegliava dopo il rifiuto.
+  //
+  // La riga è letta come VALORE, non come segnale di prontezza: la prontezza
+  // del render dopo il rifiuto l'ha già dichiarata il messaggio d'errore qui
+  // sopra, che esiste in tutti i momenti che questo test attraversa. La
+  // presenza della riga è asserita per prima e da sola, così una sua
+  // sparizione fallisce col suo nome invece che per timeout su un testo.
+  await expect(selfTableRow(page)).toHaveCount(1);
+  // L'etichetta parlata: i due numeri per esteso, nella forma che arriva a chi
+  // usa uno screen reader.
+  await expect(selfTableRow(page)).toHaveAttribute(
+    "aria-label",
+    "Io (io): budget residuo 24 crediti, nessun max bid: budget bloccato, solo al minimo",
   );
+  // E la forma abbreviata, quella che l'occhio legge davvero sulla striscia.
+  await expect(selfTableRow(page).locator(".war-board-mini__budget")).toHaveText("bdg24");
+  await expect(selfTableRow(page).locator(".war-board-mini__bid")).toHaveText("max—");
 
   // Il gesto che la nota dichiara possibile lo è davvero — e non legge il
   // campo prezzo, che è rimasto a 1.
