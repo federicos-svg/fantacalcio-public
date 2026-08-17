@@ -1337,6 +1337,14 @@ function auctionDisplayPool(): ListonePlayer[] {
  * complete auction (224 purchases) against a real listone (532 rows) cost
  * ~140 ms per keystroke, on the critical path of a call, growing exactly as
  * the auction went on.
+ *
+ * «Una volta per pannello» qui è una DISCIPLINA, non una garanzia provata:
+ * nessun test fallisce se una chiamata futura sposta questa costruzione
+ * dentro il ciclo che risolve gli id. `renderZona4` costruisce DOM e questo
+ * progetto non ha un ambiente di test jsdom/happy-dom, quindi il contatore
+ * che protegge la passata O(pool) (src/ui/listone.test.ts) arriva fino alla
+ * funzione, non fino a questo call site. Chi tocca questa riga lo faccia
+ * sapendo che è sorvegliata da un commento, non da un rosso.
  */
 function auctionDisplayIndex(): ReadonlyMap<string, ListonePlayer> {
   return listonePoolIndex(state.pool);

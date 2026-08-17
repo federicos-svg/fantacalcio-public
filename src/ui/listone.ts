@@ -687,6 +687,26 @@ export function legacyPlayerIdDisplayName(playerId: string): string {
  * round 2, finding 2). Building this once per render turns that into one
  * O(pool) pass plus O(1) lookups.
  *
+ * CHE COSA È DAVVERO GARANTITO DA UN TEST, E CHE COSA NO. La frase qui sopra
+ * ha due metà con due statuti diversi, e tenerle separate è il punto:
+ *   - «una passata O(pool)» — GARANTITA, e contata: `src/ui/listone.test.ts`
+ *     §"resolves a whole panel of ids with ONE key computation per pool row"
+ *     conta le applicazioni di `listonePlayerKey` riga per riga (getter su
+ *     `proxyId`) e pretende ESATTAMENTE `pool.length`. È un'uguaglianza, non
+ *     una soglia: una sola chiave in più la fa fallire. Ha sostituito
+ *     un'asserzione cronometrata che lasciava passare un degrado di otto
+ *     volte — vedi il commento in testa a quel describe.
+ *   - «una volta per render» — NON garantita da nessun test: è una proprietà
+ *     dei CALL SITE, non di questa funzione. Dove il pannello riceve l'indice
+ *     già costruito (`warBoardFullHtml`, `renderWarBoardFull`,
+ *     `renderRoseCard`) la firma stessa lo impone e non c'è niente da
+ *     provare; dove il pannello lo costruisce da sé — `renderZona4` (STORICO,
+ *     src/main.ts) e `renderRoseScreen` (src/ui/views.ts) — resta scoperta,
+ *     perché entrambe costruiscono DOM e questo progetto non ha un ambiente
+ *     di test jsdom/happy-dom (vedi src/ui/theme.test.ts). Ricostruire questo
+ *     indice dentro il ciclo di render, una volta per id invece che una per
+ *     pannello, oggi non farebbe fallire niente.
+ *
  * Duplicate keys keep `pool.find`'s answer — the FIRST row wins — so this is
  * a drop-in for the scan it replaces. (`validateListonePool` already refuses
  * a pool with two rows on the same identity, so this is a tie-break that
