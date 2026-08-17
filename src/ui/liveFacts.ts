@@ -92,13 +92,24 @@ export function formatSignedPercent(ratio: number): string {
  * `calledRole` is `""` while the moment has no role (defensive: the live
  * moment is only reachable through a correlated listone row, which always
  * carries one). Nothing is hidden in that case — no cell is highlighted.
+ *
+ * `roles` SELEZIONA QUALI CELLE RENDERE, e non è una scorciatoia estetica.
+ * #331 punto 2: mentre è in asta un attaccante le altre tre righe non decidono
+ * niente e costano altezza sulla schermata più stretta dell'app, quindi la
+ * scheda del giocatore rende la cella del solo ruolo chiamato e il resto va
+ * dietro un gesto (views.ts `renderMomentInsightsBlock`). Le celle sono le
+ * STESSE — stesso id, stessa provenienza, stesso markup: qui si sceglie solo
+ * quali di esse toccano a chi chiama, e le due chiamate insieme rendono sempre
+ * tutti e quattro i ruoli. Il valore di default è tutti e quattro, così ogni
+ * altro chiamante (e i test unitari che c'erano già) non cambia di una virgola.
  */
 export function momentScarcityHtml(
   scarcity: Readonly<Record<Role, RoleScarcity>>,
   poolLoaded: boolean,
   calledRole: Role | "",
+  roles: readonly Role[] = ROLES,
 ): string {
-  return ROLES.map((role) => {
+  return roles.map((role) => {
     const s = scarcity[role];
     const isCalled = role === calledRole;
     return `

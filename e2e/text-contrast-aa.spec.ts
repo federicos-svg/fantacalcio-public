@@ -280,6 +280,14 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
   // ── ASTA — momento LIVE ───────────────────────────────────────────────────
   await callPlayer(page, "Quarto Portiere");
   await page.locator("#assign-price").fill("30");
+  // #331 punto 2 — MOMENTO DELL'ASTA è ridotto al ruolo chiamato dentro la
+  // scheda del giocatore, e gli altri tre ruoli più il censimento MERCATO
+  // stanno dietro un gesto. La spazzata misura solo ciò che è VISIBILE: senza
+  // aprire, questi selettori uscirebbero dalla misura in silenzio e il
+  // contrasto smetterebbe di essere sorvegliato proprio dove nessuno guarda.
+  // Restano nell'elenco esplicito, e per starci il gesto va fatto.
+  await page.locator("#moment-facts-toggle").click();
+  await expect(page.locator("#moment-facts-detail")).toBeVisible();
   for (const sel of [
     "#moment-market-basis", // --text-dim su --panel-inner, 2,43:1 prima
     "#war-board-mini-note", // --text-dim, «bdg = crediti residui · max bid = …»

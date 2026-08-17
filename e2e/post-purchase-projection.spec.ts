@@ -18,9 +18,31 @@ import { AA_NORMAL_TEXT, installSyntheticNetworkGuard, textContrast } from "./he
 //  3. col campo vuoto o con una cifra non valida NON mostra un numero finto;
 //  4. quando il prezzo rompe la riserva dura lo dice, e dice di quanto;
 //  5. è VISIBILE nell'istante in cui serve, cioè con il campo del prezzo a
-//     fuoco — il blocco «Prezzo da pagare» in cima allo schermo, in quel
-//     momento, è già scorso fuori;
+//     fuoco;
 //  6. nessun output direttivo: contabilità, mai un consiglio.
+//
+// PUNTO 5 — PERCHÉ LA MISURA È CAMBIATA, E DI CHE COSA È PROVA ADESSO.
+// Fino a #331 punti 2-3 questa spec asserisce `priceDisplayTop < 0`: cioè che
+// il blocco «Prezzo da pagare», in cima allo schermo, fosse GIÀ SCORSO FUORI
+// quando il campo del prezzo era in vista. Era vero, ed era la ragione per cui
+// la proiezione stava nella riga ASSEGNA A invece che accanto al prezzo — ma
+// era anche, letteralmente, l'asserzione del difetto: «ASSEGNA A» cominciava a
+// 1262px con il pannello delle fasce, cioè 362px sotto la piega a 1440×900 e
+// 182px sotto a 1920×1080 (Chromium, pool sintetico da 532 righe, log vuoto).
+// Il riordino ha portato identità del giocatore, prezzo e gesto dentro la
+// STESSA scheda, e quella distanza non esiste più: il titolo «ASSEGNA A» sta a
+// 430px e l'intero gesto finisce a 514px, sopra la piega a entrambe le
+// risoluzioni. `priceDisplayTop < 0` sarebbe oggi rossa dicendo il vero.
+//
+// La misura non è stata cancellata, è stata ROVESCIATA e irrigidita: si
+// asserisce che i due blocchi siano IN VISTA INSIEME e che per arrivare al
+// campo del prezzo non serva scorrere di un pixel (`scrollY === 0` dopo uno
+// `scrollIntoView({block:"nearest"})`, che su un elemento già dentro la
+// finestra non scorre). Quel che il punto 5 protegge — la proiezione è
+// leggibile nell'istante in cui si batte la cifra — resta protetto, e in più
+// resta protetto il fatto che il gesto non sia più sotto la piega. La geometria
+// della schermata nel suo complesso è congelata a parte, in
+// e2e/asta-gesto-principale.spec.ts.
 //
 // Ogni riga del listone è sintetica e la guardia di rete aborta tutto il resto.
 
@@ -188,24 +210,21 @@ test("la proiezione è a schermo proprio mentre si digita il prezzo", async ({ p
   const externalRequests = await boot(page, context);
   await callPlayer(page, "Quarto Portiere");
 
-  // Questo è il motivo per cui il blocco NON sta accanto a «Prezzo da pagare»
-  // in cima: con il campo del prezzo a fuoco quel blocco è già fuori schermo.
   await page.locator("#assign-price").fill("30");
-  // Il campo viene portato in vista con lo SCORRIMENTO MINIMO del browser
-  // (`block: "nearest"`), che è quello che fa un utente quando raggiunge il
-  // campo. Il passo è esplicito da #331: prima bastava lo scorrimento
-  // automatico di Playwright — che lascia il campo una decina di pixel sotto
-  // la piega — perché il pannello AVVERSARI qui sopra si accorciava di ~20px
-  // al primo tasto (la sua riga di sintesi passava da due righe a una) e
-  // tirava su tutta la colonna. Quel pannello ora mostra i precedenti d'asta,
-  // che non dipendono dalla cifra battuta e quindi NON si riflowano: la
-  // proiezione non può più essere salvata da un salto di layout altrui, e
-  // questa misura non deve più dipenderne. Ciò che il test protegge non
-  // cambia — anzi si irrigidisce: con il campo del prezzo interamente in
-  // vista, la proiezione deve essere interamente in vista con lui.
+  // Lo SCORRIMENTO MINIMO del browser (`block: "nearest"`) è quello che fa un
+  // utente quando raggiunge il campo — e su un elemento già interamente dentro
+  // la finestra non scorre affatto. Da #331 punti 2-3 è proprio questo il caso,
+  // e la riga qui sotto lo verifica invece di darlo per scontato: se una corsia
+  // futura rimanda il gesto sotto la piega, questo `scrollY` smette di essere
+  // zero e la spec diventa rossa.
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.evaluate(() =>
     document.getElementById("assign-price")?.scrollIntoView({ block: "nearest" }),
   );
+  expect(
+    await page.evaluate(() => window.scrollY),
+    "per arrivare al campo del prezzo non deve servire scorrere",
+  ).toBe(0);
   const geometry = await page.evaluate(() => {
     const rect = (id: string) => {
       const el = document.getElementById(id);
@@ -245,8 +264,14 @@ test("la proiezione è a schermo proprio mentre si digita il prezzo", async ({ p
   ).toBe(true);
   expect(geometry.sameBand, "la proiezione sta nella stessa banda del campo prezzo").toBe(true);
   expect(geometry.formRowHeight, "la riga ASSEGNA A non deve crescere").toBeLessThanOrEqual(60);
-  // La misura che spiega la scelta: il blocco in cima è sopra il bordo alto.
-  expect(geometry.priceDisplayTop).toBeLessThan(0);
+  // La misura rovesciata (vedi la nota «PUNTO 5» in testa al file): «Prezzo da
+  // pagare» e il campo che lo aggiorna stanno adesso nella STESSA scheda e
+  // sono in vista insieme, senza scorrere. Era `< 0`, cioè fuori schermo:
+  // quell'asserzione descriveva il difetto che #331 punti 2-3 hanno tolto.
+  expect(
+    geometry.priceDisplayTop,
+    "«Prezzo da pagare» è in vista insieme al campo che lo aggiorna",
+  ).toBeGreaterThanOrEqual(0);
 
   // Nessuno scorrimento laterale introdotto dal blocco.
   expect(

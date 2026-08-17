@@ -1110,6 +1110,26 @@ export function renderPlayerInsightsBlock(props: PlayerInsightProps): HTMLElemen
 // dishonesty in the opposite direction. Nothing that was displayed here has
 // been dropped: the placeholder displayed one sentence saying it had nothing.
 
+// #331 PUNTO 2 — RIDOTTO AL RUOLO CHIAMATO, DENTRO LA SCHEDA DEL GIOCATORE.
+//
+// Il pannello iterava su tutti e quattro i ruoli e stava in una griglia a due
+// colonne sotto la scheda: 463px di altezza, di cui tre quarti su ruoli che
+// mentre è in asta un attaccante non decidono niente. Adesso rende la cella del
+// SOLO ruolo chiamato ed è montato dentro la scheda del giocatore, dove la
+// domanda «quanto mi serve questo ruolo adesso» viene fatta.
+//
+// RIDURRE NON TOGLIE INFORMAZIONE (vincolo di Pico, #333). Le altre tre celle,
+// il censimento MERCATO e la nota metodologica non sono spariti: stanno dentro
+// lo stesso pannello, dietro UN gesto, nel DOM anche da chiusi (`hidden`, non
+// rimozione) e annunciati con aria-expanded/aria-controls. È lo stesso idioma
+// di renderTableDetail() e della fascia critica, non un secondo meccanismo. Le
+// quattro celle restano quattro, con gli stessi id e la stessa provenienza:
+// cambia solo quale delle due chiamate a `momentScarcityHtml` le rende.
+//
+// SENZA RUOLO CHIAMATO (difensivo: il momento live si raggiunge solo da una
+// riga di listone correlata, che il ruolo ce l'ha sempre) non c'è niente da
+// ridurre e la parte sempre visibile torna a essere tutte e quattro le celle.
+
 export interface MomentFactsProps {
   readonly scarcity: Readonly<Record<Role, RoleScarcity>>;
   /** False when no listone is loaded — availability shows `n/d`, never 0. */
@@ -1117,34 +1137,78 @@ export interface MomentFactsProps {
   /** The called player's role, marked in the grid. `""` marks nothing. */
   readonly calledRole: Role | "";
   readonly pressure: ResidualPressure;
+  /** Se il dettaglio (altri ruoli + mercato + nota) è aperto adesso. */
+  readonly detailOpen: boolean;
+  /** Il gesto che lo apre e lo chiude. */
+  readonly onToggleDetail: () => void;
 }
 
 export function renderMomentInsightsBlock(props: MomentFactsProps): HTMLElement {
   const panel = document.createElement("section");
   panel.id = "moment-facts-panel";
-  panel.className = "panel moment-facts";
+  panel.className = "panel moment-facts moment-facts--inline";
   panel.setAttribute("aria-label", "Momento dell'asta: scarsità per ruolo e mercato");
+
+  const called: readonly Role[] = props.calledRole === "" ? ROLES : [props.calledRole];
+  const others: readonly Role[] =
+    props.calledRole === "" ? [] : ROLES.filter((r) => r !== props.calledRole);
 
   const title = document.createElement("div");
   title.className = "panel-title";
-  title.textContent = "MOMENTO DELL'ASTA";
+  title.id = "moment-facts-title";
+  // Il titolo dice DI CHI parla: «MOMENTO DELL'ASTA» su una cella sola di
+  // ruolo lascerebbe credere che quella cella sia il tavolo intero.
+  title.textContent =
+    props.calledRole === ""
+      ? "MOMENTO DELL'ASTA"
+      : `MOMENTO DELL'ASTA — ${ROLE_LABELS[props.calledRole].toUpperCase()}`;
   panel.appendChild(title);
 
   const grid = document.createElement("div");
   grid.id = "moment-scarcity-grid";
   grid.className = "moment-scarcity__grid";
-  grid.innerHTML = momentScarcityHtml(props.scarcity, props.poolLoaded, props.calledRole);
+  grid.innerHTML = momentScarcityHtml(props.scarcity, props.poolLoaded, props.calledRole, called);
   panel.appendChild(grid);
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.id = "moment-facts-toggle";
+  toggle.className = "moment-facts__toggle";
+  toggle.setAttribute("aria-expanded", String(props.detailOpen));
+  toggle.setAttribute("aria-controls", "moment-facts-detail");
+  // Dichiara il proprio contenuto PRIMA di aprirlo: un gesto che non dice cosa
+  // contiene nasconde informazione invece di riordinarla.
+  toggle.innerHTML =
+    `<span class="moment-facts__what">${
+      others.length === 0 ? "mercato: crediti e slot sul tavolo" : "altri tre ruoli · mercato: crediti e slot sul tavolo"
+    }</span>` + `<span class="moment-facts__caret" aria-hidden="true">${props.detailOpen ? "▴" : "▾"}</span>`;
+  toggle.addEventListener("click", props.onToggleDetail);
+  panel.appendChild(toggle);
+
+  const detail = document.createElement("div");
+  detail.id = "moment-facts-detail";
+  detail.className = "moment-facts__detail";
+  if (!props.detailOpen) detail.hidden = true;
+
+  if (others.length > 0) {
+    const rest = document.createElement("div");
+    rest.id = "moment-scarcity-rest";
+    rest.className = "moment-scarcity__grid";
+    rest.innerHTML = momentScarcityHtml(props.scarcity, props.poolLoaded, props.calledRole, others);
+    detail.appendChild(rest);
+  }
 
   const market = document.createElement("div");
   market.innerHTML = marketPressureHtml(props.pressure);
-  panel.appendChild(market);
+  detail.appendChild(market);
 
   const note = document.createElement("p");
   note.className = "hint-text";
   note.id = "moment-facts-note";
   note.textContent = MOMENT_FACTS_NOTE;
-  panel.appendChild(note);
+  detail.appendChild(note);
+
+  panel.appendChild(detail);
 
   return panel;
 }
