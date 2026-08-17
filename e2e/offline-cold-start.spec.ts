@@ -18,7 +18,16 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { SHIPPED_LISTONE, SHIPPED_LISTONE_FIRST_PAGE, SHIPPED_TARGET } from "./shipped-listone.js";
-import { expectListoneRows, expectListoneWholePoolLoaded, selectListoneRowByName } from "./helpers.js";
+// `waitForServiceWorkerControl` — «installato, attivato E in controllo di
+// questa pagina», che con l'install che attende `cache.addAll` significa
+// precache completo — sta in e2e/helpers.ts: era in tre copie identiche e ora
+// serve anche alle spec del listone. Nessun timer, nessuna attesa arbitraria.
+import {
+  expectListoneRows,
+  expectListoneWholePoolLoaded,
+  selectListoneRowByName,
+  waitForServiceWorkerControl,
+} from "./helpers.js";
 
 // The listone that actually ships in the build (public/data/listone_2025_26.json),
 // validated and read by identity, not by hardcoded content — see
@@ -74,21 +83,6 @@ async function installOriginOnlyGuard(context: BrowserContext, externalRequests:
     externalRequests.push(route.request().url());
     return route.abort("blockedbyclient");
   });
-}
-
-/** Resolves once the worker is installed, activated AND controlling this page —
- *  which, with the install step awaiting `cache.addAll`, means the precache is
- *  complete. No timers, no arbitrary waits. */
-async function waitForServiceWorkerControl(page: Page): Promise<void> {
-  await page.waitForFunction(
-    async () => {
-      if (!("serviceWorker" in navigator)) return false;
-      await navigator.serviceWorker.ready;
-      return navigator.serviceWorker.controller !== null;
-    },
-    undefined,
-    { timeout: 15_000 },
-  );
 }
 
 async function assignTarget(page: Page): Promise<void> {

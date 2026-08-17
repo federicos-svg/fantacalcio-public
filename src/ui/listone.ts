@@ -687,6 +687,35 @@ export function legacyPlayerIdDisplayName(playerId: string): string {
  * round 2, finding 2). Building this once per render turns that into one
  * O(pool) pass plus O(1) lookups.
  *
+ * CHE COSA È DAVVERO GARANTITO DA UN TEST, E CHE COSA NO. La frase qui sopra
+ * ha due metà con due statuti diversi, e tenerle separate è il punto:
+ *   - «una passata O(pool)» — GARANTITA, e contata: `src/ui/listone.test.ts`
+ *     §"resolves a whole panel of ids with ONE key computation per pool row"
+ *     conta le applicazioni di `listonePlayerKey` riga per riga (getter su
+ *     `proxyId`) e pretende ESATTAMENTE `pool.length`. È un'uguaglianza, non
+ *     una soglia: una sola chiave in più la fa fallire. Ha sostituito
+ *     un'asserzione cronometrata che lasciava passare un degrado di otto
+ *     volte — vedi il commento in testa a quel describe.
+ *   - «una volta per render» — NON garantita da nessun test: è una proprietà
+ *     dei CALL SITE, non di questa funzione. Dove il pannello riceve l'indice
+ *     già costruito (`warBoardFullHtml`, `renderWarBoardFull`,
+ *     `renderRoseCard`) la firma stessa lo impone e non c'è niente da
+ *     provare; dove lo costruisce da sé sono OTTO call site, enumerati in due
+ *     passi: `grep -rn 'listonePoolIndex('` per le chiamate dirette, poi
+ *     `grep -rn 'auctionDisplayIndex('` per i call site del wrapper (riga
+ *     1350) — non tre: `src/main.ts:926`
+ *     (`poolOrphanNotice`), `:1581` (`nominationContextTopAssigned`), `:2878`
+ *     (`renderRiconfermeSettings`), `:3146` (`schedaRowTarget` — un indice
+ *     O(pool) intero costruito per un solo `.get()`: debito reale, non una
+ *     regressione di questa PR), `:4287` (`renderTableDetail`, STORICO),
+ *     `:5410` e `:5469` (entrambi dentro `renderZona4`), più
+ *     `src/ui/views.ts:1448` (`renderRoseScreen`). Restano tutti scoperti,
+ *     perché vivono in `src/main.ts`, che esegue `render()` e
+ *     `window.addEventListener` all'import e non è importabile in un test;
+ *     `views.ts:1448` costruisce DOM. Ricostruire questo
+ *     indice dentro il ciclo di render, una volta per id invece che una per
+ *     pannello, oggi non farebbe fallire niente.
+ *
  * Duplicate keys keep `pool.find`'s answer — the FIRST row wins — so this is
  * a drop-in for the scan it replaces. (`validateListonePool` already refuses
  * a pool with two rows on the same identity, so this is a tie-break that

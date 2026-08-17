@@ -29,6 +29,7 @@ import {
   defaultVisibleColumnKeys,
   poolHasAppealIndex,
   APPEAL_INDEX_COLUMN_KEY,
+  type ListonePlayer,
 } from "./listone.js";
 
 // Synthetic fixtures only — no real player/club names, per project no-go
@@ -905,35 +906,120 @@ describe("listonePoolIndex (audit round 2, finding 2)", () => {
     expect(listonePoolIndex([first, second]).get(key)).toEqual(first);
   });
 
-  it("resolves a whole panel of ids in a fraction of the linear-scan cost", () => {
-    // The shape the probe measured: a full auction (224 standing purchases)
-    // against a real-sized listone (600 rows). Compared as a RATIO against
-    // the exact scan this replaced, both timed in the same process, so the
-    // assertion means "the O(log × pool) term is gone" on any machine rather
-    // than encoding one runner's milliseconds.
-    const pool = Array.from({ length: 600 }, (_, i) => ({
-      name: `Giocatore ${i}`,
-      role: "C" as const,
-      club: `Club ${i % 20}`,
-      quotation: (i % 30) + 1,
-    }));
-    const ids = Array.from({ length: 224 }, (_, i) => listonePlayerKey(pool[i * 2]!));
+  /* ──────────────────────────────────────────────────────────────────────────
+     SI CONTA, NON SI CRONOMETRA
+     ──────────────────────────────────────────────────────────────────────────
+     Qui viveva "resolves a whole panel of ids in a fraction of the linear-scan
+     cost": due finestre `performance.now()` e `expect(indexedMs * 5)
+     .toBeLessThan(linearMs)`. È stato rimosso perché aveva smesso di
+     discriminare, e un'indagine forense indipendente l'ha misurato:
 
-    const linearStart = performance.now();
+     - la finestra `indexed` misurava per ~75% l'harness e non il prodotto: il
+       lavoro reale è 0,82 ms, i 224 `expect(...).toContain(...)` DENTRO la
+       finestra cronometrata ne aggiungevano ~3,0. Rapporto reale
+       dell'algoritmo 65×, rapporto misurato 17,9× — l'overhead si scaricava
+       quasi tutto sul denominatore;
+     - il denominatore era sotto il rumore di schedulazione: sotto suite intera
+       la finestra `indexed` è stata vista a 9,36 / 10,95 / 20,19 ms mentre
+       `linear` restava a ~53 ms. Non GC e non contesa CPU uniforme (entrambe
+       falsificate: gli eventi GC cadono nella finestra `linear`, e 15
+       esecuzioni con 6 CPU-hog danno zero rossi), ma lo STALLO DISCRETO;
+     - riproduzioni: suite intera 1 rosso su 6, test isolato 0 su 15, isolato
+       sotto carico 0 su 15;
+     - sweep del degrado reale: 4× passa, 8× passa, 12× fallisce, 24×
+       fallisce. Un peggioramento reale di OTTO VOLTE restava verde, e zero
+       modifiche al codice producevano rossi: banda di rumore e banda di
+       segnale si sovrapponevano, e il rumore era più largo.
+
+     L'unica regressione che quell'asserzione catturasse da sola — il ritorno
+     completo della scansione lineare — è già catturata deterministicamente da
+     "indexes every row by its listonePlayerKey" qui sopra (su `index.size`).
+     Il suo valore marginale era quindi negativo: falsi rossi senza copertura
+     aggiuntiva.
+
+     Al suo posto, sotto, la stessa proprietà nella valuta giusta: il NUMERO di
+     calcoli di `listonePlayerKey`, contato riga per riga, senza alcuna
+     finestra temporale. Non un flag che dichiara una condizione: un contatore
+     che conta le invocazioni.
+     ────────────────────────────────────────────────────────────────────────── */
+
+  /**
+   * Conta quante volte `listonePlayerKey` viene applicata a una riga del pool,
+   * senza mock e senza spie su binding ESM (che non intercettano le chiamate
+   * interne al modulo): ogni riga porta un getter su `proxyId`, la PRIMA
+   * proprietà che `listonePlayerKey` legge, e in questo percorso
+   * (`listonePoolIndex` + `resolvePlayerDisplayName`) nessun altro la legge.
+   * Una lettura di `proxyId` = una chiave calcolata su quella riga.
+   */
+  function countingPool(rows: number): {
+    readonly pool: ListonePlayer[];
+    keyComputations(): number;
+    reset(): void;
+  } {
+    let count = 0;
+    const pool = Array.from({ length: rows }, (_, i) => {
+      const row = {
+        name: `Giocatore ${i}`,
+        role: "C" as const,
+        club: `Club ${i % 20}`,
+        quotation: (i % 30) + 1,
+      };
+      Object.defineProperty(row, "proxyId", {
+        get(): undefined {
+          count += 1;
+          return undefined;
+        },
+        enumerable: false,
+        configurable: true,
+      });
+      return row as ListonePlayer;
+    });
+    return { pool, keyComputations: () => count, reset: () => void (count = 0) };
+  }
+
+  it("resolves a whole panel of ids with ONE key computation per pool row", () => {
+    // La stessa forma che la probe aveva misurato — un'asta completa (224
+    // acquisti in piedi) contro un listone di taglia reale (600 righe) — ma
+    // l'asserzione è sul CONTEGGIO, non sul tempo: deterministica per
+    // costruzione, insensibile a stalli di schedulazione, GC e carico.
+    const POOL_ROWS = 600;
+    const PANEL_IDS = 224;
+    const counting = countingPool(POOL_ROWS);
+    const ids = Array.from({ length: PANEL_IDS }, (_, i) => listonePlayerKey(counting.pool[i * 2]!));
+
+    counting.reset();
+    const index = listonePoolIndex(counting.pool);
+    for (const id of ids) expect(resolvePlayerDisplayName(id, index)).toContain("Giocatore");
+
+    // O(pool): una passata sola, una chiave per riga. Non "circa", non "meno
+    // di": esattamente. Il termine O(log × pool) non c'è.
+    expect(counting.keyComputations()).toBe(POOL_ROWS);
+  });
+
+  it("the linear scan it replaced costs two orders of magnitude more key computations", () => {
+    // Il confronto che l'asserzione cronometrata voleva fare, nella valuta in
+    // cui è esatto. Serve a rendere leggibile il margine: non è "un po' meno",
+    // sono ~83,6 volte meno (linear=50176, indexed=600, misurati con questo
+    // stesso contatore), e la differenza è un numero intero riproducibile.
+    const POOL_ROWS = 600;
+    const PANEL_IDS = 224;
+    const counting = countingPool(POOL_ROWS);
+    const ids = Array.from({ length: PANEL_IDS }, (_, i) => listonePlayerKey(counting.pool[i * 2]!));
+
+    counting.reset();
     for (const id of ids) {
-      const match = pool.find((p) => listonePlayerKey(p) === id);
+      const match = counting.pool.find((p) => listonePlayerKey(p) === id);
       expect(match).toBeDefined();
     }
-    const linearMs = performance.now() - linearStart;
+    const linear = counting.keyComputations();
 
-    const indexedStart = performance.now();
-    const index = listonePoolIndex(pool);
+    counting.reset();
+    const index = listonePoolIndex(counting.pool);
     for (const id of ids) expect(resolvePlayerDisplayName(id, index)).toContain("Giocatore");
-    const indexedMs = performance.now() - indexedStart;
+    const indexed = counting.keyComputations();
 
-    // Measured ratio is ~2 orders of magnitude; 5× is the floor that fails
-    // only if the linear scan comes back.
-    expect(indexedMs * 5).toBeLessThan(linearMs);
+    expect(indexed).toBe(POOL_ROWS);
+    expect(indexed * 5).toBeLessThan(linear);
   });
 });
 

@@ -72,6 +72,93 @@ export async function installSyntheticNetworkGuard(
   });
 }
 
+/* ────────────────────────────────────────────────────────────────────────────
+   IL SERVICE WORKER COME TERZA FONTE — precondizioni, non assunzioni
+   ────────────────────────────────────────────────────────────────────────────
+   Da quando src/offline/** esiste, ogni spec che gira contro il build di
+   preview ha un service worker installato, e con esso una TERZA fonte per il
+   listone oltre alla rete e a localStorage: la Cache Storage di questo build.
+   `context.route` intercetta anche le fetch che partono dal worker, quindi la
+   copia in cache è quella che la spec ha servito — ma solo se la spec aspetta
+   che l'install (e il suo `cache.addAll`) sia finito prima di cambiare le
+   rotte. Le due funzioni qui sotto sono ciò che rende quel confine esplicito:
+   la prima chiude la corsa, la seconda toglie di mezzo la cache quando una
+   spec dichiara che "entrambe le fonti sono giù".
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Resolves once the service worker CONTROLS the page — i.e. `install` (and the
+ * `cache.addAll` precache inside its `waitUntil`) completed and `activate`
+ * claimed this client.
+ *
+ * Una spec che cambia rotta (`context.unroute` + nuova `context.route`) mentre
+ * l'install è ancora in volo lascia una finestra in cui le fetch del worker
+ * raggiungono il server vero: il precache finisce per contenere l'ASSET
+ * SPEDITO invece della fixture, e da lì in poi la spec prova qualcosa che non
+ * ha scelto. Aspettare il controllo è ciò che rende quella finestra
+ * inesistente.
+ */
+export async function waitForServiceWorkerControl(page: Page): Promise<void> {
+  await page.waitForFunction(
+    async () => {
+      if (!("serviceWorker" in navigator)) return false;
+      await navigator.serviceWorker.ready;
+      return navigator.serviceWorker.controller !== null;
+    },
+    undefined,
+    { timeout: 15_000 },
+  );
+}
+
+/**
+ * Toglie l'asset dati da OGNI cache che questo build possiede, e prova che è
+ * sparito.
+ *
+ * Serve alle spec che iniettano un guasto sull'asset statico (500, abort) e
+ * poi asseriscono su ciò che resta in piedi. Senza questo passo la premessa è
+ * falsa: `handleDataAsset` (src/offline/sw.ts) è network-first CON fallback in
+ * cache — per specifica, ed è la stessa regola che
+ * e2e/service-worker-cache-guards.spec.ts pretende — quindi una risposta 500
+ * non arriva all'app: arriva l'ultima copia buona. Il prodotto ha ragione; è
+ * la spec che deve dire davvero ciò che assume.
+ *
+ * Fail-closed in due punti, perché un helper che smette di fare qualcosa senza
+ * dirlo trasformerebbe queste spec in verdi che non provano nulla: pretende di
+ * trovare almeno una cache di questo build (nessuna cache = nessun worker =
+ * la premessa non è stata verificata, non "va tutto bene"), e ricontrolla dopo
+ * la cancellazione che nessuna cache risponda più per quel path.
+ */
+export async function evictDataAssetFromServiceWorkerCache(
+  page: Page,
+  path: string = LISTONE_ASSET_PATH,
+): Promise<void> {
+  const outcome = await page.evaluate(async (assetPath) => {
+    const ours = (await caches.keys()).filter((name) => name.startsWith("fac-shell-"));
+    for (const name of ours) {
+      const cache = await caches.open(name);
+      // Per-entry, non solo `cache.delete(path)`: le voci del precache sono
+      // memorizzate da `new Request(url)` e la pagina le richiede con header
+      // diversi, la stessa asimmetria che obbliga `matchInCache` a
+      // `ignoreVary` — cancellare per chiave esatta lascerebbe superstiti.
+      for (const request of await cache.keys()) {
+        if (new URL(request.url).pathname === assetPath) await cache.delete(request, { ignoreVary: true });
+      }
+      await cache.delete(assetPath, { ignoreVary: true });
+    }
+    const survivors: string[] = [];
+    for (const name of ours) {
+      const cache = await caches.open(name);
+      if (await cache.match(assetPath, { ignoreVary: true })) survivors.push(name);
+    }
+    return { ours, survivors };
+  }, path);
+  expect(
+    outcome.ours,
+    "nessuna cache di questo build: il service worker non è installato, quindi questa spec non ha verificato la premessa che dichiara",
+  ).not.toEqual([]);
+  expect(outcome.survivors, `l'asset ${path} risponde ancora da queste cache`).toEqual([]);
+}
+
 /**
  * Switches screen through the real top-bar nav (plain spans with click
  * handlers, not links — hence the text locator scoped to <nav>). The app
