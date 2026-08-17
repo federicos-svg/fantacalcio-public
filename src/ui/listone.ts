@@ -700,10 +700,16 @@ export function legacyPlayerIdDisplayName(playerId: string): string {
  *     dei CALL SITE, non di questa funzione. Dove il pannello riceve l'indice
  *     già costruito (`warBoardFullHtml`, `renderWarBoardFull`,
  *     `renderRoseCard`) la firma stessa lo impone e non c'è niente da
- *     provare; dove il pannello lo costruisce da sé — `renderZona4` (STORICO,
- *     src/main.ts) e `renderRoseScreen` (src/ui/views.ts) — resta scoperta,
- *     perché entrambe costruiscono DOM e questo progetto non ha un ambiente
- *     di test jsdom/happy-dom (vedi src/ui/theme.test.ts). Ricostruire questo
+ *     provare; dove lo costruisce da sé sono OTTO call site, enumerati con
+ *     `grep -rn 'listonePoolIndex('`, non tre: `src/main.ts:926`
+ *     (`poolOrphanNotice`), `:1581` (`nominationContextTopAssigned`), `:2878`
+ *     (`renderRiconfermeSettings`), `:3146` (`schedaRowTarget` — un indice
+ *     O(pool) intero costruito per un solo `.get()`: debito reale, non una
+ *     regressione di questa PR), `:4287` (`renderTableDetail`, STORICO),
+ *     `:5410` e `:5469` (entrambi dentro `renderZona4`), più
+ *     `src/ui/views.ts:1448` (`renderRoseScreen`). Restano tutti scoperti,
+ *     perché tutti costruiscono DOM e questo progetto non ha un ambiente di
+ *     test jsdom/happy-dom (vedi src/ui/theme.test.ts). Ricostruire questo
  *     indice dentro il ciclo di render, una volta per id invece che una per
  *     pannello, oggi non farebbe fallire niente.
  *

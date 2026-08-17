@@ -999,7 +999,8 @@ describe("listonePoolIndex (audit round 2, finding 2)", () => {
   it("the linear scan it replaced costs two orders of magnitude more key computations", () => {
     // Il confronto che l'asserzione cronometrata voleva fare, nella valuta in
     // cui è esatto. Serve a rendere leggibile il margine: non è "un po' meno",
-    // sono ~112 volte meno, e la differenza è un numero intero riproducibile.
+    // sono ~83,6 volte meno (linear=50176, indexed=600, misurati con questo
+    // stesso contatore), e la differenza è un numero intero riproducibile.
     const POOL_ROWS = 600;
     const PANEL_IDS = 224;
     const counting = countingPool(POOL_ROWS);
