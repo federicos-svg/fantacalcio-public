@@ -239,7 +239,19 @@ test("al confine budgetResidual === otherSlots la schermata e il bottone dicono 
   await page.locator("#assign-price").fill("1");
   await page.getByRole("button", { name: "Registra acquisto", exact: true }).click();
   await expect(page.getByText(/hard reserve violata/)).toBeVisible();
-  await expect(page.locator("#critical-budget")).toHaveText("24 cr");
+  // IL BUDGET NON SI È MOSSO — letto dove si legge in QUESTO momento.
+  // Un acquisto rifiutato non fa tornare indietro la schermata: si resta nel
+  // momento ASTA, col chiamato ancora davanti. La striscia critica è chrome del
+  // momento CHIAMATA e lì non è montata: gli stessi numeri, in asta, li portano
+  // la nota «max bid sicuro» sotto «Prezzo da pagare» e la war board MINI.
+  // Cercare `#critical-budget` qui misurerebbe il montaggio della striscia
+  // invece del budget, e resterebbe rosso anche con l'app perfettamente onesta.
+  // La difesa è la stessa e alla cifra esatta: 1 cr è stato RIFIUTATO, quindi i
+  // 24 crediti devono essere ancora tutti lì. La riga «io» della MINI è dove
+  // quel numero sta adesso.
+  await expect(page.locator(".war-board-mini__item--self .war-board-mini__budget")).toHaveText(
+    "bdg24",
+  );
 
   // Il gesto che la nota dichiara possibile lo è davvero — e non legge il
   // campo prezzo, che è rimasto a 1.
