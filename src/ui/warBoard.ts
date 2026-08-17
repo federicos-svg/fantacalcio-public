@@ -14,6 +14,12 @@
 // markup — which is exactly the choice `warBoardRows()`'s docstring leaves to
 // the UI corsia.
 //
+// Il tetto mostrato dalle due varianti è `maxSafe()` e si chiama `max bid` in
+// tutte e due, con quel nome e non un altro: è il tetto di UNA offerta, ed è
+// una grandezza diversa dal `max reparto` che la fascia critica mostra per
+// ruolo (maxAllocatable). I due nomi vivono in src/ui/budgetLabels.ts, che
+// spiega perché confonderli è caro.
+//
 // §D9 (docs/DECISIONS.md, "regola dei tre ingredienti"): every number here is
 // a measured fact from the event log or declared arithmetic over it
 // (`maxSafe()`). No model field, no behavioural index, no `value` /
@@ -29,6 +35,7 @@ import type { RosterEntry } from "../../packages/engine/src/types.js";
 import type { MaxSafeResult, WarBoardRow } from "../../packages/engine/src/auction.js";
 import { escHtml, roleChipHtml } from "./theme.js";
 import { type ListonePlayer, resolvePlayerDisplayName } from "./listone.js";
+import { MAX_BID_GLOSS, MAX_BID_LABEL, ROLE_MAX_GLOSS, ROLE_MAX_LABEL } from "./budgetLabels.js";
 
 /**
  * How many acquisitions the COMPLETE variant shows per team, most recent
@@ -172,8 +179,16 @@ function acquisitionsHtml(row: WarBoardRow, poolIndex: ReadonlyMap<string, Listo
  * (docs/FRONTEND_STRUCTURE.md, revisione 2026-08-14 dell'invariante #86).
  *
  * Each item carries its own `aria-label` because the visible form is
- * abbreviated (`bdg` / `max`): assistive tech gets the full sentence while
- * the eye gets two numbers.
+ * abbreviated (`bdg` / `max bid`): assistive tech gets the full sentence
+ * while the eye gets two numbers.
+ *
+ * La sigla del tetto è `max bid`, la stessa della variante COMPLETA e non più
+ * un «max» nudo: è LO STESSO numero reso dallo STESSO `warBoardBidDisplay()`,
+ * e due parole diverse per una grandezza sola sono già mezza confusione (e
+ * l'altra mezza è che «max» nudo è anche il nome che la fascia critica dava al
+ * tetto di reparto — src/ui/budgetLabels.ts). Le due cifre stanno una per riga
+ * proprio perché l'etichetta è più lunga: incolonnate, ognuna sotto la sua
+ * sigla, si legge quale numero è quale meglio di quando erano affiancate.
  */
 export function warBoardMiniHtml(
   rows: readonly WarBoardRow[],
@@ -191,7 +206,7 @@ export function warBoardMiniHtml(
           <span class="war-board-mini__name" title="${escHtml(label)}">${escHtml(label)}</span>
           <span class="war-board-mini__nums">
             <span class="war-board-mini__budget"><em>bdg</em>${row.budgetResidual}</span>
-            <span class="war-board-mini__bid ${bid.stateClass}"><em>max</em>${bid.value}</span>
+            <span class="war-board-mini__bid ${bid.stateClass}"><em>${MAX_BID_LABEL}</em>${bid.value}</span>
           </span>
         </li>`;
     })
@@ -224,7 +239,7 @@ export function warBoardFullHtml(
               <strong>${row.budgetResidual} cr</strong>
             </span>
             <span class="war-board__metric">
-              <span>max bid</span>
+              <span>${MAX_BID_LABEL}</span>
               <strong class="${bid.stateClass}">${bid.value}${bid.value === "—" ? "" : " cr"}</strong>
               ${bid.note ? `<em class="war-board__bid-note">${bid.note}</em>` : ""}
             </span>
@@ -246,9 +261,13 @@ export function warBoardFullHtml(
  * docs/FRONTEND_STRUCTURE.md): never repeat the exact `STORICO ACQUISTI`
  * panel title — several e2e specs locate that panel by a case-insensitive
  * `hasText` and a nested repetition makes the locator ambiguous.
+ *
+ * Le glosse vengono da src/ui/budgetLabels.ts: la nota spiega la sigla che sta
+ * davvero sopra, e se la sigla cambia la nota cambia con lei. La variante
+ * COMPLETA nomina anche l'altro tetto perché nel momento CHIAMATA i due
+ * convivono a schermo — war board qui, `max reparto` nel dettaglio per ruolo
+ * della fascia in alto — ed è lì che si confondevano.
  */
-export const WAR_BOARD_MINI_NOTE =
-  "bdg = crediti residui · max = max bid sicuro (budget − minimo necessario per gli slot obbligatori che restano). Sola contabilità dal log dell'asta: nessuna stima, nessun suggerimento.";
+export const WAR_BOARD_MINI_NOTE = `bdg = crediti residui · ${MAX_BID_LABEL} = ${MAX_BID_GLOSS}. Sola contabilità dal log dell'asta: nessuna stima, nessun suggerimento.`;
 
-export const WAR_BOARD_FULL_NOTE =
-  "Contabilità di tutto il tavolo, derivata dal log dell'asta: crediti residui, max bid sicuro (budget − minimo necessario per gli slot obbligatori che restano), slot ancora liberi per ruolo e gli ultimi acquisti registrati (R = riconferma pre-asta). Nessuna stima di interesse, nessun indice comportamentale, nessuna raccomandazione.";
+export const WAR_BOARD_FULL_NOTE = `Contabilità di tutto il tavolo, derivata dal log dell'asta: crediti residui, ${MAX_BID_LABEL} (${MAX_BID_GLOSS}), slot ancora liberi per ruolo e gli ultimi acquisti registrati (R = riconferma pre-asta). Da non confondere con il «${ROLE_MAX_LABEL}» del dettaglio per ruolo, in alto: quello è ${ROLE_MAX_GLOSS}. Nessuna stima di interesse, nessun indice comportamentale, nessuna raccomandazione.`;
