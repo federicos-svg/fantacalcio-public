@@ -41,31 +41,9 @@ test("every new panel is readable at 390, 768 and 1280 without sideways scrollin
     await page.evaluate(() => localStorage.clear());
     await page.reload();
 
-    // 0. Inserimento rapido (T13 #231): the input, its action and the preview
-    //    the operator reads before committing must all stay usable at every
-    //    width. On a phone the button drops to its own full-width row rather
-    //    than shrinking next to the input into a target too small to hit at
-    //    auction speed (see .assign-command__row in src/styles/asta.css).
-    await expect(page.locator("#assign-command-panel")).toBeVisible();
-    await page.locator("#assign-command-input").fill(`io 12 ${TARGET.name}`);
-    await expect(page.locator("#assign-command-submit")).toBeEnabled();
-    await expect(page.locator("#assign-command-preview")).toBeVisible();
-    const commandRow = await page.evaluate(() => {
-      const row = document.querySelector(".assign-command__row")!.getBoundingClientRect();
-      const button = document.getElementById("assign-command-submit")!.getBoundingClientRect();
-      const input = document.getElementById("assign-command-input")!.getBoundingClientRect();
-      return { rowWidth: row.width, buttonWidth: button.width, sameLine: button.top < input.bottom };
-    });
-    expect(commandRow.buttonWidth).toBeGreaterThan(44); // never an unhittable target
-    if (viewport.width < 480) {
-      expect(commandRow.sameLine).toBe(false);
-      // Full-width row, allowing for sub-pixel layout rounding.
-      expect(Math.abs(commandRow.buttonWidth - commandRow.rowWidth)).toBeLessThan(2);
-    } else {
-      expect(commandRow.sameLine).toBe(true);
-    }
+    // 0. La pagina di partenza non scorre di lato a nessuna delle tre
+    //    larghezze, prima ancora di aprire qualsiasi pannello.
     expect(await fitsHorizontally(page)).toBe(true);
-    await page.locator("#assign-command-input").fill("");
 
     // 1. Scarsità per ruolo: 2 columns on a phone, 4 from 640px up.
     //    #333: dietro il gesto IL TAVOLO. Va aperto DENTRO il ciclo — ogni

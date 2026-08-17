@@ -32,7 +32,6 @@ import {
   type TeamState,
   ROLES,
   ROSTER_REQUIREMENTS,
-  INITIAL_BUDGET,
   COST_FLOOR,
 } from "../packages/engine/src/types.js";
 import { reduce } from "../packages/engine/src/reduce.js";
@@ -84,12 +83,6 @@ import { executeVoidCommand, voidErrorText } from "./voidCommand.js";
 import { rolePriceFacts, roleTopPurchases } from "./nominationContext.js";
 import { tierBandReading } from "./tierOrdering.js";
 import {
-  executeAssignCommand,
-  resolveAssignCommand,
-  type AssignCommandPlayer,
-  type AssignCommandResolution,
-} from "./assignCommand.js";
-import {
   renderListoneSvincolati,
   renderPlayerInsightsBlock,
   type PlayerInsightProps,
@@ -107,7 +100,6 @@ import {
   renderRoleScarcityPanel,
   renderWarBoardFull,
   renderWarBoardMini,
-  renderAssignCommandPanel,
   renderRoseScreen,
   renderMockModal,
   renderRecoveryBlockedScreen,
@@ -413,13 +405,6 @@ interface AppState {
   // tasto battuto nel campo del prezzo: una `aria-expanded` tenuta solo nel DOM
   // si richiuderebbe da sola alla prima cifra.
   momentFactsDetailOpen: boolean;
-  // T13 #231 — the fast-path command line. Raw text exactly as typed; the
-  // interpretation is recomputed from it on every render (resolveAssignCommand
-  // is pure), never cached, so it can never drift from the current log/pool.
-  assignCommand: string;
-  // Human-readable outcome of the LAST attempted command execution. Cleared on
-  // the next keystroke, so a stale refusal never sits under a new line.
-  assignCommandError: string;
   // True only immediately after entering the "chiamata" moment (boot, the
   // "← Indietro" link, or right after a completed purchase) — consumed once
   // by renderMomentoChiamata to focus the search input, so re-renders
@@ -723,8 +708,6 @@ const state: AppState = {
   criticalPlanOpen: false,
   tableDetailOpen: false,
   momentFactsDetailOpen: false,
-  assignCommand: "",
-  assignCommandError: "",
   chiamataFocusPending: true,
   assign: { fantaTeamId: SELF_ID, price: "" },
   confirmVoidSeq: null,
@@ -1489,88 +1472,6 @@ function chooseScheda(schedaKey: string | null): void {
   render();
 }
 
-// ── Command line di inserimento (T13 #231) ───────────────────────────────────
-// The resolver is pure and cheap, so the interpretation is recomputed from the
-// raw text on every render instead of being cached in state: it can never go
-// stale against a log or a pool that changed under it.
-
-/** The listone rows the command line can address, keyed exactly like the log. */
-function assignCommandPool(): AssignCommandPlayer[] {
-  return state.pool.map((p) => ({
-    playerId: listonePlayerKey(p),
-    name: p.name,
-    club: p.club,
-    role: p.role,
-  }));
-}
-
-/** `null` while the line is empty — there is nothing to interpret yet. */
-function assignCommandResolution(aState: AuctionState): AssignCommandResolution | null {
-  if (state.assignCommand.trim() === "") return null;
-  return resolveAssignCommand(state.assignCommand, {
-    seats: FANTA_TEAM_IDS.map((id) => ({ fantaTeamId: id, label: displayTeamLabel(id) })),
-    pool: assignCommandPool(),
-    assignedPlayerIds: new Set(aState.purchasedPlayerIds),
-  });
-}
-
-function onAssignCommandInput(value: string): void {
-  state.assignCommand = value;
-  // A refusal belongs to the line that produced it, never to the next one.
-  state.assignCommandError = "";
-  render();
-}
-
-function submitAssignCommand(aState: AuctionState): void {
-  const resolution = assignCommandResolution(aState);
-  // Inert unless the line resolves to exactly one purchase. The preview
-  // already says why it does not, and picking a "best" match is precisely
-  // what this path must never do.
-  if (resolution === null || !resolution.ok) return;
-  const resolved = resolution.resolved;
-
-  const result = executeAssignCommand(
-    browserStorage,
-    state.log,
-    aState,
-    resolved,
-    new Date().toISOString(),
-    FANTA_TEAM_IDS,
-    state.confirmations,
-  );
-
-  if (!result.ok) {
-    if (result.reason === "not-feasible") {
-      state.assignCommandError = feasibilityErrorText(result.violations, resolved.role);
-    } else if (result.reason === "application-error") {
-      state.assignCommandError = result.message;
-    } else {
-      // Storage failures are app-wide fail-closed state (LIVE-02), not a
-      // command-line message: the in-memory log stays where it was.
-      handleSaveFailure(result);
-      render();
-      return;
-    }
-    render();
-    focusAfterRender("assign-command-input");
-    return;
-  }
-
-  state.log = result.events as AuctionEvent[];
-  state.persistenceError = "";
-  state.assignCommand = "";
-  state.assignCommandError = "";
-  // A command purchase leaves the call surfaces exactly as an ordinary one
-  // does — nothing stays pointing at the player just bought.
-  state.call = { playerName: "", role: "", club: "", selectedPlayer: null };
-  state.callInteractions = 0;
-  state.nominationContextOpen = false;
-  state.error = "";
-  render();
-  // Straight back on the line, ready for the next call.
-  focusAfterRender("assign-command-input");
-}
-
 // How many already-assigned top-of-role purchases the "Contesto chiamata"
 // panel lists. Small on purpose: it is a factual recap of what the role has
 // already cost, not a leaderboard.
@@ -2321,21 +2222,18 @@ function renderAsta(): HTMLElement {
 
   // #333 — where the table lives, per moment.
   //
-  // CHIAMATA: scarsità per ruolo + war board + SQUADRE (LEGA) are one block
-  // behind one gesture (renderTableDetail). They are the same eight seats read
-  // three ways, they answer the four auction-speed questions only from the
-  // TABLE's side, and together they were more than half of this screen's
-  // height while the search field — the reason the screen exists — sat below
-  // the fold. Moved and grouped, not removed: every number is still one
-  // click/Invio away, in the DOM, in the same three panels.
+  // CHIAMATA: scarsità per ruolo + war board are one block behind one gesture
+  // (renderTableDetail). They read the same eight seats from the TABLE's side,
+  // and together they were more than half of this screen's height while the
+  // search field — the reason the screen exists — sat below the fold. Moved
+  // and grouped, not removed: every number is still one click/Invio away, in
+  // the DOM, in the same panels.
   //
-  // ASTA: unchanged. SQUADRE (LEGA) stays exactly where it was, plainly
-  // visible, because the live moment has no such block and nothing here may
-  // take information away from that screen.
+  // ASTA: il momento live non ha questo gruppo. La contabilità di tutto il
+  // tavolo lì è la striscia WAR BOARD (MINI), renderWarBoardMini in
+  // renderMomentoAsta.
   if (state.moment === "chiamata") {
     wrap.appendChild(renderTableDetail(aState, scarcity));
-  } else {
-    wrap.appendChild(renderTeamsPanel(aState));
   }
 
   // Zone 4
@@ -4190,56 +4088,16 @@ function renderOperatingModeStatus(): HTMLElement {
   return panel;
 }
 
-// ── League teams — read-only list of all configured teams ─────────────────────
-// Vista d'insieme di sola lettura: budget residuo + slot residui per ogni
-// squadra (incluso "Io"), derivati dall'engine. Nessun editing, nessun
-// add/rename/remove, nessuna reintroduzione di Impostazioni/team management.
-function renderTeamsPanel(aState: AuctionState): HTMLElement {
-  const panel = document.createElement("div");
-  panel.className = "panel";
-
-  const title = document.createElement("div");
-  title.className = "panel-title";
-  title.style.marginBottom = "12px";
-  title.textContent = "SQUADRE (LEGA)";
-  panel.appendChild(title);
-
-  // Responsive breakpoints (1/2/4 per row) live in src/styles/asta.css
-  // (.teams-grid) — inline styles can't express @media, see that file.
-  const grid = document.createElement("div");
-  grid.className = "teams-grid";
-
-  for (const tid of FANTA_TEAM_IDS) {
-    const t = aState.teams[tid];
-    const residuo = t?.budgetResidual ?? INITIAL_BUDGET;
-    const slotsLeft = t?.totalSlotsRemaining ?? 0;
-    const isSelf = tid === SELF_ID;
-
-    const card = document.createElement("div");
-    card.style.cssText = `background:${C.panelInner};border:1px solid ${isSelf ? C.accent : C.border};border-radius:10px;padding:14px 16px;`;
-    const slotStr = ROLES.map((r) => `${roleChipHtml(r)}<span style="font-family:${C.mono};margin-left:3px;margin-right:10px;">${t?.slotsRemaining[r] ?? ROSTER_REQUIREMENTS[r] ?? 0}</span>`).join("");
-    card.innerHTML = `<div style="font-size:14px;font-weight:600;color:${C.textPrimary};margin-bottom:6px;">${escHtml(displayTeamLabel(tid))}${isSelf ? ` <span style="font-size:11px;font-weight:700;color:${C.textAccent};">● io</span>` : ""}</div>` +
-      `<div class="kpi-value" style="font-size:22px;color:${C.green};">${residuo} <span style="font-size:13px;font-weight:600;color:${C.textSec};">cr</span></div>` +
-      `<div style="font-size:12.5px;color:${C.textSec};margin-top:6px;">slot residui: <span class="kpi-value" style="color:${C.textPrimary};">${slotsLeft}</span></div>` +
-      `<div style="font-size:13px;color:${C.textSec};margin-top:8px;display:flex;align-items:center;flex-wrap:wrap;">${slotStr}</div>`;
-    grid.appendChild(card);
-  }
-
-  panel.appendChild(grid);
-  return panel;
-}
-
 // ── #333 — Il tavolo, dietro un gesto (momento chiamata) ─────────────────────
-// SCARSITÀ PER RUOLO, TAVOLO — WAR BOARD e SQUADRE (LEGA) sono le stesse otto
-// squadre lette tre volte, e nessuna delle tre risponde alle quattro domande
-// dal MIO posto (quanto posso spendere per questo · chi me lo contende ·
-// quanto mi serve questo ruolo adesso · quanto mi resta se lo prendo): quelle
-// risposte stanno nella fascia critica e nel CONTESTO CHIAMATA. Sono il
-// contorno con cui si decide fra una chiamata e l'altra, non nei due secondi
-// in cui qualcuno urla un prezzo — quindi stanno dietro un gesto solo.
+// SCARSITÀ PER RUOLO e TAVOLO — WAR BOARD sono le stesse otto squadre lette
+// due volte, e nessuna delle due risponde alle quattro domande dal MIO posto
+// (quanto posso spendere per questo · chi me lo contende · quanto mi serve
+// questo ruolo adesso · quanto mi resta se lo prendo): quelle risposte stanno
+// nella fascia critica e nel CONTESTO CHIAMATA. Sono il contorno con cui si
+// decide fra una chiamata e l'altra, non nei due secondi in cui qualcuno urla
+// un prezzo — quindi stanno dietro un gesto solo.
 //
-// Vincolo di Pico rispettato alla lettera: RIDURRE NON TOGLIE INFORMAZIONE.
-// I tre pannelli restano nel DOM anche da chiusi (attributo `hidden`, non
+// I due pannelli restano nel DOM anche da chiusi (attributo `hidden`, non
 // rimozione), identici a se stessi, raggiungibili da tastiera con
 // aria-expanded/aria-controls — lo stesso idioma della fascia critica
 // (#331 punto 5, `.critical-roster` / `.critical-roster-detail`), non un
@@ -4251,10 +4109,10 @@ function renderTableDetail(
   const section = document.createElement("section");
   section.id = "table-detail";
   // Deliberatamente NON `.panel`: i pannelli interni lo sono già, e diverse
-  // spec localizzano SQUADRE (LEGA) con `.panel` + hasText — un antenato con
-  // la stessa classe renderebbe quel locator ambiguo.
+  // spec localizzano un pannello con `.panel` + hasText — un antenato con la
+  // stessa classe renderebbe quei locator ambigui.
   section.className = "table-detail";
-  section.setAttribute("aria-label", "Tavolo: scarsità, war board e squadre");
+  section.setAttribute("aria-label", "Tavolo: scarsità e war board");
 
   const open = state.tableDetailOpen;
 
@@ -4266,7 +4124,7 @@ function renderTableDetail(
   toggle.setAttribute("aria-controls", "table-detail-body");
   toggle.innerHTML =
     `<span class="panel-title">IL TAVOLO</span>` +
-    `<span class="table-detail__what">scarsità per ruolo · war board · squadre (lega)</span>` +
+    `<span class="table-detail__what">scarsità per ruolo · war board</span>` +
     `<span class="table-detail__caret" aria-hidden="true">${open ? "▴" : "▾"}</span>`;
   toggle.addEventListener("click", toggleTableDetail);
   section.appendChild(toggle);
@@ -4286,7 +4144,6 @@ function renderTableDetail(
   body.appendChild(
     renderWarBoardFull(warBoardRows(aState, SELF_ID), seatLabelMap(), auctionDisplayIndex()),
   );
-  body.appendChild(renderTeamsPanel(aState));
   section.appendChild(body);
 
   return section;
@@ -4544,7 +4401,35 @@ function renderMomentoChiamata(
     );
   }
 
+  // Suggested player block — design slot "CHI CHIAMARE ORA".
+  // Honest placeholder: there is NO suggestion engine yet (richiede dati reali +
+  // gate non attivi). Mostriamo il blocco in modo stabile, senza fingere una
+  // predizione. Non è una raccomandazione.
+  const suggested = document.createElement("div");
+  suggested.id = "suggested-player";
+  suggested.style.cssText = `background:${C.panelInner};border:1px solid ${C.border};border-radius:8px;padding:12px 16px;margin-top:18px;`;
+  const suggestedEyebrow = document.createElement("div");
+  suggestedEyebrow.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.06em;color:${C.textSec};margin-bottom:4px;`;
+  suggestedEyebrow.textContent = "GIOCATORE SUGGERITO — CHI CHIAMARE ORA";
+  const suggestedBody = document.createElement("div");
+  suggestedBody.style.cssText = `font-size:13px;line-height:1.5;color:${C.textMid};`;
+  suggestedBody.textContent = "Nessun suggerimento automatico attivo: il motore richiede dati reali, non ancora abilitati. Inserisci manualmente il giocatore chiamato nella ricerca qui sopra. (Non è una predizione.)";
+  suggested.appendChild(suggestedEyebrow);
+  suggested.appendChild(suggestedBody);
+  wrap.appendChild(suggested);
+
+  // Il listone sta SOTTO il blocco del giocatore suggerito (richiesta di Pico,
+  // 2026-08-17). L'ordine verticale della schermata è una decisione di
+  // prodotto e vive qui, nell'ordine degli appendChild: la ricerca resta in
+  // cima — è la ragione per cui la schermata esiste, e `e2e/call-screen-order.
+  // spec.ts` la tiene sopra la piega — poi il contesto della chiamata, poi il
+  // segnaposto del suggerito, e infine la tabella da cui si seleziona.
   const listoneWrap = document.createElement("div");
+  // Ancora stabile per l'ordine verticale: `e2e/call-screen-order.spec.ts`
+  // confronta la posizione di questo blocco con quella di `#suggested-player`,
+  // e senza un id il confronto dovrebbe appoggiarsi a una classe di layout
+  // interna al listone, che può cambiare senza che l'ordine cambi.
+  listoneWrap.id = "listone-block";
   listoneWrap.style.cssText = `margin-top:18px;`;
   const assignedKeys = new Set(aState.purchasedPlayerIds);
   const displayPool = filterListonePool(
@@ -4587,45 +4472,6 @@ function renderMomentoChiamata(
     ),
   );
   wrap.appendChild(listoneWrap);
-
-  // T13 #231 — the fast path: one line records a purchase without walking the
-  // select -> Avvia -> prezzo -> conferma sequence, which stays exactly as it
-  // was for every other case. #333 moved it BELOW the search/listone pair: it
-  // is a write action performed once an aggiudicazione is already over, not
-  // one of the four questions asked while a price is being shouted. It stays a
-  // full, always-visible panel (no gesture in front of it) because it is used
-  // at every single aggiudicazione of the table, not occasionally.
-  wrap.appendChild(
-    renderAssignCommandPanel(
-      {
-        value: state.assignCommand,
-        resolution: assignCommandResolution(aState),
-        error: state.assignCommandError,
-      },
-      { onInput: onAssignCommandInput, onSubmit: () => submitAssignCommand(aState) },
-    ),
-  );
-
-  // Suggested player block — design slot "CHI CHIAMARE ORA".
-  // Honest placeholder: there is NO suggestion engine yet (richiede dati reali +
-  // gate non attivi). Mostriamo il blocco in modo stabile, senza fingere una
-  // predizione. Non è una raccomandazione.
-  // #333: sta in fondo, non in cima. È vuoto per costruzione, quindi non può
-  // rispondere a nessuna delle quattro domande, e in cima costava la posizione
-  // migliore della pagina. Spostato, non tolto — toglierlo è una decisione di
-  // prodotto che non è stata presa.
-  const suggested = document.createElement("div");
-  suggested.id = "suggested-player";
-  suggested.style.cssText = `background:${C.panelInner};border:1px solid ${C.border};border-radius:8px;padding:12px 16px;margin-top:18px;`;
-  const suggestedEyebrow = document.createElement("div");
-  suggestedEyebrow.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.06em;color:${C.textSec};margin-bottom:4px;`;
-  suggestedEyebrow.textContent = "GIOCATORE SUGGERITO — CHI CHIAMARE ORA";
-  const suggestedBody = document.createElement("div");
-  suggestedBody.style.cssText = `font-size:13px;line-height:1.5;color:${C.textMid};`;
-  suggestedBody.textContent = "Nessun suggerimento automatico attivo: il motore richiede dati reali, non ancora abilitati. Inserisci manualmente il giocatore chiamato nella ricerca qui sopra. (Non è una predizione.)";
-  suggested.appendChild(suggestedEyebrow);
-  suggested.appendChild(suggestedBody);
-  wrap.appendChild(suggested);
 
   // Focus the search input only on the first render after entering this
   // moment (boot, "← Indietro", or right after a completed purchase) — never
@@ -5103,19 +4949,24 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   // gesto. L'ordine segue le quattro domande del tavolo confermate da Pico
   // (#333): la fascia del chiamato resta la più vicina al campo del prezzo,
   // perché il registro di quella fascia è il numero che si guarda mentre si
-  // batte la cifra; poi chi me lo contende (war board MINI, AVVERSARI); poi la
-  // scheda esperto. Niente di tutto questo può più spingere «ASSEGNA A» sotto
-  // la piega: sta tutto DOPO la scheda che lo contiene.
+  // batte la cifra; poi la scheda esperto sul giocatore chiamato; poi chi me lo
+  // contende (war board MINI, AVVERSARI). Niente di tutto questo può più
+  // spingere «ASSEGNA A» sotto la piega: sta tutto DOPO la scheda che lo
+  // contiene.
   wrap.appendChild(renderTierBandBlock(tierBandProps(aState)));
+
+  // INSIGHT GIOCATORE sopra la war board MINI — richiesta di Pico 2026-08-17:
+  // scambio di posizione verticale fra i due blocchi adiacenti, niente altro.
+  // L'ordine è asserito da e2e/call-screen-order.spec.ts.
+  wrap.appendChild(renderPlayerInsightsBlock(playerInsightProps()));
 
   // War board MINI — #231 tranche 3, decisione di Owner #222 voce 18
   // (revisione registrata dell'invariante #86, docs/FRONTEND_STRUCTURE.md).
   // "Chi altro può ancora arrivarci, e fin dove": due numeri per squadra,
   // nessun dettaglio — il dettaglio vive nella variante COMPLETA del momento
-  // di chiamata.
+  // di chiamata. La riga di legenda («bdg = crediti residui · max bid = …») è
+  // parte di questo pannello (renderWarBoardMini) e si sposta con lui.
   wrap.appendChild(renderWarBoardMini(warBoardRows(aState, SELF_ID), seatLabelMap()));
-
-  wrap.appendChild(renderPlayerInsightsBlock(playerInsightProps()));
 
   // IL RUOLO STASERA — che cosa è successo al ruolo in asta stasera (quanti ne
   // sono passati, da chi, a che prezzi) e quanti posti di quel ruolo restano
@@ -5188,10 +5039,9 @@ function feasibilityErrorText(violations: readonly string[], role: Role): string
 }
 
 /**
- * Shared commit path for every purchase-entry gesture on this screen: the
+ * Shared commit path for every purchase-entry gesture in the app: the
  * typed-price form (doAssign) and the one-click third-portiere-at-0
- * declaration (registerThirdGoalkeeperZero) below — same shape as
- * executeAssignCommand's role for the command-line fast path. Runs the SAME
+ * declaration (registerThirdGoalkeeperZero) below. Runs the SAME
  * purchaseFeasibility() -> recordPurchase() -> saveAuctionLog() sequence
  * regardless of which gesture produced `proposed`, so `max_safe`/hard
  * reserve stay non-overridable no matter which UI path is used.
@@ -5206,9 +5056,10 @@ function commitPurchase(aState: AuctionState, proposed: ProposedPurchase, role: 
 
   try {
     const newLog = recordPurchase(state.log, aState, proposed, new Date().toISOString());
-    // `state.log` is the baseline this purchase was computed FROM — the form
-    // path is separate from the command-line one (executeAssignCommand), so
-    // it needs the same optimistic-concurrency guard (audit fix 1).
+    // `state.log` is the baseline this purchase was computed FROM: it is what
+    // arms the optimistic-concurrency guard (audit fix 1), so a second tab
+    // that moved the canonical underneath gets a refusal, not a silent
+    // overwrite.
     const saveResult = saveAuctionLog(browserStorage, newLog, FANTA_TEAM_IDS, state.log, state.confirmations);
     if (!saveResult.ok) {
       // Fail-closed: the in-memory log is never advanced past what was

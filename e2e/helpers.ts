@@ -188,9 +188,9 @@ export async function selectStatusFilter(
 
 /**
  * #333 — Opens "IL TAVOLO" on the chiamata screen: the one gesture behind
- * which SCARSITÀ PER RUOLO, TAVOLO — WAR BOARD and SQUADRE (LEGA) now live.
+ * which SCARSITÀ PER RUOLO and TAVOLO — WAR BOARD now live.
  *
- * Every spec that reads one of those three panels goes through here. They were
+ * Every spec that reads one of those two panels goes through here. They were
  * not removed and their markup is byte-identical — they are one click away
  * instead of occupying the top half of the screen, so what changed in those
  * specs is the single line that opens them, never what they then assert.
