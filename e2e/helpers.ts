@@ -123,7 +123,10 @@ export async function openTableDetail(page: Page): Promise<void> {
  * Picks an Impostazioni area from the left menu. Only the selected area's
  * body is in the DOM, so this is what makes its content assertable at all.
  */
-export async function openSettingsSection(page: Page, id: "teams" | "riconferme" | "status"): Promise<void> {
+export async function openSettingsSection(
+  page: Page,
+  id: "teams" | "riconferme" | "schede" | "status",
+): Promise<void> {
   const tab = page.locator(`#settings-tab-${id}`);
   if ((await tab.getAttribute("aria-selected")) === "true") return;
   await tab.click();

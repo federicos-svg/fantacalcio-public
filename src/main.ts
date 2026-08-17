@@ -144,6 +144,7 @@ import {
   filterListonePool,
   listonePlayerKey,
   listonePoolIndex,
+  normalizeIdentityPart,
   orphanPlayerIds,
   resolvePlayerDisplayName,
   DEFAULT_VISIBLE_COLUMN_KEYS,
@@ -152,13 +153,30 @@ import {
 } from "./ui/listone.js";
 import { roleBudgetPlanHtml } from "./ui/roleBudgetPlan.js";
 import {
+  AVVISO_VALUES,
   EXPERT_SCHEDA_ENDPOINT,
   EXPERT_SCHEDE_ABSENT,
+  FONTE_VALUES,
+  PIAZZATI_VALUES,
+  RIGORI_VALUES,
+  SCHEDA_GERARCHIA_MAX,
+  SCHEDA_GERARCHIA_MIN,
+  SCHEDA_NOTA_MAX,
+  SCHEDA_PERCENTUALE_MAX,
+  SCHEDA_PERCENTUALE_MIN,
+  TITOLARITA_VALUES,
   parseExpertSchedaDeposit,
   resolveExpertInsight,
   type ExpertSchedaStore,
   type SchedaTarget,
 } from "./expertScheda.js";
+import {
+  AVVISO_LABELS,
+  FONTE_LABELS,
+  PIAZZATI_LABELS,
+  RIGORI_LABELS,
+  TITOLARITA_LABELS,
+} from "./ui/expertInsight.js";
 import {
   loadSchedaLinks,
   saveSchedaLinks,
@@ -166,6 +184,37 @@ import {
   withSchedaLink,
   type SchedaLinks,
 } from "./schedaLinks.js";
+import {
+  EMPTY_SCHEDA_FORM,
+  SCHEDA_DEPOSIT_FILENAME,
+  applySchedaImport,
+  buildScheda,
+  buildSchedaDeposit,
+  loadSchedaDrafts,
+  planSchedaImport,
+  saveSchedaDrafts,
+  schedaProgress,
+  schedaSummary,
+  schedaToForm,
+  withEditing,
+  withScheda,
+  type SchedaDraftState,
+  type SchedaFieldError,
+  type SchedaFormValues,
+  type SchedaImportPlan,
+  type SchedaImportResolution,
+} from "./schedaCompiler.js";
+
+/**
+ * Un'importazione letta e non ancora applicata. Vive solo in `AppState`: è la
+ * domanda che il pannello sta facendo, non un dato da conservare.
+ */
+interface PendingSchedaImport {
+  readonly fileName: string;
+  readonly plan: SchedaImportPlan;
+  /** `null` finché Pico non ha scelto. Serve solo quando ci sono conflitti. */
+  readonly resolution: SchedaImportResolution | null;
+}
 
 // Path of the shipped, Cloudflare-Access-gated static listone asset — see
 // docs/data/LISTONE_UI_LOAD_CONTRACT.md for the shape and authorization.
@@ -430,6 +479,41 @@ interface AppState {
   schedaLinks: SchedaLinks;
   /** `false` solo quando l'ULTIMA risposta non è stata scritta nello storage. */
   schedaLinksPersisted: boolean;
+  /**
+   * LE SCHEDE CHE PICO STA SCRIVENDO, non quelle che il deposito serve.
+   *
+   * Due archivi distinti e nessuna confusione possibile: `expertSchede` è il
+   * deposito LETTO a runtime dall'endpoint privato in sola lettura, e resta
+   * intoccabile; questo è il lavoro in corso nel browser di chi compila
+   * (src/schedaCompiler.ts), che alla fine diventa il file che Pico deposita a
+   * mano. Il sito non scrive mai sul deposito, né qui né altrove.
+   */
+  schedaDrafts: SchedaDraftState;
+  /** `false` solo quando l'ULTIMA scrittura delle schede non ha attecchito. */
+  schedaDraftsPersisted: boolean;
+  /** La riga di listone su cui si sta compilando, o `null` — chiave di riga. */
+  schedaTargetKey: string | null;
+  /** Il modulo in composizione, come lo rende il DOM: tutto stringa. */
+  schedaForm: SchedaFormValues;
+  /** I motivi dell'ultimo salvataggio rifiutato. Vuoto è lo stato normale. */
+  schedaErrors: readonly SchedaFieldError[];
+  /** L'esito dell'ultima azione riuscita, o il motivo per cui il deposito non è pronto. */
+  schedaNotice: string;
+  /** Filtro sul selettore del giocatore: il listone reale supera le 500 righe. */
+  schedaFilter: string;
+  /** La scheda per cui è stata chiesta la cancellazione, in attesa del secondo clic. */
+  schedaConfirmDelete: string | null;
+  /**
+   * L'importazione LETTA e non ancora applicata: che cosa succederebbe se si
+   * confermasse, in attesa che Pico lo confermi. `null` è lo stato normale.
+   *
+   * Transitoria per scelta, e non persistita come le schede: è una domanda
+   * aperta su un file scelto adesso, non lavoro da mettere al sicuro. Un
+   * reload la chiude, e il file si ricarica con un gesto.
+   */
+  schedaImport: PendingSchedaImport | null;
+  /** Perché l'ultimo file NON è stato importato. Vuoto è lo stato normale. */
+  schedaImportError: string;
   rosterError: string;
   newPersonName: string;
   settingsArea: string;
@@ -601,6 +685,11 @@ const bootPool: ResolvedListonePool = resolveListonePool({
 
 const bootLogEvents = logFromLoadResult(bootLog);
 
+// Le schede in composizione, rilette una volta al boot: sono ore di battitura
+// e devono essere di nuovo lì al reload, compreso il modulo lasciato aperto a
+// metà (src/schedaCompiler.ts).
+const bootSchedaDrafts = loadSchedaDrafts(browserStorage);
+
 const state: AppState = {
   screen: "asta",
   moment: "chiamata",
@@ -650,6 +739,19 @@ const state: AppState = {
   expertSchede: EXPERT_SCHEDE_ABSENT,
   schedaLinks: loadSchedaLinks(browserStorage),
   schedaLinksPersisted: true,
+  // Fail-closed a vuoto come gli altri side-store: un archivio illeggibile
+  // riparte da zero DICENDOLO, invece di mostrare un elenco a cui manca in
+  // silenzio qualcosa.
+  schedaDrafts: bootSchedaDrafts,
+  schedaDraftsPersisted: true,
+  schedaTargetKey: bootSchedaDrafts.editing?.rowKey ?? null,
+  schedaForm: bootSchedaDrafts.editing?.values ?? EMPTY_SCHEDA_FORM,
+  schedaErrors: [],
+  schedaNotice: "",
+  schedaFilter: "",
+  schedaConfirmDelete: null,
+  schedaImport: null,
+  schedaImportError: "",
   rosterError: "",
   newPersonName: "",
   // Opens on the area you act on; app status is diagnostics, read on demand.
@@ -2360,6 +2462,12 @@ const SETTINGS_AREAS: readonly SettingsArea[] = [
     body: () => renderRiconfermeSettings(),
   },
   {
+    id: "schede",
+    title: "Schede Gruppo Esperti",
+    icon: SETTINGS_ICONS.scheda,
+    body: () => renderSchedeSettings(),
+  },
+  {
     id: "status",
     title: "Stato app",
     icon: SETTINGS_ICONS.status,
@@ -2891,6 +2999,1066 @@ function applyRiconfermeBatch(next: readonly ConfirmationInput[], draftOnFailure
   state.riconfermeError = "";
   state.riconfermeDraft = null;
   render();
+}
+
+// ── SCHEDE GRUPPO ESPERTI — la schermata che le compila ─────────────────────
+//
+// PERCHÉ ESISTE. Il deposito delle schede (src/expertScheda.ts) è un file JSON
+// che Pico scrive PRIMA dell'asta: ~200 schede, misurate fra i 20 secondi di
+// una magra e i 90 di una piena, circa due ore. Finora l'unico modo era battere
+// il JSON a mano contro uno schema `.strict()` e un lettore fail-closed: un
+// refuso di virgola non rovina una riga, rifiuta il file intero. Questa
+// schermata esiste perché quelle due ore non dipendano da una virgola.
+//
+// LE QUATTRO REGOLE DEL PANNELLO, e ognuna toglie di mezzo un modo di sbagliare:
+//
+//  1. L'IDENTITÀ SI SCEGLIE, NON SI SCRIVE. Il giocatore si prende da una riga
+//     del listone caricato, mai da un campo di testo: `player` e `club` vengono
+//     da lì, quindi la scheda si aggancia a quella riga per costruzione
+//     (`findSchedaCandidates`). L'errore peggiore possibile per queste schede è
+//     il silenzioso — scheda scritta, depositata e mai resa perché il nome non
+//     combacia — e questo lo rende impossibile invece che improbabile.
+//  2. OGNI CAMPO DEL VOCABOLARIO È UN CONTROLLO. Titolarità, rigori e fonte
+//     sono `<select>` costruiti sui vocabolari del contratto; calci piazzati e
+//     avvisi sono checkbox; i due numerici portano i limiti dello schema, letti
+//     da `src/expertScheda.ts` e non riscritti qui. Non c'è un punto in cui si
+//     possa digitare un valore che il contratto non conosce.
+//  3. LA NOTA NON VIENE MAI TAGLIATA DA SOLA. Contatore visibile e limite
+//     dichiarato; oltre il limite il salvataggio si RIFIUTA e dice di quanto si
+//     è lunghi. Un `maxlength` che tronca un incollaggio perderebbe la coda
+//     della frase senza dirlo, che è esattamente ciò che non deve succedere.
+//  4. IL DEPOSITO SI VALIDA PRIMA DI OFFRIRLO, con `parseExpertSchedaDeposit` —
+//     la funzione vera, quella che leggerà il file a runtime. Se non passa, il
+//     pannello dice perché invece di consegnare un file rotto.
+//
+// NIENTE DI DIRETTIVO, QUI DENTRO NON C'È E NON PUÒ ENTRARE. Nessun prezzo,
+// nessun `value` / `fair_to_me` / `target_band`, nessun punteggio, nessuna
+// classifica, nessun «conviene»: i campi compilabili sono esattamente quelli
+// del contratto, che è descrittivo per costruzione (docs/NO_GO.md §Prodotto).
+//
+// Vive in main.ts e non in views.ts per la stessa ragione dei due pannelli
+// sopra: legge e muta lo stato dell'app.
+
+/** La riga di listone dietro una chiave di riga, o `null` se non c'è (più). */
+function schedaRowTarget(rowKey: string | null): SchedaTarget | null {
+  if (rowKey === null) return null;
+  const row = auctionDisplayIndex().get(rowKey);
+  return row === undefined ? null : { name: row.name, club: row.club };
+}
+
+/**
+ * Scrive l'archivio e RICORDA se la scrittura ha attecchito.
+ *
+ * Il lavoro resta a schermo anche quando lo storage lo rifiuta — buttarlo via
+ * sarebbe la perdita che questa schermata esiste per evitare — ma il pannello
+ * lo dichiara con `#schede-persist-error`: una scheda che sembra salvata e non
+ * lo è vale meno di zero.
+ */
+function persistSchedaDrafts(next: SchedaDraftState): void {
+  state.schedaDrafts = next;
+  state.schedaDraftsPersisted = saveSchedaDrafts(browserStorage, next);
+}
+
+/** Il modulo attualmente aperto, nella forma che l'archivio persiste. */
+function schedaEditingSnapshot(): SchedaDraftState {
+  return withEditing(
+    state.schedaDrafts,
+    state.schedaTargetKey === null ? null : { rowKey: state.schedaTargetKey, values: state.schedaForm },
+  );
+}
+
+/**
+ * Apre (o chiude) la compilazione su una riga di listone. Una riga già scritta
+ * si riapre com'era: correggere una scheda sbagliata non deve costare quanto
+ * riscriverla.
+ */
+function selectSchedaTarget(rowKey: string | null): void {
+  const existing = rowKey === null ? undefined : state.schedaDrafts.schede.get(rowKey);
+  state.schedaTargetKey = rowKey;
+  state.schedaForm = existing === undefined ? EMPTY_SCHEDA_FORM : schedaToForm(existing);
+  state.schedaErrors = [];
+  state.schedaNotice = "";
+  state.schedaConfirmDelete = null;
+  persistSchedaDrafts(schedaEditingSnapshot());
+  render();
+}
+
+/** Un campo cambiato. Non ridisegna: il DOM del modulo è già quello giusto. */
+function updateSchedaForm(patch: Partial<SchedaFormValues>): void {
+  state.schedaForm = { ...state.schedaForm, ...patch };
+}
+
+/**
+ * Il modulo aperto, messo al sicuro.
+ *
+ * Legato a `change` (cioè al momento in cui un campo è stato lasciato) e non a
+ * `input`: una scrittura per tasto premuto rifarebbe `JSON.stringify` + la
+ * validazione di contratto su tutte le schede a ogni carattere. Il peggio che
+ * si perde così è il campo che si sta battendo in questo istante, e solo se la
+ * scheda del browser muore prima di lasciarlo.
+ */
+function persistSchedaEditing(): void {
+  const before = state.schedaDraftsPersisted;
+  persistSchedaDrafts(schedaEditingSnapshot());
+  // RIDISEGNA SOLO QUANDO L'ESITO DELLA SCRITTURA CAMBIA, e non a ogni campo
+  // lasciato. Non è un'ottimizzazione: `change` scatta al BLUR, cioè
+  // nell'istante esatto in cui si preme «Salva la scheda», e un `render()` lì
+  // dentro distrugge il pulsante fra il mousedown e il click — il clic non
+  // arriva mai al gestore. Misurato sul campo: dopo aver scritto in un campo,
+  // il primo clic su «Salva» non faceva niente. L'unica cosa che questo
+  // ridisegno deve mostrare è la comparsa (o la sparizione) della riga «ULTIMA
+  // MODIFICA NON SALVATA», e quella cambia una volta sola.
+  if (before !== state.schedaDraftsPersisted) render();
+}
+
+/** Salva la scheda compilata, o mostra TUTTI i motivi per cui non si può. */
+function saveSchedaFromForm(): void {
+  const target = schedaRowTarget(state.schedaTargetKey);
+  const rowKey = state.schedaTargetKey;
+  if (target === null || rowKey === null) {
+    state.schedaErrors = [
+      { field: "identita", message: "Scegli prima una riga del listone: nome e squadra della scheda vengono da lì." },
+    ];
+    state.schedaNotice = "";
+    render();
+    return;
+  }
+  const result = buildScheda(target, state.schedaForm);
+  if (!result.ok) {
+    state.schedaErrors = result.errors;
+    state.schedaNotice = "";
+    render();
+    focusAfterRender("schede-errors");
+    return;
+  }
+  state.schedaErrors = [];
+  state.schedaTargetKey = null;
+  state.schedaForm = EMPTY_SCHEDA_FORM;
+  state.schedaConfirmDelete = null;
+  persistSchedaDrafts(withEditing(withScheda(state.schedaDrafts, rowKey, result.scheda), null));
+  state.schedaNotice = `Scheda salvata: ${result.scheda.player} (${result.scheda.club}).`;
+  render();
+  // Il giro è: scegli, compila, salva, scegli il prossimo. La messa a fuoco
+  // torna dove ricomincia, non dove è finita.
+  focusAfterRender("schede-player");
+}
+
+/** Riapre una scheda già scritta per correggerla. */
+function editScheda(rowKey: string): void {
+  selectSchedaTarget(rowKey);
+  focusAfterRender("schede-titolarita");
+}
+
+/**
+ * Cancella una scheda, in due tempi.
+ *
+ * Il primo clic chiede conferma, il secondo cancella. Una scheda piena sono 90
+ * secondi di battitura e non c'è nessun annulla: un clic sbagliato su una fila
+ * di pulsanti identici è il modo normale in cui quel lavoro sparirebbe.
+ */
+function requestSchedaDelete(rowKey: string): void {
+  state.schedaConfirmDelete = rowKey;
+  state.schedaNotice = "";
+  render();
+  focusAfterRender(`schede-delete-${rowKey}`);
+}
+
+function cancelSchedaDelete(): void {
+  state.schedaConfirmDelete = null;
+  render();
+}
+
+function deleteScheda(rowKey: string): void {
+  const removed = state.schedaDrafts.schede.get(rowKey);
+  const closing = state.schedaTargetKey === rowKey;
+  if (closing) {
+    state.schedaTargetKey = null;
+    state.schedaForm = EMPTY_SCHEDA_FORM;
+    state.schedaErrors = [];
+  }
+  state.schedaConfirmDelete = null;
+  persistSchedaDrafts(
+    withEditing(
+      withScheda(state.schedaDrafts, rowKey, null),
+      closing ? null : state.schedaDrafts.editing,
+    ),
+  );
+  state.schedaNotice =
+    removed === undefined
+      ? "Scheda già rimossa."
+      : `Scheda cancellata: ${removed.player} (${removed.club}).`;
+  render();
+  focusAfterRender("schede-player");
+}
+
+function downloadSchedaDeposit(text: string): void {
+  const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = SCHEDA_DEPOSIT_FILENAME;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Copia il deposito negli appunti. Gli appunti sono una capacità del browser
+ * che può mancare (contesto non sicuro) o essere negata: entrambi i casi
+ * diventano una frase che rimanda al pulsante che scarica il file, mai un
+ * silenzio che si legge come «fatto».
+ */
+function copySchedaDeposit(text: string, count: number): void {
+  const clipboard = navigator.clipboard as Clipboard | undefined;
+  if (clipboard === undefined || typeof clipboard.writeText !== "function") {
+    state.schedaNotice = "Questo browser non dà accesso agli appunti: usa «Scarica il deposito».";
+    render();
+    return;
+  }
+  void clipboard.writeText(text).then(
+    () => {
+      state.schedaNotice = `Deposito copiato negli appunti: ${count} sched${count === 1 ? "a" : "e"}.`;
+      render();
+    },
+    () => {
+      state.schedaNotice = "Il browser ha rifiutato la copia negli appunti: usa «Scarica il deposito».";
+      render();
+    },
+  );
+}
+
+// ── RIPRENDERE UN DEPOSITO GIÀ SCRITTO ───────────────────────────────────────
+//
+// Il giro si chiude qui. Le due ore sono distribuite su più sere e il deposito
+// finisce su Drive: senza rilettura il lavoro viveva solo in `localStorage` —
+// un browser pulito, un'altra macchina, una cronologia svuotata, e sparivano
+// senza un errore — e una scheda da correggere tre giorni dopo si poteva solo
+// riscrivere.
+//
+// LA FUSIONE NON SI DECIDE DA SOLA. Le schede del file su righe che in locale
+// sono vuote entrano sempre: aggiungono e non distruggono, quindi non c'è
+// niente da chiedere. Le schede in CONFLITTO — stessa riga, due versioni — non
+// si sovrascrivono e non si scartano: la tendina non ha nessuna opzione
+// preselezionata, esattamente come la domanda dell'aggancio in
+// src/ui/expertInsight.ts, e senza una risposta `applySchedaImport` rende
+// `null` invece di sceglierne una.
+
+const SCHEDA_IMPORT_REFUSALS: Readonly<Record<"absent" | "unreadable" | "invalid" | "empty", string>> = {
+  absent: "Nessun file letto: riprova a sceglierlo.",
+  unreadable: "Il file non è JSON leggibile. Non è stato toccato niente di quello che hai già scritto.",
+  invalid:
+    "Il file non è un deposito valido secondo il contratto (parseExpertSchedaDeposit): versione diversa, un campo fuori vocabolario o una chiave che non esiste. Non è stato toccato niente di quello che hai già scritto.",
+  empty: "Il file è un deposito valido ma non contiene nessuna scheda.",
+};
+
+/** Le righe del listone come le vede il pianificatore d'importazione. */
+function schedaImportRows(): { rowKey: string; name: string; club: string }[] {
+  return state.pool.map((p) => ({ rowKey: listonePlayerKey(p), name: p.name, club: p.club }));
+}
+
+/**
+ * Legge il file scelto e prepara la domanda. Non importa niente: mostra che
+ * cosa succederebbe, e aspetta.
+ *
+ * Il campo viene svuotato subito dopo la lettura, così riscegliere LO STESSO
+ * file torna a produrre un evento — senza, un secondo tentativo dopo un
+ * rifiuto non farebbe nulla e sembrerebbe un pannello morto.
+ */
+function readSchedaImportFile(input: HTMLInputElement): void {
+  const file = input.files?.[0] ?? null;
+  // NON si azzera qui `input.value`: ogni strada che segue finisce in un
+  // `render()`, che ricostruisce il campo vuoto da sé — e azzerarlo mentre la
+  // lettura del file è ancora in volo è un modo di far sparire il file da sotto
+  // la promessa.
+  if (file === null) {
+    state.schedaImport = null;
+    state.schedaImportError = "Nessun file letto: riprova a sceglierlo.";
+    render();
+    return;
+  }
+  const failed = (why: string): void => {
+    state.schedaImport = null;
+    state.schedaImportError = why;
+    render();
+  };
+  file
+    .text()
+    .then((text) => openSchedaImport(text, file.name))
+    // Una sola rete di sicurezza per TUTTO ciò che sta sopra, lettura e
+    // pianificazione comprese: un errore inatteso qui dentro, senza questa,
+    // resterebbe una promessa rifiutata e nessuno vedrebbe niente — il
+    // pannello sembrerebbe semplicemente non rispondere al file scelto.
+    .catch((err: unknown) =>
+      failed(
+        `Il file non è stato letto dal browser (${err instanceof Error ? err.message : String(err)}). Non è stato toccato niente.`,
+      ),
+    );
+}
+
+function openSchedaImport(text: string, fileName: string): void {
+  const result = planSchedaImport(text, schedaImportRows(), state.schedaDrafts.schede);
+  if (!result.ok) {
+    state.schedaImport = null;
+    state.schedaImportError =
+      result.reason === "duplicate"
+        ? `Il file contiene due schede sulla stessa identità (${result.identities.join("; ")}): il riquadro non ne mostrerebbe nessuna delle due. Non è stato importato niente.`
+        : SCHEDA_IMPORT_REFUSALS[result.reason];
+    render();
+    return;
+  }
+  state.schedaImport = { fileName, plan: result.plan, resolution: null };
+  state.schedaImportError = "";
+  state.schedaNotice = "";
+  render();
+  focusAfterRender(
+    result.plan.conflicts.length > 0 ? "schede-import-resolution" : "schede-import-confirm",
+  );
+}
+
+function cancelSchedaImport(): void {
+  state.schedaImport = null;
+  state.schedaImportError = "";
+  render();
+}
+
+function confirmSchedaImport(): void {
+  const pending = state.schedaImport;
+  if (pending === null) return;
+  const next = applySchedaImport(state.schedaDrafts.schede, pending.plan, pending.resolution);
+  if (next === null) {
+    state.schedaImportError =
+      "Scegli prima che cosa fare delle schede in conflitto: non ne sovrascrivo nessuna da solo.";
+    render();
+    return;
+  }
+  const { fresh, conflicts, unmatched } = pending.plan;
+  const parts = [`${fresh.length} nuov${fresh.length === 1 ? "a" : "e"}`];
+  if (conflicts.length > 0) {
+    parts.push(
+      pending.resolution === "take-file"
+        ? `${conflicts.length} sostituit${conflicts.length === 1 ? "a" : "e"} con quell${conflicts.length === 1 ? "a" : "e"} del file`
+        : `${conflicts.length} conflitt${conflicts.length === 1 ? "o risolto" : "i risolti"} tenendo le tue`,
+    );
+  }
+  if (unmatched.length > 0) {
+    parts.push(`${unmatched.length} senza riga nel listone caricato`);
+  }
+  // Il modulo eventualmente aperto si chiude: le sue caselle sono state
+  // riempite PRIMA dell'importazione, e salvarle dopo rimetterebbe in silenzio
+  // la versione vecchia sopra quella appena importata.
+  state.schedaTargetKey = null;
+  state.schedaForm = EMPTY_SCHEDA_FORM;
+  state.schedaErrors = [];
+  state.schedaConfirmDelete = null;
+  state.schedaImport = null;
+  state.schedaImportError = "";
+  persistSchedaDrafts({ schede: next, editing: null });
+  state.schedaNotice = `Deposito ripreso da «${pending.fileName}»: ${parts.join(", ")}.`;
+  render();
+  focusAfterRender("schede-player");
+}
+
+/** Che cosa succederebbe a confermare, scritto prima di chiedere. */
+function renderSchedaImportPreview(pending: PendingSchedaImport): HTMLElement {
+  const box = document.createElement("div");
+  box.id = "schede-import-preview";
+  box.className = "schede-progress";
+
+  const headline = document.createElement("p");
+  headline.id = "schede-import-headline";
+  headline.className = "schede-progress__count";
+  const total = pending.plan.incoming.size;
+  headline.textContent = `«${pending.fileName}»: ${total} sched${total === 1 ? "a" : "e"} nel file — ${pending.plan.fresh.length} nuov${pending.plan.fresh.length === 1 ? "a" : "e"}, ${pending.plan.conflicts.length} in conflitto con quelle che hai già.`;
+  box.appendChild(headline);
+
+  if (pending.plan.unmatched.length > 0) {
+    const unmatched = document.createElement("p");
+    unmatched.id = "schede-import-unmatched";
+    unmatched.className = "hint-text";
+    unmatched.textContent = `${pending.plan.unmatched.length} sched${pending.plan.unmatched.length === 1 ? "a" : "e"} non corrispond${pending.plan.unmatched.length === 1 ? "e" : "ono"} a nessuna riga del listone caricato (${pending.plan.unmatched.map((e) => `${e.player} — ${e.club}`).join("; ")}). Entrano lo stesso e restano nel deposito, ma non contano nell'avanzamento finché la riga non c'è.`;
+    box.appendChild(unmatched);
+  }
+
+  if (pending.plan.conflicts.length > 0) {
+    const list = document.createElement("p");
+    list.id = "schede-import-conflicts";
+    list.className = "hint-text";
+    list.textContent = `In conflitto: ${pending.plan.conflicts.map((e) => `${e.player} — ${e.club}`).join("; ")}.`;
+    box.appendChild(list);
+
+    // Nessuna opzione preselezionata: la scelta è di Pico, e su queste righe
+    // costa del lavoro in un verso o nell'altro.
+    const select = document.createElement("select");
+    select.id = "schede-import-resolution";
+    select.className = "field-input";
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = "— scegli che cosa fare —";
+    select.appendChild(empty);
+    for (const [value, label] of [
+      ["keep-local", "tieni le mie schede sulle righe in conflitto"],
+      ["take-file", "usa quelle del file sulle righe in conflitto"],
+    ] as const) {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = label;
+      select.appendChild(opt);
+    }
+    select.value = pending.resolution ?? "";
+    select.addEventListener("change", (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      state.schedaImport = {
+        ...pending,
+        resolution: value === "" ? null : (value as SchedaImportResolution),
+      };
+      state.schedaImportError = "";
+      render();
+    });
+    box.appendChild(schedaField("schede-import-resolution", "SCHEDE IN CONFLITTO", select));
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "schede-form__actions";
+  const confirm = document.createElement("button");
+  confirm.type = "button";
+  confirm.id = "schede-import-confirm";
+  confirm.className = "btn btn--primary";
+  confirm.textContent = "Riprendi questo deposito";
+  confirm.disabled = pending.plan.conflicts.length > 0 && pending.resolution === null;
+  confirm.addEventListener("click", () => confirmSchedaImport());
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.id = "schede-import-cancel";
+  cancel.className = "btn btn--secondary";
+  cancel.textContent = "Annulla";
+  cancel.addEventListener("click", () => cancelSchedaImport());
+  actions.append(confirm, cancel);
+  box.appendChild(actions);
+
+  return box;
+}
+
+/** Una `<label>` col suo controllo, nella forma già usata dagli altri pannelli. */
+function schedaField(id: string, caption: string, control: HTMLElement): HTMLElement {
+  const field = document.createElement("label");
+  field.className = "league-team-field";
+  field.htmlFor = id;
+  const label = document.createElement("span");
+  label.className = "field-label";
+  label.textContent = caption;
+  field.append(label, control);
+  return field;
+}
+
+/** Un `<select>` costruito su un vocabolario del contratto. Mai testo libero. */
+function schedaSelect(
+  id: string,
+  emptyLabel: string,
+  values: readonly string[],
+  labels: Readonly<Record<string, string>>,
+  current: string,
+  onChange: (value: string) => void,
+): HTMLSelectElement {
+  const select = document.createElement("select");
+  select.id = id;
+  select.className = "field-input";
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = emptyLabel;
+  select.appendChild(empty);
+  for (const value of values) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = labels[value] ?? value;
+    select.appendChild(opt);
+  }
+  select.value = current;
+  select.addEventListener("change", (e) => {
+    onChange((e.target as HTMLSelectElement).value);
+    persistSchedaEditing();
+  });
+  return select;
+}
+
+/** Un gruppo di checkbox su un vocabolario chiuso: presenza/assenza, non testo. */
+function schedaCheckGroup(
+  id: string,
+  legend: string,
+  values: readonly string[],
+  labels: Readonly<Record<string, string>>,
+  chosen: readonly string[],
+  onChange: (next: readonly string[]) => void,
+): HTMLElement {
+  const group = document.createElement("fieldset");
+  group.id = id;
+  group.className = "schede-checks";
+  const caption = document.createElement("legend");
+  caption.className = "field-label";
+  caption.textContent = legend;
+  group.appendChild(caption);
+  for (const value of values) {
+    const item = document.createElement("label");
+    item.className = "schede-check";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.id = `${id}-${value}`;
+    box.checked = chosen.includes(value);
+    box.addEventListener("change", () => {
+      const next = box.checked ? [...chosen, value] : chosen.filter((v) => v !== value);
+      onChange(next);
+      persistSchedaEditing();
+    });
+    const text = document.createElement("span");
+    text.textContent = labels[value] ?? value;
+    item.append(box, text);
+    group.appendChild(item);
+  }
+  return group;
+}
+
+/** Un intero coi limiti LETTI dal contratto, mai riscritti qui. */
+function schedaNumberInput(
+  id: string,
+  min: number,
+  max: number,
+  current: string,
+  onChange: (value: string) => void,
+): HTMLInputElement {
+  const input = document.createElement("input");
+  input.id = id;
+  input.className = "field-input";
+  input.type = "number";
+  input.min = String(min);
+  input.max = String(max);
+  input.step = "1";
+  input.setAttribute("inputmode", "numeric");
+  input.value = current;
+  input.addEventListener("input", (e) => onChange((e.target as HTMLInputElement).value));
+  input.addEventListener("change", () => persistSchedaEditing());
+  return input;
+}
+
+const SCHEDA_DEPOSIT_REFUSALS: Readonly<Record<"empty" | "invalid", string>> = {
+  empty: "Nessuna scheda scritta: non c'è ancora niente da depositare.",
+  invalid:
+    "Il contratto del deposito rifiuta l'insieme delle schede scritte. Non viene offerto un file che il sito non saprebbe rileggere: correggi o cancella le schede qui sopra.",
+};
+
+function renderSchedeSettings(): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "schede-settings";
+  panel.className = "schede-settings";
+  panel.setAttribute("aria-label", "Schede Gruppo Esperti");
+
+  const intro = document.createElement("p");
+  intro.className = "hint-text";
+  intro.textContent =
+    "Le schede del Gruppo Esperti si scrivono qui, una per giocatore, e alla fine diventano il file da depositare nella cartella privata. Il riquadro che le mostra durante l'asta è descrittivo: non ci sono prezzi, punteggi né consigli d'asta, né qui né lì. Il sito non scrive mai sul deposito: il file lo scarichi e lo carichi tu.";
+  panel.appendChild(intro);
+
+  const pool = auctionDisplayPool();
+  const rowKeys = pool.map((p) => listonePlayerKey(p));
+  const progress = schedaProgress(rowKeys, state.schedaDrafts.schede);
+
+  // ── L'avanzamento delle due ore ───────────────────────────────────────────
+  const progressBox = document.createElement("div");
+  progressBox.className = "schede-progress";
+  progressBox.id = "schede-progress";
+
+  const progressLine = document.createElement("div");
+  progressLine.className = "schede-progress__line";
+  const progressCount = document.createElement("span");
+  progressCount.id = "schede-progress-count";
+  progressCount.className = "schede-progress__count";
+  progressCount.textContent =
+    progress.total === 0
+      ? `${progress.written} sched${progress.written === 1 ? "a" : "e"} scritt${progress.written === 1 ? "a" : "e"} — nessuna riga di listone caricata`
+      : `${progress.written} su ${progress.total} righe del listone — ne mancano ${progress.missing}`;
+  const progressPercent = document.createElement("span");
+  progressPercent.id = "schede-progress-percent";
+  progressPercent.className = "schede-progress__percent";
+  progressPercent.textContent = `${progress.percent}%`;
+  progressLine.append(progressCount, progressPercent);
+  progressBox.appendChild(progressLine);
+
+  const track = document.createElement("span");
+  track.className = "schede-progress__track";
+  track.setAttribute("role", "progressbar");
+  track.setAttribute("aria-valuemin", "0");
+  track.setAttribute("aria-valuemax", String(progress.total));
+  track.setAttribute("aria-valuenow", String(progress.written));
+  track.setAttribute("aria-label", "Schede scritte sulle righe del listone");
+  const fill = document.createElement("span");
+  fill.className = "schede-progress__fill";
+  fill.style.width = `${progress.percent}%`;
+  track.appendChild(fill);
+  progressBox.appendChild(track);
+
+  // Le schede scritte su righe che il listone caricato ORA non ha più. Contate
+  // a parte e DETTE: sparire dal conteggio senza dirlo è il modo in cui il
+  // lavoro si perde senza un errore.
+  if (progress.orphans > 0) {
+    const orphans = document.createElement("p");
+    orphans.id = "schede-orphans";
+    orphans.className = "hint-text";
+    orphans.textContent = `${progress.orphans} sched${progress.orphans === 1 ? "a" : "e"} non corrispond${progress.orphans === 1 ? "e" : "ono"} a nessuna riga del listone caricato: rest${progress.orphans === 1 ? "a" : "ano"} nel deposito e nell'elenco qui sotto, ma non contano nell'avanzamento.`;
+    progressBox.appendChild(orphans);
+  }
+  panel.appendChild(progressBox);
+
+  if (!state.schedaDraftsPersisted) {
+    const persistError = document.createElement("p");
+    persistError.id = "schede-persist-error";
+    persistError.className = "schede-alert";
+    persistError.setAttribute("role", "alert");
+    persistError.textContent =
+      "ULTIMA MODIFICA NON SALVATA: la memoria locale del browser ha rifiutato la scrittura. Quello che vedi è ancora qui, ma un ricaricamento lo perde — scarica subito il deposito.";
+    panel.appendChild(persistError);
+  }
+
+  if (pool.length === 0) {
+    const emptyPool = document.createElement("p");
+    emptyPool.id = "schede-empty-listone";
+    emptyPool.className = "hint-text";
+    emptyPool.textContent =
+      "Carica il listone (Asta → Ricerca giocatore) per scegliere il giocatore di una scheda: qui non si scrive un nome a mano, si sceglie una riga — è ciò che garantisce che la scheda si agganci a quel giocatore.";
+    panel.appendChild(emptyPool);
+  } else {
+    panel.appendChild(renderSchedaPicker(pool));
+    const target = schedaRowTarget(state.schedaTargetKey);
+    if (target !== null) panel.appendChild(renderSchedaForm(target));
+  }
+
+  panel.appendChild(renderSchedaList());
+  panel.appendChild(renderSchedaDeposit());
+
+  if (state.schedaNotice) {
+    const notice = document.createElement("p");
+    notice.id = "schede-notice";
+    notice.className = "hint-text schede-notice";
+    notice.setAttribute("role", "status");
+    notice.textContent = state.schedaNotice;
+    panel.appendChild(notice);
+  }
+
+  return panel;
+}
+
+/** Il giocatore si SCEGLIE da una riga del listone. Mai un campo di testo. */
+function renderSchedaPicker(pool: readonly ListonePlayer[]): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "schede-picker";
+
+  const filter = document.createElement("input");
+  filter.id = "schede-filter";
+  filter.className = "field-input";
+  filter.type = "text";
+  filter.placeholder = "es. Placeholder";
+  filter.value = state.schedaFilter;
+  filter.addEventListener("input", (e) => {
+    state.schedaFilter = (e.target as HTMLInputElement).value;
+    // render() rimette la messa a fuoco e il cursore dov'erano (vedi render()).
+    render();
+  });
+  box.appendChild(schedaField("schede-filter", "FILTRA IL LISTONE", filter));
+
+  const needle = normalizeIdentityPart(state.schedaFilter);
+  const rows = pool.filter((p) => {
+    if (needle === "") return true;
+    return (
+      normalizeIdentityPart(p.name).includes(needle) || normalizeIdentityPart(p.club).includes(needle)
+    );
+  });
+
+  const select = document.createElement("select");
+  select.id = "schede-player";
+  select.className = "field-input";
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = rows.length === 0 ? "— nessuna riga corrisponde al filtro —" : "— scegli un giocatore —";
+  select.appendChild(empty);
+  for (const row of rows) {
+    const key = listonePlayerKey(row);
+    const opt = document.createElement("option");
+    opt.value = key;
+    // «✓» davanti a chi ha già una scheda: si vede quale riga è fatta senza
+    // cercarla nell'elenco più in basso.
+    opt.textContent = `${state.schedaDrafts.schede.has(key) ? "✓ " : ""}${row.name} (${row.club})`;
+    select.appendChild(opt);
+  }
+  select.value = state.schedaTargetKey ?? "";
+  select.disabled = rows.length === 0;
+  select.addEventListener("change", (e) => {
+    const value = (e.target as HTMLSelectElement).value;
+    selectSchedaTarget(value === "" ? null : value);
+    if (value !== "") focusAfterRender("schede-titolarita");
+  });
+  box.appendChild(schedaField("schede-player", "GIOCATORE (DAL LISTONE)", select));
+
+  return box;
+}
+
+/** Il modulo: un controllo per campo, nessun testo libero fuori dalla nota. */
+function renderSchedaForm(target: SchedaTarget): HTMLElement {
+  const form = document.createElement("div");
+  form.id = "schede-form";
+  form.className = "schede-form";
+
+  const heading = document.createElement("h3");
+  heading.id = "schede-form-title";
+  heading.className = "schede-form__title";
+  const known = state.schedaTargetKey !== null && state.schedaDrafts.schede.has(state.schedaTargetKey);
+  heading.textContent = `${known ? "Correggi" : "Scrivi"} la scheda — ${target.name} (${target.club})`;
+  form.appendChild(heading);
+
+  const identity = document.createElement("p");
+  identity.className = "hint-text";
+  identity.id = "schede-identity-note";
+  identity.textContent =
+    "Nome e squadra sono quelli della riga del listone e non si modificano qui: è ciò che fa agganciare la scheda a questo giocatore durante l'asta.";
+  form.appendChild(identity);
+
+  const grid = document.createElement("div");
+  grid.className = "league-teams-grid";
+
+  grid.appendChild(
+    schedaField(
+      "schede-titolarita",
+      "TITOLARITÀ",
+      schedaSelect(
+        "schede-titolarita",
+        "— non dichiarata —",
+        TITOLARITA_VALUES,
+        TITOLARITA_LABELS,
+        state.schedaForm.titolarita,
+        (value) => updateSchedaForm({ titolarita: value }),
+      ),
+    ),
+  );
+
+  grid.appendChild(
+    schedaField(
+      "schede-percentuale",
+      `QUOTA DEL BALLOTTAGGIO (${SCHEDA_PERCENTUALE_MIN}–${SCHEDA_PERCENTUALE_MAX}%)`,
+      schedaNumberInput(
+        "schede-percentuale",
+        SCHEDA_PERCENTUALE_MIN,
+        SCHEDA_PERCENTUALE_MAX,
+        state.schedaForm.percentuale,
+        (value) => updateSchedaForm({ percentuale: value }),
+      ),
+    ),
+  );
+
+  grid.appendChild(
+    schedaField(
+      "schede-gerarchia",
+      `GERARCHIA NEL RUOLO (${SCHEDA_GERARCHIA_MIN}–${SCHEDA_GERARCHIA_MAX}, 1 = PRIMA SCELTA)`,
+      schedaNumberInput(
+        "schede-gerarchia",
+        SCHEDA_GERARCHIA_MIN,
+        SCHEDA_GERARCHIA_MAX,
+        state.schedaForm.gerarchia,
+        (value) => updateSchedaForm({ gerarchia: value }),
+      ),
+    ),
+  );
+
+  grid.appendChild(
+    schedaField(
+      "schede-rigori",
+      "RIGORI",
+      schedaSelect(
+        "schede-rigori",
+        "— non dichiarati —",
+        RIGORI_VALUES,
+        RIGORI_LABELS,
+        state.schedaForm.rigori,
+        (value) => updateSchedaForm({ rigori: value }),
+      ),
+    ),
+  );
+
+  grid.appendChild(
+    schedaField(
+      "schede-fonte",
+      "FONTE DELLA SCHEDA",
+      schedaSelect(
+        "schede-fonte",
+        "— non dichiarata —",
+        FONTE_VALUES,
+        FONTE_LABELS,
+        state.schedaForm.fonte,
+        (value) => updateSchedaForm({ fonte: value }),
+      ),
+    ),
+  );
+
+  const date = document.createElement("input");
+  date.id = "schede-aggiornata";
+  date.className = "field-input";
+  date.type = "date";
+  date.value = state.schedaForm.aggiornata;
+  date.addEventListener("input", (e) => updateSchedaForm({ aggiornata: (e.target as HTMLInputElement).value }));
+  date.addEventListener("change", () => persistSchedaEditing());
+  grid.appendChild(schedaField("schede-aggiornata", "AGGIORNATA AL", date));
+
+  form.appendChild(grid);
+
+  form.appendChild(
+    schedaCheckGroup(
+      "schede-piazzati",
+      "CALCI PIAZZATI",
+      PIAZZATI_VALUES,
+      PIAZZATI_LABELS,
+      state.schedaForm.piazzati,
+      (next) => updateSchedaForm({ piazzati: next }),
+    ),
+  );
+
+  form.appendChild(
+    schedaCheckGroup(
+      "schede-avvisi",
+      "AVVISI",
+      AVVISO_VALUES,
+      AVVISO_LABELS,
+      state.schedaForm.avvisi,
+      (next) => updateSchedaForm({ avvisi: next }),
+    ),
+  );
+
+  // ── La nota: l'unico testo libero, col suo limite scritto ─────────────────
+  const notaField = document.createElement("div");
+  notaField.className = "league-team-field";
+  const notaLabel = document.createElement("label");
+  notaLabel.className = "field-label";
+  notaLabel.htmlFor = "schede-nota";
+  notaLabel.textContent = "NOTA (IL PERCHÉ DI UN AVVISO, UNA SITUAZIONE DI MERCATO, UN CONTESTO)";
+  const nota = document.createElement("textarea");
+  nota.id = "schede-nota";
+  nota.className = "field-input schede-nota";
+  nota.rows = 4;
+  nota.value = state.schedaForm.nota;
+  const counter = document.createElement("span");
+  counter.id = "schede-nota-counter";
+  const notaLength = (value: string): number => value.trim().length;
+  const paintCounter = (value: string): void => {
+    const used = notaLength(value);
+    counter.className = `schede-nota__counter${used > SCHEDA_NOTA_MAX ? " is-over" : ""}`;
+    counter.textContent =
+      used > SCHEDA_NOTA_MAX
+        ? `${used} / ${SCHEDA_NOTA_MAX} caratteri — ${used - SCHEDA_NOTA_MAX} di troppo, la nota non viene tagliata da sola`
+        : `${used} / ${SCHEDA_NOTA_MAX} caratteri`;
+  };
+  paintCounter(state.schedaForm.nota);
+  // Nessun `maxlength`: troncherebbe un incollaggio perdendone la coda senza
+  // dirlo. Il contatore si aggiorna qui, sul nodo, senza ridisegnare tutto.
+  nota.addEventListener("input", (e) => {
+    const value = (e.target as HTMLTextAreaElement).value;
+    updateSchedaForm({ nota: value });
+    paintCounter(value);
+  });
+  nota.addEventListener("change", () => persistSchedaEditing());
+  notaField.append(notaLabel, nota, counter);
+  form.appendChild(notaField);
+
+  const actions = document.createElement("div");
+  actions.className = "schede-form__actions";
+  const save = document.createElement("button");
+  save.type = "button";
+  save.id = "schede-save";
+  save.className = "btn btn--primary";
+  save.textContent = known ? "Salva la correzione" : "Salva la scheda";
+  save.addEventListener("click", () => saveSchedaFromForm());
+  const close = document.createElement("button");
+  close.type = "button";
+  close.id = "schede-close";
+  close.className = "btn btn--secondary";
+  close.textContent = "Chiudi senza salvare";
+  close.addEventListener("click", () => {
+    selectSchedaTarget(null);
+    focusAfterRender("schede-player");
+  });
+  actions.append(save, close);
+  form.appendChild(actions);
+
+  if (state.schedaErrors.length > 0) {
+    const errors = document.createElement("ul");
+    errors.id = "schede-errors";
+    errors.className = "schede-alert schede-errors";
+    errors.setAttribute("role", "alert");
+    errors.tabIndex = -1;
+    for (const error of state.schedaErrors) {
+      const item = document.createElement("li");
+      item.id = `schede-error-${error.field}`;
+      item.textContent = error.message;
+      errors.appendChild(item);
+    }
+    form.appendChild(errors);
+  }
+
+  return form;
+}
+
+/** Le schede già scritte: rileggibili, correggibili, cancellabili. */
+function renderSchedaList(): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "schede-list";
+  box.id = "schede-list";
+
+  const title = document.createElement("h3");
+  title.className = "league-people-title";
+  title.textContent = "SCHEDE SCRITTE";
+  box.appendChild(title);
+
+  if (state.schedaDrafts.schede.size === 0) {
+    const empty = document.createElement("p");
+    empty.id = "schede-list-empty";
+    empty.className = "hint-text";
+    empty.textContent = "Nessuna scheda scritta finora.";
+    box.appendChild(empty);
+    return box;
+  }
+
+  for (const [rowKey, scheda] of state.schedaDrafts.schede) {
+    const row = document.createElement("div");
+    row.className = "schede-row";
+    const head = document.createElement("div");
+    head.className = "schede-row__head";
+    row.appendChild(head);
+
+    const identity = document.createElement("span");
+    identity.className = "schede-row__identity";
+    identity.textContent = `${scheda.player} (${scheda.club})`;
+    head.appendChild(identity);
+
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.id = `schede-edit-${rowKey}`;
+    edit.className = "btn btn--secondary";
+    edit.textContent = "Modifica";
+    edit.setAttribute("aria-label", `Modifica la scheda di ${scheda.player}`);
+    edit.addEventListener("click", () => editScheda(rowKey));
+    head.appendChild(edit);
+
+    // Cancellazione in due tempi: il primo clic chiede, il secondo esegue.
+    const confirming = state.schedaConfirmDelete === rowKey;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.id = `schede-delete-${rowKey}`;
+    remove.className = confirming ? "btn btn--danger" : "btn btn--secondary";
+    remove.textContent = confirming ? "Confermi?" : "Cancella";
+    remove.setAttribute(
+      "aria-label",
+      confirming
+        ? `Conferma la cancellazione della scheda di ${scheda.player}`
+        : `Cancella la scheda di ${scheda.player}`,
+    );
+    remove.addEventListener("click", () => (confirming ? deleteScheda(rowKey) : requestSchedaDelete(rowKey)));
+    head.appendChild(remove);
+
+    if (confirming) {
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.id = `schede-delete-cancel-${rowKey}`;
+      cancel.className = "btn btn--secondary";
+      cancel.textContent = "No";
+      cancel.setAttribute("aria-label", `Non cancellare la scheda di ${scheda.player}`);
+      cancel.addEventListener("click", () => cancelSchedaDelete());
+      head.appendChild(cancel);
+    }
+
+    const summary = document.createElement("span");
+    summary.className = "schede-row__summary";
+    summary.textContent = schedaSummary(scheda);
+    row.appendChild(summary);
+
+    box.appendChild(row);
+  }
+
+  return box;
+}
+
+/** Il deposito pronto — o il motivo per cui non lo è, mai un file rotto. */
+function renderSchedaDeposit(): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "schede-deposit";
+  box.id = "schede-deposit";
+
+  const title = document.createElement("h3");
+  title.className = "league-people-title";
+  title.textContent = "IL DEPOSITO";
+  box.appendChild(title);
+
+  const result = buildSchedaDeposit(state.schedaDrafts.schede);
+
+  const status = document.createElement("p");
+  status.id = "schede-deposit-status";
+  status.className = result.ok ? "hint-text" : "schede-alert";
+  if (!result.ok) status.setAttribute("role", "alert");
+  status.textContent = result.ok
+    ? `Deposito pronto: ${result.count} sched${result.count === 1 ? "a" : "e"}, validate col contratto vero (parseExpertSchedaDeposit). Scaricalo come «${SCHEDA_DEPOSIT_FILENAME}» e caricalo tu nella cartella privata: il sito non lo scrive mai.`
+    : result.reason === "duplicate"
+      ? `Due schede finiscono sulla stessa identità (${result.identities.join("; ")}): il riquadro non ne mostrerebbe nessuna delle due. Cancellane una o correggi il giocatore prima di depositare.`
+      : SCHEDA_DEPOSIT_REFUSALS[result.reason];
+  box.appendChild(status);
+
+  const actions = document.createElement("div");
+  actions.className = "schede-form__actions";
+
+  const download = document.createElement("button");
+  download.type = "button";
+  download.id = "schede-download";
+  download.className = "btn btn--primary";
+  download.textContent = "Scarica il deposito";
+  download.disabled = !result.ok;
+  if (result.ok) download.addEventListener("click", () => downloadSchedaDeposit(result.text));
+
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.id = "schede-copy";
+  copy.className = "btn btn--secondary";
+  copy.textContent = "Copia negli appunti";
+  copy.disabled = !result.ok;
+  if (result.ok) copy.addEventListener("click", () => copySchedaDeposit(result.text, result.count));
+
+  actions.append(download, copy);
+  box.appendChild(actions);
+
+  // ── L'altra direzione: riprendere un deposito già scritto ────────────────
+  const importTitle = document.createElement("h3");
+  importTitle.className = "league-people-title";
+  importTitle.textContent = "RIPRENDI UN DEPOSITO GIÀ SCRITTO";
+  box.appendChild(importTitle);
+
+  const importHint = document.createElement("p");
+  importHint.className = "hint-text";
+  importHint.textContent =
+    "Carica un file di deposito per continuare da dove eri: quello che scarichi qui rientra identico, anche su un altro browser o su un'altra macchina. Il file viene letto in locale, non viene mandato da nessuna parte, e prima di applicarlo il pannello ti dice esattamente che cosa cambierebbe.";
+  box.appendChild(importHint);
+
+  const importFile = document.createElement("input");
+  importFile.type = "file";
+  importFile.id = "schede-import-file";
+  importFile.className = "field-input schede-import-file";
+  importFile.accept = "application/json,.json";
+  importFile.setAttribute("aria-label", "Scegli il file di deposito da riprendere");
+  importFile.addEventListener("change", (e) => readSchedaImportFile(e.target as HTMLInputElement));
+  box.appendChild(importFile);
+
+  if (state.schedaImportError) {
+    const error = document.createElement("p");
+    error.id = "schede-import-error";
+    error.className = "schede-alert";
+    error.setAttribute("role", "alert");
+    error.textContent = state.schedaImportError;
+    box.appendChild(error);
+  }
+
+  if (state.schedaImport !== null) box.appendChild(renderSchedaImportPreview(state.schedaImport));
+
+  return box;
 }
 
 function renderOperatingModeStatus(): HTMLElement {
