@@ -376,3 +376,68 @@ test("il gruppo IL TAVOLO esiste solo nella chiamata: nel momento d'asta c'è la
 
   expect(externalRequests).toEqual([]);
 });
+
+test("nel momento d'asta INSIGHT GIOCATORE sta sopra TAVOLO — BUDGET E MAX BID", async ({
+  page,
+  context,
+}) => {
+  // ORDINE VERTICALE DEI DUE BLOCCHI ADIACENTI (richiesta di Pico,
+  // 2026-08-17): scambiati fra loro, INSIGHT sopra e TAVOLO sotto. Stesso
+  // idioma dell'asserzione listone/suggerito qui sopra — id semantici e
+  // posizioni assolute nel documento, non indici di figli né classi di
+  // layout: il confronto vale anche per ciò che sta fuori dalla finestra, e
+  // diventa rosso se qualcuno rimette la war board davanti alla scheda.
+  //
+  // La riga di legenda «bdg = crediti residui · max bid = …» NON è un blocco a
+  // sé: è l'ultima riga del pannello della war board MINI. Uno scambio che la
+  // lasciasse indietro separerebbe la legenda dai numeri che spiega, quindi il
+  // caso asserisce anche il suo contenimento e la sua posizione DENTRO il
+  // pannello.
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, SMALL_POOL, externalRequests);
+
+  for (const viewport of VIEWPORTS) {
+    const where = `${viewport.width}px`;
+    await boot(page, viewport);
+
+    await page.locator(".listone-row--clickable").first().click();
+    await page.getByRole("button", { name: /^Avvia/ }).click();
+    await expect(page.locator("#assign-price")).toBeVisible();
+
+    // I due blocchi esistono entrambi: un confronto fra due assenti passerebbe
+    // per vuoto (documentTop lancia se il selettore non trova niente).
+    await expect(page.locator("#player-insight-panel")).toHaveCount(1);
+    await expect(page.locator("#war-board-mini")).toHaveCount(1);
+
+    const insightTop = await documentTop(page, "#player-insight-panel");
+    const miniTop = await documentTop(page, "#war-board-mini");
+    expect(
+      miniTop,
+      `${where}: TAVOLO — BUDGET E MAX BID sta a ${miniTop}px e INSIGHT GIOCATORE a ${insightTop}px: ` +
+        `la war board MINI è tornata sopra INSIGHT GIOCATORE`,
+    ).toBeGreaterThan(insightTop);
+
+    // La legenda segue la war board: dentro il pannello, sotto le otto schede.
+    expect(
+      await page.evaluate(
+        () =>
+          document
+            .querySelector("#war-board-mini")
+            ?.contains(document.querySelector("#war-board-mini-note")) ?? false,
+      ),
+      `${where}: la riga di legenda è uscita dal pannello della war board MINI`,
+    ).toBe(true);
+    const noteTop = await documentTop(page, "#war-board-mini-note");
+    const listTop = await documentTop(page, "#war-board-mini-list");
+    expect(
+      noteTop,
+      `${where}: la legenda è a ${noteTop}px e le schede squadra a ${listTop}px`,
+    ).toBeGreaterThan(listTop);
+    expect(
+      noteTop,
+      `${where}: la legenda della war board è finita sopra INSIGHT GIOCATORE`,
+    ).toBeGreaterThan(insightTop);
+  }
+
+  expect(externalRequests).toEqual([]);
+});

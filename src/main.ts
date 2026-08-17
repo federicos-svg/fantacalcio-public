@@ -4949,19 +4949,24 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   // gesto. L'ordine segue le quattro domande del tavolo confermate da Pico
   // (#333): la fascia del chiamato resta la più vicina al campo del prezzo,
   // perché il registro di quella fascia è il numero che si guarda mentre si
-  // batte la cifra; poi chi me lo contende (war board MINI, AVVERSARI); poi la
-  // scheda esperto. Niente di tutto questo può più spingere «ASSEGNA A» sotto
-  // la piega: sta tutto DOPO la scheda che lo contiene.
+  // batte la cifra; poi la scheda esperto sul giocatore chiamato; poi chi me lo
+  // contende (war board MINI, AVVERSARI). Niente di tutto questo può più
+  // spingere «ASSEGNA A» sotto la piega: sta tutto DOPO la scheda che lo
+  // contiene.
   wrap.appendChild(renderTierBandBlock(tierBandProps(aState)));
+
+  // INSIGHT GIOCATORE sopra la war board MINI — richiesta di Pico 2026-08-17:
+  // scambio di posizione verticale fra i due blocchi adiacenti, niente altro.
+  // L'ordine è asserito da e2e/call-screen-order.spec.ts.
+  wrap.appendChild(renderPlayerInsightsBlock(playerInsightProps()));
 
   // War board MINI — #231 tranche 3, decisione di Owner #222 voce 18
   // (revisione registrata dell'invariante #86, docs/FRONTEND_STRUCTURE.md).
   // "Chi altro può ancora arrivarci, e fin dove": due numeri per squadra,
   // nessun dettaglio — il dettaglio vive nella variante COMPLETA del momento
-  // di chiamata.
+  // di chiamata. La riga di legenda («bdg = crediti residui · max bid = …») è
+  // parte di questo pannello (renderWarBoardMini) e si sposta con lui.
   wrap.appendChild(renderWarBoardMini(warBoardRows(aState, SELF_ID), seatLabelMap()));
-
-  wrap.appendChild(renderPlayerInsightsBlock(playerInsightProps()));
 
   // IL RUOLO STASERA — che cosa è successo al ruolo in asta stasera (quanti ne
   // sono passati, da chi, a che prezzi) e quanti posti di quel ruolo restano
