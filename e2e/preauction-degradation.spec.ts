@@ -113,12 +113,44 @@ async function expectStaticPoolStatedHonestly(page: Page): Promise<void> {
   }
 }
 
-/** Registra un acquisto dal listone, dal click alla conferma. */
-async function purchase(page: Page, playerName: string, price: number): Promise<void> {
+/**
+ * Apre l'asta su una riga del listone e si ferma lì: schermata del gesto
+ * aperta, prezzo non ancora battuto, niente registrato. Metà di `purchase()`,
+ * estratta e non duplicata, perché D4 ha bisogno di guardare la contabilità a
+ * schermo NELL'ISTANTE fra l'apertura e la registrazione — l'unico in cui si
+ * può fotografare la stessa superficie che si rileggerà dopo il rifiuto.
+ */
+async function openAstaOn(page: Page, playerName: string): Promise<void> {
   await page.getByText(playerName, { exact: true }).click();
   await page.getByRole("button", { name: /^Avvia/ }).click();
+}
+
+/** L'altra metà: batte il prezzo sull'asta già aperta e preme il gesto. */
+async function registerOpenAsta(page: Page, price: number): Promise<void> {
   await page.locator("#assign-price").fill(String(price));
   await page.getByRole("button", { name: "Registra acquisto", exact: true }).click();
+}
+
+/** Registra un acquisto dal listone, dal click alla conferma. */
+async function purchase(page: Page, playerName: string, price: number): Promise<void> {
+  await openAstaOn(page, playerName);
+  await registerOpenAsta(page, price);
+}
+
+/**
+ * LA CONTABILITÀ DELLA SQUADRA DI PICO, LETTA DOVE IL MOMENTO IN CORSO LA
+ * SCRIVE. La striscia critica (`#critical-budget`) risponde nel momento
+ * CHIAMATA; nel momento ASTA la stessa riga di conti sta nel pannello «TAVOLO —
+ * BUDGET E MAX BID», e la sua etichetta parlata porta per esteso i due numeri
+ * della squadra propria: budget residuo e max bid.
+ *
+ * Non è un ripiego più debole della striscia: budget e max bid escono dalla
+ * STESSA `deriveAuctionState()` che alimenta `#critical-budget`, e max bid
+ * dipende anche dagli slot ancora da riempire — quindi un acquisto fantasma
+ * applicato di nascosto muoverebbe questa stringa due volte, non una.
+ */
+function selfTableRow(page: Page) {
+  return page.locator(".war-board-mini__item--self");
 }
 
 test.describe("#237 — il deposito privato che risponde male, e che cosa resta a schermo", () => {
@@ -225,7 +257,32 @@ test.describe("#237 — la memoria del browser che si riempie MENTRE l'asta è i
       };
     }, LOG_KEY);
 
-    await purchase(page, "Carlo Esempio", 7);
+    // Il secondo acquisto, aperto e registrato in due passi invece che in uno:
+    // con l'asta aperta e il prezzo non ancora battuto, la contabilità a
+    // schermo è ancora quella del PRIMO acquisto, e si fotografa qui. È lo
+    // stesso pannello, nello stesso momento, che verrà riletto dopo il
+    // rifiuto: un confronto fra due letture della stessa superficie, non fra
+    // due superfici diverse.
+    await openAstaOn(page, "Carlo Esempio");
+    // PRONTEZZA — e NON la presenza di un pannello. Che il momento asta sia
+    // renderizzato lo dice il campo del prezzo, cioè il controllo su cui il
+    // gesto è costruito e che le due righe successive useranno comunque; un
+    // pannello informativo può cambiare casa fra due rami senza che nessuno
+    // rompa niente, ed è esattamente così che una spec finisce ad aspettare in
+    // silenzio una schermata che è già pronta.
+    await expect(page.locator("#assign-price")).toBeVisible();
+    // Il pannello TAVOLO è letto come VALORE, con la sua asserzione davanti:
+    // se un giorno non porta più il budget, questa riga lo dice in cinque
+    // secondi e con il suo nome, invece di scadere sul timeout del test.
+    await expect(selfTableRow(page)).toHaveAttribute(
+      "aria-label",
+      /budget residuo \d+ crediti/,
+    );
+    const tableBeforeFault = await selfTableRow(page).getAttribute("aria-label");
+    const budgetTextBeforeFault = await selfTableRow(page)
+      .locator(".war-board-mini__budget")
+      .textContent();
+    await registerOpenAsta(page, 7);
 
     // 1. L'APP LO DICE, e lo dice senza ambiguità.
     const alert = page.getByRole("alert").filter({ hasText: /Impossibile salvare nel browser/ });
@@ -234,10 +291,28 @@ test.describe("#237 — la memoria del browser che si riempie MENTRE l'asta è i
 
     // 2. E NON MENTE A SCHERMO: il secondo giocatore non è nello storico, il
     //    budget non si è mosso, il conteggio della rosa nemmeno.
+    //
+    //    Il conto si rilegge dove il momento in corso lo scrive. Dopo un
+    //    salvataggio rifiutato l'app RESTA nel momento asta — il gesto non è
+    //    andato a buon fine, quindi la chiamata è ancora aperta — e in quel
+    //    momento la striscia critica non è montata per decisione di prodotto
+    //    (#331 punto 5: la stessa contabilità è risposta dalla nota «max bid
+    //    sicuro» della scheda e dal pannello TAVOLO, e lo spazio verticale
+    //    torna al gesto). Cercare `#critical-budget` qui non misurerebbe la
+    //    lealtà della schermata: misurerebbe in quale momento si trova.
+    //
+    //    Il pannello TAVOLO invece è a schermo, ed è più severo di un numero
+    //    solo: l'etichetta parlata porta budget residuo E max bid, e max bid
+    //    dipende dagli slot ancora da riempire. Un acquisto fantasma applicato
+    //    di nascosto muoverebbe entrambi — cioè anche il conteggio della rosa
+    //    che questa riga promette di sorvegliare.
     await expect(page.locator(".panel", { hasText: "STORICO ACQUISTI" })).not.toContainText(
       "Carlo Esempio",
     );
-    await expect(page.locator("#critical-budget")).toHaveText(budgetAfterFirst ?? "");
+    await expect(selfTableRow(page)).toHaveAttribute("aria-label", tableBeforeFault ?? "");
+    await expect(selfTableRow(page).locator(".war-board-mini__budget")).toHaveText(
+      budgetTextBeforeFault ?? "",
+    );
 
     // 3. E LO STORAGE È ESATTAMENTE COM'ERA: nessuna scrittura parziale, il
     //    rollback della copia di sicurezza è tornato al valore precedente.
@@ -247,6 +322,9 @@ test.describe("#237 — la memoria del browser che si riempie MENTRE l'asta è i
 
     // 4. E il primo acquisto sopravvive comunque a un reload: quello che era
     //    salvato PRIMA del guasto non è stato trascinato via dal guasto.
+    //    Qui `#critical-budget` torna a essere la lettura giusta senza che
+    //    nessuno apra niente per farlo comparire: il reload riporta l'app nel
+    //    momento chiamata, che è il momento in cui la striscia critica vive.
     await page.reload();
     await expect(page.locator(".panel", { hasText: "STORICO ACQUISTI" })).toContainText(
       E2E_TARGET_PLAYER.name,
