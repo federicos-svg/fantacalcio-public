@@ -15,7 +15,7 @@ describe("data platform contract", () => {
   it("has a deterministic versioned SHA-256 fingerprint", () => {
     const first = dataPlatformContractHash();
     const second = dataPlatformContractHash();
-    expect(DATA_PLATFORM_CONTRACT_VERSION).toBe("DATA-PLATFORM-CONTRACT@1.0.0");
+    expect(DATA_PLATFORM_CONTRACT_VERSION).toBe("DATA-PLATFORM-CONTRACT@1.1.0");
     expect(first).toBe(second);
     // Questo valore e' IDENTICO nel repository privato, e deve restarlo: da
     // quando i riferimenti di evidenza sono usciti dall'impronta (contract.ts,
@@ -23,7 +23,7 @@ describe("data platform contract", () => {
     // l'unico campo con una divergenza public/private legittima. Se questo
     // numero diverge fra i due repository, e' cambiato il contratto — non la
     // redazione — e va trattato come tale.
-    expect(first).toBe("9270da00c2602e0db9478210e04dcfd79c6a449e2d4a03c24e1249c01c9b6bfd");
+    expect(first).toBe("10838a93ad5c73380eb8989de5535f38a104d67abbefe4dfe6a05811db84e502");
     expect(first).toMatch(/^[a-f0-9]{64}$/);
   });
 

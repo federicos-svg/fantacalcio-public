@@ -28,6 +28,23 @@ describe("platform point-in-time bridge", () => {
     expect(isModelSource("wikidata")).toBe(false);
   });
 
+  // isModelSource narrowed when a source was removed; both remaining members and the
+  // non-model registry entries stay explicitly covered so the predicate can never
+  // silently widen or empty out.
+  it("admits exactly the sources the hybrid model consumes, and no other registered source", () => {
+    expect(isModelSource("fantacalcio_votes")).toBe(true);
+    expect(isModelSource("api_football")).toBe(true);
+    for (const notAModelSource of [
+      "fantacalcio_listone",
+      "league_manual",
+      "wikidata",
+      "gruppo_esperti_topic_unico",
+      "auction_event_log",
+    ] as const) {
+      expect(isModelSource(notAModelSource)).toBe(false);
+    }
+  });
+
   it("reuses the existing classifier for buildable features", () => {
     expect(classifyPlatformPointInTime(buildable)).toBe("BUILDABLE_POINT_IN_TIME");
   });
