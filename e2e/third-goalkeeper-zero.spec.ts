@@ -47,11 +47,32 @@ interface StoredEvent {
   readonly thirdGoalkeeperZeroDeclared?: true;
 }
 
+/**
+ * IL SEGNALE DI PRONTEZZA, e perché è questo.
+ *
+ * Serve una cosa sola: che il primo render dopo il reload sia ARRIVATO A
+ * SCHERMO, prima di cercare una riga del listone. Non è un'asserzione sul
+ * prodotto — è un cancello.
+ *
+ * Era `#role-scarcity-panel`. Quel pannello ha smesso di essere un elemento di
+ * primo livello: vive dentro il blocco IL TAVOLO, che nasce CHIUSO, quindi sta
+ * nel DOM ma `hidden`. Aspettarne la visibilità significherebbe aspettare per
+ * sempre, e aprire il blocco per farlo comparire sarebbe far compiere al
+ * cancello un gesto che l'operatore non compie.
+ *
+ * `#search-player` è equivalente e non ha quel problema: è il campo di ricerca
+ * del momento CHIAMATA, cioè lo stesso momento e lo stesso passaggio di render
+ * — l'intera schermata viene attaccata al documento in un colpo solo
+ * (`app.appendChild(wrapper)`), quindi i due elementi diventavano visibili
+ * nello stesso istante — ed è sempre visibile, senza gesti. È anche il segnale
+ * che questa stessa spec già usa dopo ogni acquisto (`buy()`), e quello che le
+ * spec sorelle usano su questa schermata.
+ */
 async function boot(page: Page): Promise<void> {
   await page.goto("/");
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await expect(page.locator("#role-scarcity-panel")).toBeVisible();
+  await expect(page.locator("#search-player")).toBeVisible();
 }
 
 /** Apre il momento LIVE su un giocatore, passando dal vero flusso di chiamata. */
