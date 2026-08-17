@@ -4,9 +4,10 @@
    just relocated into a modular file) plus the search/assign form row
    shape shared by "Ricerca giocatore" and "Assegna a". */
 
-/* SQUADRE (LEGA): 1 card per row on mobile, 2 on medium, up to 4 on wide
-   desktop. Needs real breakpoints (inline styles can't express these) —
-   see renderTeamsPanel in src/main.ts. */
+/* Griglia di schede-squadra (Rose, war board COMPLETA): 1 card per row on
+   mobile, 2 on medium, up to 4 on wide desktop. Needs real breakpoints
+   (inline styles can't express these) — see renderRoseScreen and
+   renderWarBoardFull in src/ui/views.ts. */
 .teams-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -33,43 +34,6 @@
   align-items: flex-end;
 }
 
-
-/* INSERIMENTO RAPIDO — command line (Chiamata moment, src/ui/views.ts
-   renderAssignCommandPanel, T13 #231). The input takes all the width it can
-   and the action button never wraps under it on desktop; on narrow widths the
-   button drops to its own full-width row rather than shrinking to a tap
-   target too small to hit at speed. */
-.assign-command { margin-bottom: 18px; }
-.assign-command__row {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-.assign-command__row > .field-input {
-  flex: 1 1 260px;
-  min-width: 0;
-}
-.assign-command__row > .btn { flex: 0 0 auto; }
-@media (max-width: 479px) {
-  .assign-command__row > .btn { flex: 1 0 100%; }
-}
-/* The preview is the thing the operator reads before committing, so it is
-   sized and weighted like content, not like a hint. */
-.assign-command__preview {
-  margin-top: 10px;
-  font-size: 13px;
-  line-height: 1.5;
-  font-weight: 600;
-}
-.assign-command__preview--ready { color: var(--text-primary); }
-.assign-command__preview--blocked { color: var(--text-mid); font-weight: 500; }
-.assign-command__error {
-  margin-top: 8px;
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--stop-red);
-}
 
 /* CONTESTO CHIAMATA / nomination_context (Chiamata moment, src/ui/views.ts
    renderNominationContextPanel). On-demand: the body is in the DOM only when
@@ -250,8 +214,8 @@
 }
 
 /* ── IL TAVOLO, DIETRO UN GESTO (#333, momento chiamata) ──────────────────────
-   SCARSITÀ PER RUOLO + TAVOLO — WAR BOARD + SQUADRE (LEGA) sono le stesse otto
-   squadre lette tre volte, e occupavano più di metà della pagina mentre il
+   SCARSITÀ PER RUOLO + TAVOLO — WAR BOARD sono le stesse otto squadre lette
+   due volte, e occupavano più di metà della pagina mentre il
    campo di ricerca — l'unica ragione per cui la schermata esiste — stava sotto
    la piega. Qui il gruppo è una riga sola con un solo controllo; il corpo resta
    nel DOM da chiuso (`hidden`), esattamente come .critical-roster-detail.
@@ -732,7 +696,7 @@
 .war-board-mini__budget { color: var(--green); }
 
 /* COMPLETA (momento chiamata): una card per squadra sulla stessa griglia
-   responsive 1/2/4 di SQUADRE (LEGA) e AVVERSARI TIER-1 (.teams-grid). */
+   responsive 1/2/4 della schermata Rose e di AVVERSARI TIER-1 (.teams-grid). */
 .war-board { margin-bottom: 18px; }
 .war-board__grid {
   margin: 10px 0 8px;

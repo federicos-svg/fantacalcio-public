@@ -150,7 +150,7 @@ test("both war board variants stay readable at 390, 768 and 1280 without sideway
     await page.evaluate(() => localStorage.clear());
     await page.reload();
 
-    // COMPLETE: same 1/2/4 grid as SQUADRE (LEGA) and AVVERSARI TIER-1.
+    // COMPLETE: same 1/2/4 grid as the Rose screen and AVVERSARI TIER-1.
     // Aperto dentro il ciclo: ogni giro riparte da un reload, che azzera lo
     // stato dell'app (#333).
     await openTableDetail(page);

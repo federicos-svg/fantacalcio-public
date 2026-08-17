@@ -13,7 +13,6 @@ import {
 } from "../../packages/engine/src/types.js";
 import type { OpponentTier1, RoleScarcity, WarBoardRow } from "../../packages/engine/src/auction.js";
 import type { RolePriceFacts } from "../nominationContext.js";
-import type { AssignCommandResolution } from "../assignCommand.js";
 import { C, escHtml, renderRoleChip, roleChipHtml } from "./theme.js";
 import { ROLE_LABELS, ROLE_LABEL_SING } from "./labels.js";
 import { devStaticPanel, devStaticBadge } from "./devStatic.js";
@@ -685,9 +684,9 @@ export function renderWarBoardFull(
 
   const grid = document.createElement("ul");
   grid.id = "war-board-full-grid";
-  // Same 1/2/4 responsive breakpoints as SQUADRE (LEGA) and AVVERSARI TIER-1
-  // (.teams-grid, src/styles/asta.css): all three are one-card-per-team grids
-  // and must not disagree about when a column drops.
+  // Same 1/2/4 responsive breakpoints as the Rose team-card grid and
+  // AVVERSARI TIER-1 (.teams-grid, src/styles/asta.css): all three are
+  // one-card-per-team grids and must not disagree about when a column drops.
   grid.className = "teams-grid war-board__grid";
   grid.innerHTML = warBoardFullHtml(rows, teamLabels, poolIndex);
   panel.appendChild(grid);
@@ -861,151 +860,6 @@ export function renderNominationContextPanel(
   note.textContent =
     "Solo fatti deterministici dal log dell'asta e dal listone caricato. Non è una raccomandazione di chiamata, non ordina i giocatori da chiamare e non modifica il max bid sicuro.";
   panel.appendChild(note);
-
-  return panel;
-}
-
-// ── Command line di inserimento (Chiamata moment) ────────────────────────────
-// #231 (T13): the fast path. One typed line — `<squadra> <prezzo> <giocatore>`
-// — records a purchase without walking select -> Avvia -> price -> conferma.
-//
-// The whole safety argument lives in src/assignCommand.ts: this view only
-// renders what the resolver already decided. Two properties matter here and
-// are structural, not cosmetic:
-//
-//  1. The preview is ALWAYS rendered before the commit, and states exactly
-//     which player, which team and which price will be written. The operator
-//     reads the interpretation, not just their own typing.
-//  2. Enter (and the button) commit ONLY when the line resolves to exactly one
-//     purchase. An ambiguous or unknown line does nothing but explain itself —
-//     it never falls back to a "best" match. At the table a wrong assignment
-//     costs far more than retyping.
-//
-// No suggestion, no ranking, no value: the panel proposes nothing and only
-// echoes what was typed. `max_safe` and the hard reserve are untouched — a
-// command that violates them is refused by purchaseFeasibility() exactly like
-// a form entry (see renderAssignCommandFeedback's "not-feasible" branch and
-// docs/NO_GO.md §Prodotto).
-
-export interface AssignCommandPanelProps {
-  readonly value: string;
-  /** `null` while the line is empty — nothing to interpret yet. */
-  readonly resolution: AssignCommandResolution | null;
-  /** Message from a refused/failed execution, already human-readable. */
-  readonly error: string;
-}
-
-export interface AssignCommandPanelHandlers {
-  readonly onInput: (value: string) => void;
-  readonly onSubmit: () => void;
-}
-
-/** The one-line explanation of what the resolver made of the typed line. */
-function assignCommandPreviewText(resolution: AssignCommandResolution): string {
-  if (resolution.ok) {
-    const r = resolution.resolved;
-    const club = r.club ? ` (${r.club})` : "";
-    return `Registrerà: ${r.playerName}${club} · ${ROLE_LABEL_SING[r.role]} → ${r.teamLabel} · ${r.price} cr.`;
-  }
-  switch (resolution.reason) {
-    case "empty":
-      return "";
-    case "price-missing":
-      return "Manca il prezzo: serve un numero intero positivo tra squadra e giocatore.";
-    case "price-ambiguous":
-      return "Due numeri interi nella riga: non è chiaro quale sia il prezzo. Riscrivi la riga con un solo numero.";
-    case "team-missing":
-      return "Manca la squadra prima del prezzo.";
-    case "player-missing":
-      return "Manca il giocatore dopo il prezzo.";
-    case "team-not-found":
-      return `Nessuna squadra corrisponde a "${resolution.query}".`;
-    case "team-ambiguous":
-      return `"${resolution.query}" corrisponde a più squadre: ${resolution.candidates.join(", ")}. Aggiungi lettere.`;
-    case "player-not-found":
-      return `Nessun giocatore disponibile corrisponde a "${resolution.query}".`;
-    case "player-ambiguous":
-      return `"${resolution.query}" corrisponde a più giocatori: ${resolution.candidates.join(", ")}. Aggiungi il club o altre lettere.`;
-    case "player-already-assigned":
-      return `${resolution.playerName} è già stato assegnato.`;
-  }
-}
-
-export function renderAssignCommandPanel(
-  props: AssignCommandPanelProps,
-  handlers: AssignCommandPanelHandlers,
-): HTMLElement {
-  const panel = document.createElement("section");
-  panel.id = "assign-command-panel";
-  panel.className = "panel assign-command";
-  panel.setAttribute("aria-label", "Inserimento rapido da riga di comando");
-
-  const title = document.createElement("div");
-  title.className = "panel-title";
-  title.textContent = "INSERIMENTO RAPIDO";
-  panel.appendChild(title);
-
-  const row = document.createElement("div");
-  row.className = "assign-command__row";
-
-  const input = document.createElement("input");
-  input.id = "assign-command-input";
-  input.name = "assign-command-input";
-  input.type = "text";
-  input.className = "field-input";
-  input.autocomplete = "off";
-  input.placeholder = "squadra prezzo giocatore — es. look 34 ataturk";
-  input.setAttribute("aria-describedby", "assign-command-preview");
-  input.value = props.value;
-  input.addEventListener("input", (e) => handlers.onInput((e.target as HTMLInputElement).value));
-  input.addEventListener("keydown", (e) => {
-    // Enter is the whole point of the fast path, but it is inert unless the
-    // line already resolves — see the panel comment above.
-    if (e.key === "Enter") {
-      e.preventDefault();
-      handlers.onSubmit();
-    }
-  });
-  row.appendChild(input);
-
-  const submit = document.createElement("button");
-  submit.id = "assign-command-submit";
-  submit.type = "button";
-  submit.className = "btn btn--primary";
-  submit.textContent = "Registra da comando";
-  submit.disabled = !(props.resolution?.ok ?? false);
-  submit.addEventListener("click", handlers.onSubmit);
-  row.appendChild(submit);
-
-  panel.appendChild(row);
-
-  // aria-live so the interpretation is announced as it changes: the operator
-  // must never commit a line whose reading they could not perceive.
-  const preview = document.createElement("p");
-  preview.id = "assign-command-preview";
-  preview.setAttribute("role", "status");
-  preview.setAttribute("aria-live", "polite");
-  const resolution = props.resolution;
-  if (resolution === null) {
-    preview.className = "hint-text";
-    preview.textContent =
-      "Ordine fisso: squadra, prezzo, giocatore. Invio registra solo quando la riga individua una sola squadra e un solo giocatore.";
-  } else {
-    preview.className = resolution.ok
-      ? "assign-command__preview assign-command__preview--ready"
-      : "assign-command__preview assign-command__preview--blocked";
-    preview.textContent = assignCommandPreviewText(resolution);
-  }
-  panel.appendChild(preview);
-
-  if (props.error) {
-    const error = document.createElement("p");
-    error.id = "assign-command-error";
-    error.setAttribute("role", "alert");
-    error.className = "assign-command__error";
-    error.textContent = props.error;
-    panel.appendChild(error);
-  }
 
   return panel;
 }
@@ -1437,8 +1291,8 @@ export function renderRoseScreen(
 
   // Responsive breakpoints (1/2/4 per row) live in src/styles/asta.css
   // (.teams-grid) — inline styles can't express @media, see that file. Same
-  // class the "SQUADRE (LEGA)" panel uses (src/main.ts renderTeamsPanel):
-  // both are one-card-per-team grids, so they share the same breakpoints.
+  // class the war board COMPLETA uses (renderWarBoardFull above): both are
+  // one-card-per-team grids, so they share the same breakpoints.
   const grid = document.createElement("div");
   grid.className = "teams-grid";
 

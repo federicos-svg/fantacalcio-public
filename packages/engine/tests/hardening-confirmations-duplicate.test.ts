@@ -16,7 +16,7 @@
 // EXPECTED STATE OF THIS FILE UNTIL FIX 3 LANDS: first test RED, second
 // GREEN (documents zero regression for the pre-existing 2-argument
 // reduce(events, fantaTeamIds) call sites — src/main.ts, src/logRecovery.ts,
-// src/assignCommand.ts and their tests never pass a confirmations batch).
+// src/voidCommand.ts and their tests never pass a confirmations batch).
 import { describe, it, expect } from "vitest";
 import { reduce } from "../src/reduce.js";
 import { recordPurchase } from "../src/feasibility.js";

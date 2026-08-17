@@ -1100,10 +1100,10 @@ describe("filterListonePool", () => {
     expect(result).toEqual(pool);
   });
 
-  it("folds diacritics in the search query, same normalization as the command line (audit r2 D6, probe A/K)", () => {
-    // The command line resolves these through normalizeIdentityPart
-    // (src/assignCommand.ts); the search bar must find the same rows when
-    // the operator types the name as heard, without the accent.
+  it("folds diacritics in the search query, same normalization as listonePlayerKey (audit r2 D6, probe A/K)", () => {
+    // listonePlayerKey folds identities through normalizeIdentityPart; the
+    // search bar must find the same rows when the operator types the name as
+    // heard, without the accent.
     // Synthetic names only (docs/data/LISTONE_UI_LOAD_CONTRACT.md: no real
     // player/club names in this file) — diacritic positions mirror real
     // examples the fold must handle (trailing ò/ì), the identities are not.

@@ -629,11 +629,11 @@ export function listoneColumnTooltip(column: ListoneColumn): string {
 /**
  * Accent- and case-folding normalizer for a human-typed name fragment.
  *
- * Exported because `src/assignCommand.ts` must fold the operator's typed
- * query with EXACTLY the same rules used to build `listonePlayerKey` below.
- * Two normalizers that drift apart would mean a command line that matches a
- * row it then records under a different identity \u2014 so there is one function,
- * not a copy.
+ * Exported because every reader of a human-typed name — the listone search
+ * bar (`filterListonePool`) above all — must fold it with EXACTLY the same
+ * rules used to build `listonePlayerKey` below. Two normalizers that drift
+ * apart would mean a search that matches a row the log then records under a
+ * different identity \u2014 so there is one function, not a copy.
  *
  * Every run of non-alphanumeric characters collapses to a single `-`, which
  * makes the output safe to use for `startsWith`/`includes` matching on
@@ -801,10 +801,10 @@ export function filterListonePool(
   filter: ListoneSearchFilter,
   assignedKeys: ReadonlySet<string>,
 ): ListonePlayer[] {
-  // Same fold as the command line (normalizeIdentityPart, used to build
-  // listonePlayerKey and by src/assignCommand.ts): otherwise a name typed
-  // without its accent — exactly what's typed hearing it called — misses in
-  // this search bar while the command line still resolves it (audit r2 D6).
+  // Same fold used to build listonePlayerKey (normalizeIdentityPart):
+  // otherwise a name typed without its accent — exactly what's typed hearing
+  // it called — would miss in this search bar even though the row it names is
+  // right there (audit r2 D6).
   // Applied to BOTH sides: normalizeIdentityPart also collapses separators to
   // "-", so a name-side-only fold would break multi-word queries like
   // "de sintetis" against a name folded to "de-sintetis".
