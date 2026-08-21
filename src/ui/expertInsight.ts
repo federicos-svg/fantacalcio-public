@@ -59,11 +59,26 @@ import type {
   Titolarita,
 } from "../expertScheda.js";
 import { TITOLARITA_VALUES } from "../expertScheda.js";
+import { pagellaBlockHtml, pagellaSpoken } from "./pagellaRadar.js";
 import { escHtml } from "./theme.js";
 
 export const EXPERT_INSIGHT_TITLE = "INSIGHT GIOCATORE";
 
 // ── Etichette utente ─────────────────────────────────────────────────────────
+
+/**
+ * L'INTESTAZIONE della pastiglia categorica, come una COSTANTE e non come un
+ * letterale dentro il template.
+ *
+ * Serve a un test, e il test è il motivo per cui questa costante esiste: la
+ * pagella del Gruppo Esperti porta un asse che la fonte chiama con la stessa
+ * parola («Titolarità 9/10») ma che è un VOTO, non l'affermazione categorica
+ * che questa pastiglia mostra. `src/pagellaEsperti.test.ts` §"collisione"
+ * confronta questa scritta con le etichette della pagella dopo `foldLabel` e
+ * pretende che restino diverse. Con un letterale nel template il test avrebbe
+ * confrontato la propria copia con sé stessa, cioè niente.
+ */
+export const TITOLARITA_HEAD = "TITOLARITÀ";
 
 export const TITOLARITA_LABELS: Readonly<Record<Titolarita, string>> = {
   riserva: "riserva",
@@ -191,7 +206,7 @@ export function titolaritaHtml(view: ExpertInsightView): string {
       : `<span class="expert-titolarita__value" id="player-insight-track-${view.titolarita}"
           aria-current="true">${escHtml(TITOLARITA_LABELS[view.titolarita])}</span>`;
   return `<div class="expert-titolarita" id="player-insight-track">
-    <span class="expert-titolarita__head">TITOLARITÀ</span>${value}${sharePercentHtml(view)}
+    <span class="expert-titolarita__head">${escHtml(TITOLARITA_HEAD)}</span>${value}${sharePercentHtml(view)}
   </div>`;
 }
 
@@ -541,7 +556,7 @@ export function expertInsightSpoken(view: ExpertInsightView): string {
     .map((chip) => `${chip.label} ${chip.value}`)
     .join(", ");
   const nota = view.nota === "" ? "nessuna nota scritta" : view.nota;
-  return `${label}: ${view.quality}. ${titolarita}. ${chips === "" ? "nessun altro segnale" : chips}. ${nota}. ${expertInsightMetaText(view)}.${suffix}`;
+  return `${label}: ${view.quality}. ${titolarita}. ${chips === "" ? "nessun altro segnale" : chips}. ${nota}. ${pagellaSpoken(view.pagella)} ${expertInsightMetaText(view)}.${suffix}`;
 }
 
 /**
@@ -578,13 +593,21 @@ export function expertInsightBodyHtml(view: ExpertInsightView, notPersisted = fa
         )}</p>
     </div>${choice}`;
   }
+  // LA PAGELLA STA SOTTO LA GRIGLIA, a tutta larghezza, e non dentro la
+  // colonna visiva. Due ragioni, e nessuna è estetica: l'elenco dei cinque
+  // assi accanto al disegno ha bisogno di più larghezza di quanta ne abbia
+  // metà pannello a 900px, e i cinque voti sono un REGISTRO DIVERSO da quello
+  // sopra — lassù ci sono affermazioni categoriche della scheda, qui c'è una
+  // scala numerica della fonte. Sono separati a schermo come sono separati nel
+  // contratto (src/pagellaEsperti.ts), e la parola «Titolarità» compare in
+  // entrambi i posti proprio per questo con due scritte diverse.
   return `${schedaMatchNoteHtml(view)}<div class="expert-insight__grid">
     <div class="expert-insight__visual">
       ${titolaritaHtml(view)}
       ${expertInsightChipsHtml(view)}
     </div>
     ${expertInsightProseHtml(view)}
-  </div>${choice}`;
+  </div>${pagellaBlockHtml(view.pagella)}${choice}`;
 }
 
 /** L'etichetta di qualità, PORTATA DAL DATO e mai ricostruita dal renderer. */

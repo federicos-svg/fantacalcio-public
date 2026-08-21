@@ -18,6 +18,7 @@ import {
   type ExpertScheda,
   type ExpertSchedaStore,
 } from "./expertScheda.js";
+import { pagellaVuota } from "./pagellaEsperti.js";
 import { listonePlayerKey } from "./ui/listone.js";
 
 // Solo fixture sintetiche: «Dario Placeholder», «ClubQuattro» e compagnia non
@@ -190,6 +191,12 @@ describe("i cinque stati di disponibilità", () => {
       nota: "Rinnovo non firmato: se parte a fine mercato la scheda cambia.",
       aggiornata: "2026-08-30",
       fonte: "scheda",
+      // La scheda di questa fixture NON porta la pagella: la vista la rende
+      // comunque, VUOTA — cinque assi senza voto e nessun totale. Non è un
+      // `null` da gestire a valle, ed è ciò che il riquadro rende oggi su ogni
+      // giocatore (src/pagellaEsperti.ts). `TARGET` non porta il ruolo, quindi
+      // il quarto asse è `ruolo_ignoto` invece di essere indovinato.
+      pagella: pagellaVuota(),
     });
   });
 

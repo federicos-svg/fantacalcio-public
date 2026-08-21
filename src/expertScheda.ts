@@ -43,6 +43,15 @@
 // src/nominationContext.ts e src/leagueTeams.ts.
 
 import { z } from "zod";
+import type { Role } from "../packages/engine/src/types.js";
+import {
+  type PagellaScheda,
+  type PagellaView,
+  pagellaHasContent,
+  pagellaSchema,
+  pagellaVuota,
+  resolvePagella,
+} from "./pagellaEsperti.js";
 import { listonePlayerKey, normalizeIdentityPart } from "./ui/listone.js";
 import {
   normalizePlayerName,
@@ -177,6 +186,22 @@ export interface ExpertScheda {
   /** `YYYY-MM-DD` del giorno in cui Pico ha scritto o rivisto la scheda. */
   readonly aggiornata?: string;
   readonly fonte?: Fonte;
+  /**
+   * I CINQUE VOTI SU 10 e il totale dichiarato — la riga evidenziata della
+   * scheda sorgente. Contratto, scala e regola di verifica: src/pagellaEsperti.ts.
+   *
+   * SI CHIAMA `pagella` E NON `punteggi`, e nessuna delle sue chiavi si chiama
+   * `titolarita`. Il campo `titolarita` qui sopra, tre righe più in su, è
+   * un'AFFERMAZIONE CATEGORICA («titolare»); la «Titolarità 9/10» della fonte è
+   * un voto, e vive dentro `pagella.voti.pagella_titolarita`. Le due parole
+   * della fonte sono la stessa; i due campi non possono esserlo, e un test
+   * (src/pagellaEsperti.test.ts) diventa rosso se tornano a coincidere.
+   *
+   * OGGI È SEMPRE ASSENTE: l'estrazione che riempie questo campo vive nel
+   * repository privato e non esiste ancora. Il core pubblico porta la forma,
+   * non il dato.
+   */
+  readonly pagella?: PagellaScheda;
 }
 
 export interface ExpertSchedaDeposit {
@@ -214,6 +239,7 @@ const schedaSchema = z
     nota: z.string().trim().max(SCHEDA_NOTA_MAX).optional(),
     aggiornata: z.string().refine(isValidIsoDate).optional(),
     fonte: z.enum(FONTE_VALUES).optional(),
+    pagella: pagellaSchema.optional(),
   })
   .strict();
 
@@ -356,6 +382,18 @@ export interface SchedaGroup {
 export interface SchedaTarget {
   readonly name: string;
   readonly club: string;
+  /**
+   * Il ruolo classico della riga, quando chi chiama ce l'ha. Serve a UNA cosa
+   * sola: sapere QUALE sia il quarto asse della pagella — «Porta inviolata»
+   * per i portieri, «Bonus» per il movimento — e accorgersi quando la scheda
+   * ne porta uno di un altro ruolo.
+   *
+   * FACOLTATIVO, e il ramo senza ruolo NON indovina: rende lo stato
+   * `ruolo_ignoto` e lo scrive a schermo. Non entra in `listonePlayerKey` né
+   * in `schedaLinkRowKey`: l'identità di una riga resta nome + squadra, come
+   * prima, e il ruolo non ne fa parte.
+   */
+  readonly role?: Role;
 }
 
 /**
@@ -487,6 +525,14 @@ export interface ExpertInsightView {
   readonly nota: string;
   readonly aggiornata: string | null;
   readonly fonte: Fonte | null;
+  /**
+   * La pagella risolta — sempre presente, anche quando è vuota (che oggi è
+   * sempre). Non è `PagellaScheda | null`: il riquadro deve poter rendere i
+   * cinque assi «assenti» senza che ogni chiamante si ricordi di gestire un
+   * `null`, ed è la stessa postura di `piazzati`/`avvisi`, che sono liste
+   * vuote e non `null`.
+   */
+  readonly pagella: PagellaView;
 }
 
 /**
@@ -498,6 +544,7 @@ export interface ExpertInsightView {
  */
 export function unknownExpertInsight(
   availability: Exclude<ExpertInsightAvailability, "available">,
+  role: Role | null = null,
 ): ExpertInsightView {
   return {
     availability,
@@ -518,6 +565,10 @@ export function unknownExpertInsight(
     nota: "",
     aggiornata: null,
     fonte: null,
+    // La pagella VUOTA porta comunque il ruolo, quando lo si conosce: così il
+    // quarto asse ha già il proprio nome anche in uno stato che non lo mostra,
+    // e la vista non cambia forma fra uno stato e l'altro.
+    pagella: pagellaVuota(role),
   };
 }
 
@@ -529,7 +580,12 @@ export function schedaHasContent(scheda: ExpertScheda): boolean {
     scheda.gerarchia !== undefined ||
     (scheda.piazzati ?? []).length > 0 ||
     (scheda.avvisi ?? []).length > 0 ||
-    (scheda.nota ?? "").trim() !== ""
+    (scheda.nota ?? "").trim() !== "" ||
+    // Una scheda che porta SOLO la pagella dice eccome qualcosa: sono i cinque
+    // voti della riga evidenziata. Senza questa riga verrebbe classificata
+    // «aperta ma vuota» e il riquadro nasconderebbe il radar che ha appena
+    // ricevuto.
+    (scheda.pagella !== undefined && pagellaHasContent(scheda.pagella))
   );
 }
 
@@ -572,11 +628,12 @@ export function resolveExpertInsight(
   target: SchedaTarget | null,
   chosenSchedaKey: string | null = null,
 ): ExpertInsightView {
-  if (!store.ok) return unknownExpertInsight("source_unavailable");
-  if (target === null) return unknownExpertInsight("no_expert_signal");
+  const role = target?.role ?? null;
+  if (!store.ok) return unknownExpertInsight("source_unavailable", role);
+  if (target === null) return unknownExpertInsight("no_expert_signal", role);
 
   const found = findSchedaCandidates(store, target);
-  if (found.length === 0) return unknownExpertInsight("no_expert_signal");
+  if (found.length === 0) return unknownExpertInsight("no_expert_signal", role);
 
   const ambiguous = found.length > 1;
   const candidates = ambiguous ? found.map(toCandidate) : [];
@@ -586,7 +643,7 @@ export function resolveExpertInsight(
 
   // Più candidati e nessuna scelta valida: la domanda, non un'ipotesi.
   if (group === null) {
-    return { ...unknownExpertInsight("identity_not_resolved"), candidates };
+    return { ...unknownExpertInsight("identity_not_resolved", role), candidates };
   }
 
   const link = {
@@ -603,14 +660,14 @@ export function resolveExpertInsight(
   // Due schede sotto la STESSA identità: sceglierne una a caso mostrerebbe la
   // metà sbagliata senza dirlo. Restano da unire a mano, come prima.
   if (group.schede.length > 1) {
-    return { ...unknownExpertInsight("identity_not_resolved"), ...link };
+    return { ...unknownExpertInsight("identity_not_resolved", role), ...link };
   }
   const scheda = group.schede[0] as ExpertScheda;
   if (scheda.fonte === "community") {
-    return { ...unknownExpertInsight("author_authority_not_verified"), ...link };
+    return { ...unknownExpertInsight("author_authority_not_verified", role), ...link };
   }
   if (!schedaHasContent(scheda)) {
-    return { ...unknownExpertInsight("no_expert_signal"), ...link };
+    return { ...unknownExpertInsight("no_expert_signal", role), ...link };
   }
   return {
     availability: "available",
@@ -628,5 +685,9 @@ export function resolveExpertInsight(
     nota: (scheda.nota ?? "").trim(),
     aggiornata: scheda.aggiornata ?? null,
     fonte: scheda.fonte ?? null,
+    // Il RUOLO viene dalla riga di listone, non dalla scheda: la scheda non
+    // dichiara un ruolo, e chiederglielo aprirebbe una seconda verità
+    // sull'identità del giocatore accanto a quella del listone.
+    pagella: resolvePagella(scheda.pagella, role),
   };
 }

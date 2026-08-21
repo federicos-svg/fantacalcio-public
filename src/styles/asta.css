@@ -1948,3 +1948,173 @@
   margin: 8px 0 0;
 }
 .late-answer > .hint-text { margin: 8px 0 0; }
+
+/* ── PAGELLA GRUPPO ESPERTI — i cinque voti su 10 e il radar ────────────────
+   Costruttori: src/ui/pagellaRadar.ts. Contratto: src/pagellaEsperti.ts.
+
+   TUTTO IL TESTO DI QUESTO BLOCCO STA SULLA RAMPA di base.css, e sta sotto i
+   14px: l'eccezione «large text» di WCAG non si applica in nessun punto, e
+   ogni livello usato qui è ≥ 4,5:1 sul fondo peggiore (--panel-inner, che è
+   proprio il fondo che questo blocco si dà). e2e/text-contrast-aa.spec.ts
+   rimisura tutto a ogni run con la spazzata fail-closed.
+
+   L'SVG NON PORTA TESTO: non c'è nessuna etichetta il cui colore vada preso
+   da `fill` invece che da `color`, quindi non c'è nessun modo di far passare
+   un testo illeggibile per non misurabile. Il perché sta in pagellaRadar.ts.
+
+   ALTEZZA. Il blocco è dimensionato per stare in una sola fascia della
+   colonna: il disegno è 116px, l'elenco dei cinque assi ~90px, e i due
+   convivono affiancati invece di impilarsi. Sotto i 560px di larghezza si
+   impilano, perché a quel punto la colonna non regge due colonne. */
+.pagella {
+  background: var(--panel-inner);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 7px;
+  margin-top: 9px;
+  padding: 8px 10px 9px;
+}
+.pagella__head {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 8px;
+  justify-content: space-between;
+}
+.pagella__title {
+  color: var(--text-sec);
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+.pagella__scale {
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1.35;
+}
+.pagella__body {
+  align-items: start;
+  display: grid;
+  gap: 8px 12px;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 560px) {
+  .pagella__body { grid-template-columns: 116px minmax(0, 1fr); }
+}
+.pagella-radar {
+  display: block;
+  height: 116px;
+  width: 116px;
+  max-width: 100%;
+}
+.pagella-radar__ring {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.pagella-radar__spoke {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+/* Il quarto raggio — quello che cambia col ruolo — è tratteggiato: la
+   differenza fra «porta inviolata» e «bonus» si vede anche nel disegno, non
+   solo nella didascalia. Non porta il fatto DA SOLO (l'elenco lo scrive a
+   parole), quindi nessuna informazione dipende da un tratteggio. */
+.pagella-radar__spoke--role {
+  stroke-dasharray: 3 2.5;
+}
+.pagella-radar__shape {
+  fill: var(--accent-dim);
+  fill-opacity: 0.85;
+  stroke: var(--accent);
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+.pagella-radar__dot {
+  fill: var(--accent);
+  stroke: var(--panel-inner);
+  stroke-width: 0.8;
+}
+.pagella__side {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.pagella__assi {
+  display: grid;
+  gap: 2px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pagella-asse {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 7px;
+  min-width: 0;
+}
+.pagella-asse__pos {
+  color: var(--text-dim);
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  width: 9px;
+}
+.pagella-asse__label {
+  color: var(--text-sec);
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.35;
+}
+.pagella-asse__voto {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  margin-left: auto;
+}
+/* Un voto che manca resta scritto «n/d» in chiaro, con lo stesso peso degli
+   altri: attenuarlo lo farebbe leggere come un valore basso invece che come
+   un'assenza — ed è esattamente lo scambio che questo blocco esiste per non
+   fare. Cambia solo il corpo, non il livello della rampa. */
+.pagella-asse--missing .pagella-asse__voto {
+  color: var(--text-sec);
+  font-weight: 600;
+}
+.pagella-asse__marker {
+  color: var(--text-dim);
+  flex-basis: 100%;
+  font-size: 9.5px;
+  line-height: 1.3;
+  padding-left: 16px;
+}
+.pagella__totale {
+  color: var(--text-mid);
+  font-size: 11px;
+  line-height: 1.4;
+}
+/* LA DIVERGENZA SI VEDE, e non solo si legge: il totale ricalcolato non
+   coincide con quello scritto sulla scheda, cioè un voto è stato letto male.
+   Il colore non porta il fatto da solo — la frase nomina tutti e due i numeri
+   — ma un errore di estrazione non deve avere lo stesso peso visivo di un
+   totale che torna. --stop-red sta a 5,02:1 su --panel-inner. */
+.pagella__totale--divergente { color: var(--stop-red); }
+.pagella__note {
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1.4;
+}
+/* La frase dello stato vuoto — oggi lo stato normale — sta un gradino SOPRA
+   la didascalia: è il contenuto del blocco, non una nota a margine. */
+.pagella__empty {
+  color: var(--text-sec);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.pagella__mismatch {
+  color: var(--stop-red);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
