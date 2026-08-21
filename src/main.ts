@@ -110,7 +110,19 @@ import {
   renderRoleDepletionBlock,
   type RoleDepletionProps,
   type RecoveryBlockedProps,
+  renderInterestFlagRow,
+  renderLateAnswerBlock,
 } from "./ui/views.js";
+import {
+  INTEREST_FLAG_NOT_PERSISTED_NOTICE,
+  enqueueInterestFlag,
+  loadInterestFlags,
+  type InterestFlag,
+} from "./interestFlags.js";
+import {
+  createLateAnswerSlot,
+  type LateAnswerProducer,
+} from "./lateAnswer.js";
 import { roleDepletionReading } from "./roleDepletion.js";
 import {
   loadAuctionLog,
@@ -412,6 +424,28 @@ interface AppState {
   // back. See #219.
   chiamataFocusPending: boolean;
   assign: AssignState;
+  /**
+   * CHI ERA IN GARA — la marcatura in corso, LEGATA AL SUO SOGGETTO.
+   *
+   * `subjectKey` è il `listonePlayerKey` del giocatore per cui le marcature
+   * valgono. Tenere il soggetto accanto alle marcature, invece di ricordarsi di
+   * azzerarle a ogni cambio di giocatore, è ciò che rende STRUTTURALMENTE
+   * impossibile che una marcatura fatta per un giocatore finisca sull'acquisto
+   * di un altro: chi legge confronta la chiave, e una chiave diversa vale
+   * quanto nessuna marcatura. Le tre strade che cambiano giocatore
+   * (selezione di una riga, ricerca azzerata, listone che non contiene più il
+   * selezionato) non hanno quindi nulla da ricordarsi.
+   */
+  interestMarks: { subjectKey: string | null; contenders: string[] };
+  /**
+   * La coda locale dei flag già registrati, in memoria. Rispecchia lo storage
+   * quando l'ultima scrittura è riuscita; quando NON è riuscita resta più
+   * ricca di lui — la marcatura non si perde per la sessione — e
+   * `interestFlagsNotice` lo dice.
+   */
+  interestFlags: readonly InterestFlag[];
+  /** Perché la coda dei flag non è al sicuro. Vuoto è lo stato normale. */
+  interestFlagsNotice: string;
   confirmVoidSeq: number | null;
   confirmVoidLabel: string;
   // Whether the purchase being confirmed for void is the most recent one still
@@ -692,6 +726,29 @@ const bootLogEvents = logFromLoadResult(bootLog);
 // metà (src/schedaCompiler.ts).
 const bootSchedaDrafts = loadSchedaDrafts(browserStorage);
 
+// La coda dei flag «chi era in gara», riletta al boot. Fail-SOFT per
+// costruzione (src/interestFlags.ts): nessuno dei quattro esiti blocca lo
+// schermo, e in tutti e quattro `pending` è utilizzabile. Il solo caso che
+// produce una riga a schermo è quello in cui qualcosa si è perso davvero, e la
+// riga lo dice senza allarmare: la contabilità dell'asta non è toccata.
+const bootInterestFlags = loadInterestFlags(browserStorage);
+
+function interestFlagsBootNotice(result: ReturnType<typeof loadInterestFlags>): string {
+  if (result.status === "quarantined") {
+    return (
+      "La coda locale delle marcature «chi era in gara» non era leggibile ed è stata messa da parte: " +
+      "riparte vuota. Storico dell'asta, budget e slot non sono toccati."
+    );
+  }
+  if (result.status === "storage-error") {
+    return (
+      "La coda locale delle marcature «chi era in gara» non è accessibile in questo browser: " +
+      "le marcature di stasera resteranno solo in memoria. Storico dell'asta, budget e slot non sono toccati."
+    );
+  }
+  return "";
+}
+
 const state: AppState = {
   screen: "asta",
   moment: "chiamata",
@@ -710,6 +767,9 @@ const state: AppState = {
   momentFactsDetailOpen: false,
   chiamataFocusPending: true,
   assign: { fantaTeamId: SELF_ID, price: "" },
+  interestMarks: { subjectKey: null, contenders: [] },
+  interestFlags: bootInterestFlags.pending,
+  interestFlagsNotice: interestFlagsBootNotice(bootInterestFlags),
   confirmVoidSeq: null,
   confirmVoidLabel: "",
   confirmVoidIsLatest: true,
@@ -947,6 +1007,9 @@ function disarmSelectionOutsidePool(index: ReadonlyMap<string, ListonePlayer>): 
     state.assign = { fantaTeamId: SELF_ID, price: "" };
     state.error = "";
   }
+  // Il selezionato non esiste più nel listone: il posto della risposta lenta si
+  // svuota con lui, dopo le mutazioni e prima che il chiamante ridipinga.
+  armLateAnswer(null);
   const head = wasInAsta ? "Selezione annullata e asta in corso interrotta" : "Selezione annullata";
   return `${head}: ${selected.name} non è più nel listone caricato.`;
 }
@@ -1226,6 +1289,12 @@ function selectListonePlayer(p: ListonePlayer): void {
   // on-demand closed state instead of silently re-pointing at another player.
   state.nominationContextOpen = false;
   state.chiamataFocusPending = true;
+  // Nuovo soggetto: la risposta lenta si arma su di lui e quella del giocatore
+  // di prima viene annullata nello stesso gesto (src/lateAnswer.ts). Le
+  // marcature «chi era in gara» non hanno bisogno di essere azzerate qui:
+  // portano il proprio soggetto con sé, e per un soggetto diverso valgono
+  // quanto nessuna marcatura.
+  armLateAnswer(listonePlayerKey(p));
   render();
 }
 
@@ -1283,6 +1352,7 @@ function resetListoneSearch(): void {
   state.poolStatusFilter = "available";
   state.poolPage = 1;
   state.chiamataFocusPending = true;
+  armLateAnswer(null);
   render();
 }
 
@@ -2201,6 +2271,22 @@ function renderAsta(): HTMLElement {
     wrap.appendChild(poolNotice);
   }
 
+  // LA CODA DEI FLAG «CHI ERA IN GARA» NON È AL SICURO — e si dice a voce
+  // bassa, di proposito. Non è `role="alert"` e non è rossa come le due righe
+  // qui sopra: quelle parlano della contabilità dell'asta, questa di un dato di
+  // contorno che si è perso. Alzare la voce per lui mentre l'asta corre
+  // costerebbe attenzione più di quanto il dato valga, e la frase dice come
+  // prima cosa che l'acquisto c'è.
+  if (state.interestFlagsNotice) {
+    const flagNotice = document.createElement("div");
+    flagNotice.id = "interest-flag-notice";
+    flagNotice.setAttribute("role", "status");
+    flagNotice.className = "hint-text";
+    flagNotice.style.cssText = `border:1px solid ${C.border};border-radius:8px;padding:8px 12px;`;
+    flagNotice.textContent = state.interestFlagsNotice;
+    wrap.appendChild(flagNotice);
+  }
+
   // The critical strip used to be appended here. It now lives next to the
   // header (see render()) so it can be header-wide and header-attached, and
   // only in the chiamata moment — #331 punto 5.
@@ -2477,6 +2563,130 @@ const SETTINGS_AREAS: readonly SettingsArea[] = [
 /** Seat -> display name, for views that render many seats at once. */
 function seatLabelMap(): Record<string, string> {
   return Object.fromEntries(FANTA_TEAM_IDS.map((id) => [id, displayTeamLabel(id)]));
+}
+
+// ── CHI ERA IN GARA — il flag al submit ───────────────────────────────────
+// Uno stream SECONDARIO e best-effort accanto all'acquisto, mai dentro di lui:
+// la meccanica, la coda e il motivo per cui qui il fail-closed sarebbe il
+// difetto e non la garanzia stanno in testa a src/interestFlags.ts.
+
+/** I posti marcabili: i sette avversari, mai il mio (la domanda è su di loro). */
+function interestSeatIds(): readonly string[] {
+  return FANTA_TEAM_IDS.filter((id) => id !== SELF_ID);
+}
+
+/** Il soggetto delle marcature: il giocatore selezionato, o `null`. */
+function currentInterestSubjectKey(): string | null {
+  const selected = state.call.selectedPlayer;
+  return selected === null ? null : listonePlayerKey(selected);
+}
+
+/**
+ * Le marcature valide ADESSO. Una marcatura il cui soggetto non è il giocatore
+ * corrente non vale niente e non viene mostrata: è la garanzia strutturale
+ * descritta su `AppState.interestMarks`.
+ */
+function currentInterestMarks(): readonly string[] {
+  const subject = currentInterestSubjectKey();
+  if (subject === null || state.interestMarks.subjectKey !== subject) return [];
+  return state.interestMarks.contenders;
+}
+
+/**
+ * Marca/smarca un posto e restituisce l'elenco aggiornato al chiamante, che
+ * ridipinge SOLO la pastiglia toccata e la riga di sintesi. Nessun `render()`:
+ * ricostruire l'albero intero costerebbe il fuoco del campo del prezzo, cioè
+ * farebbe pagare al gesto principale il costo di un dato di contorno.
+ */
+function toggleInterestMark(seatId: string): readonly string[] {
+  const subject = currentInterestSubjectKey();
+  if (subject === null) return [];
+  const previous = currentInterestMarks();
+  const next = previous.includes(seatId)
+    ? previous.filter((id) => id !== seatId)
+    : [...previous, seatId];
+  state.interestMarks = { subjectKey: subject, contenders: [...next] };
+  return next;
+}
+
+/**
+ * Accoda il flag dell'acquisto appena registrato. BEST-EFFORT ASSOLUTO: viene
+ * chiamata DOPO che l'acquisto è già stato scritto e non ha alcun modo di
+ * disfarlo — non lancia (il modulo restituisce esiti, e questo `try` copre
+ * anche uno storage che lanci da dentro un punto non previsto), non tocca
+ * `state.log`, non imposta `state.error` e non impedisce il `render()` finale.
+ *
+ * Nessuna marcatura è un esito NORMALE e silenzioso: si accoda comunque una
+ * voce con `contenders: []`, perché «l'operatore non ha marcato nessuno» e
+ * «non gli è stato chiesto» sono due fatti diversi e solo il primo è vero qui.
+ */
+function recordInterestFlag(
+  purchaseSeq: number,
+  proposed: ProposedPurchase,
+  contenders: readonly string[],
+): void {
+  try {
+    const result = enqueueInterestFlag(browserStorage, state.interestFlags, {
+      purchaseSeq,
+      playerId: proposed.playerId,
+      winnerFantaTeamId: proposed.fantaTeamId,
+      price: proposed.price,
+      contenders: [...contenders],
+      flaggedAt: new Date().toISOString(),
+    });
+    state.interestFlags = result.pending;
+    state.interestFlagsNotice = result.ok ? "" : INTEREST_FLAG_NOT_PERSISTED_NOTICE;
+  } catch {
+    // Irraggiungibile per costruzione (enqueueInterestFlag non lancia), e
+    // tenuto lo stesso: è l'ultima rete fra un dato di contorno e un acquisto
+    // registrato. Il flag si perde, l'asta no.
+    state.interestFlagsNotice = INTEREST_FLAG_NOT_PERSISTED_NOTICE;
+  }
+}
+
+// ── IL POSTO DELLA RISPOSTA LENTA ─────────────────────────────────────────
+// La meccanica (generazioni, annullamento, i tre stati più il silenzio onesto)
+// sta in src/lateAnswer.ts; qui c'è solo il cablaggio.
+//
+// `onChange` ridipinge la schermata SOLO quando lo stato visibile cambia
+// davvero: una risposta obsoleta viene scartata dal posto e non arriva
+// nemmeno a chiedere un re-render.
+const lateAnswerSlot = createLateAnswerSlot<string>({ onChange: () => render() });
+
+/**
+ * L'UNICO punto d'innesto dichiarato. La corsia che alimenterà questo posto —
+ * l'agente di lettura — registrerà qui il proprio produttore; finché resta
+ * `null` non parte nessuna richiesta, e il riquadro lo DICE («Non richiesta»)
+ * invece di far finta di stare preparando qualcosa.
+ *
+ * In questo task l'esito è deliberatamente `null`: nessuna dipendenza nuova,
+ * nessuna rete, nessuna chiamata a modelli. Il produttore finto vive nei test.
+ *
+ * È una funzione e non una costante perché una costante inizializzata a `null`
+ * verrebbe ristretta a `null` dal compilatore in ogni punto d'uso: il tipo del
+ * posto d'innesto sparirebbe, e con lui la dichiarazione di che cosa ci andrà.
+ */
+function lateAnswerProducer(): LateAnswerProducer<string> | null {
+  return null;
+}
+
+/**
+ * La richiesta parte QUANDO IL GIOCATORE VIENE SELEZIONATO, non quando la
+ * risposta servirebbe: è la differenza fra «si prepara mentre l'asta va
+ * avanti» e «l'asta aspetta».
+ *
+ * Il cambio di soggetto passa sempre di qui — con un produttore (nuova
+ * richiesta, generazione nuova, la precedente annullata) o senza (posto
+ * svuotato) — quindi non esiste una strada che cambi giocatore lasciando in
+ * piedi la risposta del giocatore di prima.
+ */
+function armLateAnswer(subjectKey: string | null): void {
+  const producer = lateAnswerProducer();
+  if (subjectKey === null || producer === null) {
+    lateAnswerSlot.clear();
+    return;
+  }
+  lateAnswerSlot.request(subjectKey, producer);
 }
 
 function persistRoster(next: LeagueRoster): void {
@@ -4894,6 +5104,25 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   formRow.appendChild(submitBtn);
   divider.appendChild(formRow);
 
+  // CHI ERA IN GARA — il flag al submit, DENTRO il gesto e sotto la riga di
+  // campi. Sta qui e non altrove per tre motivi che si sommano:
+  //
+  //  1. è la marcatura DI QUESTO acquisto: metterla in un pannello a parte
+  //     vorrebbe dire chiedere all'operatore di ricordarsi di tornarci;
+  //  2. sotto la riga di campi, quindi il titolo «ASSEGNA A» non si sposta di
+  //     un pixel — e2e/asta-gesto-principale.spec.ts misura esattamente quello;
+  //  3. saltarla non costa NIENTE: non è un passo del percorso verso «Registra
+  //     acquisto», è una riga che si può ignorare, e ignorarla non produce
+  //     avvisi né conferme.
+  divider.appendChild(
+    renderInterestFlagRow({
+      seatIds: interestSeatIds(),
+      seatLabels: seatLabelMap(),
+      marked: currentInterestMarks(),
+      onToggle: toggleInterestMark,
+    }),
+  );
+
   // Terzo portiere a 0 — LEAGUE_RULES.md §6 (decisione Pico, 2026-08-15).
   // Rendered ONLY when this purchase is structurally the selected team's
   // third (last) portiere slot — `zeroGestureAvailable`, computed at the top
@@ -4959,6 +5188,19 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   // scambio di posizione verticale fra i due blocchi adiacenti, niente altro.
   // L'ordine è asserito da e2e/call-screen-order.spec.ts.
   wrap.appendChild(renderPlayerInsightsBlock(playerInsightProps()));
+
+  // IL POSTO DELLA RISPOSTA LENTA — sempre presente, anche (anzi soprattutto)
+  // quando non ha niente da mostrare: è la resa della regola «se non è pronta
+  // lo dice invece di far aspettare». Sta SOTTO la scheda del giocatore, come
+  // ogni altro riquadro: una risposta che arriva non può spingere il gesto
+  // principale fuori dallo schermo, e mentre lei si prepara la schermata resta
+  // interamente usabile.
+  wrap.appendChild(
+    renderLateAnswerBlock({
+      state: lateAnswerSlot.state(),
+      subjectLabel: state.call.playerName === "" ? "il giocatore chiamato" : state.call.playerName,
+    }),
+  );
 
   // War board MINI — #231 tranche 3, decisione di Owner #222 voce 18
   // (revisione registrata dell'invariante #86, docs/FRONTEND_STRUCTURE.md).
@@ -5071,6 +5313,20 @@ function commitPurchase(aState: AuctionState, proposed: ProposedPurchase, role: 
     }
     state.log = newLog as AuctionEvent[];
     state.persistenceError = "";
+    // IL FLAG NON PUÒ FAR FALLIRE L'ACQUISTO, E QUESTO È IL PUNTO IN CUI SI
+    // VEDE. L'acquisto è già registrato e persistito quando questa riga viene
+    // eseguita: `recordInterestFlag` non può tornare indietro, non lancia e
+    // non ha un ramo che salti il `render()` qui sotto. Se lo storage del flag
+    // rifiuta la scrittura, la marcatura resta in coda in memoria e la
+    // schermata lo dice — l'acquisto resta registrato in ogni caso.
+    //
+    // Le marcature si leggono PRIMA di azzerare `state.call`: dopo, il
+    // soggetto non esiste più e `currentInterestMarks()` restituirebbe — con
+    // ragione — un elenco vuoto.
+    const flagged = currentInterestMarks();
+    const purchaseSeq = newLog[newLog.length - 1]?.seq;
+    if (purchaseSeq !== undefined) recordInterestFlag(purchaseSeq, proposed, flagged);
+    state.interestMarks = { subjectKey: null, contenders: [] };
     state.moment = "chiamata";
     state.chiamataFocusPending = true;
     state.call = { playerName: "", role: "", club: "", selectedPlayer: null };
@@ -5078,6 +5334,11 @@ function commitPurchase(aState: AuctionState, proposed: ProposedPurchase, role: 
     state.nominationContextOpen = false;
     state.assign = { fantaTeamId: SELF_ID, price: "" };
     state.error = "";
+    // Il soggetto non c'è più: il posto della risposta lenta si svuota e
+    // qualunque risposta in volo viene annullata. Sta QUI, subito prima del
+    // render, perché svuotarlo prima significherebbe ridipingere la schermata
+    // in mezzo alle mutazioni.
+    armLateAnswer(null);
     render();
   } catch (err) {
     state.error = err instanceof Error ? err.message : "Errore sconosciuto.";

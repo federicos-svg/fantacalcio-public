@@ -68,6 +68,21 @@ import {
   opponentPrecedentsHeadline,
   opponentPrecedentsHtml,
 } from "./liveFacts.js";
+import {
+  INTEREST_FLAG_NOTE,
+  INTEREST_FLAG_OPTIONAL_HINT,
+  INTEREST_FLAG_TITLE,
+  interestChipSpoken,
+  interestFlagSummary,
+} from "./interestFlags.js";
+import type { LateAnswerState } from "../lateAnswer.js";
+import {
+  LATE_ANSWER_NOTE,
+  LATE_ANSWER_TITLE,
+  lateAnswerBodyHtml,
+  lateAnswerStateAttr,
+  lateAnswerStatusText,
+} from "./lateAnswer.js";
 import type { TierBandReading } from "../tierOrdering.js";
 import {
   TIER_BAND_NOTE,
@@ -2133,6 +2148,155 @@ export function renderRoleDepletionBlock(props: RoleDepletionProps): HTMLElement
   note.className = "hint-text";
   note.id = "role-depletion-note";
   note.textContent = ROLE_DEPLETION_NOTE;
+  panel.appendChild(note);
+
+  return panel;
+}
+
+// ── CHI ERA IN GARA — la riga di pastiglie dentro ASSEGNA A ─────────────────
+// Wrapper sottile: le parole e le regole d'ordine stanno in ./interestFlags.ts,
+// verificate senza DOM; qui c'è il montaggio e il clic.
+//
+// PERCHÉ IL CLIC NON RIDIPINGE LA SCHERMATA. `render()` ricostruisce l'intero
+// albero, e in mezzo a un'asta questo significa perdere fuoco e cursore del
+// campo del prezzo — cioè far pagare al gesto principale il costo di un dato di
+// contorno. La pastiglia aggiorna quindi SOLO sé stessa (classe, `aria-pressed`,
+// etichetta parlata) e la riga di sintesi, esattamente come il campo del prezzo
+// aggiorna in place il numero grande e la proiezione «dopo l'acquisto».
+// `onToggle` porta la marcatura nello stato dell'app: la fonte di verità resta
+// lì, il DOM ne è il riflesso.
+
+export interface InterestFlagRowProps {
+  /** I posti marcabili, nell'ordine dichiarato: i sette avversari, mai il mio. */
+  readonly seatIds: readonly string[];
+  readonly seatLabels: Readonly<Record<string, string>>;
+  /** I posti marcati adesso, per QUESTO giocatore chiamato. */
+  readonly marked: readonly string[];
+  /** Registra la marcatura nello stato dell'app e ritorna il nuovo elenco. */
+  readonly onToggle: (seatId: string) => readonly string[];
+}
+
+export function renderInterestFlagRow(props: InterestFlagRowProps): HTMLElement {
+  const block = document.createElement("div");
+  block.id = "interest-flag-row";
+  block.className = "interest-flags";
+
+  const head = document.createElement("div");
+  head.className = "interest-flags__head";
+
+  const title = document.createElement("span");
+  title.className = "field-label";
+  title.textContent = `${INTEREST_FLAG_TITLE} (${INTEREST_FLAG_OPTIONAL_HINT})`;
+  head.appendChild(title);
+
+  const summary = document.createElement("span");
+  summary.id = "interest-flag-summary";
+  summary.className = "interest-flags__summary";
+  // `role="status"`: la riga cambia solo su gesto dell'operatore, quindi
+  // `polite` non interrompe nulla e conferma a voce ciò che il colore mostra.
+  summary.setAttribute("role", "status");
+  summary.setAttribute("aria-live", "polite");
+  head.appendChild(summary);
+  block.appendChild(head);
+
+  const chips = document.createElement("div");
+  chips.className = "interest-flags__chips";
+  block.appendChild(chips);
+
+  let marked: readonly string[] = props.marked;
+
+  const paintSummary = (): void => {
+    summary.textContent = interestFlagSummary(marked, props.seatIds, props.seatLabels);
+  };
+
+  for (const seatId of props.seatIds) {
+    const label = props.seatLabels[seatId] ?? seatId;
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.id = `interest-flag-${seatId}`;
+    chip.className = "btn interest-chip";
+    chip.dataset["seat"] = seatId;
+    chip.textContent = label;
+
+    const paintChip = (): void => {
+      const on = marked.includes(seatId);
+      chip.setAttribute("aria-pressed", on ? "true" : "false");
+      chip.classList.toggle("interest-chip--on", on);
+      chip.setAttribute("aria-label", interestChipSpoken(label, on));
+    };
+    paintChip();
+
+    chip.addEventListener("click", () => {
+      marked = props.onToggle(seatId);
+      paintChip();
+      paintSummary();
+    });
+    chips.appendChild(chip);
+  }
+
+  paintSummary();
+
+  const note = document.createElement("p");
+  note.className = "hint-text";
+  note.id = "interest-flag-note";
+  note.textContent = INTEREST_FLAG_NOTE;
+  block.appendChild(note);
+
+  return block;
+}
+
+// ── IL POSTO DELLA RISPOSTA LENTA ───────────────────────────────────────────
+// Il riquadro sta SEMPRE sulla schermata d'asta, anche — anzi soprattutto —
+// quando non ha niente da mostrare: è la resa della regola «se non è pronta lo
+// dice invece di far aspettare». Un riquadro che comparisse solo a risposta
+// arrivata farebbe saltare il layout nel momento peggiore e non direbbe mai
+// che una risposta era stata chiesta.
+//
+// NON C'È NESSUNO SPINNER, e non è una dimenticanza: uno spinner è la promessa
+// che valga la pena aspettare. Qui la riga di stato è testo, e mentre lei dice
+// «in preparazione» ogni controllo della schermata resta usabile.
+
+export interface LateAnswerProps {
+  readonly state: LateAnswerState<string>;
+  /** Come nominare il soggetto della risposta (il giocatore chiamato). */
+  readonly subjectLabel: string;
+}
+
+export function renderLateAnswerBlock(props: LateAnswerProps): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "late-answer-panel";
+  panel.className = "panel late-answer";
+  panel.dataset["state"] = lateAnswerStateAttr(props.state);
+  panel.setAttribute("aria-label", `${LATE_ANSWER_TITLE}: ${lateAnswerStatusText(props.state, props.subjectLabel)}`);
+  // Il soggetto è dichiarato nel DOM: è ciò che rende verificabile che una
+  // risposta non stia comparendo sopra il giocatore sbagliato.
+  panel.dataset["subject"] = props.state.kind === "non-richiesta" ? "" : props.state.subjectKey;
+
+  const title = document.createElement("div");
+  title.className = "panel-title";
+  title.textContent = LATE_ANSWER_TITLE;
+  panel.appendChild(title);
+
+  const status = document.createElement("p");
+  status.id = "late-answer-status";
+  status.className = "late-answer__status";
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
+  status.textContent = lateAnswerStatusText(props.state, props.subjectLabel);
+  panel.appendChild(status);
+
+  const body = lateAnswerBodyHtml(props.state);
+  if (body !== "") {
+    const bodyEl = document.createElement("div");
+    bodyEl.id = "late-answer-body";
+    bodyEl.innerHTML = body;
+    panel.appendChild(bodyEl);
+  }
+
+  const note = document.createElement("p");
+  note.className = "hint-text";
+  note.id = "late-answer-note";
+  note.textContent = LATE_ANSWER_NOTE;
   panel.appendChild(note);
 
   return panel;

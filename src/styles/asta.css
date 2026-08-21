@@ -1869,3 +1869,82 @@
   font-size: 10.5px;
   line-height: 1.35;
 }
+
+/* ── CHI ERA IN GARA — la riga di pastiglie dentro ASSEGNA A ──────────────
+   Il gesto deve costare un clic e mezzo secondo di lettura, quindi la riga è
+   UNA sola: titolo + sintesi su una riga, pastiglie sotto, nota in fondo. Sta
+   DENTRO .assign-block, sotto la riga di campi: il titolo «ASSEGNA A» non si
+   sposta di un pixel (e2e/asta-gesto-principale.spec.ts misura proprio quello).
+
+   NESSUN COLORE NUOVO. Marcato/non marcato si distinguono per riempimento e
+   bordo usando i token già in uso — --accent per il fondo marcato (lo stesso
+   di .btn--primary, bianco sopra) e --text-mid su trasparente per il non
+   marcato (lo stesso di .btn--secondary): entrambe le combinazioni sono già
+   coperte dalla guardia di contrasto AA. Il colore non porta comunque nulla da
+   solo: `aria-pressed` e la riga di sintesi dicono a parole chi è marcato. */
+.interest-flags {
+  border-top: 1px dashed var(--border);
+  margin-top: 12px;
+  padding-top: 10px;
+}
+.interest-flags__head {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.interest-flags__head > .field-label { margin-bottom: 0; }
+.interest-flags__summary {
+  color: var(--text-sec);
+  font-size: 11px;
+  min-width: 0;
+  text-align: right;
+}
+.interest-flags__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.interest-chip {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-mid);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 7px 12px;
+}
+.interest-chip--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+/* Il gesto è raggiungibile da tastiera come ogni altro bottone della
+   schermata, e da tastiera si deve VEDERE dove si è: stesso anello di focus
+   già usato altrove nell'app, non un secondo stile. */
+.interest-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.interest-flags > .hint-text { margin: 6px 0 0; }
+
+/* ── IL POSTO DELLA RISPOSTA LENTA ────────────────────────────────────────
+   Nessuna animazione, nessuna altezza che salta: il riquadro ha la stessa
+   forma in tutti e quattro gli stati, così una risposta che arriva non sposta
+   ciò che l'operatore sta guardando. Lo stato si legge nel testo; l'attributo
+   `data-state` esiste per il CSS e per i test, non come unico portatore. */
+.late-answer__status {
+  color: var(--text-mid);
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 6px 0 0;
+}
+.late-answer[data-state="non-richiesta"] .late-answer__status { color: var(--text-sec); }
+.late-answer__text {
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 8px 0 0;
+}
+.late-answer > .hint-text { margin: 8px 0 0; }
