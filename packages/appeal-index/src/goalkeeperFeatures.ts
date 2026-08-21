@@ -26,6 +26,7 @@
  * subset — never a silent zero.
  */
 import type { PlayerSeasonPanelRow } from "./types.js";
+import { lastObservedVolatility } from "./seasonAggregate.js";
 import { mean } from "./stats.js";
 
 export const GOALKEEPER_FEATURE_NAMES = [
@@ -33,7 +34,7 @@ export const GOALKEEPER_FEATURE_NAMES = [
   "fantamediaRollingMean3",
   "presenzeLag1",
   "presenzeRollingMean3",
-  "volatilitaVotoLag1",
+  "volatilitaVotoLastObserved",
   "nSeasonsObserved",
   "teamChangedFlag",
   "golSubitiPerPresenzaRollingMean3",
@@ -125,7 +126,7 @@ export function buildGoalkeeperFeatureVector(
     fantamediaRollingMean3: rollingMean(fantamedie, window),
     presenzeLag1: current.presenze,
     presenzeRollingMean3: rollingMean(history.map((row) => row.presenze), window),
-    volatilitaVotoLag1: current.volatilitaVoto ?? Number.NaN,
+    volatilitaVotoLastObserved: lastObservedVolatility(history),
     nSeasonsObserved: history.length,
     teamChangedFlag,
     golSubitiPerPresenzaRollingMean3: ratePerPresenza(history, (row) => row.golSubiti, window),

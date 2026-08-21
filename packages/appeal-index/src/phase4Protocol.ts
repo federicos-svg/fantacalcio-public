@@ -1,7 +1,17 @@
 import { createHash } from "node:crypto";
 import { GOALKEEPER_FAMILY_LADDER, isGoalkeeperFamily } from "./goalkeeperFeatures.js";
 
-export const PHASE4_PROTOCOL = "VAL-PROTOCOL-A-PHASE4@2.2.0" as const;
+/**
+ * @2.3.0 (T5) changes exactly one thing: the pooled and goalkeeper vectors read
+ * `volatility_last_observed` where they read `volatility_lag1`. The vector
+ * width, every family's `pBase`, every `10 * p_family` threshold and every
+ * other preregistered choice in `PHASE4_CONFIG` are untouched — the change is
+ * to the READING RULE of one slot, so it costs no degree of freedom and moves
+ * no sample guard. It is a protocol change all the same, because it is inside
+ * the config hash, and it is taken here, before any metric of the next run is
+ * read, exactly like the ladder and the anagrafica floor were.
+ */
+export const PHASE4_PROTOCOL = "VAL-PROTOCOL-A-PHASE4@2.3.0" as const;
 export const MODELABLE_SEASONS = [
   "2015_16", "2016_17", "2017_18", "2018_19", "2019_20",
   "2020_21", "2021_22", "2022_23", "2023_24", "2024_25",
@@ -64,7 +74,7 @@ export const PHASE4_CONFIG = {
   ],
   features: [
     "fantamedia_lag1", "fantamedia_mean3", "presenze_lag1",
-    "presenze_mean3", "volatility_lag1", "seasons_observed",
+    "presenze_mean3", "volatility_last_observed", "seasons_observed",
     "goals_mean3", "assists_mean3", "team_changed", "role",
     // @2.2.0 (T4). The first pooled feature not derived from the vote records
     // themselves: it comes from the governed Wikidata anagrafica pipeline,
@@ -84,7 +94,7 @@ export const PHASE4_CONFIG = {
   // taken before metrics, not a side effect of the pooled change.
   goalkeeperFeatures: [
     "fantamedia_lag1", "fantamedia_mean3", "presenze_lag1",
-    "presenze_mean3", "volatility_lag1", "seasons_observed", "team_changed",
+    "presenze_mean3", "volatility_last_observed", "seasons_observed", "team_changed",
     "goals_conceded_per_appearance_mean3", "clean_sheet_rate_mean3",
     "penalties_saved_per_appearance_mean3",
   ],
