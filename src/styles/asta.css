@@ -1292,6 +1292,98 @@
 .moment-facts__detail > .moment-scarcity__grid { margin: 0; }
 .moment-facts__detail > .hint-text { margin: 0; }
 
+/* ── RIQUADRO DEL VALORE — i quattro numeri, dentro la scheda del chiamato
+   (docs/DECISIONS.md §"Il riquadro del valore porta quattro numeri").
+
+   INLINE come MOMENTO DELL'ASTA, e per la stessa ragione: sta dentro la scheda
+   del giocatore, quindi perde il cromo del pannello e si separa con un filetto
+   invece di essere una scatola dentro la scatola.
+
+   OGNI RIGA QUI È UNA RIGA IN MENO DI MARGINE PER IL GESTO, e il numero è
+   misurato: e2e/asta-gesto-principale.spec.ts asserisce che il titolo
+   «ASSEGNA A» resti entro 560px dal bordo del documento, e senza questo
+   riquadro comincia a 429px. Da lì vengono le tre scelte di questo blocco —
+   titolo e nota sulla stessa riga (come .assign-block__head), quattro celle su
+   una riga sola, nessuna nota metodologica in fondo — che insieme valgono un
+   centinaio di pixel misurati. Sotto i 700px le celle passano a due per riga:
+   lì il vincolo non è più la piega ma la larghezza della singola cella. */
+.value-box--inline {
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  padding: 10px 0 0;
+  margin: 0;
+}
+.value-box__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+  flex-wrap: wrap;
+}
+.value-box__head > .panel-title { margin-bottom: 0; }
+/* La nota sta sulla stessa riga del titolo dove c'è larghezza e va a capo sotto
+   di lui dove non ce n'è: il testo non cambia, cambia quante righe costa. */
+.value-box__note {
+  margin: 0;
+  min-width: 0;
+  text-align: right;
+  flex: 1 1 320px;
+}
+@media (max-width: 719px) {
+  .value-box__note { text-align: left; }
+}
+.value-box__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 6px 0 0;
+}
+@media (max-width: 700px) {
+  .value-box__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.value-box__cell {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-inner);
+}
+/* Una cella senza numero NON è più corta né più pallida delle altre: «non lo
+   so» è un'informazione e a schermo deve costare quanto un numero. L'unica
+   differenza è il bordo tratteggiato — e non è mai l'unico portatore, perché
+   la cella scrive `n/d` e sotto scrive perché. */
+.value-box__cell--absent { border-style: dashed; }
+.value-box__cell em {
+  color: var(--text-sec);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.15;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.value-box__cell strong {
+  font-family: var(--font-mono);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--text-primary);
+}
+.value-box__cell--absent strong { color: var(--text-sec); }
+.value-box__cell span {
+  color: var(--text-sec);
+  font-size: 10.5px;
+  line-height: 1.2;
+}
+
 /* ASSEGNA A dentro la scheda — rimpicciolito, non svuotato. Il titolo e la
    nota di esito condividono una riga sola invece di prenderne due, e la riga
    di campi non porta più il bordo/padding di una sezione separata perché la
