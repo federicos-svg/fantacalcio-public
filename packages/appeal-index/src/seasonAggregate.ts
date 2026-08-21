@@ -144,3 +144,23 @@ export function buildPlayerSeasonAggregates(
   }
   return out;
 }
+
+/**
+ * The dispersion of the most recent season of `history` that has one.
+ *
+ * `history` is already the player's own seasons `<= s`, in chronological
+ * order, so walking it backwards can only ever read an observed season that is
+ * strictly earlier than the target — `assertNoLeakage()` keeps proving that
+ * from `sourceSeasons` independently of this function.
+ *
+ * `NaN` only when no season in that history reached two presences.
+ */
+export function lastObservedVolatility(
+  history: readonly { readonly volatilitaVoto: number | null }[],
+): number {
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const value = history[index]!.volatilitaVoto;
+    if (value !== null && Number.isFinite(value)) return value;
+  }
+  return Number.NaN;
+}

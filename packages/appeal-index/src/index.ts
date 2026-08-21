@@ -21,6 +21,7 @@ export * from "./goalkeeperLadder.js";
 export * from "./models/fittedRidge.js";
 export * from "./models/ridgeCore.js";
 export * from "./models/goalkeeperRidge.js";
+export * from "./models/fittedGoalkeeperRidge.js";
 export * from "./models/ridgeRegression.js";
 export * from "./models/regressionTree.js";
 export * from "./models/knnRegression.js";

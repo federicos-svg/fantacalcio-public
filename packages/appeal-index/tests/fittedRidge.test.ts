@@ -9,7 +9,7 @@ function features(x: number): FeatureVector {
     fantamediaRollingMean3: x + 0.1,
     presenzeLag1: 20 + x,
     presenzeRollingMean3: 19 + x,
-    volatilitaVotoLag1: 0.3 + x / 100,
+    volatilitaVotoLastObserved: 0.3 + x / 100,
     nSeasonsObserved: 3,
     golFattiRollingMean3: x / 2,
     assistRollingMean3: x / 3,
