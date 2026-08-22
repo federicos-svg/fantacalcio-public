@@ -740,3 +740,175 @@
     text-align: center;
   }
 }
+
+/* ── PIANO ROSA (VIVO) — PLAN-01, schermata Rose ───────────────────────────
+   Il pannello riusa .panel / .panel-title / .field-label / .field-input /
+   .hint-text / .badge come ogni altra superficie: qui sotto c'è solo ciò che
+   non esisteva già — la griglia delle quattro schede di ruolo, la riga dei
+   numeri di piano, e la pastiglia di scostamento.
+
+   CONTRASTO. Nessun colore nuovo: ogni testo porta un livello della rampa di
+   base.css (tutti ≥ 4,5:1 su --panel e --panel-inner) e la pastiglia SOPRA
+   PIANO usa --stop-red come TESTO su --panel-inner, che base.css misura a
+   5,02:1 — è il motivo per cui quel token sta a L 0.70 e non a 0.66.
+   e2e/text-contrast-aa.spec.ts rimisura tutto da sé a ogni run.
+
+   IL COLORE NON PORTA MAI L'INFORMAZIONE DA SOLO: «SOPRA PIANO» e «REPARTO
+   COMPLETO» sono parole prima che tinte, e il target non dichiarato è la
+   frase «non dichiarato», non una cella grigia. */
+
+.role-plan__state {
+  font-size: 12.5px;
+  color: var(--text-mid);
+  margin: 8px 0 12px;
+}
+
+.role-plan__grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+@media (min-width: 720px) {
+  .role-plan__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 1080px) {
+  .role-plan__grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+.role-plan__card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--panel-inner);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+.role-plan__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.role-plan__head em {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* Il target è la cifra che l'occhio cerca per prima: corpo e peso lo dicono,
+   non solo il colore — la gerarchia di questo pannello non è portata dalla
+   tinta (stessa regola della rampa in base.css). */
+.role-plan__target {
+  font-size: 13px;
+  color: var(--text-sec);
+}
+.role-plan__target em {
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-right: 4px;
+}
+.role-plan__target strong {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  color: var(--text-primary);
+}
+
+.role-plan__facts,
+.role-plan__numbers {
+  font-size: 11.5px;
+  color: var(--text-sec);
+  display: block;
+}
+.role-plan__facts em,
+.role-plan__numbers em {
+  font-style: normal;
+  color: var(--text-dim);
+  margin-right: 3px;
+}
+
+.role-plan__silence {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  display: block;
+}
+
+.badge--over-plan {
+  background: var(--panel-inner);
+  border: 1px solid var(--stop-red);
+  color: var(--stop-red);
+}
+
+.role-plan__totals {
+  list-style: none;
+  margin: 12px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.role-plan__totals li {
+  font-size: 12px;
+  color: var(--text-mid);
+}
+
+.role-plan__form {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.role-plan__form-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  color: var(--text-sec);
+  margin-bottom: 6px;
+}
+
+.role-plan__fields {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin: 10px 0;
+}
+@media (min-width: 720px) {
+  .role-plan__fields { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .role-plan__field--version { grid-column: 1 / -1; }
+}
+
+.role-plan__field {
+  display: block;
+  min-width: 0;
+}
+
+/* .field-input azzera l'outline nativo: senza questa regola il fuoco da
+   tastiera in questo modulo non si vedrebbe affatto. */
+.role-plan__input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.role-plan__input[aria-invalid="true"] {
+  border-color: var(--stop-red);
+}
+
+.role-plan__declared-total {
+  font-size: 12px;
+  color: var(--text-sec);
+  margin-top: 8px;
+}
+
+.role-plan__actions {
+  margin-top: 10px;
+}
+
+.role-plan__feedback {
+  font-size: 12px;
+  color: var(--text-mid);
+  margin-top: 8px;
+  min-height: 1.5em;
+}
