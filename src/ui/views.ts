@@ -54,6 +54,9 @@ import {
 import {
   PLAN_VERSION_FIELD_LABEL,
   PLAN_VERSION_HINT,
+  ROLE_PLAN_CLEARED_ANNOUNCE,
+  ROLE_PLAN_CLEAR_LABEL,
+  ROLE_PLAN_NOT_SAVED,
   ROLE_PLAN_NOTE,
   ROLE_PLAN_TITLE,
   TARGET_FIELD_HINT,
@@ -1327,7 +1330,25 @@ export function renderRoseScreen(
 
   const hint = document.createElement("div");
   hint.className = "hint-text";
-  hint.innerHTML = `Rose — sola lettura, derivata dallo storico acquisti. Le icone <span style="border:1px dashed ${C.textDim};border-radius:3px;padding:0 3px;">DEV</span> non eseguono azioni reali.`;
+  // Un id, perché questa riga adesso ha DUE forme e una spec deve poter dire
+  // quale delle due sta leggendo: `.hint-text` su questa schermata prende anche
+  // i due suggerimenti del modulo del piano e la sua nota.
+  hint.id = "rose-screen-hint";
+  // LA FRASE DICE QUALE PARTE È DI SOLA LETTURA, adesso che non lo è più tutta.
+  // Da quando questa schermata ospita il piano rosa, sotto questa riga c'è un
+  // MODULO: quattro campi che Owner compila e una dichiarazione che finisce in
+  // `localStorage`. Continuare a scrivere «Rose — sola lettura» a due
+  // centimetri da un campo editabile è un'etichetta che contraddice ciò che
+  // etichetta, e una schermata che si contraddice smette di essere creduta
+  // anche dove dice il vero. Le rose e la contabilità RESTANO derivate dal log
+  // e non si toccano: è quello che la frase continua a dire, ma per la parte
+  // giusta. Senza pannello (nessuna squadra di Owner nello stato derivato) la
+  // schermata è di nuovo di sola lettura per intero, e la frase torna quella.
+  const devIcons = `<span style="border:1px dashed ${C.textDim};border-radius:3px;padding:0 3px;">DEV</span>`;
+  hint.innerHTML =
+    myPlanPanel === null
+      ? `Rose — sola lettura, derivata dallo storico acquisti. Le icone ${devIcons} non eseguono azioni reali.`
+      : `Rose — le rose e la contabilità sono di sola lettura, derivate dallo storico acquisti. Il piano rosa qui sotto è invece tuo da scrivere: i target che dichiari restano nel browser. Le icone ${devIcons} non eseguono azioni reali.`;
   wrap.appendChild(hint);
 
   if (myPlanPanel !== null) wrap.appendChild(myPlanPanel);
@@ -1530,9 +1551,7 @@ export function renderRolePlanPanel(props: RolePlanPanelProps): HTMLElement {
    *  sovrascrive sempre, perché quella nessuno la vede. */
   const commit = (next: RolePlanDraft, announce: string): void => {
     draft = next;
-    feedback.textContent = props.persist(draft)
-      ? announce
-      : "Il piano non è stato salvato: lo spazio di archiviazione del browser ha rifiutato la scrittura. Quello che vedi a schermo vale per questa sessione soltanto.";
+    feedback.textContent = props.persist(draft) ? announce : ROLE_PLAN_NOT_SAVED;
     paint();
   };
 
@@ -1610,7 +1629,10 @@ export function renderRolePlanPanel(props: RolePlanPanelProps): HTMLElement {
   clear.type = "button";
   clear.id = "role-plan-clear";
   clear.className = "btn btn--secondary";
-  clear.textContent = `Riporta tutti i ruoli a «${TARGET_UNDECLARED}»`;
+  // L'etichetta nomina anche la VERSIONE, perché il gesto la cancella: vedi
+  // ROLE_PLAN_CLEAR_LABEL in ./rolePlan.ts. Non c'è conferma e non c'è undo, e
+  // allora l'unico posto dove la verità arriva in tempo è il pulsante stesso.
+  clear.textContent = ROLE_PLAN_CLEAR_LABEL;
   clear.addEventListener("click", () => {
     for (const role of ROLES) {
       const input = inputs[role];
@@ -1620,7 +1642,7 @@ export function renderRolePlanPanel(props: RolePlanPanelProps): HTMLElement {
       }
     }
     versionInput.value = "";
-    commit(EMPTY_ROLE_PLAN_DRAFT, `Piano azzerato: tutti e quattro i ruoli sono di nuovo «${TARGET_UNDECLARED}».`);
+    commit(EMPTY_ROLE_PLAN_DRAFT, ROLE_PLAN_CLEARED_ANNOUNCE);
   });
   actions.appendChild(clear);
   form.appendChild(actions);

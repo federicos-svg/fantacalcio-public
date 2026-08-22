@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
 import { gotoScreen, installSyntheticNetworkGuard, readLocalStorageJson } from "./helpers.js";
+import { ROLE_PLAN_NOT_SAVED } from "../src/ui/rolePlan.js";
 
 // PLAN-01 — IL PIANO ROSA (VIVO), a schermo.
 //
@@ -258,5 +259,98 @@ test("un piano che il motore rifiuta viene riportato, non corretto", async ({ pa
   await expect(page.locator("#role-plan-totals")).toBeHidden();
   await expect(page.locator("#role-plan-P")).not.toContainText("allocazione viva");
   await expect(targetCell(page, "P")).toContainText("100 cr");
+  expect(externalRequests).toEqual([]);
+});
+
+// ── LA SCRITTURA CHE NON ATTECCHISCE ────────────────────────────────────────
+//
+// `renderRolePlanPanel` ha due esiti per ogni tasto: `persist()` vero, e non si
+// annuncia niente (la scheda del ruolo si aggiorna da sé, e una conferma per
+// cifra digitata sarebbe rumore letto ad alta voce); `persist()` falso, e si
+// dice che il piano NON è stato salvato. Il secondo ramo è l'unico caso in cui
+// riuscito e fallito si somigliano a schermo — la dichiarazione viva sta in
+// memoria e il pannello si ridipinge lo stesso — quindi è l'unico che deve
+// parlare. Fino a questa spec la stringa esisteva e nessun test la percorreva.
+test("se lo storage rifiuta la scrittura il pannello lo DICE, e non perde in silenzio", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
+
+  // Il guasto è tagliato sulla SOLA chiave del piano — stesso taglio di
+  // e2e/interest-flags.spec.ts. Uno storage rotto per tutti proverebbe soltanto
+  // che l'app si blocca, non che questo ramo esiste e dice la cosa giusta.
+  await page.addInitScript(
+    ({ planKey }) => {
+      const original = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (this: Storage, key: string, value: string): void {
+        if (key === planKey) throw new DOMException("quota synthetic", "QuotaExceededError");
+        return original.call(this, key, value);
+      };
+    },
+    { planKey: PLAN_STORAGE_KEY },
+  );
+
+  await page.goto("/");
+  await gotoScreen(page, "Rose");
+  await declare(page, "P", "20");
+
+  // 1. LA FRASE C'È, ed è quella: la riga `aria-live` parla su un input solo
+  //    qui, perché solo qui lo schermo non lo direbbe da sé.
+  await expect(page.locator("#role-plan-feedback")).toHaveText(ROLE_PLAN_NOT_SAVED);
+  await expect(page.locator("#role-plan-feedback")).toHaveAttribute("aria-live", "polite");
+
+  // 2. IL LAVORO RESTA A SCHERMO. Una scrittura rifiutata non è un motivo per
+  //    buttare via ciò che Owner ha appena scritto: vale per la sessione, e la
+  //    frase dice esattamente questo invece di lasciarlo indovinare.
+  await expect(targetCell(page, "P")).toContainText("20 cr");
+  await expect(page.locator("#role-plan-target-P")).toHaveValue("20");
+
+  // 3. E NIENTE È STATO CONSERVATO — nemmeno a metà: la copia non esiste.
+  expect(await readLocalStorageJson(page, PLAN_STORAGE_KEY)).toBeNull();
+
+  // 4. Il reload riparte da «nessun piano», che è la verità di ciò che è
+  //    conservato. Il messaggio non era un allarme decorativo sopra un
+  //    salvataggio andato a buon fine.
+  await page.reload();
+  await gotoScreen(page, "Rose");
+  await expect(page.locator("#role-plan-state")).toContainText("Nessun piano dichiarato");
+  await expect(page.locator("#role-plan-target-P")).toHaveValue("");
+  expect(externalRequests).toEqual([]);
+});
+
+// ── L'ETICHETTA DEL PULSANTE DICE ANCHE LA VERSIONE ─────────────────────────
+//
+// Il gesto scrive `EMPTY_ROLE_PLAN_DRAFT`, e quella porta `planVersion: ""`:
+// insieme ai quattro target sparisce l'etichetta del piano. Senza conferma e
+// senza undo, l'unico momento utile per dirlo è il pulsante — e questa spec
+// guarda il gesto vero, non la sola costante (../src/ui/rolePlan.test.ts).
+test("l'azzeramento cancella anche la versione, e il pulsante lo dice prima di farlo", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
+  await page.goto("/");
+  await gotoScreen(page, "Rose");
+  await declareFullPlan(page);
+  await expect(page.locator("#role-plan-state")).toContainText("Piano dichiarato «pre-asta 1»");
+
+  // L'etichetta nomina le due cose che il gesto cancella, PRIMA del gesto.
+  const clear = page.locator("#role-plan-clear");
+  await expect(clear).toContainText("non dichiarato");
+  await expect(clear).toContainText("versione");
+
+  await clear.click();
+
+  // E le cancella davvero tutte e due: il campo della versione è vuoto, e la
+  // frase di stato è tornata quella del piano assente.
+  await expect(page.locator("#role-plan-version")).toHaveValue("");
+  await expect(page.locator("#role-plan-state")).toContainText("Nessun piano dichiarato");
+  // L'annuncio dice la stessa cosa dell'etichetta, per chi non guarda il campo.
+  await expect(page.locator("#role-plan-feedback")).toContainText(
+    "la versione del piano è stata cancellata",
+  );
   expect(externalRequests).toEqual([]);
 });

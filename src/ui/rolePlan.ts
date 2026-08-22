@@ -31,14 +31,64 @@
 // target sono ciò che Owner ha dichiarato, il resto è la contabilità del log
 // più l'aritmetica dichiarata del motore su quei due ingredienti.
 //
-// QUELLO CHE NON SI MOSTRA, DI PROPOSITO. `RolePlanLine.perSlotHeadroom`
-// (`allocation / slotsRemaining`) esiste nel contratto del motore e non
-// compare qui. Non perché sia un numero cattivo — è un quoziente di input
-// dichiarato e fatto misurato, ingrediente-legale come gli altri — ma perché a
-// pochi centimetri da «max bid sicuro» un numero per-slot si legge come «metti
-// questa cifra sul prossimo», e l'acceptance di `PLAN-01` nomina
-// «target/riserve/scostamenti/fattibilità» e non una disponibilità per slot.
-// Resta disponibile nel motore per chi la ratificherà.
+// ── IL CRITERIO: CHE COSA PUÒ COMPARIRE A SCHERMO ───────────────────────────
+//
+// Deciso dal committente il 2026-08-22, e scritto qui perché la schermata che
+// verrà dopo non debba riaprirlo:
+//
+//   UNA GRANDEZZA PUÒ COMPARIRE ANCHE SE L'ACCEPTANCE NON LA NOMINA, purché
+//   sia ARITMETICA DERIVATA da ciò che l'utente ha dichiarato o da fatti già
+//   registrati — acquisti, budget, slot. NON PUÒ COMPARIRE ciò che il sistema
+//   RACCOMANDA: valore, fair-to-me, banda obiettivo, prezzo previsto, consiglio
+//   d'acquisto. Quelli restano dietro il loro gate (PROJECT_STATE.md §"Gate
+//   attivi": tutti e cinque NON attivi).
+//
+// La linea non passa fra «nominato» e «non nominato» dall'acceptance: passa fra
+// DERIVATO e RACCOMANDATO. Un'acceptance è un minimo da consegnare, non un
+// elenco chiuso di ciò che si ha il permesso di sommare; e un numero che il
+// sistema si è inventato resterebbe vietato anche se l'acceptance lo nominasse.
+// La domanda da farsi davanti a un campo nuovo è una sola: **se cambio questo
+// numero, sto cambiando un'aritmetica sui dati di Owner, o sto dando un
+// parere?**
+//
+// Le cinque grandezze che questo pannello mostra oltre l'acceptance stanno
+// tutte dalla parte derivata, e la verifica è per definizione, non per
+// impressione (packages/engine/src/livePlan.ts, blocco «ARITMETICA DICHIARATA
+// DELLA RIALLOCAZIONE»):
+//
+//   allocation         floor[r] + ⌊above[r] × scale⌋ — floor è la riserva dura
+//                      da budgetPlan() (slot residui × COST_FLOOR), above e
+//                      scale escono dai target DI OWNER e dal budget residuo.
+//                      Nessun peso del sistema entra nella formula: le
+//                      proporzioni sono quelle dichiarate da Owner.
+//   unallocated        budgetResidual − Σ allocation. Sottrazione fra due
+//                      grandezze già a schermo.
+//   freedByClosedRoles Σ residualTarget dei ruoli senza slot residui. Somma di
+//                      target dichiarati meno speso misurato.
+//   overCommitted      aboveTotal > 0 && scale < 1: un booleano che DICE che la
+//                      ripartizione è stata scalata. Non consiglia di
+//                      correggere il piano e non propone il piano corretto.
+//   reallocationBasis  quale dei tre rami dell'aritmetica ha calcolato le
+//                      allocazioni. Non è nemmeno un numero: è il nome del
+//                      percorso, cioè la spiegazione di ciò che si sta già
+//                      guardando.
+//
+// Nessuna delle cinque nomina un prezzo, un giocatore o un'offerta, e nessuna
+// cambia se cambia il listone: cambiano solo se cambia ciò che Owner ha
+// dichiarato o ciò che è già stato registrato.
+//
+// QUELLO CHE NON SI MOSTRA, E PERCHÉ IL MOTIVO NON È IL CRITERIO.
+// `RolePlanLine.perSlotHeadroom` (`allocation / slotsRemaining`) esiste nel
+// contratto del motore e non compare qui. Sotto il criterio SAREBBE
+// mostrabile: è un quoziente fra un'allocazione derivata e un conteggio di
+// slot misurato, esattamente come le cinque sopra. Non compare per una ragione
+// di LETTURA, non di categoria: è l'unica delle grandezze di piano che si
+// riferisce a UN acquisto singolo, ed è un numero in crediti; messo accanto a
+// «max bid sicuro» si legge come la cifra da mettere sul prossimo giocatore,
+// cioè verrebbe letto come un consiglio anche restando aritmetica. È una
+// scelta di presentazione, reversibile, e non un divieto: chi vorrà mostrarlo
+// dovrà risolvere quella confusione (un'unità diversa, un altro posto, un'altra
+// parola), non chiedere un permesso che il criterio non nega.
 //
 // DETERMINISMO: nessuna `Date`, nessun `Intl`/`toLocaleString`, nessun numero
 // a virgola. Ogni cifra di questo pannello è un credito intero o un conteggio
@@ -244,6 +294,36 @@ export const PLAN_VERSION_FIELD_LABEL = "Versione del piano";
 
 export const PLAN_VERSION_HINT =
   "Un'etichetta tua, per esempio «pre-asta 1». Serve perché ogni numero di piano possa essere ricondotto al piano che l'ha prodotto.";
+
+/**
+ * IL PULSANTE DI AZZERAMENTO, con scritto sopra TUTTO quello che cancella.
+ *
+ * La dichiarazione azzerata è `EMPTY_ROLE_PLAN_DRAFT`, e quella porta
+ * `planVersion: ""`: il gesto cancella anche LA VERSIONE del piano, non solo i
+ * quattro target. Un'etichetta che nomina i soli ruoli promette meno di quanto
+ * il gesto faccia — e questo gesto non ha né conferma né undo, quindi l'unico
+ * momento in cui Owner può decidere è PRIMA di premerlo, leggendo il pulsante.
+ * Scoprirlo dopo, trovando vuoto un campo che non si era detto di svuotare, è
+ * il modo in cui una schermata si guadagna di non essere più creduta.
+ */
+export const ROLE_PLAN_CLEAR_LABEL = `Azzera il piano: tutti i ruoli a «${TARGET_UNDECLARED}», versione compresa`;
+
+/** Che cosa si dice ad alta voce dopo l'azzeramento: le stesse due cose. */
+export const ROLE_PLAN_CLEARED_ANNOUNCE = `Piano azzerato: tutti e quattro i ruoli sono di nuovo «${TARGET_UNDECLARED}», e la versione del piano è stata cancellata.`;
+
+/**
+ * LA SCRITTURA CHE NON HA ATTECCHITO.
+ *
+ * `persist()` torna `false` quando lo spazio di archiviazione del browser
+ * rifiuta la scrittura (quota piena, storage negato). È l'unico caso in cui il
+ * salvataggio riuscito e quello fallito si somigliano a schermo — la scheda del
+ * ruolo si aggiorna comunque, perché la dichiarazione viva è in memoria — e
+ * quindi è l'unico che va detto a parole. Sta qui, e non inline in views.ts,
+ * per la stessa ragione delle altre frasi di questo file: le parole del
+ * pannello si leggono e si provano in un posto solo.
+ */
+export const ROLE_PLAN_NOT_SAVED =
+  "Il piano non è stato salvato: lo spazio di archiviazione del browser ha rifiutato la scrittura. Quello che vedi a schermo vale per questa sessione soltanto.";
 
 export const TARGET_FIELD_HINT =
   "Campo vuoto = ruolo non dichiarato. Scrivere 0 è un'altra cosa: significa che a quel ruolo destini zero crediti, e il piano lo esegue.";

@@ -12,10 +12,12 @@ import { recordPurchase } from "../../packages/engine/src/feasibility.js";
 import { FANTA_TEAM_IDS } from "../../packages/engine/fixtures/synthetic.js";
 import type { AuctionEvent, Role, TeamState } from "../../packages/engine/src/types.js";
 import type { LivePlan } from "../../packages/engine/src/livePlan.js";
-import { rolePlanReading, type RolePlanDraft, type RolePlanRow } from "../rolePlan.js";
+import { EMPTY_ROLE_PLAN_DRAFT, rolePlanReading, type RolePlanDraft, type RolePlanRow } from "../rolePlan.js";
 import {
   CREDITS,
   NO_PLAN_NUMBERS,
+  ROLE_PLAN_CLEARED_ANNOUNCE,
+  ROLE_PLAN_CLEAR_LABEL,
   ROLE_PLAN_NOTE,
   ROLE_PLAN_TITLE,
   TARGET_UNDECLARED,
@@ -254,5 +256,29 @@ describe("etichette e nota", () => {
   it("ogni buco ha la sua frase, e le due specie di buco non usano la stessa", () => {
     expect(gapText({ kind: "role-undeclared", role: "C" })).toBe("Centrocampisti: nessun target dichiarato");
     expect(gapText({ kind: "plan-version-missing" })).toBe("manca la versione del piano");
+  });
+
+  // ── IL PULSANTE CHE CANCELLA ANCHE LA VERSIONE ────────────────────────────
+  //
+  // L'azzeramento scrive `EMPTY_ROLE_PLAN_DRAFT`, che porta `planVersion: ""`:
+  // insieme ai quattro target sparisce anche l'etichetta del piano. Non c'è
+  // conferma e non c'è undo, quindi l'unico istante in cui Owner può decidere è
+  // PRIMA di premere — cioè leggendo il pulsante. Un'etichetta che nominasse i
+  // soli ruoli prometterebbe meno di quanto il gesto fa, e la scoperta
+  // arriverebbe dopo, davanti a un campo svuotato che nessuno aveva chiesto di
+  // svuotare.
+  it("il pulsante di azzeramento nomina TUTTO quello che cancella, versione compresa", () => {
+    expect(ROLE_PLAN_CLEAR_LABEL).toContain(TARGET_UNDECLARED);
+    expect(ROLE_PLAN_CLEAR_LABEL).toContain("versione");
+    expect(ROLE_PLAN_CLEARED_ANNOUNCE).toContain(TARGET_UNDECLARED);
+    expect(ROLE_PLAN_CLEARED_ANNOUNCE).toContain("la versione del piano è stata cancellata");
+  });
+
+  // L'etichetta dice il vero solo se la dichiarazione azzerata è davvero senza
+  // versione: le due cose si provano insieme, o la frase resta una promessa
+  // verificata contro se stessa.
+  it("e la promessa dell'etichetta regge: la dichiarazione azzerata non ha più né target né versione", () => {
+    expect(EMPTY_ROLE_PLAN_DRAFT.planVersion).toBe("");
+    expect(EMPTY_ROLE_PLAN_DRAFT.targets).toEqual({});
   });
 });

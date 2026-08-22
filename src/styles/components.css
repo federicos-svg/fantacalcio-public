@@ -763,15 +763,22 @@
   margin: 8px 0 12px;
 }
 
+/* 1 / 2 / 4 colonne alle STESSE larghezze di .opponent-tier1__grid
+   (src/styles/asta.css, 640 e 1024). Non è un dettaglio estetico: i due
+   pannelli sono due griglie di quattro schede una sopra l'altra sulla stessa
+   schermata Rose, e con soglie diverse fra 640-719px e fra 1024-1079px la
+   griglia di sopra e quella di sotto mostrerebbero un numero di colonne
+   diverso senza che niente lo giustifichi. Un breakpoint proprio andrebbe
+   scritto solo per una ragione propria; qui non ce n'è una. */
 .role-plan__grid {
   display: grid;
   grid-template-columns: 1fr;
   gap: 8px;
 }
-@media (min-width: 720px) {
+@media (min-width: 640px) {
   .role-plan__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@media (min-width: 1080px) {
+@media (min-width: 1024px) {
   .role-plan__grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
@@ -870,6 +877,13 @@
   margin-bottom: 6px;
 }
 
+/* IL MODULO NON SEGUE la griglia delle schede, ed è voluto: qui le colonne
+   sono quattro CAMPI DI TESTO con la loro etichetta per esteso («Target
+   Centrocampisti (crediti)»), non quattro schede di lettura. A 640px quattro
+   colonne lascerebbero ~145px per campo e l'etichetta andrebbe a capo tre
+   volte sopra un input largo quanto tre cifre. Questa griglia non ha un
+   gemello sulla schermata, quindi nessuna soglia diversa da un'altra è
+   visibile a confronto: la ragione è propria e sta scritta qui. */
 .role-plan__fields {
   display: grid;
   grid-template-columns: 1fr;
