@@ -67,14 +67,70 @@ const LARGE_POOL = syntheticPoolOfSize(532);
 /** Un attaccante, così il ruolo chiamato non è il primo dell'elenco. */
 const CALLED = "Sintetico 004";
 
-// IL BUDGET, E DA DOVE VIENE IL NUMERO. Misurato 430px (titolo «ASSEGNA A»,
-// bordo alto nel documento) su questo stesso albero, con questa stessa fixture.
-// La soglia sta a 560px: circa 130px di margine, cioè lo spazio di un pannello
-// piccolo aggiunto DENTRO la scheda — non abbastanza per farci stare una
-// sezione intera senza accorgersene. Sotto la piega più bassa che ci interessa
-// (900px) resta comunque un abisso: il budget morde molto prima che il difetto
-// torni, che è il punto di un budget.
+// IL BUDGET, E DA DOVE VIENE IL NUMERO. La soglia sta a 560px, e il numero
+// nasce da una misura: 430px (titolo «ASSEGNA A», bordo alto nel documento) su
+// questo stesso albero, con questa stessa fixture, PRIMA del riquadro del
+// valore — cioè circa 130px di margine, lo spazio di un pannello piccolo
+// aggiunto DENTRO la scheda e non abbastanza per farci stare una sezione
+// intera senza accorgersene.
+//
+// QUANTO NE RESTA ADESSO, detto qui e non lasciato dedurre: il riquadro del
+// valore (#32) costa 106px misurati e il titolo comincia a 536px. Il margine
+// non è più ~130px: è 24px. Il budget non è stato alzato per farcelo stare — è
+// lo stesso numero di prima — ma chi legge questa costante deve sapere che
+// oggi morde sul serio, e che il prossimo pannello dentro la scheda non ci
+// entra. Sotto la piega più bassa che ci interessa (900px) resta comunque
+// margine: il budget morde molto prima che il difetto torni, che è il punto di
+// un budget.
 const ASSIGN_HEADING_BUDGET_PX = 560;
+
+// LO SCHERMO STRETTO — LA LACUNA CHE QUESTO BUDGET AVEVA, E CHE ORA NON HA.
+//
+// Fino a qui il budget era asserito SOLO alle due risoluzioni larghe qui sopra.
+// Non è un dettaglio di copertura: il riquadro del valore (#32) ha DUE punti di
+// rottura dichiarati in src/styles/asta.css, e sotto entrambi la scheda cresce
+// in altezza proprio dove ce n'è di meno —
+//
+//   ≤ 719px  la nota della testata smette di stare sulla riga del titolo e si
+//            allinea a sinistra, prendendosi una seconda riga (35px → 52px);
+//   ≤ 700px  la griglia delle quattro celle passa da 4 colonne a 2, cioè da una
+//            riga di celle a due.
+//
+// Le due soglie NON coincidono, e i 19px fra l'una e l'altra sono uno stato
+// reale della schermata (nota già a sinistra, griglia ancora a 4 colonne), non
+// un artefatto del test: per questo i viewport qui sotto sono DUE e non uno —
+// uno per lato del gradino. La convivenza dei due breakpoint è registrata come
+// domanda aperta nel corpo della PR: qui la si ATTRAVERSA e la si misura, non
+// la si riprogetta.
+//
+// IL NUMERO, E PERCHÉ NON È 560. Su questo stesso albero, con questa stessa
+// fixture, «ASSEGNA A» comincia a 565px a 719px di larghezza e a 615px a 700px,
+// contro i 536px delle due risoluzioni larghe. La differenza non è la pagina che
+// si allunga: sul ramo di produzione il titolo sta a 430px a TUTTE e tre le
+// larghezze. È il riquadro che costa di più quando si riflow — 106px larghi,
+// 135px a 719, 185px a 700 — e il budget stretto è quel costo misurato, con lo
+// stesso ordine di margine che il budget largo si tiene (25px contro 24px). Un
+// solo numero per le due famiglie avrebbe voluto dire o un budget largo che non
+// morde più, o un budget stretto rosso il giorno che è stato scritto.
+const ASSIGN_HEADING_BUDGET_NARROW_PX = 640;
+
+interface NarrowViewport {
+  readonly width: number;
+  readonly height: number;
+  /** Le colonne che la griglia del riquadro DEVE avere a questa larghezza. */
+  readonly valueBoxColumns: number;
+}
+
+// Di qua e di là dal gradino dei 700px, entrambi sotto i 719px: le due soglie
+// sono esercitate tutte e due, e il test lo VERIFICA invece di fidarsi della
+// larghezza scelta qui. Senza quel controllo, spostare un breakpoint nel CSS
+// renderebbe questi due viewport identici al caso largo e il test resterebbe
+// verde misurando un'altra cosa — lo stesso difetto che PANELS_EXPECTED_PRESENT
+// impedisce alla spazzata dei riquadri.
+const NARROW_VIEWPORTS: readonly NarrowViewport[] = [
+  { width: 719, height: 900, valueBoxColumns: 4 },
+  { width: 700, height: 900, valueBoxColumns: 2 },
+];
 
 // I pannelli che devono stare SOTTO il gesto NON sono un elenco di id, e la
 // differenza è il motivo per cui questo file esiste.
@@ -117,6 +173,8 @@ interface GestureGeometry {
   readonly priceInViewport: boolean;
   readonly buttonInViewport: boolean;
   readonly buttonHitsSelf: boolean;
+  /** Pixel fra il bordo basso del bottone e la piega. Negativo = sotto la piega. */
+  readonly foldMargin: number;
   readonly viewportHeight: number;
   readonly pageHeight: number;
   readonly noHorizontalScroll: boolean;
@@ -159,6 +217,7 @@ async function gestureGeometry(page: Page): Promise<GestureGeometry> {
       priceInViewport: inside(price),
       buttonInViewport: inside(button),
       buttonHitsSelf: hit !== null && (hit === button || button.contains(hit)),
+      foldMargin: Math.round(window.innerHeight - br.bottom),
       viewportHeight: window.innerHeight,
       pageHeight: Math.round(document.documentElement.scrollHeight),
       noHorizontalScroll: document.documentElement.scrollWidth <= window.innerWidth + 1,
@@ -189,6 +248,38 @@ async function panelsOutsideCard(page: Page): Promise<readonly PanelPosition[]> 
         label: (el.textContent ?? "").trim().slice(0, 40).replace(/\s+/g, " "),
         top: Math.round(el.getBoundingClientRect().top + window.scrollY),
       }));
+  });
+}
+
+interface ValueBoxLayout {
+  readonly present: boolean;
+  /** Le colonne EFFETTIVE della griglia, lette dal layout calcolato. */
+  readonly columns: number;
+  /** L'allineamento EFFETTIVO della nota di testata. */
+  readonly noteTextAlign: string;
+}
+
+/**
+ * Lo stato di riflow del riquadro del valore, letto dal layout vero e non
+ * dedotto dalla larghezza del viewport. È il controllo che tiene onesto il test
+ * dello schermo stretto: prova che a quella larghezza le media query di
+ * src/styles/asta.css sono DAVVERO quelle attive, così un breakpoint spostato
+ * rompe l'asserzione invece di svuotarla in silenzio.
+ */
+async function valueBoxLayout(page: Page): Promise<ValueBoxLayout> {
+  return page.evaluate(() => {
+    const grid = document.getElementById("value-box-grid");
+    const note = document.getElementById("value-box-note");
+    if (grid === null || note === null) {
+      return { present: false, columns: 0, noteTextAlign: "" };
+    }
+    return {
+      present: true,
+      // `grid-template-columns` calcolato è la lista delle tracce in px: la sua
+      // lunghezza è il numero di colonne che il browser ha davvero prodotto.
+      columns: getComputedStyle(grid).gridTemplateColumns.split(/\s+/).filter(Boolean).length,
+      noteTextAlign: getComputedStyle(note).textAlign,
+    };
   });
 }
 
@@ -242,6 +333,60 @@ test("«ASSEGNA A» è raggiungibile senza scorrere a 1440×900 e a 1920×1080",
     ).toBeLessThanOrEqual(ASSIGN_HEADING_BUDGET_PX);
 
     // Nessuno scorrimento laterale introdotto dalla scheda.
+    expect(g.noHorizontalScroll, `${where}: nessuno scorrimento orizzontale`).toBe(true);
+  }
+
+  expect(externalRequests).toEqual([]);
+});
+
+test("«ASSEGNA A» resta sopra la piega anche stretto, di qua e di là dai 700px", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, LARGE_POOL, externalRequests);
+
+  for (const viewport of NARROW_VIEWPORTS) {
+    const where = `${viewport.width}×${viewport.height}`;
+    await boot(page, viewport);
+    await callPlayer(page);
+
+    // PRIMA: che questa larghezza stia esercitando la soglia che dice di
+    // esercitare. Un test dello schermo stretto che misura il layout largo è
+    // peggio di nessun test, perché passa.
+    const layout = await valueBoxLayout(page);
+    expect(layout.present, `${where}: il riquadro del valore è nella scheda`).toBe(true);
+    expect(
+      layout.columns,
+      `${where}: la griglia del riquadro deve avere ${viewport.valueBoxColumns} colonne qui (soglia 700px)`,
+    ).toBe(viewport.valueBoxColumns);
+    expect(
+      layout.noteTextAlign,
+      `${where}: sotto i 719px la nota della testata si allinea a sinistra (soglia 719px)`,
+    ).toBe("left");
+
+    const g = await gestureGeometry(page);
+
+    // POI: la stessa domanda del test largo, nello stesso ordine. Il gesto
+    // intero — menu squadra, campo prezzo, bottone — dentro la finestra a
+    // scroll 0, e il bottone che risponde di sé nel punto in cui si vede.
+    expect(g.teamInViewport, `${where}: il menu squadra è in vista senza scorrere`).toBe(true);
+    expect(g.priceInViewport, `${where}: il campo prezzo è in vista senza scorrere`).toBe(true);
+    expect(
+      g.buttonInViewport,
+      `${where}: «Registra acquisto» è in vista senza scorrere (restano ${g.foldMargin}px fino alla piega)`,
+    ).toBe(true);
+    expect(g.buttonHitsSelf, `${where}: il centro del bottone risponde al bottone`).toBe(true);
+
+    // Il budget stretto, col numero misurato nel messaggio.
+    expect(
+      g.headingTop,
+      `${where}: «ASSEGNA A» comincia a ${g.headingTop}px (pagina ${g.pageHeight}px, finestra ${g.viewportHeight}px, margine alla piega ${g.foldMargin}px)`,
+    ).toBeLessThanOrEqual(ASSIGN_HEADING_BUDGET_NARROW_PX);
+
+    // Stretto è esattamente dove uno scorrimento laterale comparirebbe per
+    // primo: quattro celle a 719px stanno su una riga sola, e devono starci
+    // senza far uscire la pagina di lato.
     expect(g.noHorizontalScroll, `${where}: nessuno scorrimento orizzontale`).toBe(true);
   }
 

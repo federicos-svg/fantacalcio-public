@@ -1302,11 +1302,24 @@
    OGNI RIGA QUI È UNA RIGA IN MENO DI MARGINE PER IL GESTO, e il numero è
    misurato: e2e/asta-gesto-principale.spec.ts asserisce che il titolo
    «ASSEGNA A» resti entro 560px dal bordo del documento, e senza questo
-   riquadro comincia a 429px. Da lì vengono le tre scelte di questo blocco —
-   titolo e nota sulla stessa riga (come .assign-block__head), quattro celle su
-   una riga sola, nessuna nota metodologica in fondo — che insieme valgono un
-   centinaio di pixel misurati. Sotto i 700px le celle passano a due per riga:
-   lì il vincolo non è più la piega ma la larghezza della singola cella. */
+   riquadro comincia a 430px — lo stesso valore che quella spec dichiara in
+   testa, misurato di nuovo su questo albero con la sua stessa fixture. Da lì
+   vengono le tre scelte di questo blocco — titolo e nota sulla stessa riga
+   (come .assign-block__head), quattro celle su una riga sola, nessuna nota
+   metodologica in fondo — che insieme valgono 106px misurati: col riquadro il
+   titolo comincia a 536px, cioè 24px sotto il budget.
+
+   SULLO SCHERMO STRETTO IL VINCOLO RESTA LA PIEGA, e questa è una correzione:
+   qui c'era scritto che sotto i 700px il vincolo diventava la larghezza della
+   singola cella. Misurato, non è così. Il riflow ALLUNGA il riquadro invece di
+   accorciarlo — la nota passa da 35px a 52px quando lascia la riga del titolo
+   (≤719px) e la griglia passa da una riga di celle a due (≤700px) — quindi il
+   riquadro costa 135px a 719px e 185px a 700px contro i 106px larghi, ed è
+   proprio lì che la piega morde di più. Il gesto ci resta sopra (misurato: 156px
+   di margine a 700×900, 205px a 719×900) e da questo round c'è un'asserzione che
+   lo tiene, col suo budget stretto misurato a parte. Sotto i ~505px di larghezza
+   NON ci resta più: il numero e la decisione stanno nel corpo della PR, perché
+   che cosa sacrificare non lo decide un foglio di stile. */
 .value-box--inline {
   background: none;
   border: 0;

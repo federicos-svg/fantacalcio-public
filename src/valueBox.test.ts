@@ -5,8 +5,10 @@ import {
   livePlan,
   maxSafe,
   measuredInflation,
+  type AnchorBook,
   type AuctionState,
   type CallScreen,
+  type DeclaredValueBook,
   type PlayerAnchor,
   type Role,
   type ValueProfile,
@@ -99,6 +101,33 @@ function engineCall(
     values: VALUES,
     state,
     inflation: measuredInflation(log, BOOK),
+    selfId: SELF,
+    plan: livePlan({ team: state.teams[SELF]!, plan: DECLARED_PLAN }),
+    profile,
+  });
+}
+
+/**
+ * La STESSA catena, ma su listini su misura. Serve alle due scene che i listini
+ * di modulo non possono produrre, e che sono l'una il contrario dell'altra: un
+ * giocatore quotato che Pico non ha MAI valutato, e un giocatore che Pico ha
+ * valutato ZERO. Il resto degli ingressi è identico a `engineCall`, così fra le
+ * due scene cambia soltanto ciò che si vuole misurare.
+ */
+function engineCallWith(
+  playerId: string,
+  book: AnchorBook,
+  values: DeclaredValueBook,
+  profile: ValueProfile = "media",
+): CallScreen {
+  const log = buildLog([]);
+  const state: AuctionState = stateOf(log);
+  return callScreen({
+    playerId,
+    book,
+    values,
+    state,
+    inflation: measuredInflation(log, book),
     selfId: SELF,
     plan: livePlan({ team: state.teams[SELF]!, plan: DECLARED_PLAN }),
     profile,
@@ -288,8 +317,12 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
     expect(reading.indexQuality).toBe(QUALITY);
   });
 
-  it("un giocatore che Pico non ha valutato: il motivo è quello del motore, non uno inventato", () => {
-    const call = engineCall("a_muto"); // fuori dal listino delle ancore e dei valori
+  it("un giocatore fuori dal listone: il motivo è quello del motore, non uno inventato", () => {
+    // Fuori dal listino delle ANCORE prima ancora che da quello dei valori:
+    // il motore si ferma su `anchor-missing`, che è un caso DIVERSO dal
+    // «quotato ma non dichiarato» misurato più sotto. Il titolo lo dice, perché
+    // due test che si chiamano quasi uguale finiscono per coprirne uno solo.
+    const call = engineCall("a_muto");
     expect(call.noTargetReason).toBe("anchor-missing");
     const reading = valueBoxReading({
       called: { playerId: "a_muto", role: "A" },
@@ -303,6 +336,101 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
     });
     expect(reading.engineReason).toBe("anchor-missing");
     expect(valueBoxHtml(reading)).toContain("nessuna quotazione per lui");
+  });
+
+  // ── «NON DICHIARATO» E «DICHIARATO ZERO» ───────────────────────────────────
+  // Le due scene che il resto di questo file distingueva PER COSTRUZIONE ma non
+  // PER PROVA, ed è la distinzione che in asta costa un'offerta sbagliata: chi
+  // legge `n/d` sa di non sapere e chiede in giro; chi legge «0 cr» sa che il
+  // giocatore per lui non vale niente e sta zitto. Confonderle in un verso fa
+  // rilanciare su un giocatore che si era deciso di lasciar andare; nell'altro
+  // fa lasciar andare un giocatore su cui non si era ancora deciso niente.
+  //
+  // Il codice le teneva già separate in tre punti — `callScreen.ts` decide su
+  // `declaredValue === null` e non sulla falsità, `declaredValues.ts` accetta
+  // `0` come dichiarazione legittima (rifiuta solo i negativi e i non finiti),
+  // `valueBox.ts` rende `0` come numero — ma nessuna delle tre righe aveva un
+  // test che diventasse rosso cambiandola. Ora ce l'hanno.
+
+  /** Quotato nel listone, mai valutato da Pico: l'ancora c'è, la dichiarazione no. */
+  const BOOK_CON_NON_VALUTATO = anchorBook([...ANCHORS, anchor("a_non_valutato", "A", 18)]);
+
+  /** Valutato ZERO: una dichiarazione a tutti gli effetti, non un buco. */
+  const BOOK_CON_ZERO = anchorBook([...ANCHORS, anchor("a_zero", "A", 18)]);
+  const VALUES_CON_ZERO = valueBookOf([...VALUES.all, value("a_zero", 0)]);
+
+  it("NON DICHIARATO: quotato ma mai valutato — n/d, e il motivo è «non hai dichiarato un valore»", () => {
+    const call = engineCallWith("a_non_valutato", BOOK_CON_NON_VALUTATO, VALUES);
+    // La quotazione C'È: non stiamo rimisurando `anchor-missing` sotto un altro
+    // nome. È esattamente il ramo che nessun test toccava.
+    expect(call.anchor).not.toBeNull();
+    expect(call.declaredValue).toBeNull();
+    expect(call.noTargetReason).toBe("declared-value-missing");
+
+    const reading = valueBoxReading({
+      called: { playerId: "a_non_valutato", role: "A" },
+      appealIndex: index(64),
+      call,
+      missingDeclaredInputs: [],
+    });
+
+    expect(reading.slots["valore-assoluto"]).toEqual({
+      kind: "assente",
+      reason: "motore-senza-numeri",
+    });
+    expect(reading.slots["valore-relativo"]).toEqual({
+      kind: "assente",
+      reason: "motore-senza-numeri",
+    });
+    expect(reading.engineReason).toBe("declared-value-missing");
+
+    // A schermo: `n/d`, col perché del motore e non con una frase generica.
+    expect(valueSlotText(reading.slots["valore-assoluto"])).toBe(VALUE_UNKNOWN);
+    const html = valueBoxHtml(reading);
+    expect(html).toContain("non hai dichiarato un valore per lui");
+    // E NESSUNO ZERO: un'assenza non si arrotonda al numero più vicino a nulla.
+    expect(html).not.toContain(">0 cr<");
+    // La provenienza non compare: qualificherebbe un numero che non c'è.
+    expect(reading.creditsProvenance).toBeNull();
+  });
+
+  it("DICHIARATO ZERO: 0 è una dichiarazione — a schermo è «0 cr», mai n/d", () => {
+    const call = engineCallWith("a_zero", BOOK_CON_ZERO, VALUES_CON_ZERO);
+    // Il motore NON lo tratta come una mancanza: lo zero attraversa la guardia
+    // su `declaredValue === null` e arriva fino in fondo alla catena.
+    expect(call.declaredValue).toBe(0);
+    expect(call.noTargetReason).not.toBe("declared-value-missing");
+
+    const reading = valueBoxReading({
+      called: { playerId: "a_zero", role: "A" },
+      appealIndex: index(64),
+      call,
+      missingDeclaredInputs: [],
+    });
+
+    expect(reading.slots["valore-assoluto"]).toEqual({
+      kind: "numero",
+      value: 0,
+      unit: "crediti",
+    });
+    expect(valueSlotText(reading.slots["valore-assoluto"])).toBe("0 cr");
+    expect(valueBoxHtml(reading)).toContain(">0 cr<");
+    // Uno zero DICHIARATO porta la provenienza, perché è un numero costruito
+    // sui valori di Pico come qualunque altro.
+    expect(reading.creditsProvenance).toBe("derivato dai tuoi valori");
+
+    // IL CONFRONTO, che è il punto: la stessa cella, le due scene, due esiti
+    // che non si somigliano. Un `!declaredValue` al posto di `=== null` le
+    // farebbe collassare in una sola, e questa riga è ciò che lo impedisce.
+    const nonDichiarato = valueBoxReading({
+      called: { playerId: "a_non_valutato", role: "A" },
+      appealIndex: index(64),
+      call: engineCallWith("a_non_valutato", BOOK_CON_NON_VALUTATO, VALUES),
+      missingDeclaredInputs: [],
+    });
+    expect(reading.slots["valore-assoluto"]).not.toEqual(
+      nonDichiarato.slots["valore-assoluto"],
+    );
   });
 
   it("l'app di oggi non ha le dichiarazioni di Pico: lo dice, e dice quali mancano", () => {
