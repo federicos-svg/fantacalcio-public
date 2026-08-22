@@ -134,7 +134,11 @@ export function planStateText(reading: RolePlanReading): string {
       return `Piano rifiutato dal motore — ${why}. Nessun numero di piano è mostrato: un piano che non passa la validazione non produce allocazioni, e correggerlo da soli sarebbe il sistema che decide al posto tuo.`;
     }
     case "live":
-      return `Piano v${reading.live.planVersion} — ${BASIS_TEXT[reading.live.reallocationBasis]}.`;
+      // La versione fra virgolette e non con una «v» davanti: `plan_version` è
+      // un'etichetta che Owner scrive, non un numero di release — «v7» funziona,
+      // «vpre-asta 1» no. §4.1 chiede che la versione usata sia indicata, non
+      // che abbia una forma.
+      return `Piano dichiarato «${reading.live.planVersion}» — ${BASIS_TEXT[reading.live.reallocationBasis]}.`;
   }
 }
 

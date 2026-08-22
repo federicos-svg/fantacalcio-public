@@ -912,3 +912,13 @@
   margin-top: 8px;
   min-height: 1.5em;
 }
+
+/* Il testo segnaposto è testo: senza questa regola prende il grigio di default
+   del browser sul fondo scuro del campo, che sta sotto AA e che la spazzata di
+   e2e/text-contrast-aa.spec.ts non misura (guarda nodi di testo e
+   pseudo-elementi, non l'attributo `placeholder`). --text-dim è 4,69:1 su
+   --panel-inner, che è esattamente il fondo di .field-input. */
+.role-plan__input::placeholder {
+  color: var(--text-dim);
+  opacity: 1;
+}

@@ -106,7 +106,7 @@ test("«non dichiarato» e «dichiarato zero» restano due rese diverse a scherm
   // Lo stesso ruolo dichiarato a ZERO è un'altra cosa: il piano diventa completo
   // e il motore lo esegue.
   await declare(page, "P", "0");
-  await expect(page.locator("#role-plan-state")).toContainText("Piano vpre-asta 1");
+  await expect(page.locator("#role-plan-state")).toContainText("Piano dichiarato «pre-asta 1»");
   const zeroCell = await targetCell(page, "P").innerText();
   expect(zeroCell).toContain("0 cr");
   expect(zeroCell).not.toContain("non dichiarato");
@@ -202,6 +202,15 @@ test("il piano si dichiara da tastiera, il fuoco si vede, e un input rifiutato n
   await expect(page.locator("#role-plan-target-P")).toBeFocused();
   await page.keyboard.type("20");
   await expect(targetCell(page, "P")).toContainText("20 cr");
+
+  // La riga di feedback è una regione `aria-live`, e resta VUOTA sul caso
+  // normale: una conferma per ogni cifra digitata verrebbe letta ad alta voce a
+  // ogni tasto («target 2 salvato», «target 20 salvato»). Il salvataggio
+  // riuscito si vede già nella scheda qui sopra; qui finiscono solo le due cose
+  // che lo schermo non dice da sé.
+  await expect(page.locator("#role-plan-feedback")).toHaveAttribute("role", "status");
+  await expect(page.locator("#role-plan-feedback")).toHaveAttribute("aria-live", "polite");
+  await expect(page.locator("#role-plan-feedback")).toHaveText("");
 
   // Il fuoco da tastiera è visibile: .field-input azzera l'outline nativo, e
   // senza la regola :focus-visible di questo modulo non si vedrebbe nulla.

@@ -173,7 +173,7 @@ describe("planStateText — la frase onesta di apertura", () => {
 
   it("piano vivo: cita la versione usata (§4.1) e la base della ripartizione", () => {
     const text = planStateText(rolePlanReading(freshTeam(), draft({ P: 20, D: 80, C: 140, A: 210 }, "7")));
-    expect(text).toContain("Piano v7");
+    expect(text).toContain("Piano dichiarato «7»");
     expect(text).toContain("in proporzione ai tuoi target residui");
   });
 });

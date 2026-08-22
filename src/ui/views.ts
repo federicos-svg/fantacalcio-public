@@ -1504,6 +1504,15 @@ export function renderRolePlanPanel(props: RolePlanPanelProps): HTMLElement {
   feedback.className = "role-plan__feedback";
   // Un rifiuto o una scrittura non andata a buon fine devono raggiungere anche
   // chi non guarda quel punto dello schermo.
+  //
+  // MA NON UN ANNUNCIO PER TASTO. Questa è una regione `aria-live`, e ogni
+  // carattere digitato in un campo target è un `input`: una conferma di
+  // salvataggio scritta qui verrebbe letta ad alta voce a ogni cifra («target 8
+  // salvato», «target 80 salvato»), cioè trasformerebbe l'aiuto in rumore
+  // proprio per chi ne dipende. Il salvataggio riuscito si vede già — la scheda
+  // del ruolo qui sopra si aggiorna nello stesso istante — quindi il caso
+  // normale non scrive niente. Qui finiscono solo le due cose che lo schermo NON
+  // dice da sé: un valore rifiutato, e una scrittura che non ha attecchito.
   feedback.setAttribute("role", "status");
   feedback.setAttribute("aria-live", "polite");
 
@@ -1516,10 +1525,13 @@ export function renderRolePlanPanel(props: RolePlanPanelProps): HTMLElement {
 
   const inputs: Partial<Record<Role, HTMLInputElement>> = {};
 
-  const commit = (next: RolePlanDraft, ok: string): void => {
+  /** `announce` è la frase da leggere ad alta voce, e per il caso normale è la
+   *  stringa vuota: vedi il commento su `feedback`. Una scrittura fallita la
+   *  sovrascrive sempre, perché quella nessuno la vede. */
+  const commit = (next: RolePlanDraft, announce: string): void => {
     draft = next;
     feedback.textContent = props.persist(draft)
-      ? ok
+      ? announce
       : "Il piano non è stato salvato: lo spazio di archiviazione del browser ha rifiutato la scrittura. Quello che vedi a schermo vale per questa sessione soltanto.";
     paint();
   };
@@ -1554,12 +1566,9 @@ export function renderRolePlanPanel(props: RolePlanPanelProps): HTMLElement {
         return;
       }
       input.removeAttribute("aria-invalid");
-      commit(
-        withTarget(draft, role, parsed),
-        parsed.kind === "undeclared"
-          ? `${ROLE_LABELS[role]}: riportato a «${TARGET_UNDECLARED}».`
-          : `${ROLE_LABELS[role]}: target ${parsed.target} salvato.`,
-      );
+      // Nessun annuncio: la scheda del ruolo qui sopra cambia da sé, e un
+      // annuncio per tasto sarebbe rumore (vedi `feedback`).
+      commit(withTarget(draft, role, parsed), "");
     });
     field.appendChild(input);
     inputs[role] = input;
@@ -1581,7 +1590,7 @@ export function renderRolePlanPanel(props: RolePlanPanelProps): HTMLElement {
   versionInput.value = draft.planVersion;
   versionInput.setAttribute("aria-describedby", "role-plan-version-hint");
   versionInput.addEventListener("input", (e) => {
-    commit(withPlanVersion(draft, (e.target as HTMLInputElement).value), "Versione del piano salvata.");
+    commit(withPlanVersion(draft, (e.target as HTMLInputElement).value), "");
   });
   versionField.appendChild(versionInput);
   fields.appendChild(versionField);
