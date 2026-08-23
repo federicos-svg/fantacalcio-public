@@ -34,3 +34,22 @@ export * from "./phase4Protocol.js";
 export * from "./phase5Protocol.js";
 export * from "./appealIndexServing.js";
 export * from "./dataReadiness.js";
+
+// GEN-PROTOCOL-A — il kernel del generatore di algoritmi (ondata 1).
+// Moduli puri e IO-free: tipi, PRNG seminato, metriche, schema dei fold,
+// tuning interno, le famiglie FAM-1/FAM-2/FAM-4, T-D, conformal, bootstrap
+// season-block, MOD-CALC e l'ordine di selezione. Nessuno di questi apre un
+// gate e nessuno e' importato da `src/` (l'app viva).
+export * from "./genProtocol/genTypes.js";
+export * from "./genProtocol/prng.js";
+export * from "./genProtocol/metrics.js";
+export * from "./genProtocol/foldScheme.js";
+export * from "./genProtocol/internalTuning.js";
+export * from "./genProtocol/shrinkageMarcel.js";
+export * from "./genProtocol/elasticNet.js";
+export * from "./genProtocol/boostedStumps.js";
+export * from "./genProtocol/voteDistribution.js";
+export * from "./genProtocol/conformal.js";
+export * from "./genProtocol/bootstrapBlock.js";
+export * from "./genProtocol/modCalc.js";
+export * from "./genProtocol/selection.js";
