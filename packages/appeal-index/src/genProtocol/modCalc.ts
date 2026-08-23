@@ -163,6 +163,19 @@ export interface MidfieldSideResult {
   readonly fictitiousVotes: number;
   /** Modificatore di questo lato: positivo al totale maggiore, negativo al minore. */
   readonly modifier: number;
+  /**
+   * Quanti senza-voto sono stati scartati da questo lato.
+   *
+   * E' un'INTERPRETAZIONE, e sta nell'output perche' un'interpretazione fuori
+   * dall'output e' invisibile. Il regolamento non dice che cosa fare del
+   * centrocampista schierato senza voto (LEAGUE_RULES §27: non inferire) e
+   * dentro il protocollo il caso non si presenta, perche' gli slot SV si
+   * ricampionano (§D.9) — ma questa funzione e' esportata come MOD-CALC
+   * generale, e un chiamante che le passasse una formazione con dei `null` deve
+   * poter vedere che sono stati tolti prima della numerosita', non scoprirlo da
+   * un commento nel sorgente.
+   */
+  readonly filteredNoVote: number;
 }
 
 export interface MidfieldModifierResult {
@@ -186,7 +199,9 @@ export interface MidfieldModifierResult {
  *
  * I senza-voto non contano ne' come voto ne' come numerosita': un
  * centrocampista senza voto non porta un voto base, e la numerosita' che §20
- * confronta e' quella dei voti che entrano nella somma.
+ * confronta e' quella dei voti che entrano nella somma. Quanti ne siano stati
+ * tolti lo dice `filteredNoVote`, per lato: la scelta e' dichiarata nel
+ * risultato e non solo qui.
  */
 export function midfieldModifier(
   ownBaseVotes: readonly BaseVote[],
@@ -218,8 +233,18 @@ export function midfieldModifier(
   const ownModifier = ownTotal === opponentTotal ? 0 : ownTotal > opponentTotal ? magnitude : -magnitude;
 
   return {
-    own: { total: ownTotal, fictitiousVotes: ownFictitious, modifier: ownModifier },
-    opponent: { total: opponentTotal, fictitiousVotes: opponentFictitious, modifier: -ownModifier },
+    own: {
+      total: ownTotal,
+      fictitiousVotes: ownFictitious,
+      modifier: ownModifier,
+      filteredNoVote: ownBaseVotes.length - own.length,
+    },
+    opponent: {
+      total: opponentTotal,
+      fictitiousVotes: opponentFictitious,
+      modifier: -ownModifier,
+      filteredNoVote: opponentBaseVotes.length - opponent.length,
+    },
     difference,
     onHalfPointGrid: Number.isInteger(difference * 2),
   };

@@ -158,7 +158,32 @@ describe("modCalc §20 — modificatore centrocampo", () => {
   });
 
   it("i senza-voto non entrano ne' come voto ne' come numerosita'", () => {
-    expect(midfieldModifier([6, 6, null], [6, 6])).toEqual(midfieldModifier([6, 6], [6, 6]));
+    const conSenzaVoto = midfieldModifier([6, 6, null], [6, 6]);
+    const senza = midfieldModifier([6, 6], [6, 6]);
+    // Il CALCOLO e' identico: il `null` non porta un voto e non alza la
+    // numerosita' che genera i fittizi.
+    expect(conSenzaVoto.own.total).toBe(senza.own.total);
+    expect(conSenzaVoto.own.fictitiousVotes).toBe(senza.own.fictitiousVotes);
+    expect(conSenzaVoto.own.modifier).toBe(senza.own.modifier);
+    expect(conSenzaVoto.difference).toBe(senza.difference);
+  });
+
+  it("i senza-voto scartati si CONTANO, per lato: l'interpretazione sta nell'output", () => {
+    // Il regolamento non dice che cosa farne (LEAGUE_RULES §27: non inferire) e
+    // dentro il protocollo il caso non si presenta (§D.9): questa funzione pero'
+    // e' MOD-CALC generale, e chi la chiama deve vedere quanti ne ha persi.
+    const result = midfieldModifier([6, null, 6, null], [7, 7, null]);
+    expect(result.own.filteredNoVote).toBe(2);
+    expect(result.opponent.filteredNoVote).toBe(1);
+    // Restano 2 voti contro 2: nessun fittizio, e la somma e' quella dei validi.
+    expect(result.own.fictitiousVotes).toBe(0);
+    expect(result.opponent.fictitiousVotes).toBe(0);
+    expect(result.own.total).toBe(12);
+    expect(result.opponent.total).toBe(14);
+    // Senza `null` in ingresso il conteggio e' zero su entrambi i lati.
+    const pulito = midfieldModifier([6, 6], [7, 7]);
+    expect(pulito.own.filteredNoVote).toBe(0);
+    expect(pulito.opponent.filteredNoVote).toBe(0);
   });
 });
 
