@@ -20,6 +20,7 @@
 // statistiche di stagione entrano da `seasonStats`, una mappa nome->numero
 // che il chiamante riempie. Il catalogo dei nomi arriva nell'ondata 2.
 
+import { computeFantavoto } from "../fantavoto.js";
 import type { Role } from "../types.js";
 
 /** Etichetta di stagione nel formato canonico del repository: `"2015_16"`. */
@@ -83,6 +84,58 @@ export function isValidPresence(row: MatchdayVote): boolean {
 }
 
 /**
+ * Il fantavoto di UNA riga giornaliera (§A.1) — l'unico ponte fra
+ * `MatchdayVote` e la tariffa canonica.
+ *
+ * Aggiunto nell'ondata 2 e non nell'ondata 1 perche' prima non serviva a
+ * nessuno: adesso lo chiedono `featureCatalog.ts` (`formaUltime10`),
+ * `modValueSim.ts` e i mondi sintetici, e tre copie della stessa conversione
+ * sarebbero tre occasioni di divergere. NON e' una seconda tariffa: e'
+ * l'adattatore che presenta la riga a `computeFantavoto()` — versione
+ * `appeal_index_offline_v2_gs_keeper`, malus `Gs` al solo portiere — nella
+ * forma che quella funzione pretende.
+ *
+ * I campi che la tariffa non legge (squadra, nome, id) sono riempiti con
+ * segnaposto che non nominano nessuno: qui non passano nomi reali, nemmeno
+ * inventati. Restano visibili solo nel messaggio della guardia `Gs` su riga
+ * non-P, che e' un errore fatale e deve poter dire quale riga lo ha causato.
+ */
+export function matchdayFantavoto(row: MatchdayVote, role: GenRole, playerKey = "genProtocol"): number {
+  if (row.votoBase === null) {
+    throw new Error(
+      "matchdayFantavoto: la riga non ha voto base (SV/-/vuoto) e quindi non ha fantavoto (§A.1) — " +
+        "si filtrano le presenze valide prima di chiamare",
+    );
+  }
+  return computeFantavoto({
+    source_id: "fantacalcio_xlsx",
+    vote_source: "italia",
+    season: row.season,
+    matchday: row.matchday,
+    external_id: 0,
+    canonical_player_id: null,
+    team: "",
+    role,
+    name: playerKey,
+    voto_raw: row.votoBase,
+    voto_base: row.votoBase,
+    is_asterisk: row.isAsterisk,
+    is_sv: false,
+    is_blank: false,
+    is_real_performance: !row.isAsterisk,
+    Gf: row.Gf,
+    Gs: row.Gs,
+    Rp: row.Rp,
+    Rs: row.Rs,
+    Rf: row.Rf,
+    Au: row.Au,
+    Amm: row.Amm,
+    Esp: row.Esp,
+    Ass: row.Ass,
+  });
+}
+
+/**
  * Una riga giocatore-stagione del panel, gia' joinata dal chiamante (§A.0 fa
  * il join; questo modulo non lo rifa' e non conosce le fonti).
  *
@@ -111,6 +164,15 @@ export interface GenPanelRow {
    * assoluti»). Il catalogo dei nomi e i tier S1/S2/S3 arrivano nell'ondata 2.
    */
   readonly seasonStats?: Readonly<Record<string, number | null>>;
+  /**
+   * Squadra della stagione, se il chiamante la conosce. Serve a UNA feature —
+   * `teamChangedFlag` del blocco X (§D.5) — ed e' opzionale perche' non tutte
+   * le fonti di panel la portano: dove manca, la feature vale `NaN`, mai 0
+   * («mai riempita dove non esiste», §D.5). Il valore e' una chiave opaca di
+   * squadra scelta dal chiamante: qui non si confrontano nomi, si confronta
+   * uguaglianza.
+   */
+  readonly team?: string;
 }
 
 /**
@@ -198,5 +260,15 @@ export const GEN_PRIMARY_LOSS: Readonly<Record<GenTargetId, PrimaryLoss>> = {
   T8: "mae",
 } as const;
 
+/**
+ * Giornate di una stagione: 38.
+ *
+ * Vive qui e non nei moduli che la usano perche' e' lo stesso 38 in tre punti
+ * diversi — il clamp di T-N (§B.2), il tetto «nessun tetto» di §D.10.2 e il
+ * denominatore della prorata di §D.15 — e tre copie sono tre occasioni di
+ * cambiarne una sola.
+ */
+export const SEASON_MATCHDAYS = 38;
+
 /** Clamp preregistrato delle predizioni di T-N (§B.2: «clamp predizioni a [0, 38]»). */
-export const GEN_TN_CLAMP: readonly [number, number] = [0, 38] as const;
+export const GEN_TN_CLAMP: readonly [number, number] = [0, SEASON_MATCHDAYS] as const;

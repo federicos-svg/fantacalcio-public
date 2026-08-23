@@ -54,11 +54,32 @@ export const GEN_COMPLEXITY_ORDER = [
   "FAM-4",
 ] as const;
 
-export type GenFamily = (typeof GEN_COMPLEXITY_ORDER)[number];
+/**
+ * L'ordine di complessita' del layer prime giornate (§D.15.2, v2.0.0):
+ * `U0 < U1_G < U2_G` DENTRO ogni G.
+ *
+ * E' un secondo ordine, non un'estensione del primo: le due gare non si
+ * incontrano mai (il layer corre su T-N contro l'incumbent T-N, i candidati di
+ * §D.2 corrono fra loro), e mescolarle in una lista sola suggerirebbe un
+ * confronto che il protocollo non prevede. Nessun confronto nemmeno FRA G
+ * diversi: «non sono candidati in gara fra loro, sono contingenze di
+ * calendario» — e infatti ogni G ha la sua selezione, con la sua baseline U0.
+ */
+export const GEN_LAYER_COMPLEXITY_ORDER = ["U0", "U1", "U2"] as const;
 
-/** Posizione nell'ordine di complessita'; piu' basso = piu' semplice. */
-export function complexityRank(family: GenFamily): number {
-  const rank = GEN_COMPLEXITY_ORDER.indexOf(family);
+export type GenFamily = (typeof GEN_COMPLEXITY_ORDER)[number] | (typeof GEN_LAYER_COMPLEXITY_ORDER)[number];
+
+/**
+ * Posizione nell'ordine di complessita'; piu' basso = piu' semplice.
+ *
+ * `order` e' un parametro OPZIONALE con il default di §B.4.4: chi non lo passa
+ * ottiene esattamente il comportamento dell'ondata 1. Esiste perche' §D.15 ha
+ * introdotto una seconda gara con un proprio ordine, e l'alternativa —
+ * duplicare la logica di selezione dentro il modulo del layer — avrebbe creato
+ * due regole 1-SE da tenere allineate a mano.
+ */
+export function complexityRank(family: GenFamily, order: readonly string[] = GEN_COMPLEXITY_ORDER): number {
+  const rank = order.indexOf(family);
   if (rank < 0) throw new Error(`complexityRank: '${family}' is not in the preregistered complexity order`);
   return rank;
 }
@@ -118,6 +139,12 @@ export interface GenBaselineEvidence {
   readonly primaryLossByRole: Readonly<Partial<Record<GenRole, number>>>;
   /** Spearman medio per ruolo (§B.4.5, primo tie-break residuo). */
   readonly meanSpearmanByRole: number;
+  /**
+   * La famiglia della baseline nell'ordine di complessita' in uso. Opzionale e
+   * con default `"B0"`: nella gara del layer (§D.15) la baseline e' `U0`, che
+   * e' il primo elemento dell'ALTRO ordine.
+   */
+  readonly family?: GenFamily;
 }
 
 /** L'evidenza di un candidato esterno (§D.1). */
@@ -250,6 +277,11 @@ export interface GenSelectionInput {
   readonly baseline: GenBaselineEvidence;
   readonly candidates: readonly GenCandidateEvidence[];
   readonly bootstrap?: { readonly replicates?: number; readonly seed?: number };
+  /**
+   * L'ordine di complessita' da usare nella regola 1-SE. Default: quello di
+   * §B.4.4. Il layer di §D.15 passa `GEN_LAYER_COMPLEXITY_ORDER`.
+   */
+  readonly complexityOrder?: readonly string[];
 }
 
 export interface GenSelectionResult {
@@ -279,6 +311,8 @@ export interface GenSelectionResult {
  */
 export function selectGenCandidate(input: GenSelectionInput): GenSelectionResult {
   const { target, baseline, candidates } = input;
+  const order = input.complexityOrder ?? GEN_COMPLEXITY_ORDER;
+  const rankOf = (family: GenFamily): number => complexityRank(family, order);
   const chain: GenSelectionStep[] = [];
   const foldCount = baseline.primaryLossPerFold.length;
   if (foldCount === 0) throw new Error("selectGenCandidate: the baseline has no folds");
@@ -378,7 +412,7 @@ export function selectGenCandidate(input: GenSelectionInput): GenSelectionResult
     {
       id: baseline.candidateId,
       perFold: baseline.primaryLossPerFold,
-      family: "B0",
+      family: baseline.family ?? "B0",
       featureCount: 0,
       enumerationIndex: -1,
       meanSpearmanByRole: baseline.meanSpearmanByRole,
@@ -409,7 +443,7 @@ export function selectGenCandidate(input: GenSelectionInput): GenSelectionResult
       meanGap,
       standardError,
       withinOneStandardError,
-      complexityRank: complexityRank(contender.family),
+      complexityRank: rankOf(contender.family),
       featureCount: contender.featureCount,
     };
   });
@@ -429,7 +463,7 @@ export function selectGenCandidate(input: GenSelectionInput): GenSelectionResult
   //    feature; poi Spearman medio per ruolo piu' alto; poi indice di
   //    enumerazione piu' basso (§B.4.4–5).
   const chosen = [...tied].sort((a, b) => {
-    const byComplexity = complexityRank(a.family) - complexityRank(b.family);
+    const byComplexity = rankOf(a.family) - rankOf(b.family);
     if (byComplexity !== 0) return byComplexity;
     const byFeatures = a.featureCount - b.featureCount;
     if (byFeatures !== 0) return byFeatures;
@@ -444,7 +478,7 @@ export function selectGenCandidate(input: GenSelectionInput): GenSelectionResult
       `piu' semplice fra i pari-merito: ${chosen.id} (complessita' ${chosen.family}, ` +
       `${chosen.featureCount} feature, Spearman medio per ruolo ${chosen.meanSpearmanByRole})`,
     numbers: {
-      complexityRank: complexityRank(chosen.family),
+      complexityRank: rankOf(chosen.family),
       featureCount: chosen.featureCount,
       meanSpearmanByRole: chosen.meanSpearmanByRole,
       enumerationIndex: chosen.enumerationIndex,
