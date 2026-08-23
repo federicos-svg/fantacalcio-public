@@ -268,18 +268,28 @@ function syntheticCanaryRows(
   return rows;
 }
 
+/**
+ * Separatore della chiave `(playerKey, targetSeason)`: un carattere che in una
+ * chiave non puo' esistere, scritto come ESCAPE e non come byte.
+ *
+ * Uno spazio sembrerebbe piu' leggibile e sarebbe sbagliato: una chiave
+ * d'identita' puo' contenere spazi, e due coppie diverse collasserebbero sulla
+ * stessa stringa — il canarino confronterebbe righe che non sono le stesse.
+ */
+const ROW_KEY_SEPARATOR = "\u0000";
+
 function indexRows(rows: readonly GenFeatureRow[], cutoffYear: number): Map<string, string> {
   const out = new Map<string, string>();
   for (const row of rows) {
     // Solo le righe con target ≤ s: quelle con target ≥ s+1 possono
     // legittimamente cambiare, perche' la stagione iniettata E' il loro passato.
     if (seasonYear(row.targetSeason) >= cutoffYear) continue;
-    out.set(`${row.playerKey} ${row.targetSeason}`, JSON.stringify(row));
+    out.set(`${row.playerKey}${ROW_KEY_SEPARATOR}${row.targetSeason}`, JSON.stringify(row));
   }
   return out;
 }
 
 function splitKey(key: string): { playerKey: string; targetSeason: GenSeason } {
-  const [playerKey = "", targetSeason = ""] = key.split(" ");
+  const [playerKey = "", targetSeason = ""] = key.split(ROW_KEY_SEPARATOR);
   return { playerKey, targetSeason };
 }
