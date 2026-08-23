@@ -21,6 +21,19 @@
 // Riuso dichiarato: la standardizzazione e la soglia di varianza nulla
 // (`1e-9`) vengono da `../featureMatrix.ts` — la stessa che scala ridge e kNN.
 // Una seconda soglia «uguale» sarebbe una soglia che un giorno non lo e' piu'.
+//
+// Penalita' per-feature (`penaltyWeights`) — perche' esiste. §D.13.2 prescrive
+// per T8 una penalita' ridge DEDICATA `τ` sulle sole one-hot di lega: le leghe
+// di provenienza sono tante e ognuna porta poche righe, quindi senza un freno
+// proprio il modello di transizione impara la lega invece del giocatore. La via
+// che sembrava evitare un parametro in piu' — riscalare la colonna per
+// `1/√τ` prima del fit — qui NON funziona, ed e' un fatto meccanico, non
+// un'opinione: questo fitter standardizza ogni colonna con z-score, e lo z-score
+// assorbe qualunque fattore di scala in ingresso (`(cx − c·x̄)/(c·σ) = (x − x̄)/σ`).
+// La colonna riscalata arriva al coordinate descent identica a quella non
+// riscalata, e `τ` sparisce per strada. L'unico posto dove `τ` puo' vivere e'
+// dunque la penalita' stessa: `λ_j = λ · w_j`, un moltiplicatore per feature.
+// Assente = tutti 1 = l'elastic net di prima, bit per bit.
 
 import { ZERO_VARIANCE_THRESHOLD, fitColumnStandardizer } from "../featureMatrix.js";
 
@@ -73,6 +86,17 @@ export interface FittedElasticNetParameters {
   readonly featureNames: readonly string[];
   /** Coefficienti nello spazio STANDARDIZZATO — come `FittedRidgeParameters`. */
   readonly coefficients: readonly number[];
+  /**
+   * Moltiplicatori di penalita' per feature (§D.13.2), nell'ordine di
+   * `featureNames`: la feature `j` e' penalizzata con `λ_j = λ · w_j`.
+   *
+   * ASSENTE = uniforme = tutti 1. Il campo non si scrive quando non dice
+   * niente: un artefatto senza pesi e' esattamente un artefatto della versione
+   * precedente, e uno con i pesi dichiara da se' che T8 li ha usati. Non entra
+   * in `predictWithElasticNet` — a predizione servita la penalita' ha gia'
+   * finito il suo lavoro dentro i coefficienti.
+   */
+  readonly penaltyWeights?: readonly number[];
   /** Intercetta, mai penalizzata (§D.2 lo impone di fatto: penalizzarla shrinkerebbe la media del bersaglio verso 0). */
   readonly intercept: number;
   readonly standardizerMeans: readonly number[];
@@ -104,6 +128,42 @@ function softThreshold(value: number, threshold: number): number {
 }
 
 /**
+ * Valida i pesi di penalita' e riporta `undefined` per il caso uniforme.
+ *
+ * Collassare «tutti 1» su `undefined` non e' un'ottimizzazione: e' cio' che
+ * rende la retro-compatibilita' una PROPRIETA' invece di una speranza. Con
+ * `undefined` il ciclo prende il ramo di prima e la serializzazione non
+ * guadagna un campo, quindi «pesi tutti 1» e «nessun peso» non possono
+ * divergere nemmeno per un bit.
+ *
+ * Zero e' rifiutato come i negativi: `w_j = 0` significherebbe «questa feature
+ * non si penalizza mai», cioe' una feature esente dalla regolarizzazione — che
+ * e' esattamente il taglio manuale che §D.4 vieta («e' la regolarizzazione a
+ * decidere che cosa pesa, non un taglio manuale»). Chi vuole penalizzare poco
+ * scrive `1e-6`, e lo scrive nella ricetta.
+ */
+function normalizePenaltyWeights(
+  penaltyWeights: readonly number[] | undefined,
+  featureCount: number,
+): readonly number[] | undefined {
+  if (penaltyWeights === undefined) return undefined;
+  if (penaltyWeights.length !== featureCount) {
+    throw new Error(
+      `fitElasticNet: penaltyWeights has ${String(penaltyWeights.length)} entries for ${String(featureCount)} active features — one weight per feature, in featureNames order`,
+    );
+  }
+  for (let j = 0; j < penaltyWeights.length; j++) {
+    const weight = penaltyWeights[j]!;
+    if (!Number.isFinite(weight) || weight <= 0) {
+      throw new Error(
+        `fitElasticNet: penaltyWeights[${String(j)}] = ${String(weight)} — every penalty weight must be finite and strictly positive`,
+      );
+    }
+  }
+  return penaltyWeights.every((weight) => weight === 1) ? undefined : [...penaltyWeights];
+}
+
+/**
  * Fitta l'elastic net sul set attivo `featureNames`.
  *
  * Obiettivo minimizzato:
@@ -116,11 +176,21 @@ function softThreshold(value: number, threshold: number): number {
  * standardizer di `../featureMatrix.ts` la manda a zero sotto `1e-9`, e con la
  * colonna a zero l'aggiornamento di coordinate descent non puo' che lasciare
  * il coefficiente a zero.
+ *
+ * Con `penaltyWeights` l'obiettivo diventa quello di §D.13.2, penalita' per
+ * feature: `… + λ Σ_j w_j (α|β_j| + (1−α)/2 · β_j²)`. Un `w_j` alto e' una
+ * feature che deve guadagnarsi il posto (le one-hot di lega di T8), uno basso e'
+ * una feature quasi libera. Omesso, ogni `w_j` vale 1 e l'obiettivo e' quello
+ * di sopra, invariato.
+ *
+ * @param penaltyWeights Un peso per feature, nell'ordine di `featureNames`;
+ *   ognuno finito e strettamente positivo. Omesso = tutti 1.
  */
 export function fitElasticNet(
   trainRows: readonly ElasticNetTrainingRow[],
   featureNames: readonly string[],
   hyperparameters: ElasticNetHyperparameters,
+  penaltyWeights?: readonly number[],
 ): FittedElasticNetParameters {
   if (featureNames.length === 0) throw new Error("fitElasticNet: empty active feature set");
   if (new Set(featureNames).size !== featureNames.length) {
@@ -129,6 +199,7 @@ export function fitElasticNet(
   const { alpha, lambda } = hyperparameters;
   if (!Number.isFinite(alpha) || alpha < 0 || alpha > 1) throw new Error("fitElasticNet: alpha must be in [0, 1]");
   if (!Number.isFinite(lambda) || lambda < 0) throw new Error("fitElasticNet: lambda must be finite and non-negative");
+  const activePenaltyWeights = normalizePenaltyWeights(penaltyWeights, featureNames.length);
 
   let excludedForMissingFeature = 0;
   let excludedForMissingTarget = 0;
@@ -208,7 +279,11 @@ export function fitElasticNet(
       let rho = 0;
       for (let i = 0; i < n; i++) rho += w[i]! * X[i]![j]! * residual[i]!;
       rho = rho / totalWeight + beta[j]! * zj;
-      const updated = softThreshold(rho, lambda * alpha) / (zj + lambda * (1 - alpha));
+      // `λ_j = λ · w_j` (§D.13.2). Il peso entra in ENTRAMBI i posti dove λ
+      // compare — la soglia del lasso e il denominatore del ridge — perche' e'
+      // l'intera penalita' della feature a essere riscalata, non una sua meta'.
+      const lambdaJ = activePenaltyWeights === undefined ? lambda : lambda * activePenaltyWeights[j]!;
+      const updated = softThreshold(rho, lambdaJ * alpha) / (zj + lambdaJ * (1 - alpha));
       const delta = updated - beta[j]!;
       if (delta !== 0) {
         beta[j] = updated;
@@ -231,6 +306,10 @@ export function fitElasticNet(
     artifactVersion: "gen-elastic-net-parameters-v1",
     featureNames: [...featureNames],
     coefficients: beta,
+    // Solo se dicono qualcosa: uniforme = campo assente = artefatto identico a
+    // quelli emessi prima che questo parametro esistesse. Il vettore e' gia' la
+    // copia privata di `normalizePenaltyWeights`, non l'array del chiamante.
+    ...(activePenaltyWeights === undefined ? {} : { penaltyWeights: activePenaltyWeights }),
     intercept,
     standardizerMeans: [...standardizer.means],
     standardizerStds: [...standardizer.stds],
