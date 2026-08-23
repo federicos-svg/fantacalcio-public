@@ -34,3 +34,12 @@ export * from "./phase4Protocol.js";
 export * from "./phase5Protocol.js";
 export * from "./appealIndexServing.js";
 export * from "./dataReadiness.js";
+
+// GEN-PROTOCOL-A — il kernel del generatore di algoritmi (ondate 1 e 2).
+// Moduli puri e IO-free. Nessuno di questi apre un gate e nessuno e'
+// importato da `src/` (l'app viva). Si riesporta il facade dedicato — la
+// stessa porta che l'orchestratore privato carica — cosi' i due barrel non
+// possono piu' divergere (rilievo della review indipendente, 2026-08-23:
+// questo elenco era fermo all'ondata 1 mentre il facade dichiarava la
+// completezza).
+export * from "./genProtocol/index.js";

@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fantacalcio.local/schemas/gen-recipe.schema.json",
+  "title": "GEN-RECIPE — la ricetta del generatore di algoritmi (GEN-PROTOCOL-A §K)",
+  "description": "Forma dell'artefatto finale del generatore: esito di selezione per bersaglio-ruolo, parametri serializzati, tabelle rango-prezzo con quantili, tetti degli esperti ratificati, sezione del layer prime giornate. Contiene parametri e versioni, mai dati: nessun nome di giocatore, nessuna quotazione, nessun identificatore privato (gli artefatti veri vivono fuori dal repository).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "recipeVersion",
+    "protocolId",
+    "protocolVersion",
+    "coreVersion",
+    "protocolHash",
+    "datasetContentFingerprint",
+    "seeds",
+    "targetSeason",
+    "entries",
+    "priceCurves",
+    "expertCaps",
+    "layer"
+  ],
+  "properties": {
+    "recipeVersion": { "const": "GEN-RECIPE@1.0.0" },
+    "protocolId": { "const": "GEN-PROTOCOL-A" },
+    "protocolVersion": { "type": "string", "minLength": 1 },
+    "coreVersion": { "type": "string", "minLength": 1 },
+    "protocolHash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "sha256 del documento di protocollo al commit del merge (§C, sigillo)."
+    },
+    "datasetContentFingerprint": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Impronta del contenuto del dataset: nessun confronto attraversa due impronte diverse (§C)."
+    },
+    "seeds": {
+      "type": "object",
+      "description": "I semi preregistrati di §C usati dal run.",
+      "additionalProperties": { "type": "integer" }
+    },
+    "targetSeason": { "type": "string", "pattern": "^[0-9]{4}_[0-9]{2}$" },
+    "entries": {
+      "type": "array",
+      "description": "Un esito per bersaglio-RUOLO: il veto di §B.3.4 puo' riportare un singolo ruolo a B0.",
+      "items": { "$ref": "#/$defs/entry" }
+    },
+    "priceCurves": {
+      "type": "array",
+      "description": "T3: la tabella scritta rango -> {mediana, P25, P75, P90} coi quantili dei residui per fascia di rango (§B.5, §D.11).",
+      "items": { "$ref": "#/$defs/priceSection" }
+    },
+    "expertCaps": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["starter", "health"],
+      "description": "La tabella ratificata di §D.10.2, copiata nella ricetta perche' sia ispezionabile senza il codice.",
+      "properties": {
+        "starter": { "type": "array", "items": { "$ref": "#/$defs/capBand" } },
+        "health": { "type": "array", "items": { "$ref": "#/$defs/capBand" } }
+      }
+    },
+    "layer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gSet", "entries"],
+      "description": "Il layer prime giornate (§D.15): una entry per ciascun G dell'insieme congelato, con il suo vincitore e i suoi parametri.",
+      "properties": {
+        "gSet": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1 },
+          "description": "L'insieme congelato dei G calibrati (§D.15: {1, 2, 3})."
+        },
+        "entries": { "type": "array", "items": { "$ref": "#/$defs/layerEntry" } }
+      }
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "role", "status", "servedCandidateId", "model", "featureSet", "conformalRadius"],
+      "properties": {
+        "target": { "enum": ["T1", "T2", "TN", "T3", "TD", "T6", "T8"] },
+        "role": { "enum": ["P", "D", "C", "A"] },
+        "status": { "enum": ["winner", "B0", "NO_VERDICT"] },
+        "servedCandidateId": { "type": "string", "minLength": 1 },
+        "model": { "$ref": "#/$defs/model" },
+        "featureSet": { "oneOf": [{ "enum": ["S1", "S2", "S3a", "S3b"] }, { "type": "null" }] },
+        "conformalRadius": { "oneOf": [{ "type": "number" }, { "type": "null" }] }
+      }
+    },
+    "model": {
+      "type": "object",
+      "required": ["family"],
+      "properties": {
+        "family": { "enum": ["B0", "FAM-1", "FAM-2", "FAM-3", "FAM-4"] }
+      },
+      "description": "Parametri serializzati della famiglia servita. FAM-3 e' ricorsiva: porta i due fattori del composto T1 = T2 x N, non il loro prodotto."
+    },
+    "priceSection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["curve", "residualBands"],
+      "properties": {
+        "curve": { "type": "object" },
+        "residualBands": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "capBand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minScore", "inclusive", "cap"],
+      "properties": {
+        "minScore": { "type": "number" },
+        "inclusive": { "type": "boolean" },
+        "cap": { "oneOf": [{ "type": "number" }, { "type": "null" }] }
+      }
+    },
+    "layerEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["G", "winner", "ridgeByRole", "selectionStatus"],
+      "properties": {
+        "G": { "type": "integer", "minimum": 1 },
+        "winner": { "enum": ["U0", "U1", "U2"] },
+        "ridgeByRole": { "type": "object" },
+        "selectionStatus": { "enum": ["winner", "B0", "NO_VERDICT"] }
+      }
+    }
+  }
+}
