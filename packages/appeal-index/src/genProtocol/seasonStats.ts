@@ -260,25 +260,29 @@ export function validateSeasonStatsRow(row: Readonly<Record<string, unknown>>): 
   const unknownKeys: string[] = [];
 
   for (const key of Object.keys(row)) {
-    if (!isSeasonStatField(key)) {
-      unknownKeys.push(key);
+    if (!isSeasonStatField(key)) unknownKeys.push(key);
+  }
+  // Ordine CANONICO del catalogo, mai l'ordine di inserimento dell'oggetto:
+  // due righe logicamente identiche costruite da percorsi diversi devono
+  // produrre lo stesso report byte per byte (determinismo §B.3.1) — rilievo
+  // della review indipendente Quality & Delivery, 2026-08-23.
+  for (const field of SEASON_STAT_FIELDS) {
+    if (!(field in row)) {
+      absentFields.push(field);
       continue;
     }
-    const value = row[key];
+    const value = row[field];
     if (value === null) {
-      nullFields.push(key);
+      nullFields.push(field);
       continue;
     }
     if (typeof value !== "number" || !Number.isFinite(value)) {
       throw new SeasonStatsError(
-        `validateSeasonStatsRow: il campo '${key}' vale '${String(value)}' — atteso number finito oppure null. ` +
+        `validateSeasonStatsRow: il campo '${field}' vale '${String(value)}' — atteso number finito oppure null. ` +
           "Nessuna coercizione: un valore che non e' un numero non diventa un numero (§D.3).",
       );
     }
-    observedFields.push(key);
-  }
-  for (const field of SEASON_STAT_FIELDS) {
-    if (!(field in row)) absentFields.push(field);
+    observedFields.push(field);
   }
   return {
     observedFields,

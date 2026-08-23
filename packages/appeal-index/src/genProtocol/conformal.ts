@@ -17,6 +17,7 @@
 // piccolo»: un intervallo che nasconde questo fatto e' peggio di nessun
 // intervallo.
 
+import { seasonYear } from "../identityStability.js";
 import { conformalCoverage } from "./metrics.js";
 import { GEN_ROLES, type GenRole, type GenSeason } from "./genTypes.js";
 
@@ -131,7 +132,10 @@ export function buildConformalCoverageReport(
   rows: readonly ConformalScoredRow[],
   radiusByRole: ConformalRadiusByRole,
 ): ConformalCoverageReport {
-  const seasons = [...new Set(rows.map((r) => r.season))].sort();
+  // Ordine cronologico via `seasonYear`, come ovunque nel package: il sort
+  // lessicografico coincide sul formato canonico "YYYY_YY", ma la coincidenza
+  // non e' un contratto (rilievo della review indipendente, 2026-08-23).
+  const seasons = [...new Set(rows.map((r) => r.season))].sort((a, b) => seasonYear(a) - seasonYear(b));
   const cells: ConformalCoverageCell[] = [];
   const overallActual: number[] = [];
   const overallLower: number[] = [];
