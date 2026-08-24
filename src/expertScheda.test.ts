@@ -16,6 +16,7 @@ import {
   resolveExpertInsight,
   resolveListaEsperti,
   schedaHasContent,
+  stessoSoggettoBallottaggio,
   unknownExpertInsight,
   type ExpertInsightAvailability,
   type ExpertScheda,
@@ -296,9 +297,19 @@ describe("gli altri in ballottaggio — il contratto", () => {
     parseExpertSchedaDeposit(deposit([{ player: PLAYER, club: CLUB, titolarita, ballottaggio }]));
 
   it("accetta un elenco di soggetti con e senza quota", () => {
+    expect(conAltri([{ surface: "Bruna Placeholder", club: "ClubUno", sharePercent: 40 }]).ok).toBe(
+      true,
+    );
+    expect(conAltri([{ surface: "Bruna Placeholder", club: "ClubUno" }]).ok).toBe(true);
+    expect(conAltri([]).ok).toBe(true);
+  });
+
+  it("accetta anche un soggetto SENZA squadra: è la forma dei depositi già scritti", () => {
+    // La squadra è facoltativa apposta. Renderla obbligatoria avrebbe fatto
+    // rifiutare il file INTERO — il lettore è fail-closed — a ogni deposito
+    // scritto prima che questa metà esistesse.
     expect(conAltri([{ surface: "Bruna Placeholder", sharePercent: 40 }]).ok).toBe(true);
     expect(conAltri([{ surface: "Bruna Placeholder" }]).ok).toBe(true);
-    expect(conAltri([]).ok).toBe(true);
   });
 
   it("rifiuta un soggetto senza nome, con quota fuori scala o non intera", () => {
@@ -306,6 +317,27 @@ describe("gli altri in ballottaggio — il contratto", () => {
     expect(conAltri([{ surface: "Bruna Placeholder", sharePercent: 101 }]).ok).toBe(false);
     expect(conAltri([{ surface: "Bruna Placeholder", sharePercent: -1 }]).ok).toBe(false);
     expect(conAltri([{ surface: "Bruna Placeholder", sharePercent: 40.5 }]).ok).toBe(false);
+  });
+
+  it("rifiuta una squadra vuota o oltre il tetto: `\"\"` non è «non dichiarata»", () => {
+    // L'assenza si scrive TOGLIENDO la chiave, non scrivendoci dentro il
+    // vuoto: una squadra `""` sarebbe un'assenza travestita da valore, e i due
+    // casi si leggerebbero uguali dove contano.
+    expect(conAltri([{ surface: "Bruna Placeholder", club: "" }]).ok).toBe(false);
+    expect(conAltri([{ surface: "Bruna Placeholder", club: "   " }]).ok).toBe(false);
+    expect(conAltri([{ surface: "Bruna Placeholder", club: "C".repeat(81) }]).ok).toBe(false);
+  });
+
+  it("due omonimi pieni di club diversi sono DUE soggetti, e il contratto li tiene", () => {
+    // Il caso per cui `club` esiste: col solo nome producevano lo stesso
+    // valore depositato ed erano indistinguibili dopo il salvataggio.
+    const store = conAltri([
+      { surface: "Bruna Placeholder", club: "ClubUno", sharePercent: 35 },
+      { surface: "Bruna Placeholder", club: "ClubDue", sharePercent: 25 },
+    ]);
+    expect(store.ok).toBe(true);
+    const view = resolveExpertInsight(store, TARGET);
+    expect(view.ballottaggio.map((s) => s.club)).toEqual(["ClubUno", "ClubDue"]);
   });
 
   // Lo `.strict()` vale anche DENTRO l'elenco: è il punto cieco classico di
@@ -337,6 +369,40 @@ describe("gli altri in ballottaggio — il contratto", () => {
       );
       expect(fuori.ballottaggio, `titolarità ${titolarita}`).toEqual([]);
     }
+  });
+
+  // ── «SONO LA STESSA PERSONA?», scritta una volta sola ──────────────────
+  //
+  // Tre regole la pongono — il doppione nello stesso elenco, «il giocatore
+  // stesso non entra», e il soggetto che nessuna riga del listone porta — e
+  // rispondono tutte e tre con questa funzione. Tre copie sarebbero tre
+  // regole, e divergerebbero proprio sul ramo che può mancare.
+  it("stessoSoggettoBallottaggio: identità piena quando la squadra c'è da tutte e due le parti", () => {
+    const uno = { surface: "Bruna Placeholder", club: "ClubUno" };
+    expect(stessoSoggettoBallottaggio(uno, { surface: "bruna  placeholder", club: "clubuno" })).toBe(
+      true,
+    );
+    expect(stessoSoggettoBallottaggio(uno, { surface: "Bruna Placeholder", club: "ClubDue" })).toBe(
+      false,
+    );
+    expect(stessoSoggettoBallottaggio(uno, { surface: "Carlo Segnaposto", club: "ClubUno" })).toBe(
+      false,
+    );
+  });
+
+  it("stessoSoggettoBallottaggio: senza una delle due squadre risponde sul nome — fail-closed", () => {
+    // Non si può sapere se siano la stessa persona. La direzione sicura è
+    // trattarle come tali: il contrario lascerebbe entrare due quote per la
+    // stessa persona senza che nessuno lo dica.
+    const senzaClub = { surface: "Bruna Placeholder" };
+    expect(stessoSoggettoBallottaggio(senzaClub, { surface: "Bruna Placeholder" })).toBe(true);
+    expect(
+      stessoSoggettoBallottaggio(senzaClub, { surface: "Bruna Placeholder", club: "ClubUno" }),
+    ).toBe(true);
+    expect(
+      stessoSoggettoBallottaggio({ surface: "Bruna Placeholder", club: "ClubUno" }, senzaClub),
+    ).toBe(true);
+    expect(stessoSoggettoBallottaggio(senzaClub, { surface: "Carlo Segnaposto" })).toBe(false);
   });
 
   it("una scheda che porta SOLO gli altri in ballottaggio non è una scheda vuota", () => {

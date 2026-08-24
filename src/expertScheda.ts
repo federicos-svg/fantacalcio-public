@@ -102,33 +102,113 @@ export const LISTA_ESPERTI_VALUES = ["consigliato", "possibile_sorpresa", "scons
 export type ListaEsperti = (typeof LISTA_ESPERTI_VALUES)[number];
 
 /**
- * UN ALTRO SOGGETTO DEL BALLOTTAGGIO: il nome di chi si gioca il posto con
- * questo giocatore, e la sua quota.
+ * UN ALTRO SOGGETTO DEL BALLOTTAGGIO: chi si gioca il posto con questo
+ * giocatore — NOME E SQUADRA — e la sua quota.
  *
- * PERCHÉ LE DUE CHIAVI SONO IN INGLESE in un contratto che ha tutte le altre in
- * italiano. Sono i nomi del segnale privato (`packages/gruppo-esperti/src/
- * signals.ts`, `surface` e `sharePercent`) e restano identici per la stessa
- * ragione per cui il vocabolario qui sopra è una copia fedele: quando
- * l'estrazione privata comincerà a produrli, le due forme devono combaciare
- * senza un adattatore in mezzo, che è il punto in cui due contratti divergono
- * senza che nessuno se ne accorga.
+ * PERCHÉ LE DUE CHIAVI DEL SEGNALE SONO IN INGLESE in un contratto che ha tutte
+ * le altre in italiano. Sono i nomi del segnale privato
+ * (`packages/gruppo-esperti/src/signals.ts`, `surface` e `sharePercent`) e
+ * restano identici per la stessa ragione per cui il vocabolario qui sopra è una
+ * copia fedele: quando l'estrazione privata comincerà a produrli, le due forme
+ * devono combaciare senza un adattatore in mezzo, che è il punto in cui due
+ * contratti divergono senza che nessuno se ne accorga.
  *
- * `surface` È IL NOME COME PICO LO SCRIVE, non una superficie copiata dal
- * forum: vale qui la stessa regola che vale per `player` e `club`
- * (l'intestazione di questo file), cioè l'identità viene dal listone che Pico
- * ha sotto gli occhi. Nessun handle di persona, nessun URL, nessun testo di
- * terzi ripubblicato.
+ * `club` NON VIENE DA LÌ, e per questo non ne prende il nome. `SignalSubject`
+ * porta `surface`, `role`, `sharePercent`, `order` — nessuna squadra: la
+ * squadra non è un dato del forum, è la SECONDA METÀ DELL'IDENTITÀ, e questo
+ * contratto ha già un nome per quella metà. È `club`, la chiave con cui
+ * `ExpertScheda` scrive la squadra del giocatore della scheda, ed è lo stesso
+ * paio — nome + squadra — che porta una riga di listone (`ListonePlayer`), che
+ * porta `SchedaTarget`, che porta `SchedaImportRow` e che `listonePlayerKey`
+ * piega in `nome__club` quando serve una chiave. Una seconda forma per la
+ * stessa cosa sarebbe una seconda superficie da sorvegliare, e divergerebbe il
+ * giorno in cui la prima cambia: qui non ce n'è una seconda, c'è la stessa.
+ *
+ * PERCHÉ LA SQUADRA È ARRIVATA, ed è un dato e non un ornamento. Senza di lei
+ * due giocatori con lo stesso identico nome in club diversi producono lo stesso
+ * valore depositato e diventano indistinguibili dopo il salvataggio. Finché il
+ * ballottaggio era testo mostrato era un fastidio; da quando la valutazione del
+ * Gruppo Esperti entra nel calcolo — «la concorrenza nel ruolo si legge dai
+ * fatti GE: titolarità, ballottaggi» — un accoppiamento sbagliato sposta un
+ * numero. Decisione di Pico, 2026-08-24: «Salva anche la squadra».
+ *
+ * `surface` È IL NOME COME PICO LO SCRIVE e `club` LA SQUADRA COME LA SCRIVE IL
+ * LISTONE, non superfici copiate dal forum: vale qui la stessa regola che vale
+ * per `player` e `club` della scheda (l'intestazione di questo file), cioè
+ * l'identità viene dal listone che Pico ha sotto gli occhi. Nessun handle di
+ * persona, nessun URL, nessun testo di terzi ripubblicato.
+ *
+ * `club` È FACOLTATIVA, e la sua assenza NON è una squadra da indovinare. I
+ * depositi scritti prima di questa forma portano il solo nome: restano
+ * leggibili — romperli in silenzio sarebbe peggio del difetto che questa chiave
+ * chiude — e dichiarano che la squadra manca, `n/d` col motivo. Non prendono
+ * quella del primo omonimo e non prendono quella del giocatore della riga:
+ * un default fabbricato qui sarebbe esattamente l'accoppiamento sbagliato che
+ * la chiave esiste per rendere impossibile. Chi confronta due soggetti lo sa e
+ * lo dichiara: `stessoSoggettoBallottaggio` qui sotto.
  *
  * IL GIOCATORE STESSO NON È IN QUESTA LISTA. La sua quota è `percentuale`,
  * scritta una volta sola: un elenco che contenesse anche lui costringerebbe il
  * riquadro a riconoscersi per nome — un confronto fragile — per sapere chi
- * togliere, e due numeri per la stessa quota possono divergere.
+ * togliere, e due numeri per la stessa quota possono divergere. «Lui» adesso si
+ * dice per IDENTITÀ e non per nome: un omonimo pieno di un altro club non è
+ * lui, ed è un rivale legittimo come qualunque altro.
  */
 export interface BallottaggioSoggetto {
   /** Il nome dell'altro, come sta scritto sulla riga di listone. */
   readonly surface: string;
+  /**
+   * La sua squadra, come sta scritta sulla riga di listone — la seconda metà
+   * dell'identità. Assente sui depositi scritti prima di questa forma: assente
+   * vuol dire «non dichiarata», mai una squadra dedotta.
+   */
+  readonly club?: string;
   /** La sua quota in percentuale (es. 40), quando la scheda la dichiara. */
   readonly sharePercent?: number;
+}
+
+/**
+ * COME SI SCRIVE UNA SQUADRA CHE LA SCHEDA NON DICHIARA.
+ *
+ * `n/d` è l'idioma di questo repository per un dato che esiste e non ce
+ * l'abbiamo — l'indice di appetibilità (src/ui/listone.ts), la pagella non
+ * estratta (`PAGELLA_ASSENTE`) — e questo è esattamente quel caso: il rivale
+ * una squadra ce l'ha, il deposito è stato scritto prima che ci fosse un posto
+ * dove metterla. Una parola sola, scritta qui una volta, perché il riassunto
+ * del pannello e il dettaglio dell'icona non possano dire l'assenza in due modi
+ * diversi. Mai una squadra dedotta al suo posto: sarebbe l'accoppiamento
+ * sbagliato reso invisibile.
+ */
+export const SCHEDA_CLUB_NON_DICHIARATA = "squadra n/d";
+
+/** Nome e squadra di un soggetto, ridotti a ciò che serve per confrontarlo. */
+export type BallottaggioIdentita = Pick<BallottaggioSoggetto, "surface" | "club">;
+
+/**
+ * DUE RIGHE SONO LA STESSA PERSONA? La domanda che il tetto di quattro, il
+ * rifiuto del doppione e «il giocatore stesso non entra» pongono tutti e tre,
+ * scritta UNA volta perché le tre risposte non possano divergere.
+ *
+ * Con la squadra dichiarata da entrambe le parti è UGUAGLIANZA DI IDENTITÀ, la
+ * stessa di `listonePlayerKey`: stesso nome e stessa squadra, piegati come li
+ * piega la chiave di riga. Due omonimi pieni in club diversi sono due persone e
+ * restano due persone — è il punto di tutta questa forma.
+ *
+ * Quando UNA DELLE DUE non dichiara la squadra si risponde `true` sul solo nome,
+ * cioè FAIL-CLOSED: non si può sapere se siano la stessa persona, e la
+ * direzione sicura è trattarle come tali. Il contrario — «nel dubbio sono due» —
+ * lascerebbe entrare due quote per la stessa persona senza che nessuno lo dica,
+ * che è esattamente ciò che il rifiuto del doppione esiste per impedire.
+ */
+export function stessoSoggettoBallottaggio(
+  a: BallottaggioIdentita,
+  b: BallottaggioIdentita,
+): boolean {
+  if (normalizeIdentityPart(a.surface) !== normalizeIdentityPart(b.surface)) return false;
+  const clubA = (a.club ?? "").trim();
+  const clubB = (b.club ?? "").trim();
+  if (clubA === "" || clubB === "") return true;
+  return normalizeIdentityPart(clubA) === normalizeIdentityPart(clubB);
 }
 
 /**
@@ -316,6 +396,16 @@ export function isValidIsoDate(value: string): boolean {
 const ballottaggioSoggettoSchema = z
   .object({
     surface: z.string().trim().min(1).max(SCHEDA_NAME_MAX),
+    // La squadra STA IN MEZZO, fra il nome e la quota, e non in coda. L'ordine
+    // delle chiavi di uno schema non è estetica: zod ricostruisce l'oggetto
+    // nell'ordine della propria `shape`, e il compilatore scrive nello stesso
+    // ordine — se i due divergessero, scarica → reimporta → riscarica
+    // renderebbe un file diverso a parità di contenuto. È il difetto che
+    // `buildSchedaPagella` ha già trovato una volta sui voti; qui l'ordine è
+    // quello dell'identità, nome e squadra vicine come in `ExpertScheda`.
+    // Stesso tetto di `player`/`club`: è la stessa metà d'identità, non un
+    // campo nuovo con una regola sua.
+    club: z.string().trim().min(1).max(SCHEDA_NAME_MAX).optional(),
     sharePercent: z
       .number()
       .int()

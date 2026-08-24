@@ -61,6 +61,7 @@
 // raggiungibile né da tastiera né col dito, ed è esattamente la superficie che
 // serve durante un'asta dal vivo.
 
+import { SCHEDA_CLUB_NON_DICHIARATA } from "../expertScheda.js";
 import type {
   BallottaggioSoggetto,
   ExpertInsightView,
@@ -119,11 +120,28 @@ export function elencoItaliano(parti: readonly string[]): string {
   return `${parti.slice(0, -1).join(", ")} e ${parti[parti.length - 1] as string}`;
 }
 
-/** `{ surface: "Tizio", sharePercent: 40 }` -> `«Tizio al 40%»`. Senza quota: solo il nome. */
+/**
+ * `{ surface: "Tizio", club: "ClubUno", sharePercent: 40 }` -> `«Tizio
+ * (ClubUno) al 40%»`. Senza quota: nome e squadra. Senza squadra: `«Tizio
+ * (squadra n/d)»`.
+ *
+ * LA SQUADRA SI SCRIVE SEMPRE, e non «solo quando è un'altra». Il riquadro non
+ * sa quale sia la squadra del giocatore della scheda — la vista porta i segnali,
+ * non la riga — e inventare qui una regola di resa («mostrala se differisce»)
+ * significherebbe farle sapere una cosa che non sa. Ma soprattutto: la squadra
+ * è entrata nel dato perché due omonimi pieni in club diversi non fossero più
+ * indistinguibili, e nasconderla proprio nel punto in cui il rivale si legge
+ * durante l'asta li rimetterebbe indistinguibili dove costa di più.
+ *
+ * `squadra n/d` NON È UN RIPIEGO GRAFICO: è il caso vero dei depositi scritti
+ * prima di questa forma, dichiarato con la parola con cui questo repository
+ * dichiara ciò che manca, invece che con la squadra del giocatore accanto.
+ */
 export function soggettoText(soggetto: BallottaggioSoggetto): string {
+  const identita = `${soggetto.surface} (${soggetto.club ?? SCHEDA_CLUB_NON_DICHIARATA})`;
   return soggetto.sharePercent === undefined
-    ? soggetto.surface
-    : `${soggetto.surface} al ${soggetto.sharePercent}%`;
+    ? identita
+    : `${identita} al ${soggetto.sharePercent}%`;
 }
 
 /**

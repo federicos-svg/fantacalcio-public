@@ -13,6 +13,7 @@ import {
 } from "./schedaIcone.js";
 import {
   LISTA_ESPERTI_VALUES,
+  SCHEDA_CLUB_NON_DICHIARATA,
   expertSchedaStore,
   resolveExpertInsight,
   unknownExpertInsight,
@@ -187,15 +188,32 @@ describe("la quarta icona — le tre liste del Gruppo Esperti", () => {
 // ── c. IL BALLOTTAGGIO, CON PIÙ DI DUE ───────────────────────────────────────
 
 describe("il ballottaggio porta TUTTI gli altri, non «l'altro»", () => {
-  it("due soggetti: l'altro nome con la sua quota, e la quota di lui", () => {
+  it("due soggetti: l'altro con la sua SQUADRA e la sua quota, e la quota di lui", () => {
     const view = viewOf({
       titolarita: "ballottaggio",
       percentuale: 60,
-      ballottaggio: [{ surface: "Bruna Placeholder", sharePercent: 40 }],
+      ballottaggio: [{ surface: "Bruna Placeholder", club: "ClubUno", sharePercent: 40 }],
     });
     const icona = iconaDi(view, "ballottaggio");
     expect(icona?.acceso).toBe(true);
-    expect(icona?.dettaglio).toBe("con Bruna Placeholder al 40%, lui al 60%");
+    expect(icona?.dettaglio).toBe("con Bruna Placeholder (ClubUno) al 40%, lui al 60%");
+  });
+
+  it("due omonimi pieni di club diversi restano DUE, e si leggono come due", () => {
+    // È il difetto che la squadra dentro il soggetto esiste per chiudere,
+    // visto dal punto in cui il rivale si legge davvero: durante l'asta.
+    // Col solo nome, la riga diceva due volte la stessa parola.
+    const view = viewOf({
+      titolarita: "ballottaggio",
+      percentuale: 40,
+      ballottaggio: [
+        { surface: "Bruna Placeholder", club: "ClubUno", sharePercent: 35 },
+        { surface: "Bruna Placeholder", club: "ClubDue", sharePercent: 25 },
+      ],
+    });
+    expect(iconaDi(view, "ballottaggio")?.dettaglio).toBe(
+      "con Bruna Placeholder (ClubUno) al 35% e Bruna Placeholder (ClubDue) al 25%, lui al 40%",
+    );
   });
 
   it("tre soggetti: tutti e due gli altri restano scritti", () => {
@@ -203,34 +221,54 @@ describe("il ballottaggio porta TUTTI gli altri, non «l'altro»", () => {
       titolarita: "ballottaggio",
       percentuale: 50,
       ballottaggio: [
-        { surface: "Bruna Placeholder", sharePercent: 30 },
-        { surface: "Carlo Segnaposto", sharePercent: 20 },
+        { surface: "Bruna Placeholder", club: "ClubUno", sharePercent: 30 },
+        { surface: "Carlo Segnaposto", club: "ClubDue", sharePercent: 20 },
       ],
     });
     const dettaglio = iconaDi(view, "ballottaggio")?.dettaglio ?? "";
-    expect(dettaglio).toContain("Bruna Placeholder al 30%");
-    expect(dettaglio).toContain("Carlo Segnaposto al 20%");
-    expect(dettaglio).toBe("con Bruna Placeholder al 30% e Carlo Segnaposto al 20%, lui al 50%");
+    expect(dettaglio).toContain("Bruna Placeholder (ClubUno) al 30%");
+    expect(dettaglio).toContain("Carlo Segnaposto (ClubDue) al 20%");
+    expect(dettaglio).toBe(
+      "con Bruna Placeholder (ClubUno) al 30% e Carlo Segnaposto (ClubDue) al 20%, lui al 50%",
+    );
   });
 
   it("quattro soggetti: il quarto non sparisce", () => {
     const view = viewOf({
       titolarita: "ballottaggio",
       ballottaggio: [
-        { surface: "Uno Segnaposto" },
-        { surface: "Due Segnaposto" },
-        { surface: "Tre Segnaposto" },
+        { surface: "Uno Segnaposto", club: "ClubUno" },
+        { surface: "Due Segnaposto", club: "ClubUno" },
+        { surface: "Tre Segnaposto", club: "ClubUno" },
       ],
     });
     expect(iconaDi(view, "ballottaggio")?.dettaglio).toBe(
-      "con Uno Segnaposto, Due Segnaposto e Tre Segnaposto",
+      "con Uno Segnaposto (ClubUno), Due Segnaposto (ClubUno) e Tre Segnaposto (ClubUno)",
     );
   });
 
   it("un soggetto senza quota resta un nome, non un nome con un numero inventato", () => {
-    expect(soggettoText({ surface: "Bruna Placeholder" })).toBe("Bruna Placeholder");
+    expect(soggettoText({ surface: "Bruna Placeholder", club: "ClubUno" })).toBe(
+      "Bruna Placeholder (ClubUno)",
+    );
+    expect(
+      soggettoText({ surface: "Bruna Placeholder", club: "ClubUno", sharePercent: 40 }),
+    ).toBe("Bruna Placeholder (ClubUno) al 40%");
+  });
+
+  it("un soggetto senza SQUADRA la dichiara «n/d», e non prende quella di nessuno", () => {
+    // La forma vecchia, letta dal riquadro d'asta: la squadra manca e si dice
+    // che manca. Prendere quella del giocatore della riga — o quella
+    // dell'altro soggetto — sarebbe l'accoppiamento sbagliato reso invisibile.
     expect(soggettoText({ surface: "Bruna Placeholder", sharePercent: 40 })).toBe(
-      "Bruna Placeholder al 40%",
+      `Bruna Placeholder (${SCHEDA_CLUB_NON_DICHIARATA}) al 40%`,
+    );
+    const view = viewOf({
+      titolarita: "ballottaggio",
+      ballottaggio: [{ surface: "Bruna Placeholder" }],
+    });
+    expect(iconaDi(view, "ballottaggio")?.dettaglio).toBe(
+      `con Bruna Placeholder (${SCHEDA_CLUB_NON_DICHIARATA})`,
     );
   });
 
@@ -246,7 +284,7 @@ describe("il ballottaggio porta TUTTI gli altri, non «l'altro»", () => {
   it("i nomi non sopravvivono a una titolarità che non è un ballottaggio", () => {
     const view = viewOf({
       titolarita: "titolare",
-      ballottaggio: [{ surface: "Bruna Placeholder", sharePercent: 40 }],
+      ballottaggio: [{ surface: "Bruna Placeholder", club: "ClubUno", sharePercent: 40 }],
     });
     expect(view.ballottaggio).toEqual([]);
     expect(iconaDi(view, "ballottaggio")?.dettaglio).toBe("la scheda lo dà titolare");
@@ -263,9 +301,9 @@ describe("il ballottaggio porta TUTTI gli altri, non «l'altro»", () => {
   it("ballottaggioDettaglio non inventa una quota che la scheda non scrive", () => {
     const view = viewOf({
       titolarita: "ballottaggio",
-      ballottaggio: [{ surface: "Bruna Placeholder" }],
+      ballottaggio: [{ surface: "Bruna Placeholder", club: "ClubUno" }],
     });
-    expect(ballottaggioDettaglio(view)).toBe("con Bruna Placeholder");
+    expect(ballottaggioDettaglio(view)).toBe("con Bruna Placeholder (ClubUno)");
     expect(ballottaggioDettaglio(view)).not.toContain("%");
   });
 });
@@ -277,7 +315,7 @@ describe("ogni icona si legge senza il colore", () => {
     const view = viewOf({
       titolarita: "ballottaggio",
       percentuale: 60,
-      ballottaggio: [{ surface: "Bruna Placeholder", sharePercent: 40 }],
+      ballottaggio: [{ surface: "Bruna Placeholder", club: "ClubUno", sharePercent: 40 }],
       rigori: "designato",
       piazzati: ["punizioni"],
       lista: "possibile_sorpresa",
@@ -312,7 +350,7 @@ describe("ogni icona si legge senza il colore", () => {
     const html = schedaIconeHtml(
       viewOf({
         titolarita: "ballottaggio",
-        ballottaggio: [{ surface: '<img src=x onerror="alert(1)">' }],
+        ballottaggio: [{ surface: '<img src=x onerror="alert(1)">', club: "ClubUno" }],
       }),
     );
     expect(html).not.toContain("<img");
@@ -324,11 +362,11 @@ describe("ogni icona si legge senza il colore", () => {
       viewOf({
         titolarita: "ballottaggio",
         percentuale: 60,
-        ballottaggio: [{ surface: "Bruna Placeholder", sharePercent: 40 }],
+        ballottaggio: [{ surface: "Bruna Placeholder", club: "ClubUno", sharePercent: 40 }],
         lista: "consigliato",
       }),
     );
-    expect(parlato).toContain("Bruna Placeholder al 40%");
+    expect(parlato).toContain("Bruna Placeholder (ClubUno) al 40%");
     expect(parlato).toContain("Consigliato");
     expect(parlato).toContain("Rigorista");
     expect(parlato).toContain("Piazzati");
