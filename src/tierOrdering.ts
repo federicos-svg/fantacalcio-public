@@ -43,12 +43,31 @@
 // dell'ordine (quante righe hanno un verdetto su quante), che è un conteggio
 // delle righe caricate e non un giudizio su nessuno.
 //
-// COSTO. Il libro si ricostruisce a ogni chiamata invece di essere messo in
-// cache: è una passata su tutto il listone (`listonePlayerKey` per riga) più un
-// ordinamento per ruolo, cioè lo stesso ordine di grandezza di `scarcityPool()`
-// che questa stessa schermata già rifà a ogni render. La cache costerebbe uno
-// stato nascosto e una domanda in più («è ancora valida?») su un dato che
-// cambia sotto i piedi quando il listone viene ricaricato.
+// COSTO, E PERCHÉ ORA C'È UNA CACHE (era: «il libro si ricostruisce a ogni
+// chiamata»). Il libro è una passata su tutto il listone (`listonePlayerKey`
+// per riga) più quattro filtri e quattro ordinamenti, uno per ruolo. Su 532
+// righe sono 0,6-0,9 ms MISURATI, e l'intero giro per tasto (libro + fatti)
+// 0,8-1,7 ms — banco in src/tierOrdering.perfScenario.ts. `render()` in
+// src/main.ts azzera e ricostruisce l'intero DOM a OGNI TASTO della ricerca
+// giocatore: quel lavoro veniva rifatto identico centinaia di volte a sera,
+// e cresce con N log N.
+//
+// L'obiezione originale a una cache era giusta e resta in piedi: «uno stato
+// nascosto e una domanda in più — è ancora valida?». La risposta non è una
+// promessa, è una FIRMA. Il calcolo vero vive in `computeTierBook`, che riceve
+// SOLO `(pool, source, teamsCount)` — cioè esattamente e soltanto la chiave
+// della cache. Non può leggere il log, non può leggere le riconferme, non può
+// leggere le rose: non li ha. La domanda «è ancora valida?» ha quindi una
+// risposta meccanica invece che disciplinare, e una dipendenza nuova non può
+// entrare di soppiatto — chi la volesse dovrebbe allargare quella firma, che è
+// la riga sopra la cache.
+//
+// `buildTierBook` resta la porta pubblica con la firma di prima
+// (`pool, source, state`): deriva `teamsCount` da `state.teams` come ha sempre
+// fatto — vedi il suo commento — e delega. `tierFacts` NON è memoizzato ed è
+// giusto così: dipende dal log, dalle riconferme e dalla riga chiamata, è
+// lineare sul log (224 acquisti) e sulle rose, e metterlo in cache
+// significherebbe una chiave che quelle tre cose deve inseguire.
 
 import type { AuctionEvent, AuctionState, Role } from "../packages/engine/src/types.js";
 import {
@@ -165,20 +184,21 @@ function coverageOf(pool: readonly ListonePlayer[]): TierOrderingCoverage {
 }
 
 /**
- * Il libro delle fasce a partire dalle righe caricate, o il motivo per cui non
- * c'è.
+ * IL CALCOLO VERO, e la ragione per cui la cache qui sopra è dimostrabile
+ * invece che promessa: questa funzione vede `(pool, source, teamsCount)` e
+ * NIENT'ALTRO, cioè esattamente la chiave con cui il risultato viene
+ * conservato. Non riceve `AuctionState`, quindi non può leggere le rose; non
+ * riceve il log né le riconferme, quindi non può dipendere da un acquisto.
+ * Aggiungere una dipendenza significa allargare QUESTA firma — e chi la
+ * allarga trova la cache tre righe sopra il proprio cursore.
  *
- * `teamsCount` NON è un parametro: è `Object.keys(state.teams).length`, cioè
- * esattamente il censimento che `tierFacts()` riconfronta col libro. Passandolo
- * dal chiamante si potrebbe costruire un libro largo otto e interrogarlo su un
- * tavolo da dieci — il caso che `tierFacts()` respinge con un lancio. Derivarlo
- * qui rende quel lancio impossibile per costruzione invece che improbabile per
- * disciplina.
+ * `teamsCount` arriva già derivato da `buildTierBook` (vedi il suo commento):
+ * non è mai un parametro del chiamante esterno.
  */
-export function buildTierBook(
+function computeTierBook(
   pool: readonly ListonePlayer[],
   source: ListonePoolSource,
-  state: AuctionState,
+  teamsCount: number,
 ): TierBookOutcome {
   const coverage = coverageOf(pool);
   const refuse = (reason: TierBandUnavailable, detail = ""): TierBookOutcome => ({
@@ -201,7 +221,6 @@ export function buildTierBook(
     return refuse("mixed-recipe", [...recipes].sort().join(" / "));
   }
 
-  const teamsCount = Object.keys(state.teams).length;
   if (teamsCount < 1) return refuse("no-table");
 
   const provenance: AppealOrderProvenance = {
@@ -237,6 +256,125 @@ export function buildTierBook(
   } catch (err) {
     return refuse("ordering-refused", err instanceof Error ? err.message : String(err));
   }
+}
+
+/** Cosa il libro conservato è stato costruito CON: se uno solo di questi non
+ *  combacia, la voce non vale e si ricalcola. Il pezzo restante della chiave —
+ *  il `pool` — è la chiave stessa della WeakMap, per IDENTITÀ di riferimento.
+ *
+ *  `poolRows` è una CINTURA, non parte della chiave logica: l'identità del
+ *  `pool` basta finché quell'array viene SOSTITUITO e mai modificato in loco,
+ *  che è come `src/main.ts` lo tratta oggi (verificato su tutti i suoi punti di
+ *  assegnazione) e come i tipi lo incoraggiano (`ListonePlayer` ha ogni campo
+ *  `readonly`). Il tipo dell'array però è `ListonePlayer[]`, non
+ *  `readonly ListonePlayer[]`: una `push` resterebbe legale per il compilatore.
+ *  Confrontare anche la lunghezza costa un intero e fa scadere la voce nell'unica
+ *  forma di mutazione in loco che qualcuno scriverebbe davvero. */
+interface TierBookCacheEntry {
+  readonly source: ListonePoolSource;
+  readonly teamsCount: number;
+  readonly poolRows: number;
+  readonly outcome: TierBookOutcome;
+}
+
+/**
+ * LA CACHE. Una `WeakMap` sul `pool`, non una `Map` su un hash.
+ *
+ *  - **Per identità, non per contenuto.** `state.pool` viene SOSTITUITO (mai
+ *    mutato in loco: verificato su tutti i suoi punti di assegnazione in
+ *    src/main.ts) quando il listone si ricarica, quindi `===` è già la domanda
+ *    giusta. Un hash del contenuto costerebbe una passata su 532 righe a ogni
+ *    tasto, cioè esattamente il lavoro che si vuole togliere.
+ *  - **Weak, così non trattiene niente.** Un listone sostituito diventa
+ *    spazzatura raccoglibile insieme alla sua voce; una `Map` normale terrebbe
+ *    in vita ogni listone mai caricato nella sessione.
+ *  - **Una voce per pool.** Non c'è un secondo listone vivo nella stessa
+ *    schermata: `source` e `teamsCount` si confrontano, non si indicizzano.
+ *
+ * `TierBookOutcome` è profondamente in sola lettura per tipo (`TierBook` ha
+ * `ReadonlyMap` e array `readonly`), quindi restituire lo STESSO oggetto a più
+ * chiamanti non è un rischio di mutazione condivisa.
+ */
+let bookCache = new WeakMap<readonly ListonePlayer[], TierBookCacheEntry>();
+
+/** Quante volte il libro è stato davvero costruito e quante volte riusato.
+ *  Esiste per essere ASSERITO: «un tasto nella ricerca non ricalcola» si prova
+ *  contando, non guardando un cronometro (src/tierOrdering.cache.test.ts). */
+let bookBuilds = 0;
+let bookHits = 0;
+
+/** I due contatori della cache del libro. Vedi `bookBuilds`/`bookHits`. */
+export function tierBookCacheStats(): { readonly builds: number; readonly hits: number } {
+  return { builds: bookBuilds, hits: bookHits };
+}
+
+/** Svuota cache e contatori. Serve ai test per partire da uno stato noto: la
+ *  cache è un modulo singleton, e un test che eredita la voce del test
+ *  precedente misura la storia invece del proprio caso. */
+export function resetTierBookCache(): void {
+  bookCache = new WeakMap<readonly ListonePlayer[], TierBookCacheEntry>();
+  bookBuilds = 0;
+  bookHits = 0;
+}
+
+/**
+ * Il libro delle fasce a partire dalle righe caricate, o il motivo per cui non
+ * c'è.
+ *
+ * `teamsCount` NON è un parametro: è `Object.keys(state.teams).length`, cioè
+ * esattamente il censimento che `tierFacts()` riconfronta col libro. Passandolo
+ * dal chiamante si potrebbe costruire un libro largo otto e interrogarlo su un
+ * tavolo da dieci — il caso che `tierFacts()` respinge con un lancio. Derivarlo
+ * qui rende quel lancio impossibile per costruzione invece che improbabile per
+ * disciplina.
+ *
+ * MEMOIZZATO su `(pool per identità, source, teamsCount)`. Quella terna è la
+ * lista COMPLETA degli ingressi di `computeTierBook`, che è la sola funzione
+ * che calcola: non è una scommessa sul fatto che il resto non conti, è tutto
+ * ciò che esiste da contare. In particolare il LOG non entra nella chiave
+ * perché non entra nel calcolo — le fasce sono l'ordine del listone per indice
+ * di appetibilità, e un acquisto non riordina il listone. Ciò che un acquisto
+ * cambia sono i FATTI (`tierFacts`: occupazione, prezzi pagati, avversari), che
+ * non sono memoizzati e si rifanno a ogni chiamata. Il numero a schermo cambia
+ * dopo un acquisto: è il libro sotto che non ha motivo di cambiare, e
+ * `src/tierOrdering.cache.test.ts` prova entrambe le metà.
+ */
+export function buildTierBook(
+  pool: readonly ListonePlayer[],
+  source: ListonePoolSource,
+  state: AuctionState,
+): TierBookOutcome {
+  const teamsCount = Object.keys(state.teams).length;
+  const cached = bookCache.get(pool);
+  if (
+    cached !== undefined &&
+    cached.source === source &&
+    cached.teamsCount === teamsCount &&
+    cached.poolRows === pool.length
+  ) {
+    bookHits += 1;
+    return cached.outcome;
+  }
+  bookBuilds += 1;
+  const outcome = computeTierBook(pool, source, teamsCount);
+  bookCache.set(pool, { source, teamsCount, poolRows: pool.length, outcome });
+  return outcome;
+}
+
+/**
+ * Lo STESSO libro, calcolato senza guardare né toccare la cache.
+ *
+ * È il termine di paragone del test di trasparenza — la copia non memoizzata
+ * contro cui si confronta quella memoizzata passo per passo su una sequenza
+ * lunga di eventi misti (stessa idea di `opportunityRadarReference.ts` nel
+ * motore). Non ha altri chiamanti e non deve averne: l'app usa `buildTierBook`.
+ */
+export function buildTierBookUncached(
+  pool: readonly ListonePlayer[],
+  source: ListonePoolSource,
+  state: AuctionState,
+): TierBookOutcome {
+  return computeTierBook(pool, source, Object.keys(state.teams).length);
 }
 
 /**
