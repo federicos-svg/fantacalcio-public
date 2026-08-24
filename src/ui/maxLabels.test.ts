@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import { reduce } from "../../packages/engine/src/reduce.js";
 import { hardReserve, maxSafe, warBoardRows } from "../../packages/engine/src/auction.js";
@@ -6,7 +8,12 @@ import type { AuctionEvent, TeamState } from "../../packages/engine/src/types.js
 import { FANTA_TEAM_IDS } from "../../packages/engine/fixtures/synthetic.js";
 import { roleBudgetPlanHtml } from "./roleBudgetPlan.js";
 import { warBoardFullHtml, warBoardMiniHtml } from "./warBoard.js";
-import { MAX_BID_LABEL, ROLE_MAX_LABEL } from "./budgetLabels.js";
+import {
+  MAX_BID_LABEL,
+  MAX_BID_LABEL_LONG,
+  MAX_BID_LABEL_LONG_SENTENCE,
+  ROLE_MAX_LABEL,
+} from "./budgetLabels.js";
 import { listonePoolIndex } from "./listone.js";
 
 // I DUE MASSIMI DIVERGONO, E DALLE ETICHETTE SI VEDE QUALE È QUALE.
@@ -173,5 +180,58 @@ describe("chi è di chi: due cifre di due squadre diverse restano attribuite", (
     const buyer = rows.find((r) => r.fantaTeamId === TEAM_ID)!;
     const other = rows.find((r) => r.fantaTeamId !== TEAM_ID)!;
     expect(buyer.maxBid.maxSafe).not.toBe(other.maxBid.maxSafe);
+  });
+});
+
+// ── #333 §A — L'ELENCO DELLE ECCEZIONI È CHIUSO, E QUESTO LO TIENE CHIUSO ────
+//
+// src/ui/budgetLabels.ts dichiarava due superfici ancora fuori dal modulo, «da
+// allineare quando quei file si toccano»: la metrica «Max bid sicuro» della
+// fascia critica e la nota «max per completare la rosa di X» sotto «Prezzo da
+// pagare». Erano due delle tre formulazioni che #333 §A conta per una cifra
+// sola (`maxSafe()`), e la terza — la sigla nuda «max» — era già rientrata.
+//
+// Il riordino della schermata d'asta (#331 punti 2-3) ha toccato quei file e
+// l'eccezione è rientrata. Un commento che dice «adesso è allineato» invecchia
+// in silenzio: queste asserzioni leggono il SORGENTE di src/main.ts e diventano
+// rosse se una delle due formulazioni scritte a mano ricompare, o se una nuova
+// superficie ne inventa una terza invece di importare la costante.
+//
+// Perché sul sorgente e non sul DOM: le due superfici sono costruite con
+// `document.createElement` dentro `render()`, che questo progetto non monta nei
+// test unitari (nessun jsdom/happy-dom configurato). La spazzata e2e le vede
+// rese; qui si sorveglia che il TESTO venga dalla costante, che è la proprietà
+// che il modulo esiste per garantire.
+describe("le eccezioni di budgetLabels.ts sono rientrate, e non possono tornare", () => {
+  const MAIN_SRC = readFileSync(fileURLToPath(new URL("../main.ts", import.meta.url)), "utf8");
+
+  it("la nota sotto «Prezzo da pagare» non porta più un nome tutto suo", () => {
+    // Il testo reso, non il commento che ne racconta la storia: il commento la
+    // cita apposta, quindi la ricerca è sul template che finisce a schermo.
+    expect(MAIN_SRC).not.toContain("`max per completare la rosa di ${");
+  });
+
+  it("le due superfici della schermata d'asta leggono la costante", () => {
+    expect(MAIN_SRC).toContain("${MAX_BID_LABEL_LONG} di ${displayTeamLabel(");
+    expect(MAIN_SRC).toContain("<span>${MAX_BID_LABEL_LONG_SENTENCE}</span>");
+  });
+
+  it("nessuna delle due formulazioni resta scritta a mano nel markup", () => {
+    // La fascia critica stampava «Max bid sicuro» come stringa letterale in due
+    // rami (metrica e fallback «stato squadra non disponibile»).
+    expect(MAIN_SRC).not.toContain("<span>Max bid sicuro</span>");
+  });
+
+  it("la forma con l'iniziale maiuscola è DERIVATA, non una seconda stringa", () => {
+    expect(MAX_BID_LABEL_LONG_SENTENCE.toLowerCase()).toBe(MAX_BID_LABEL_LONG);
+    expect(MAX_BID_LABEL_LONG_SENTENCE).not.toBe(MAX_BID_LABEL_LONG);
+    // E resta lo stesso nome della forma breve, con un aggettivo in più: non
+    // un terzo nome per la stessa grandezza.
+    expect(MAX_BID_LABEL_LONG.startsWith(MAX_BID_LABEL)).toBe(true);
+  });
+
+  it("il tetto di reparto non è entrato nel vocabolario della fascia critica", () => {
+    expect(MAX_BID_LABEL_LONG).not.toContain(ROLE_MAX_LABEL);
+    expect(MAX_BID_LABEL_LONG_SENTENCE.toLowerCase()).not.toContain(ROLE_MAX_LABEL);
   });
 });

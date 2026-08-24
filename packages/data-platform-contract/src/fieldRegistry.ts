@@ -90,7 +90,6 @@ export const DATA_FIELD_REGISTRY: readonly FieldRegistryEntry[] = [
     providers: [
       provider("fantacalcio_votes", "fantacalcio_player_identity_core", "IDENTITY_SEED", "COMPLETE"),
       provider("api_football", "api_football_player_identity_core", "CROSS_CHECK", "PARTIAL"),
-      provider("transfermarkt", "transfermarkt_player_identity_core", "PRIMARY_CANDIDATE", "NOT_TESTED"),
       provider("wikidata", "wikidata_player_identity_core", "CROSS_CHECK", "NOT_TESTED"),
     ],
     requiredTimestamps: FULL_TIME, notes: "Provider IDs remain references, never canonical UUIDs.",
@@ -101,7 +100,6 @@ export const DATA_FIELD_REGISTRY: readonly FieldRegistryEntry[] = [
     providers: [
       provider("api_football", "api_football_birth_date", "CROSS_CHECK", "PARTIAL"),
       provider("wikidata", "wikidata_birth_date", "CROSS_CHECK", "NOT_TESTED"),
-      provider("transfermarkt", "transfermarkt_birth_date", "PRIMARY_CANDIDATE", "NOT_TESTED"),
     ],
     requiredTimestamps: FULL_TIME, notes: "Requires precision and reference-date policy.",
   }),
@@ -110,7 +108,6 @@ export const DATA_FIELD_REGISTRY: readonly FieldRegistryEntry[] = [
     family: "team_season", granularity: "PLAYER_SEASON", algorithmUse: "FEATURE",
     providers: [
       provider("api_football", "api_football_team_season", "CROSS_CHECK", "SNAPSHOT_ONLY"),
-      provider("transfermarkt", "transfermarkt_team_season", "PRIMARY_CANDIDATE", "NOT_TESTED"),
     ],
     requiredTimestamps: FULL_TIME, notes: "Current squad state cannot be projected backward.",
   }),
@@ -119,7 +116,6 @@ export const DATA_FIELD_REGISTRY: readonly FieldRegistryEntry[] = [
     family: "player_season_stat", granularity: "PLAYER_SEASON", algorithmUse: "FEATURE",
     providers: [
       provider("api_football", "api_football_appearances", "CROSS_CHECK", "PARTIAL"),
-      provider("transfermarkt", "transfermarkt_appearances", "PRIMARY_CANDIDATE", "NOT_TESTED"),
     ],
     requiredTimestamps: FULL_TIME, notes: "Missing never silently becomes zero.",
   }),
@@ -128,7 +124,6 @@ export const DATA_FIELD_REGISTRY: readonly FieldRegistryEntry[] = [
     family: "player_season_stat", granularity: "PLAYER_SEASON", algorithmUse: "FEATURE",
     providers: [
       provider("api_football", "api_football_minutes", "CROSS_CHECK", "PARTIAL"),
-      provider("transfermarkt", "transfermarkt_minutes", "PRIMARY_CANDIDATE", "NOT_TESTED"),
     ],
     requiredTimestamps: FULL_TIME, notes: "Coverage and point-in-time eligibility are separate.",
   }),
@@ -137,7 +132,6 @@ export const DATA_FIELD_REGISTRY: readonly FieldRegistryEntry[] = [
     family: "player_season_stat", granularity: "PLAYER_SEASON", algorithmUse: "FEATURE",
     providers: [
       provider("api_football", "api_football_starts", "CROSS_CHECK", "NOT_TESTED"),
-      provider("transfermarkt", "transfermarkt_starts", "PRIMARY_CANDIDATE", "NOT_TESTED"),
     ],
     requiredTimestamps: FULL_TIME, notes: "No effective source without field-season pilot.",
   }),
@@ -146,7 +140,6 @@ export const DATA_FIELD_REGISTRY: readonly FieldRegistryEntry[] = [
     family: "player_season_stat", granularity: "PLAYER_SEASON", algorithmUse: "FEATURE",
     providers: [
       provider("api_football", "api_football_substitute_appearances", "CROSS_CHECK", "NOT_TESTED"),
-      provider("transfermarkt", "transfermarkt_substitute_appearances", "PRIMARY_CANDIDATE", "NOT_TESTED"),
     ],
     requiredTimestamps: FULL_TIME, notes: "Kept separate from starts and total appearances.",
   }),
@@ -157,17 +150,10 @@ export const DATA_FIELD_REGISTRY: readonly FieldRegistryEntry[] = [
     requiredTimestamps: FULL_TIME, notes: "Never aliases Fantacalcio vote or target.",
   }),
   field({
-    id: "transfermarkt_market_value", semanticName: "Dated Transfermarkt market value",
-    family: "market_value", granularity: "PLAYER_SNAPSHOT", algorithmUse: "FEATURE",
-    providers: [provider("transfermarkt", "transfermarkt_market_value", "PRIMARY_CANDIDATE", "NOT_TESTED")],
-    requiredTimestamps: FULL_TIME, notes: "Current value used historically is leakage.",
-  }),
-  field({
     id: "transfer_event", semanticName: "Provider player transfer event",
     family: "transfer_event", granularity: "PLAYER_SNAPSHOT", algorithmUse: "FEATURE",
     providers: [
       provider("api_football", "api_football_transfer_event", "CROSS_CHECK", "NOT_TESTED"),
-      provider("transfermarkt", "transfermarkt_transfer_event", "PRIMARY_CANDIDATE", "NOT_TESTED"),
     ],
     requiredTimestamps: FULL_TIME, notes: "Append-only historical event.",
   }),
@@ -176,7 +162,6 @@ export const DATA_FIELD_REGISTRY: readonly FieldRegistryEntry[] = [
     family: "absence", granularity: "PLAYER_MATCH", algorithmUse: "FEATURE",
     providers: [
       provider("api_football", "api_football_injury_absence", "PRIMARY_CANDIDATE", "PARTIAL"),
-      provider("transfermarkt", "transfermarkt_injury_absence", "PRIMARY_CANDIDATE", "NOT_TESTED"),
     ],
     requiredTimestamps: FULL_TIME, notes: "Subtype and provenance remain explicit.",
   }),
@@ -185,7 +170,6 @@ export const DATA_FIELD_REGISTRY: readonly FieldRegistryEntry[] = [
     family: "coach_tenure", granularity: "TEAM_SEASON", algorithmUse: "FEATURE",
     providers: [
       provider("api_football", "api_football_coach_tenure", "CROSS_CHECK", "SNAPSHOT_ONLY"),
-      provider("transfermarkt", "transfermarkt_coach_tenure", "PRIMARY_CANDIDATE", "NOT_TESTED"),
     ],
     requiredTimestamps: FULL_TIME, notes: "Current coach is not historical tenure.",
   }),
@@ -194,7 +178,6 @@ export const DATA_FIELD_REGISTRY: readonly FieldRegistryEntry[] = [
     family: "standing", granularity: "TEAM_SEASON", algorithmUse: "FEATURE",
     providers: [
       provider("api_football", "api_football_standing", "PRIMARY_CANDIDATE", "PARTIAL"),
-      provider("transfermarkt", "transfermarkt_standing", "CROSS_CHECK", "NOT_TESTED"),
     ],
     requiredTimestamps: FULL_TIME, notes: "Existing standings foundation remains the first physical implementation.",
   }),
@@ -223,7 +206,6 @@ export function validateFieldRegistry(
     fantacalcio_votes: "fantacalcio_",
     fantacalcio_listone: "fantacalcio_",
     api_football: "api_football_",
-    transfermarkt: "transfermarkt_",
     wikidata: "wikidata_",
   };
 
@@ -282,7 +264,7 @@ export function validateFieldRegistry(
     "league_rule_version", "lineup_modifier_result", "lineup_fantasy_score",
     "listone_role", "listone_quotation", "player_identity_core", "player_date_of_birth",
     "team_season_membership", "player_appearances", "player_minutes", "player_starts",
-    "player_substitute_appearances", "api_football_rating", "transfermarkt_market_value",
+    "player_substitute_appearances", "api_football_rating",
     "transfer_event", "injury_absence", "coach_tenure", "league_standing", "auction_event",
   ];
   for (const id of requiredIds) if (!seen.has(id)) errors.push(`missing required field: ${id}`);

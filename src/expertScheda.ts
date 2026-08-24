@@ -125,7 +125,29 @@ export const EXPERT_SCHEDA_ENDPOINT = "/api/schede";
  */
 export const SCHEDA_NOTA_MAX = 400;
 
-const NAME_MAX = 80;
+/**
+ * Il tetto di `player` e `club`. Esportato perché la schermata che COMPILA le
+ * schede (src/schedaCompiler.ts) deve poter rifiutare un'identità troppo lunga
+ * dicendo il perché, invece di offrire un deposito che questo stesso schema
+ * rifiuterà dopo.
+ */
+export const SCHEDA_NAME_MAX = 80;
+
+/**
+ * I DUE CAMPI QUANTITATIVI, coi loro limiti in un posto solo.
+ *
+ * Erano letterali dentro `schedaSchema`. Sono costanti esportate perché il
+ * compilatore di schede deve metterli su `min`/`max` dei propri campi numerici
+ * e nel messaggio d'errore che scrive a Pico: una seconda copia scritta a mano
+ * là dentro sarebbe una regola che può divergere da quella che valida davvero,
+ * e divergerebbe in silenzio — il modulo continuerebbe a compilare e il
+ * deposito verrebbe rifiutato solo alla fine, senza dire quale numero fosse
+ * fuori scala. Lo schema qui sotto li usa: c'è una definizione, non due.
+ */
+export const SCHEDA_PERCENTUALE_MIN = 0;
+export const SCHEDA_PERCENTUALE_MAX = 100;
+export const SCHEDA_GERARCHIA_MIN = 1;
+export const SCHEDA_GERARCHIA_MAX = 9;
 
 /**
  * Una scheda. **Solo `player` e `club` sono obbligatori** — insieme sono
@@ -176,11 +198,16 @@ export function isValidIsoDate(value: string): boolean {
 
 const schedaSchema = z
   .object({
-    player: z.string().trim().min(1).max(NAME_MAX),
-    club: z.string().trim().min(1).max(NAME_MAX),
+    player: z.string().trim().min(1).max(SCHEDA_NAME_MAX),
+    club: z.string().trim().min(1).max(SCHEDA_NAME_MAX),
     titolarita: z.enum(TITOLARITA_VALUES).optional(),
-    percentuale: z.number().int().min(0).max(100).optional(),
-    gerarchia: z.number().int().min(1).max(9).optional(),
+    percentuale: z
+      .number()
+      .int()
+      .min(SCHEDA_PERCENTUALE_MIN)
+      .max(SCHEDA_PERCENTUALE_MAX)
+      .optional(),
+    gerarchia: z.number().int().min(SCHEDA_GERARCHIA_MIN).max(SCHEDA_GERARCHIA_MAX).optional(),
     rigori: z.enum(RIGORI_VALUES).optional(),
     piazzati: z.array(z.enum(PIAZZATI_VALUES)).max(PIAZZATI_VALUES.length).optional(),
     avvisi: z.array(z.enum(AVVISO_VALUES)).max(AVVISO_VALUES.length).optional(),

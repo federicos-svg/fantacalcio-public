@@ -19,7 +19,7 @@ import type {
   VoteRecordCandidate,
 } from "./types.js";
 import { FEATURE_NAMES } from "./types.js";
-import { buildPlayerSeasonAggregates } from "./seasonAggregate.js";
+import { buildPlayerSeasonAggregates, lastObservedVolatility } from "./seasonAggregate.js";
 import {
   analyzeIdentityKeyStability,
   seasonYear,
@@ -195,7 +195,7 @@ export function buildFeatureRows(panel: PlayerSeasonPanel, opts: FeatureBuildOpt
       const presenzeHistory = history.map((h) => h.presenze);
       const golHistory = history.map((h) => h.golFatti);
       const assistHistory = history.map((h) => h.assist);
-      const volatilita = current.volatilitaVoto;
+      const volatilita = lastObservedVolatility(history);
 
       const previous = i > 0 ? sorted[i - 1] : undefined;
       const teamChangedFlag = previous !== undefined && previous.team !== current.team ? 1 : 0;
@@ -206,7 +206,7 @@ export function buildFeatureRows(panel: PlayerSeasonPanel, opts: FeatureBuildOpt
           fantamediaHistory.length > 0 ? rollingMean(fantamediaHistory, window) : Number.NaN,
         presenzeLag1: current.presenze,
         presenzeRollingMean3: rollingMean(presenzeHistory, window),
-        volatilitaVotoLag1: volatilita ?? Number.NaN,
+        volatilitaVotoLastObserved: volatilita,
         nSeasonsObserved: history.length,
         golFattiRollingMean3: rollingMean(golHistory, window),
         assistRollingMean3: rollingMean(assistHistory, window),

@@ -11,7 +11,6 @@ export type DataSourceId =
   | "fantacalcio_listone"
   | "league_manual"
   | "api_football"
-  | "transfermarkt"
   | "wikidata"
   | "gruppo_esperti_topic_unico"
   | "auction_event_log";
@@ -133,7 +132,6 @@ export type DataFieldId =
   | "player_starts"
   | "player_substitute_appearances"
   | "api_football_rating"
-  | "transfermarkt_market_value"
   | "transfer_event"
   | "injury_absence"
   | "coach_tenure"

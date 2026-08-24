@@ -4,9 +4,10 @@
    just relocated into a modular file) plus the search/assign form row
    shape shared by "Ricerca giocatore" and "Assegna a". */
 
-/* SQUADRE (LEGA): 1 card per row on mobile, 2 on medium, up to 4 on wide
-   desktop. Needs real breakpoints (inline styles can't express these) —
-   see renderTeamsPanel in src/main.ts. */
+/* Griglia di schede-squadra (Rose, war board COMPLETA): 1 card per row on
+   mobile, 2 on medium, up to 4 on wide desktop. Needs real breakpoints
+   (inline styles can't express these) — see renderRoseScreen and
+   renderWarBoardFull in src/ui/views.ts. */
 .teams-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -33,43 +34,6 @@
   align-items: flex-end;
 }
 
-
-/* INSERIMENTO RAPIDO — command line (Chiamata moment, src/ui/views.ts
-   renderAssignCommandPanel, T13 #231). The input takes all the width it can
-   and the action button never wraps under it on desktop; on narrow widths the
-   button drops to its own full-width row rather than shrinking to a tap
-   target too small to hit at speed. */
-.assign-command { margin-bottom: 18px; }
-.assign-command__row {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-.assign-command__row > .field-input {
-  flex: 1 1 260px;
-  min-width: 0;
-}
-.assign-command__row > .btn { flex: 0 0 auto; }
-@media (max-width: 479px) {
-  .assign-command__row > .btn { flex: 1 0 100%; }
-}
-/* The preview is the thing the operator reads before committing, so it is
-   sized and weighted like content, not like a hint. */
-.assign-command__preview {
-  margin-top: 10px;
-  font-size: 13px;
-  line-height: 1.5;
-  font-weight: 600;
-}
-.assign-command__preview--ready { color: var(--text-primary); }
-.assign-command__preview--blocked { color: var(--text-mid); font-weight: 500; }
-.assign-command__error {
-  margin-top: 8px;
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--stop-red);
-}
 
 /* CONTESTO CHIAMATA / nomination_context (Chiamata moment, src/ui/views.ts
    renderNominationContextPanel). On-demand: the body is in the DOM only when
@@ -250,8 +214,8 @@
 }
 
 /* ── IL TAVOLO, DIETRO UN GESTO (#333, momento chiamata) ──────────────────────
-   SCARSITÀ PER RUOLO + TAVOLO — WAR BOARD + SQUADRE (LEGA) sono le stesse otto
-   squadre lette tre volte, e occupavano più di metà della pagina mentre il
+   SCARSITÀ PER RUOLO + TAVOLO — WAR BOARD sono le stesse otto squadre lette
+   due volte, e occupavano più di metà della pagina mentre il
    campo di ricerca — l'unica ragione per cui la schermata esiste — stava sotto
    la piega. Qui il gruppo è una riga sola con un solo controllo; il corpo resta
    nel DOM da chiuso (`hidden`), esattamente come .critical-roster-detail.
@@ -732,7 +696,7 @@
 .war-board-mini__budget { color: var(--green); }
 
 /* COMPLETA (momento chiamata): una card per squadra sulla stessa griglia
-   responsive 1/2/4 di SQUADRE (LEGA) e AVVERSARI TIER-1 (.teams-grid). */
+   responsive 1/2/4 della schermata Rose e di AVVERSARI TIER-1 (.teams-grid). */
 .war-board { margin-bottom: 18px; }
 .war-board__grid {
   margin: 10px 0 8px;
@@ -877,6 +841,12 @@
 @media (min-width: 900px) {
   .moment-blocks-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+/* #331 punto 2 ha portato MOMENTO DELL'ASTA dentro la scheda del giocatore e
+   la fascia è rimasta con un pannello solo. Le colonne NON spariscono — sono
+   la casa che #331 punto 4 destina alla divisione «interessati / non
+   interessati», e toglierle adesso vorrebbe dire ricostruirle poi — ma il
+   pannello superstite le attraversa entrambe invece di lasciarne una vuota. */
+.moment-blocks-grid--single > * { grid-column: 1 / -1; }
 .moment-facts,
 .opponent-precedents {
   align-content: start;
@@ -1237,6 +1207,123 @@
   .assign-after { flex: 1 1 120px; }
 }
 
+/* ── LA SCHEDA DEL GIOCATORE (#331 punti 2-3, src/main.ts renderMomentoAsta)
+   Il gesto principale della schermata d'asta — «ASSEGNA A» — cominciava a
+   1154px in produzione e a 1262px con il pannello delle fasce: sotto la piega
+   a 1440×900 e a 1920×1080, misurato con Chromium su pool sintetico da 532
+   righe. La scheda mette in cima, in un contenitore solo, chi è chiamato, come
+   sta il mercato del SUO ruolo e il gesto che registra l'acquisto.
+
+   Perché un contenitore e non tre blocchi riordinati: sopra il gesto resta
+   soltanto la riga d'identità del giocatore, quindi un pannello aggiunto
+   domani finisce sotto la scheda e non può più spingerlo fuori dallo schermo.
+   e2e/asta-gesto-principale.spec.ts asserisce quell'ordine, non solo i pixel.
+
+   Non è `.panel`: la colonna della vista asta è già un pannello e diverse spec
+   localizzano i riquadri con `.panel` + hasText — un antenato con la stessa
+   classe renderebbe quei locator ambigui. Stessa cautela di .table-detail. */
+.call-card {
+  display: block;
+  min-width: 0;
+  margin-bottom: 18px;
+}
+
+/* MOMENTO DELL'ASTA dentro la scheda: stessa sezione, non una scatola dentro
+   la scatola. Perde il cromo del pannello (sfondo, bordo, angoli, padding) e
+   si separa dalla riga d'identità con un filetto, come farebbe un sottotitolo.
+   Il markup e gli id restano quelli del pannello: cambia solo dove vive. */
+.moment-facts--inline {
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  padding: 14px 0 0;
+  margin: 0;
+}
+.moment-facts--inline > .panel-title { margin-bottom: 0; }
+/* Con una cella sola la griglia dei ruoli non deve stirarla su tutta la
+   larghezza: resta della misura delle altre tre, che stanno dietro il gesto. */
+.moment-facts--inline .moment-scarcity__grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 8px 0 0;
+}
+@media (max-width: 560px) {
+  .moment-facts--inline .moment-scarcity__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+/* Il gesto che apre gli altri tre ruoli e il censimento MERCATO. Stesso idioma
+   di .table-detail__toggle — un <button> con aria-expanded/aria-controls,
+   tastiera nativa, `[hidden]` riaffermato sul corpo — non un secondo
+   meccanismo: qui è solo più basso, perché sta dentro una scheda e non è il
+   titolo di una sezione. */
+.moment-facts__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px 10px;
+  flex-wrap: wrap;
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-inner);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.moment-facts__toggle:hover { border-color: var(--text-dim); }
+.moment-facts__what {
+  color: var(--text-sec);
+  font-size: 11.5px;
+  min-width: 0;
+}
+.moment-facts__caret {
+  margin-left: auto;
+  color: var(--text-sec);
+  font-size: 10px;
+}
+.moment-facts__detail {
+  display: grid;
+  gap: 10px;
+  padding-top: 10px;
+}
+/* La regola dello user agent (display:none) perde contro il `display` di
+   questa classe: `[hidden]` va riaffermato o il corpo resta a schermo. */
+.moment-facts__detail[hidden] { display: none; }
+.moment-facts__detail > .moment-scarcity__grid { margin: 0; }
+.moment-facts__detail > .hint-text { margin: 0; }
+
+/* ASSEGNA A dentro la scheda — rimpicciolito, non svuotato. Il titolo e la
+   nota di esito condividono una riga sola invece di prenderne due, e la riga
+   di campi non porta più il bordo/padding di una sezione separata perché la
+   scheda che la contiene fa già quel lavoro. Nessun controllo e nessun testo
+   sono usciti. */
+.assign-block {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  margin-top: 14px;
+}
+.assign-block__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 16px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.assign-block__head > .panel-title { margin-bottom: 0; }
+/* La nota sta sulla stessa riga del titolo dove c'è larghezza e va a capo
+   sotto di lui dove non ce n'è: il testo non cambia, cambia quante righe
+   costa. */
+.assign-block__note {
+  margin: 0;
+  min-width: 0;
+  text-align: right;
+  flex: 1 1 260px;
+}
+@media (max-width: 719px) {
+  .assign-block__note { text-align: left; }
+}
+
 /* ── INSIGHT GIOCATORE — le schede del Gruppo Esperti (src/ui/expertInsight.ts)
    Due strati, e la CSS serve a tenerli entrambi leggibili nello stesso
    riquadro: lo STRATO VISIVO (scala della titolarità + pastiglie) e la PROSA.
@@ -1519,3 +1606,345 @@
   line-height: 1.45;
   max-width: 82ch;
 }
+
+/* ── FASCIA DEL CHIAMATO (momento asta) ─────────────────────────────────────
+   Il riquadro delle fasce d'asta: la parola della fascia, la contabilità della
+   fascia e il registro dei prezzi pagati stasera (src/ui/tierBand.ts).
+
+   Il pannello sta a tutta larghezza, sotto la griglia a due colonne e sopra
+   ASSEGNA A: le sue righe sono frasi, non celle, e spezzarle in mezza colonna
+   le manderebbe a capo tre volte su un telefono.
+
+   COLORE: nessuno degli stati di questo riquadro è portato dal colore. La
+   fascia è una parola («Prima fascia»), «non lo so» è una parola, il registro
+   vuoto è una frase. I token qui sotto sono tutti della rampa del testo di
+   base.css — misurata ≥ 4,5:1 su --panel e --panel-inner, e rimisurata a ogni
+   run da e2e/text-contrast-aa.spec.ts. */
+.tier-band {
+  margin: 0 0 16px;
+}
+/* La parola della fascia: grande perché è la risposta, non un'etichetta.
+   `--text-primary` su --panel = 12,3:1. */
+.tier-band__name {
+  color: var(--text-primary);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+  margin-top: 8px;
+}
+.tier-band__headline {
+  color: var(--text-mid);
+  font-size: 12.5px;
+  line-height: 1.4;
+  margin: 5px 0 10px;
+  max-width: 82ch;
+}
+.tier-band__body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  align-items: flex-start;
+}
+/* Quanti ne restano della fascia e quanti sono già andati. Stessa forma delle
+   metriche di .moment-market__metric: etichetta piccola, numero in mono. */
+.tier-band__occupancy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  align-items: baseline;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-inner);
+  padding: 8px 11px;
+}
+.tier-band__occupancy-metric {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+.tier-band__occupancy-metric > span {
+  color: var(--text-sec);
+  font-size: 10.5px;
+}
+.tier-band__occupancy-metric > strong {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+.tier-band__occupancy-metric > em {
+  color: var(--text-sec);
+  font-size: 10.5px;
+  font-style: normal;
+}
+/* Il registro: i prezzi uno per uno, in ordine crescente. Mai due estremi
+   affiancati — una coppia min/max a schermo si legge come una banda di
+   riferimento, che è precisamente ciò che questo riquadro non produce
+   (packages/engine/src/tiers.ts §"Il registro, non una banda"). */
+.tier-band__prices {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  flex: 1 1 240px;
+}
+.tier-band__prices-head {
+  color: var(--text-sec);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.tier-band__prices-head > b {
+  color: var(--text-mid);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.tier-band__price-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tier-band__price {
+  align-items: baseline;
+  background: var(--panel-inner);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text-primary);
+  display: inline-flex;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  gap: 3px;
+  padding: 4px 8px;
+}
+.tier-band__price > em {
+  color: var(--text-sec);
+  font-family: -apple-system, system-ui, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 10px;
+  font-style: normal;
+}
+/* «Nessuno ha ancora pagato» è una frase, non uno 0: le due cose non si
+   confondono, e nessuna delle due diventa l'altra. */
+.tier-band__prices-empty {
+  color: var(--text-mid);
+  font-size: 12px;
+  line-height: 1.4;
+}
+/* La provenienza dell'ordine sta accanto alla fascia, sempre: una fascia la
+   cui provenienza non si può leggere non è utilizzabile. */
+.tier-band__provenance {
+  color: var(--text-sec);
+  font-size: 10.5px;
+  line-height: 1.4;
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}
+
+/* IL RUOLO STASERA — svuotamento del ruolo in asta, misurato sul solo tavolo
+   della serata (src/roleDepletion.ts, src/ui/roleDepletion.ts).
+   Il riquadro vive sulla schermata più lunga dell'app e ha due contenuti di
+   peso diverso: l'elenco di chi ha preso (poche righe, tipicamente da zero a
+   otto) e il censimento dei posti (quattro numeri fissi). Il secondo riusa la
+   stessa forma del blocco MERCATO qui sopra — etichetta a sinistra, numero
+   monospaziato a destra — perché è lo stesso genere di lettura e imparare due
+   griglie diverse per la stessa cosa costa più di quanto renda.
+   Colori: solo token della rampa di base.css. Nessuna informazione è portata
+   dal colore: ogni numero ha la sua etichetta scritta accanto. */
+.role-depletion__role {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.role-depletion__role em {
+  color: var(--text-mid);
+  font-size: 11.5px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.role-depletion__headline {
+  color: var(--text-mid);
+  font-size: 12.5px;
+  line-height: 1.4;
+  margin: 8px 0 10px;
+  max-width: 82ch;
+}
+.role-depletion__body { display: grid; gap: 8px; }
+.role-depletion__buyers {
+  display: grid;
+  gap: 5px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+/* Una riga per squadra: nome, quanti e quanto, poi i prezzi in chiaro. I tre
+   pezzi stanno sullo stesso flusso e vanno a capo da soli dove la larghezza
+   non basta — tre colonne fisse troncherebbero il nome proprio sul telefono,
+   dove il nome è l'unica cosa che distingue una riga dall'altra. */
+.role-depletion__buyer {
+  align-items: baseline;
+  background: var(--panel-inner);
+  border-radius: 7px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 6px 9px;
+}
+.role-depletion__buyer-name {
+  color: var(--text-primary);
+  flex: 1 1 auto;
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.role-depletion__buyer-count {
+  color: var(--text-mid);
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+/* I prezzi uno per uno, mai una media: la media di 45 e 3 e la media di 24 e
+   24 sono lo stesso numero e non sono lo stesso tavolo. */
+.role-depletion__buyer-prices {
+  color: var(--text-sec);
+  flex: 1 1 100%;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.role-depletion__census {
+  background: var(--panel-inner);
+  border-radius: 8px;
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+  padding: 8px 10px;
+}
+.role-depletion__census-head {
+  color: var(--text-sec);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.role-depletion__census-row {
+  display: grid;
+  gap: 4px 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (max-width: 899px) and (min-width: 561px) {
+  .role-depletion__census-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+.role-depletion__metric {
+  align-items: baseline;
+  display: flex;
+  gap: 6px;
+  justify-content: space-between;
+  min-width: 0;
+}
+.role-depletion__metric > span {
+  color: var(--text-sec);
+  font-size: 10.5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.role-depletion__metric > strong {
+  color: var(--text-primary);
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+}
+.role-depletion__census-basis {
+  color: var(--text-dim);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
+/* ── CHI ERA IN GARA — la riga di pastiglie dentro ASSEGNA A ──────────────
+   Il gesto deve costare un clic e mezzo secondo di lettura, quindi la riga è
+   UNA sola: titolo + sintesi su una riga, pastiglie sotto, nota in fondo. Sta
+   DENTRO .assign-block, sotto la riga di campi: il titolo «ASSEGNA A» non si
+   sposta di un pixel (e2e/asta-gesto-principale.spec.ts misura proprio quello).
+
+   NESSUN COLORE NUOVO. Marcato/non marcato si distinguono per riempimento e
+   bordo usando i token già in uso — --accent per il fondo marcato (lo stesso
+   di .btn--primary, bianco sopra) e --text-mid su trasparente per il non
+   marcato (lo stesso di .btn--secondary): entrambe le combinazioni sono già
+   coperte dalla guardia di contrasto AA. Il colore non porta comunque nulla da
+   solo: `aria-pressed` e la riga di sintesi dicono a parole chi è marcato. */
+.interest-flags {
+  border-top: 1px dashed var(--border);
+  margin-top: 12px;
+  padding-top: 10px;
+}
+.interest-flags__head {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.interest-flags__head > .field-label { margin-bottom: 0; }
+.interest-flags__summary {
+  color: var(--text-sec);
+  font-size: 11px;
+  min-width: 0;
+  text-align: right;
+}
+.interest-flags__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.interest-chip {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-mid);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 7px 12px;
+}
+.interest-chip--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+/* Il gesto è raggiungibile da tastiera come ogni altro bottone della
+   schermata, e da tastiera si deve VEDERE dove si è: stesso anello di focus
+   già usato altrove nell'app, non un secondo stile. */
+.interest-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.interest-flags > .hint-text { margin: 6px 0 0; }
+
+/* ── IL POSTO DELLA RISPOSTA LENTA ────────────────────────────────────────
+   Nessuna animazione, nessuna altezza che salta: il riquadro ha la stessa
+   forma in tutti e quattro gli stati, così una risposta che arriva non sposta
+   ciò che l'operatore sta guardando. Lo stato si legge nel testo; l'attributo
+   `data-state` esiste per il CSS e per i test, non come unico portatore. */
+.late-answer__status {
+  color: var(--text-mid);
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 6px 0 0;
+}
+.late-answer[data-state="non-richiesta"] .late-answer__status { color: var(--text-sec); }
+.late-answer__text {
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 8px 0 0;
+}
+.late-answer > .hint-text { margin: 8px 0 0; }

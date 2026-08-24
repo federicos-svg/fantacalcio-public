@@ -4,8 +4,9 @@
 // `expectedPreviousLog?: readonly AuctionEvent[]`; when supplied, a write
 // whose baseline no longer matches the stored canonical is refused with
 // `"divergent-log"` instead of silently overwriting the other tab's purchase.
-// Baseline-passing callers: src/assignCommand.ts (executeAssignCommand),
-// src/voidCommand.ts (executeVoidCommand), main.ts's doAssign(). Deliberate
+// Baseline-passing callers: src/voidCommand.ts (executeVoidCommand) and
+// main.ts's commitPurchase() — the shared commit path behind doAssign() and
+// the third-portiere-at-0 declaration. Deliberate
 // unconditional overwrites keep omitting it: importAuctionLog() and main.ts's
 // confirmStartNewLog() reset-after-quarantine.
 //
@@ -28,7 +29,6 @@ import {
   QUARANTINE_STORAGE_KEY,
   type StorageLike,
 } from "./logRecovery.js";
-import { executeAssignCommand } from "./assignCommand.js";
 import { executeVoidCommand } from "./voidCommand.js";
 import { reduce } from "../packages/engine/src/reduce.js";
 import { recordPurchase } from "../packages/engine/src/feasibility.js";
@@ -124,7 +124,7 @@ function canonicalTextFor(log: readonly AuctionEvent[]): string {
 describe("hardening — recovery re-persists the last-known-good as canonical (post-review fix)", () => {
   const lkgLog: readonly AuctionEvent[] = [purchaseEvent(0, "rossi", "A", "t1", 30)];
 
-  it("after a recovery, an assign and a void both persist (they were refused forever before)", () => {
+  it("after a recovery, a purchase and a void both persist (they were refused forever before)", () => {
     const storage = storageWithBadCanonicalAndGoodLkg(CORRUPTED_CANONICAL, lkgLog);
 
     const loaded = loadAuctionLog(storage, TEAMS);
@@ -133,30 +133,19 @@ describe("hardening — recovery re-persists the last-known-good as canonical (p
     expect(recovered).toEqual(lkgLog);
 
     // The app now runs on `recovered` and passes it as the baseline of the
-    // next command — exactly what main.ts/doAssign and the two command
-    // modules do.
-    const assign = executeAssignCommand(
-      storage,
+    // next write — exactly what main.ts's commitPurchase() and
+    // executeVoidCommand() do.
+    const assigned = recordPurchase(
       recovered,
       reduce(recovered, TEAMS),
-      {
-        fantaTeamId: "t2",
-        teamLabel: "T2",
-        playerId: "bianchi",
-        playerName: "Bianchi",
-        club: "Club",
-        role: "D" as Role,
-        price: 20,
-      },
+      { playerId: "bianchi", role: "D" as Role, fantaTeamId: "t2", price: 20 },
       "2026-09-03T20:05:00Z",
-      TEAMS,
     );
-    expect(assign.ok).toBe(true);
-    if (!assign.ok) return;
-    expect(storage.getItem(LOG_STORAGE_KEY)).toBe(canonicalTextFor(assign.events));
+    expect(saveAuctionLog(storage, assigned, TEAMS, recovered).ok).toBe(true);
+    expect(storage.getItem(LOG_STORAGE_KEY)).toBe(canonicalTextFor(assigned));
 
-    const targetSeq = assign.events[assign.events.length - 1]!.seq;
-    const voided = executeVoidCommand(storage, assign.events, targetSeq, "2026-09-03T20:06:00Z", TEAMS);
+    const targetSeq = assigned[assigned.length - 1]!.seq;
+    const voided = executeVoidCommand(storage, assigned, targetSeq, "2026-09-03T20:06:00Z", TEAMS);
     expect(voided.ok).toBe(true);
     if (!voided.ok) return;
     expect(storage.getItem(LOG_STORAGE_KEY)).toBe(canonicalTextFor(voided.events));

@@ -72,9 +72,9 @@ export function composeAppealIndexComponents(input: ComposeAppealIndexInput): Ap
   };
 
   const continuitaVoto: AppealIndexComponent = {
-    value: finite(f.volatilitaVotoLag1) ? 1 / (1 + f.volatilitaVotoLag1) : null,
+    value: finite(f.volatilitaVotoLastObserved) ? 1 / (1 + f.volatilitaVotoLastObserved) : null,
     validated: false,
-    availability: finite(f.volatilitaVotoLag1) ? "available" : "missing_input",
+    availability: finite(f.volatilitaVotoLastObserved) ? "available" : "missing_input",
     method: "euristica storica: inverso della volatilità del voto nell'ultima stagione osservata",
   };
 
@@ -99,15 +99,15 @@ export function composeAppealIndexComponents(input: ComposeAppealIndexInput): Ap
   };
 
   const rischio: AppealIndexComponent = {
-    value: finite(f.volatilitaVotoLag1)
+    value: finite(f.volatilitaVotoLastObserved)
       ? clamp01(
           0.5 * (1 - clamp01(f.presenzeRollingMean3 / 38)) +
-            0.3 * clamp01(f.volatilitaVotoLag1 / 3) +
+            0.3 * clamp01(f.volatilitaVotoLastObserved / 3) +
             0.2 * clamp01(1 / (1 + f.nSeasonsObserved)),
         )
       : null,
     validated: false,
-    availability: finite(f.volatilitaVotoLag1) ? "available" : "missing_input",
+    availability: finite(f.volatilitaVotoLastObserved) ? "available" : "missing_input",
     method:
       "euristica storica: combinazione pesata di (1 - affidabilità storica) + volatilità voto + brevità dello storico",
   };

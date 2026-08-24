@@ -629,11 +629,11 @@ export function listoneColumnTooltip(column: ListoneColumn): string {
 /**
  * Accent- and case-folding normalizer for a human-typed name fragment.
  *
- * Exported because `src/assignCommand.ts` must fold the operator's typed
- * query with EXACTLY the same rules used to build `listonePlayerKey` below.
- * Two normalizers that drift apart would mean a command line that matches a
- * row it then records under a different identity \u2014 so there is one function,
- * not a copy.
+ * Exported because every reader of a human-typed name — the listone search
+ * bar (`filterListonePool`) above all — must fold it with EXACTLY the same
+ * rules used to build `listonePlayerKey` below. Two normalizers that drift
+ * apart would mean a search that matches a row the log then records under a
+ * different identity \u2014 so there is one function, not a copy.
  *
  * Every run of non-alphanumeric characters collapses to a single `-`, which
  * makes the output safe to use for `startsWith`/`includes` matching on
@@ -686,6 +686,35 @@ export function legacyPlayerIdDisplayName(playerId: string): string {
  * degraded to ~140 ms per keystroke exactly when the log was longest (audit
  * round 2, finding 2). Building this once per render turns that into one
  * O(pool) pass plus O(1) lookups.
+ *
+ * CHE COSA È DAVVERO GARANTITO DA UN TEST, E CHE COSA NO. La frase qui sopra
+ * ha due metà con due statuti diversi, e tenerle separate è il punto:
+ *   - «una passata O(pool)» — GARANTITA, e contata: `src/ui/listone.test.ts`
+ *     §"resolves a whole panel of ids with ONE key computation per pool row"
+ *     conta le applicazioni di `listonePlayerKey` riga per riga (getter su
+ *     `proxyId`) e pretende ESATTAMENTE `pool.length`. È un'uguaglianza, non
+ *     una soglia: una sola chiave in più la fa fallire. Ha sostituito
+ *     un'asserzione cronometrata che lasciava passare un degrado di otto
+ *     volte — vedi il commento in testa a quel describe.
+ *   - «una volta per render» — NON garantita da nessun test: è una proprietà
+ *     dei CALL SITE, non di questa funzione. Dove il pannello riceve l'indice
+ *     già costruito (`warBoardFullHtml`, `renderWarBoardFull`,
+ *     `renderRoseCard`) la firma stessa lo impone e non c'è niente da
+ *     provare; dove lo costruisce da sé sono OTTO call site, enumerati in due
+ *     passi: `grep -rn 'listonePoolIndex('` per le chiamate dirette, poi
+ *     `grep -rn 'auctionDisplayIndex('` per i call site del wrapper (riga
+ *     1350) — non tre: `src/main.ts:926`
+ *     (`poolOrphanNotice`), `:1581` (`nominationContextTopAssigned`), `:2878`
+ *     (`renderRiconfermeSettings`), `:3146` (`schedaRowTarget` — un indice
+ *     O(pool) intero costruito per un solo `.get()`: debito reale, non una
+ *     regressione di questa PR), `:4287` (`renderTableDetail`, STORICO),
+ *     `:5410` e `:5469` (entrambi dentro `renderZona4`), più
+ *     `src/ui/views.ts:1448` (`renderRoseScreen`). Restano tutti scoperti,
+ *     perché vivono in `src/main.ts`, che esegue `render()` e
+ *     `window.addEventListener` all'import e non è importabile in un test;
+ *     `views.ts:1448` costruisce DOM. Ricostruire questo
+ *     indice dentro il ciclo di render, una volta per id invece che una per
+ *     pannello, oggi non farebbe fallire niente.
  *
  * Duplicate keys keep `pool.find`'s answer — the FIRST row wins — so this is
  * a drop-in for the scan it replaces. (`validateListonePool` already refuses
@@ -772,10 +801,10 @@ export function filterListonePool(
   filter: ListoneSearchFilter,
   assignedKeys: ReadonlySet<string>,
 ): ListonePlayer[] {
-  // Same fold as the command line (normalizeIdentityPart, used to build
-  // listonePlayerKey and by src/assignCommand.ts): otherwise a name typed
-  // without its accent — exactly what's typed hearing it called — misses in
-  // this search bar while the command line still resolves it (audit r2 D6).
+  // Same fold used to build listonePlayerKey (normalizeIdentityPart):
+  // otherwise a name typed without its accent — exactly what's typed hearing
+  // it called — would miss in this search bar even though the row it names is
+  // right there (audit r2 D6).
   // Applied to BOTH sides: normalizeIdentityPart also collapses separators to
   // "-", so a name-side-only fold would break multi-word queries like
   // "de sintetis" against a name folded to "de-sintetis".

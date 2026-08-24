@@ -176,6 +176,55 @@ describe("momentScarcityHtml", () => {
     const html = momentScarcityHtml(roleScarcity(exhausted, pool), true, "P");
     expect(html).toContain(`id="moment-scarcity-slots-P">0<`);
   });
+
+  // ── #331 punto 2 — il sottoinsieme di ruoli, e il conto che deve tornare ──
+  //
+  // La scheda del giocatore rende la cella del solo ruolo chiamato; le altre
+  // tre stanno dietro un gesto (views.ts renderMomentInsightsBlock). Il rischio
+  // di questa forma è aritmetico prima che estetico: due chiamate che si
+  // dividono i ruoli possono perderne uno per strada, e una cella persa è
+  // informazione tolta — esattamente il vincolo di Pico che #333 dichiara.
+  // Qui si fissa che le due metà siano DISGIUNTE e che la loro unione siano
+  // sempre quattro celle, con gli stessi id di quando erano una griglia sola.
+  describe("il sottoinsieme di ruoli (#331 punto 2)", () => {
+    const scarcity = roleScarcity(freshState(), pool);
+
+    it("con un ruolo solo rende quella cella e nessun'altra", () => {
+      const html = momentScarcityHtml(scarcity, true, "A", ["A"]);
+      expect(html).toContain(`id="moment-scarcity-A"`);
+      for (const role of ["P", "D", "C"]) {
+        expect(html).not.toContain(`id="moment-scarcity-${role}"`);
+      }
+      // La cella è la STESSA di prima: stessi numeri, stessa provenienza.
+      expect(html).toContain(`id="moment-scarcity-slots-A">56<`);
+      expect(html).toContain(`id="moment-scarcity-pool-A">0<`);
+      // Ed è marcata come quella in asta, perché è il ruolo chiamato.
+      expect(html).toContain("moment-scarcity__cell--called");
+      expect(html).toContain("in asta");
+    });
+
+    it("le due metà sono disgiunte e insieme fanno tutte e quattro le celle", () => {
+      const called = momentScarcityHtml(scarcity, true, "A", ["A"]);
+      const others = momentScarcityHtml(scarcity, true, "A", ["P", "D", "C"]);
+      const both = called + others;
+      for (const role of ["P", "D", "C", "A"]) {
+        expect(both.match(new RegExp(`id="moment-scarcity-${role}"`, "g"))).toHaveLength(1);
+      }
+      // Il marcatore «in asta» resta uno solo, e sta nella metà giusta.
+      expect(both.match(/moment-scarcity__cell--called/g)).toHaveLength(1);
+      expect(others).not.toContain("moment-scarcity__cell--called");
+    });
+
+    it("il default è tutti e quattro i ruoli: nessun chiamante esistente cambia", () => {
+      expect(momentScarcityHtml(scarcity, true, "A")).toBe(
+        momentScarcityHtml(scarcity, true, "A", ["P", "D", "C", "A"]),
+      );
+    });
+
+    it("un elenco vuoto non rende niente, senza inventare una cella di ripiego", () => {
+      expect(momentScarcityHtml(scarcity, true, "A", []).trim()).toBe("");
+    });
+  });
 });
 
 // ── MOMENTO DELL'ASTA — mercato ────────────────────────────────────────────

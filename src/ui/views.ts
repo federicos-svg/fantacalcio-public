@@ -13,7 +13,6 @@ import {
 } from "../../packages/engine/src/types.js";
 import type { OpponentTier1, RoleScarcity, WarBoardRow } from "../../packages/engine/src/auction.js";
 import type { RolePriceFacts } from "../nominationContext.js";
-import type { AssignCommandResolution } from "../assignCommand.js";
 import { C, escHtml, renderRoleChip, roleChipHtml } from "./theme.js";
 import { ROLE_LABELS, ROLE_LABEL_SING } from "./labels.js";
 import { devStaticPanel, devStaticBadge } from "./devStatic.js";
@@ -42,6 +41,43 @@ import {
 } from "./warBoard.js";
 import type { ResidualPressure } from "../../packages/engine/src/anchors.js";
 import type { PrecedentsReading } from "../../packages/opponent-profiles/src/types.js";
+import {
+  EMPTY_ROLE_PLAN_DRAFT,
+  PLAN_VERSION_MAX,
+  type RolePlanDraft,
+  type RolePlanReading,
+  declaredTotal,
+  parseTargetInput,
+  withPlanVersion,
+  withTarget,
+} from "../rolePlan.js";
+import {
+  PLAN_VERSION_FIELD_LABEL,
+  PLAN_VERSION_HINT,
+  ROLE_PLAN_CLEARED_ANNOUNCE,
+  ROLE_PLAN_CLEAR_LABEL,
+  ROLE_PLAN_NOT_SAVED,
+  ROLE_PLAN_NOTE,
+  ROLE_PLAN_TITLE,
+  TARGET_FIELD_HINT,
+  TARGET_REJECTION_TEXT,
+  TARGET_UNDECLARED,
+  declaredTotalText,
+  planStateText,
+  planTotalsText,
+  rolePlanGridHtml,
+  targetFieldLabel,
+} from "./rolePlan.js";
+import type { RoleDepletionReading } from "../roleDepletion.js";
+import {
+  ROLE_DEPLETION_NOTE,
+  ROLE_DEPLETION_TITLE,
+  roleDepletionBuyersHtml,
+  roleDepletionCensusHtml,
+  roleDepletionHeadline,
+  roleDepletionRoleHtml,
+  roleDepletionSpoken,
+} from "./roleDepletion.js";
 import type { ExpertInsightView } from "../expertScheda.js";
 import {
   EXPERT_INSIGHT_TITLE,
@@ -59,6 +95,32 @@ import {
   opponentPrecedentsHeadline,
   opponentPrecedentsHtml,
 } from "./liveFacts.js";
+import {
+  INTEREST_FLAG_NOTE,
+  INTEREST_FLAG_OPTIONAL_HINT,
+  INTEREST_FLAG_TITLE,
+  interestChipSpoken,
+  interestFlagSummary,
+} from "./interestFlags.js";
+import type { LateAnswerState } from "../lateAnswer.js";
+import {
+  LATE_ANSWER_NOTE,
+  LATE_ANSWER_TITLE,
+  lateAnswerBodyHtml,
+  lateAnswerStateAttr,
+  lateAnswerStatusText,
+} from "./lateAnswer.js";
+import type { TierBandReading } from "../tierOrdering.js";
+import {
+  TIER_BAND_NOTE,
+  TIER_BAND_TITLE,
+  tierBandHeadline,
+  tierBandSpoken,
+  tierBandWord,
+  tierOccupancyHtml,
+  tierPricesHtml,
+  tierProvenanceText,
+} from "./tierBand.js";
 
 export interface ListonePanelState {
   /** Full loaded listone, unfiltered — drives column discovery and the "N giocatori caricati" note. */
@@ -664,9 +726,9 @@ export function renderWarBoardFull(
 
   const grid = document.createElement("ul");
   grid.id = "war-board-full-grid";
-  // Same 1/2/4 responsive breakpoints as SQUADRE (LEGA) and AVVERSARI TIER-1
-  // (.teams-grid, src/styles/asta.css): all three are one-card-per-team grids
-  // and must not disagree about when a column drops.
+  // Same 1/2/4 responsive breakpoints as the Rose team-card grid and
+  // AVVERSARI TIER-1 (.teams-grid, src/styles/asta.css): all three are
+  // one-card-per-team grids and must not disagree about when a column drops.
   grid.className = "teams-grid war-board__grid";
   grid.innerHTML = warBoardFullHtml(rows, teamLabels, poolIndex);
   panel.appendChild(grid);
@@ -844,151 +906,6 @@ export function renderNominationContextPanel(
   return panel;
 }
 
-// ── Command line di inserimento (Chiamata moment) ────────────────────────────
-// #231 (T13): the fast path. One typed line — `<squadra> <prezzo> <giocatore>`
-// — records a purchase without walking select -> Avvia -> price -> conferma.
-//
-// The whole safety argument lives in src/assignCommand.ts: this view only
-// renders what the resolver already decided. Two properties matter here and
-// are structural, not cosmetic:
-//
-//  1. The preview is ALWAYS rendered before the commit, and states exactly
-//     which player, which team and which price will be written. The operator
-//     reads the interpretation, not just their own typing.
-//  2. Enter (and the button) commit ONLY when the line resolves to exactly one
-//     purchase. An ambiguous or unknown line does nothing but explain itself —
-//     it never falls back to a "best" match. At the table a wrong assignment
-//     costs far more than retyping.
-//
-// No suggestion, no ranking, no value: the panel proposes nothing and only
-// echoes what was typed. `max_safe` and the hard reserve are untouched — a
-// command that violates them is refused by purchaseFeasibility() exactly like
-// a form entry (see renderAssignCommandFeedback's "not-feasible" branch and
-// docs/NO_GO.md §Prodotto).
-
-export interface AssignCommandPanelProps {
-  readonly value: string;
-  /** `null` while the line is empty — nothing to interpret yet. */
-  readonly resolution: AssignCommandResolution | null;
-  /** Message from a refused/failed execution, already human-readable. */
-  readonly error: string;
-}
-
-export interface AssignCommandPanelHandlers {
-  readonly onInput: (value: string) => void;
-  readonly onSubmit: () => void;
-}
-
-/** The one-line explanation of what the resolver made of the typed line. */
-function assignCommandPreviewText(resolution: AssignCommandResolution): string {
-  if (resolution.ok) {
-    const r = resolution.resolved;
-    const club = r.club ? ` (${r.club})` : "";
-    return `Registrerà: ${r.playerName}${club} · ${ROLE_LABEL_SING[r.role]} → ${r.teamLabel} · ${r.price} cr.`;
-  }
-  switch (resolution.reason) {
-    case "empty":
-      return "";
-    case "price-missing":
-      return "Manca il prezzo: serve un numero intero positivo tra squadra e giocatore.";
-    case "price-ambiguous":
-      return "Due numeri interi nella riga: non è chiaro quale sia il prezzo. Riscrivi la riga con un solo numero.";
-    case "team-missing":
-      return "Manca la squadra prima del prezzo.";
-    case "player-missing":
-      return "Manca il giocatore dopo il prezzo.";
-    case "team-not-found":
-      return `Nessuna squadra corrisponde a "${resolution.query}".`;
-    case "team-ambiguous":
-      return `"${resolution.query}" corrisponde a più squadre: ${resolution.candidates.join(", ")}. Aggiungi lettere.`;
-    case "player-not-found":
-      return `Nessun giocatore disponibile corrisponde a "${resolution.query}".`;
-    case "player-ambiguous":
-      return `"${resolution.query}" corrisponde a più giocatori: ${resolution.candidates.join(", ")}. Aggiungi il club o altre lettere.`;
-    case "player-already-assigned":
-      return `${resolution.playerName} è già stato assegnato.`;
-  }
-}
-
-export function renderAssignCommandPanel(
-  props: AssignCommandPanelProps,
-  handlers: AssignCommandPanelHandlers,
-): HTMLElement {
-  const panel = document.createElement("section");
-  panel.id = "assign-command-panel";
-  panel.className = "panel assign-command";
-  panel.setAttribute("aria-label", "Inserimento rapido da riga di comando");
-
-  const title = document.createElement("div");
-  title.className = "panel-title";
-  title.textContent = "INSERIMENTO RAPIDO";
-  panel.appendChild(title);
-
-  const row = document.createElement("div");
-  row.className = "assign-command__row";
-
-  const input = document.createElement("input");
-  input.id = "assign-command-input";
-  input.name = "assign-command-input";
-  input.type = "text";
-  input.className = "field-input";
-  input.autocomplete = "off";
-  input.placeholder = "squadra prezzo giocatore — es. look 34 ataturk";
-  input.setAttribute("aria-describedby", "assign-command-preview");
-  input.value = props.value;
-  input.addEventListener("input", (e) => handlers.onInput((e.target as HTMLInputElement).value));
-  input.addEventListener("keydown", (e) => {
-    // Enter is the whole point of the fast path, but it is inert unless the
-    // line already resolves — see the panel comment above.
-    if (e.key === "Enter") {
-      e.preventDefault();
-      handlers.onSubmit();
-    }
-  });
-  row.appendChild(input);
-
-  const submit = document.createElement("button");
-  submit.id = "assign-command-submit";
-  submit.type = "button";
-  submit.className = "btn btn--primary";
-  submit.textContent = "Registra da comando";
-  submit.disabled = !(props.resolution?.ok ?? false);
-  submit.addEventListener("click", handlers.onSubmit);
-  row.appendChild(submit);
-
-  panel.appendChild(row);
-
-  // aria-live so the interpretation is announced as it changes: the operator
-  // must never commit a line whose reading they could not perceive.
-  const preview = document.createElement("p");
-  preview.id = "assign-command-preview";
-  preview.setAttribute("role", "status");
-  preview.setAttribute("aria-live", "polite");
-  const resolution = props.resolution;
-  if (resolution === null) {
-    preview.className = "hint-text";
-    preview.textContent =
-      "Ordine fisso: squadra, prezzo, giocatore. Invio registra solo quando la riga individua una sola squadra e un solo giocatore.";
-  } else {
-    preview.className = resolution.ok
-      ? "assign-command__preview assign-command__preview--ready"
-      : "assign-command__preview assign-command__preview--blocked";
-    preview.textContent = assignCommandPreviewText(resolution);
-  }
-  panel.appendChild(preview);
-
-  if (props.error) {
-    const error = document.createElement("p");
-    error.id = "assign-command-error";
-    error.setAttribute("role", "alert");
-    error.className = "assign-command__error";
-    error.textContent = props.error;
-    panel.appendChild(error);
-  }
-
-  return panel;
-}
-
 // ── Insight giocatore (Asta moment) ───────────────────────────────────────────
 //
 // ERA un devStaticPanel, e la sua nota diceva perché: ogni fatto MISURATO a
@@ -1089,6 +1006,26 @@ export function renderPlayerInsightsBlock(props: PlayerInsightProps): HTMLElemen
 // dishonesty in the opposite direction. Nothing that was displayed here has
 // been dropped: the placeholder displayed one sentence saying it had nothing.
 
+// #331 PUNTO 2 — RIDOTTO AL RUOLO CHIAMATO, DENTRO LA SCHEDA DEL GIOCATORE.
+//
+// Il pannello iterava su tutti e quattro i ruoli e stava in una griglia a due
+// colonne sotto la scheda: 463px di altezza, di cui tre quarti su ruoli che
+// mentre è in asta un attaccante non decidono niente. Adesso rende la cella del
+// SOLO ruolo chiamato ed è montato dentro la scheda del giocatore, dove la
+// domanda «quanto mi serve questo ruolo adesso» viene fatta.
+//
+// RIDURRE NON TOGLIE INFORMAZIONE (vincolo di Pico, #333). Le altre tre celle,
+// il censimento MERCATO e la nota metodologica non sono spariti: stanno dentro
+// lo stesso pannello, dietro UN gesto, nel DOM anche da chiusi (`hidden`, non
+// rimozione) e annunciati con aria-expanded/aria-controls. È lo stesso idioma
+// di renderTableDetail() e della fascia critica, non un secondo meccanismo. Le
+// quattro celle restano quattro, con gli stessi id e la stessa provenienza:
+// cambia solo quale delle due chiamate a `momentScarcityHtml` le rende.
+//
+// SENZA RUOLO CHIAMATO (difensivo: il momento live si raggiunge solo da una
+// riga di listone correlata, che il ruolo ce l'ha sempre) non c'è niente da
+// ridurre e la parte sempre visibile torna a essere tutte e quattro le celle.
+
 export interface MomentFactsProps {
   readonly scarcity: Readonly<Record<Role, RoleScarcity>>;
   /** False when no listone is loaded — availability shows `n/d`, never 0. */
@@ -1096,34 +1033,78 @@ export interface MomentFactsProps {
   /** The called player's role, marked in the grid. `""` marks nothing. */
   readonly calledRole: Role | "";
   readonly pressure: ResidualPressure;
+  /** Se il dettaglio (altri ruoli + mercato + nota) è aperto adesso. */
+  readonly detailOpen: boolean;
+  /** Il gesto che lo apre e lo chiude. */
+  readonly onToggleDetail: () => void;
 }
 
 export function renderMomentInsightsBlock(props: MomentFactsProps): HTMLElement {
   const panel = document.createElement("section");
   panel.id = "moment-facts-panel";
-  panel.className = "panel moment-facts";
+  panel.className = "panel moment-facts moment-facts--inline";
   panel.setAttribute("aria-label", "Momento dell'asta: scarsità per ruolo e mercato");
+
+  const called: readonly Role[] = props.calledRole === "" ? ROLES : [props.calledRole];
+  const others: readonly Role[] =
+    props.calledRole === "" ? [] : ROLES.filter((r) => r !== props.calledRole);
 
   const title = document.createElement("div");
   title.className = "panel-title";
-  title.textContent = "MOMENTO DELL'ASTA";
+  title.id = "moment-facts-title";
+  // Il titolo dice DI CHI parla: «MOMENTO DELL'ASTA» su una cella sola di
+  // ruolo lascerebbe credere che quella cella sia il tavolo intero.
+  title.textContent =
+    props.calledRole === ""
+      ? "MOMENTO DELL'ASTA"
+      : `MOMENTO DELL'ASTA — ${ROLE_LABELS[props.calledRole].toUpperCase()}`;
   panel.appendChild(title);
 
   const grid = document.createElement("div");
   grid.id = "moment-scarcity-grid";
   grid.className = "moment-scarcity__grid";
-  grid.innerHTML = momentScarcityHtml(props.scarcity, props.poolLoaded, props.calledRole);
+  grid.innerHTML = momentScarcityHtml(props.scarcity, props.poolLoaded, props.calledRole, called);
   panel.appendChild(grid);
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.id = "moment-facts-toggle";
+  toggle.className = "moment-facts__toggle";
+  toggle.setAttribute("aria-expanded", String(props.detailOpen));
+  toggle.setAttribute("aria-controls", "moment-facts-detail");
+  // Dichiara il proprio contenuto PRIMA di aprirlo: un gesto che non dice cosa
+  // contiene nasconde informazione invece di riordinarla.
+  toggle.innerHTML =
+    `<span class="moment-facts__what">${
+      others.length === 0 ? "mercato: crediti e slot sul tavolo" : "altri tre ruoli · mercato: crediti e slot sul tavolo"
+    }</span>` + `<span class="moment-facts__caret" aria-hidden="true">${props.detailOpen ? "▴" : "▾"}</span>`;
+  toggle.addEventListener("click", props.onToggleDetail);
+  panel.appendChild(toggle);
+
+  const detail = document.createElement("div");
+  detail.id = "moment-facts-detail";
+  detail.className = "moment-facts__detail";
+  if (!props.detailOpen) detail.hidden = true;
+
+  if (others.length > 0) {
+    const rest = document.createElement("div");
+    rest.id = "moment-scarcity-rest";
+    rest.className = "moment-scarcity__grid";
+    rest.innerHTML = momentScarcityHtml(props.scarcity, props.poolLoaded, props.calledRole, others);
+    detail.appendChild(rest);
+  }
 
   const market = document.createElement("div");
   market.innerHTML = marketPressureHtml(props.pressure);
-  panel.appendChild(market);
+  detail.appendChild(market);
 
   const note = document.createElement("p");
   note.className = "hint-text";
   note.id = "moment-facts-note";
   note.textContent = MOMENT_FACTS_NOTE;
-  panel.appendChild(note);
+  detail.appendChild(note);
+
+  panel.appendChild(detail);
 
   return panel;
 }
@@ -1235,6 +1216,8 @@ export const SETTINGS_ICONS = {
     '<circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 14c0-2.4 2-3.9 4.5-3.9s4.5 1.5 4.5 3.9"/><path d="M11 3.4a2.5 2.5 0 0 1 0 4.6"/><path d="M12.6 10.4c1.3.6 1.9 1.8 1.9 3.6"/>',
   confirm: '<path d="M2 8.4 6 12l8-8"/>',
   status: '<path d="M1.5 8h3l2-4.6L9.6 12l1.9-4h3"/>',
+  // Un foglio scritto: la scheda che si compila a mano prima dell'asta.
+  scheda: '<rect x="2.5" y="1.5" width="11" height="13" rx="1.5"/><path d="M5 5h6"/><path d="M5 8h6"/><path d="M5 11h3.5"/>',
 } as const;
 
 export interface SettingsArea {
@@ -1334,6 +1317,12 @@ export function renderRoseScreen(
   // Pure accounting rows from packages/engine/src/auction.ts opponentTier1(),
   // built by the caller. Empty array -> the panel is not rendered at all.
   opponents: readonly OpponentTier1[] = [],
+  // IL MIO PIANO (PLAN-01), costruito dal chiamante con renderRolePlanPanel()
+  // e montato subito sotto la riga di intestazione: è il piano DI OWNER, e su
+  // questa schermata viene prima della contabilità degli avversari. `null`
+  // quando la squadra di Owner non è nello stato derivato — non esiste un
+  // piano di una squadra che non c'è, e un pannello vuoto direbbe il contrario.
+  myPlanPanel: HTMLElement | null = null,
 ): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "screen-container";
@@ -1341,8 +1330,28 @@ export function renderRoseScreen(
 
   const hint = document.createElement("div");
   hint.className = "hint-text";
-  hint.innerHTML = `Rose — sola lettura, derivata dallo storico acquisti. Le icone <span style="border:1px dashed ${C.textDim};border-radius:3px;padding:0 3px;">DEV</span> non eseguono azioni reali.`;
+  // Un id, perché questa riga adesso ha DUE forme e una spec deve poter dire
+  // quale delle due sta leggendo: `.hint-text` su questa schermata prende anche
+  // i due suggerimenti del modulo del piano e la sua nota.
+  hint.id = "rose-screen-hint";
+  // LA FRASE DICE QUALE PARTE È DI SOLA LETTURA, adesso che non lo è più tutta.
+  // Da quando questa schermata ospita il piano rosa, sotto questa riga c'è un
+  // MODULO: quattro campi che Owner compila e una dichiarazione che finisce in
+  // `localStorage`. Continuare a scrivere «Rose — sola lettura» a due
+  // centimetri da un campo editabile è un'etichetta che contraddice ciò che
+  // etichetta, e una schermata che si contraddice smette di essere creduta
+  // anche dove dice il vero. Le rose e la contabilità RESTANO derivate dal log
+  // e non si toccano: è quello che la frase continua a dire, ma per la parte
+  // giusta. Senza pannello (nessuna squadra di Owner nello stato derivato) la
+  // schermata è di nuovo di sola lettura per intero, e la frase torna quella.
+  const devIcons = `<span style="border:1px dashed ${C.textDim};border-radius:3px;padding:0 3px;">DEV</span>`;
+  hint.innerHTML =
+    myPlanPanel === null
+      ? `Rose — sola lettura, derivata dallo storico acquisti. Le icone ${devIcons} non eseguono azioni reali.`
+      : `Rose — le rose e la contabilità sono di sola lettura, derivate dallo storico acquisti. Il piano rosa qui sotto è invece tuo da scrivere: i target che dichiari restano nel browser. Le icone ${devIcons} non eseguono azioni reali.`;
   wrap.appendChild(hint);
+
+  if (myPlanPanel !== null) wrap.appendChild(myPlanPanel);
 
   if (opponents.length > 0) {
     wrap.appendChild(renderOpponentTier1Panel(opponents, teamLabels));
@@ -1350,8 +1359,8 @@ export function renderRoseScreen(
 
   // Responsive breakpoints (1/2/4 per row) live in src/styles/asta.css
   // (.teams-grid) — inline styles can't express @media, see that file. Same
-  // class the "SQUADRE (LEGA)" panel uses (src/main.ts renderTeamsPanel):
-  // both are one-card-per-team grids, so they share the same breakpoints.
+  // class the war board COMPLETA uses (renderWarBoardFull above): both are
+  // one-card-per-team grids, so they share the same breakpoints.
   const grid = document.createElement("div");
   grid.className = "teams-grid";
 
@@ -1428,6 +1437,243 @@ export function renderOpponentTier1Panel(
     "Sola contabilità derivata dal log dell'asta: credito residuo e slot ancora liberi per ogni avversario. Nessuna stima di interesse, nessun indice comportamentale, nessuna raccomandazione.";
   panel.appendChild(note);
 
+  return panel;
+}
+
+// ── PIANO ROSA (VIVO) — target, riserve, scostamento (PLAN-01) ───────────────
+//
+// Superficie del piano rosa vivo che il motore calcolava già senza che nessuna
+// schermata lo importasse: `livePlan()`, `validateRolePlan()`, `LivePlan` e
+// `DeclaredRolePlan` vivono in packages/engine/src/livePlan.ts da prima di
+// questo batch, completi e testati, e `grep` non trovava un solo import in
+// `src/`. Questo pannello è il passo di visualizzazione mancante, più il
+// modulo che RACCOGLIE la dichiarazione di Owner — senza la quale il piano non
+// esiste, perché il sistema non ne propone uno.
+//
+// DOVE VIVE E PERCHÉ. Sulla schermata ROSE, la stessa che ospita già
+// AVVERSARI TIER-1: è la superficie che `npm run route -- --surface dashboard`
+// indica per «rose, budget, piano per ruolo». NON sulla schermata Asta —
+// l'invariante UI di docs/FRONTEND_STRUCTURE.md tiene i blocchi di quadro
+// generale fuori di lì, e #331 ha appena restituito a quella schermata lo
+// spazio verticale che il gesto principale le chiedeva.
+//
+// QUESTO FILE NON CHIAMA IL MOTORE. La lettura (`read`) e la persistenza
+// (`persist`) arrivano iniettate da main.ts, come ogni altro pannello qui
+// dentro: views.ts non importa `livePlan` e non deriva nessun numero.
+//
+// REPAINT PARZIALE, NON `render()`. Ogni tasto digitato in un campo target
+// ricalcola la lettura e ridipinge SOLO le tre parti che cambiano — frase di
+// stato, schede di ruolo, totali. Ricostruire l'albero intero costerebbe il
+// fuoco del campo che l'operatore sta usando: stessa scelta, per lo stesso
+// motivo, delle pastiglie di marcatura in src/main.ts.
+export interface RolePlanPanelProps {
+  /** La dichiarazione conservata, di cui il pannello tiene la copia viva. */
+  readonly draft: RolePlanDraft;
+  /** Ricalcola la lettura. Iniettata: qui non si chiama il motore. */
+  readonly read: (draft: RolePlanDraft) => RolePlanReading;
+  /** Conserva. `false` = la scrittura non ha attecchito, e va detto. */
+  readonly persist: (draft: RolePlanDraft) => boolean;
+}
+
+export function renderRolePlanPanel(props: RolePlanPanelProps): HTMLElement {
+  let draft = props.draft;
+
+  const panel = document.createElement("section");
+  panel.id = "role-plan-panel";
+  panel.className = "panel role-plan";
+  panel.setAttribute("aria-label", "Piano rosa: target, riserve e scostamento per ruolo");
+
+  const title = document.createElement("div");
+  title.className = "panel-title";
+  title.textContent = ROLE_PLAN_TITLE;
+  panel.appendChild(title);
+
+  const stateLine = document.createElement("p");
+  stateLine.id = "role-plan-state";
+  stateLine.className = "role-plan__state";
+  panel.appendChild(stateLine);
+
+  const grid = document.createElement("div");
+  grid.id = "role-plan-grid";
+  grid.className = "role-plan__grid";
+  panel.appendChild(grid);
+
+  const totals = document.createElement("ul");
+  totals.id = "role-plan-totals";
+  totals.className = "role-plan__totals";
+  panel.appendChild(totals);
+
+  // ── Dichiarazione ─────────────────────────────────────────────────────────
+  const form = document.createElement("div");
+  form.id = "role-plan-form";
+  form.className = "role-plan__form";
+
+  const formTitle = document.createElement("div");
+  formTitle.className = "role-plan__form-title";
+  formTitle.id = "role-plan-form-title";
+  formTitle.textContent = "IL TUO PIANO — DICHIARA I TARGET";
+  form.appendChild(formTitle);
+
+  const targetHint = document.createElement("p");
+  targetHint.id = "role-plan-target-hint";
+  targetHint.className = "hint-text";
+  targetHint.textContent = TARGET_FIELD_HINT;
+  form.appendChild(targetHint);
+
+  const feedback = document.createElement("p");
+  feedback.id = "role-plan-feedback";
+  feedback.className = "role-plan__feedback";
+  // Un rifiuto o una scrittura non andata a buon fine devono raggiungere anche
+  // chi non guarda quel punto dello schermo.
+  //
+  // MA NON UN ANNUNCIO PER TASTO. Questa è una regione `aria-live`, e ogni
+  // carattere digitato in un campo target è un `input`: una conferma di
+  // salvataggio scritta qui verrebbe letta ad alta voce a ogni cifra («target 8
+  // salvato», «target 80 salvato»), cioè trasformerebbe l'aiuto in rumore
+  // proprio per chi ne dipende. Il salvataggio riuscito si vede già — la scheda
+  // del ruolo qui sopra si aggiorna nello stesso istante — quindi il caso
+  // normale non scrive niente. Qui finiscono solo le due cose che lo schermo NON
+  // dice da sé: un valore rifiutato, e una scrittura che non ha attecchito.
+  feedback.setAttribute("role", "status");
+  feedback.setAttribute("aria-live", "polite");
+
+  const totalLine = document.createElement("p");
+  totalLine.id = "role-plan-declared-total";
+  totalLine.className = "role-plan__declared-total";
+
+  const fields = document.createElement("div");
+  fields.className = "role-plan__fields";
+
+  const inputs: Partial<Record<Role, HTMLInputElement>> = {};
+
+  /** `announce` è la frase da leggere ad alta voce, e per il caso normale è la
+   *  stringa vuota: vedi il commento su `feedback`. Una scrittura fallita la
+   *  sovrascrive sempre, perché quella nessuno la vede. */
+  const commit = (next: RolePlanDraft, announce: string): void => {
+    draft = next;
+    feedback.textContent = props.persist(draft) ? announce : ROLE_PLAN_NOT_SAVED;
+    paint();
+  };
+
+  for (const role of ROLES) {
+    const field = document.createElement("label");
+    field.className = "role-plan__field";
+
+    const caption = document.createElement("span");
+    caption.className = "field-label";
+    caption.textContent = targetFieldLabel(role);
+    field.appendChild(caption);
+
+    const input = document.createElement("input");
+    input.id = `role-plan-target-${role}`;
+    input.className = "field-input role-plan__input";
+    input.type = "text";
+    input.inputMode = "numeric";
+    input.autocomplete = "off";
+    input.maxLength = 4;
+    input.placeholder = TARGET_UNDECLARED;
+    const declared = draft.targets[role];
+    input.value = declared === undefined ? "" : String(declared);
+    input.setAttribute("aria-describedby", "role-plan-target-hint");
+    input.addEventListener("input", (e) => {
+      const parsed = parseTargetInput((e.target as HTMLInputElement).value);
+      if (parsed.kind === "rejected") {
+        // Si tiene visibile ciò che è stato digitato e si rifiuta solo di
+        // conservarlo: nessuna correzione d'ufficio del numero.
+        input.setAttribute("aria-invalid", "true");
+        feedback.textContent = TARGET_REJECTION_TEXT[parsed.reason];
+        return;
+      }
+      input.removeAttribute("aria-invalid");
+      // Nessun annuncio: la scheda del ruolo qui sopra cambia da sé, e un
+      // annuncio per tasto sarebbe rumore (vedi `feedback`).
+      commit(withTarget(draft, role, parsed), "");
+    });
+    field.appendChild(input);
+    inputs[role] = input;
+    fields.appendChild(field);
+  }
+
+  const versionField = document.createElement("label");
+  versionField.className = "role-plan__field role-plan__field--version";
+  const versionCaption = document.createElement("span");
+  versionCaption.className = "field-label";
+  versionCaption.textContent = PLAN_VERSION_FIELD_LABEL;
+  versionField.appendChild(versionCaption);
+  const versionInput = document.createElement("input");
+  versionInput.id = "role-plan-version";
+  versionInput.className = "field-input role-plan__input";
+  versionInput.type = "text";
+  versionInput.autocomplete = "off";
+  versionInput.maxLength = PLAN_VERSION_MAX;
+  versionInput.value = draft.planVersion;
+  versionInput.setAttribute("aria-describedby", "role-plan-version-hint");
+  versionInput.addEventListener("input", (e) => {
+    commit(withPlanVersion(draft, (e.target as HTMLInputElement).value), "");
+  });
+  versionField.appendChild(versionInput);
+  fields.appendChild(versionField);
+  form.appendChild(fields);
+
+  const versionHint = document.createElement("p");
+  versionHint.id = "role-plan-version-hint";
+  versionHint.className = "hint-text";
+  versionHint.textContent = PLAN_VERSION_HINT;
+  form.appendChild(versionHint);
+
+  form.appendChild(totalLine);
+
+  const actions = document.createElement("div");
+  actions.className = "role-plan__actions";
+  const clear = document.createElement("button");
+  clear.type = "button";
+  clear.id = "role-plan-clear";
+  clear.className = "btn btn--secondary";
+  // L'etichetta nomina anche la VERSIONE, perché il gesto la cancella: vedi
+  // ROLE_PLAN_CLEAR_LABEL in ./rolePlan.ts. Non c'è conferma e non c'è undo, e
+  // allora l'unico posto dove la verità arriva in tempo è il pulsante stesso.
+  clear.textContent = ROLE_PLAN_CLEAR_LABEL;
+  clear.addEventListener("click", () => {
+    for (const role of ROLES) {
+      const input = inputs[role];
+      if (input !== undefined) {
+        input.value = "";
+        input.removeAttribute("aria-invalid");
+      }
+    }
+    versionInput.value = "";
+    commit(EMPTY_ROLE_PLAN_DRAFT, ROLE_PLAN_CLEARED_ANNOUNCE);
+  });
+  actions.appendChild(clear);
+  form.appendChild(actions);
+  form.appendChild(feedback);
+
+  panel.appendChild(form);
+
+  const note = document.createElement("p");
+  note.className = "hint-text";
+  note.id = "role-plan-note";
+  note.textContent = ROLE_PLAN_NOTE;
+  panel.appendChild(note);
+
+  function paint(): void {
+    const reading = props.read(draft);
+    stateLine.textContent = planStateText(reading);
+    grid.innerHTML = rolePlanGridHtml(reading.rows);
+    if (reading.kind === "live") {
+      totals.innerHTML = planTotalsText(reading.live)
+        .map((line) => `<li>${escHtml(line)}</li>`)
+        .join("");
+      totals.hidden = false;
+    } else {
+      totals.innerHTML = "";
+      totals.hidden = true;
+    }
+    const declared = declaredTotal(draft);
+    totalLine.textContent = declaredTotalText(declared.total, declared.roles);
+  }
+
+  paint();
   return panel;
 }
 
@@ -2031,4 +2277,317 @@ export function renderConfirmationsQuarantineBanner(
   banner.appendChild(exportBtn);
 
   return banner;
+}
+
+// ── FASCIA DEL CHIAMATO (momento asta) ───────────────────────────────────────
+// Montaggio nel DOM del riquadro delle fasce d'asta. Wrapper SOTTILE, come
+// renderWarBoardMini: ogni scelta di resa (le parole delle fasce, le frasi dei
+// modi di non sapere, la forma del registro dei prezzi) vive nei costruttori
+// puri di ./tierBand.ts, verificati senza DOM; il calcolo vive in
+// src/tierOrdering.ts, che è l'unico a parlare col motore
+// (packages/engine/src/tiers.ts, in sola lettura).
+//
+// Questo file non deriva un numero suo, non ricalcola una fascia e non ordina
+// niente: riceve una lettura già fatta e la appende.
+
+export interface TierBandProps {
+  readonly reading: TierBandReading;
+  /** Il ruolo del chiamato, per la forma parlata; `""` quando non c'è chiamata. */
+  readonly role: Role | "";
+}
+
+/**
+ * Il riquadro sta SEMPRE sulla schermata live, anche quando non ha una fascia
+ * da mostrare: è la resa della regola per cui «quando il dato non c'è, il
+ * pannello lo dice». Nasconderlo nei casi senza indice riporterebbe il
+ * silenzio che le frasi di ./tierBand.ts esistono per rompere.
+ */
+export function renderTierBandBlock(props: TierBandProps): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "tier-band-panel";
+  panel.className = "panel tier-band";
+  panel.setAttribute("aria-label", tierBandSpoken(props.reading, props.role));
+
+  const title = document.createElement("div");
+  title.className = "panel-title";
+  title.textContent = TIER_BAND_TITLE;
+  panel.appendChild(title);
+
+  // La parola della fascia per intero, mai una sigla: è il primo dei tre
+  // contenuti del riquadro. Il colore non porta nulla che non sia scritto.
+  const word = document.createElement("div");
+  word.id = "tier-band-name";
+  word.className = "tier-band__name";
+  word.textContent = tierBandWord(props.reading);
+  panel.appendChild(word);
+
+  // aria-live: la riga cambia significato — non solo contenuto — quando cambia
+  // il giocatore chiamato o quando il listone arriva con o senza indice.
+  const headline = document.createElement("p");
+  headline.id = "tier-band-headline";
+  headline.className = "tier-band__headline";
+  headline.setAttribute("role", "status");
+  headline.setAttribute("aria-live", "polite");
+  headline.textContent = tierBandHeadline(props.reading);
+  panel.appendChild(headline);
+
+  const facts = props.reading.kind === "facts" ? props.reading.facts : null;
+  const coverage = props.reading.kind === "no-call" ? null : props.reading.coverage;
+
+  if (facts !== null) {
+    const body = document.createElement("div");
+    body.id = "tier-band-body";
+    body.className = "tier-band__body";
+    body.innerHTML = `${tierOccupancyHtml(facts)}${tierPricesHtml(facts)}`;
+    // Fuori fascia i due blocchi sono entrambi vuoti (occupancy e registro
+    // sono `null`, non zero): un contenitore vuoto sotto la frase che spiega
+    // perché si leggerebbe come un elenco di «niente».
+    if (body.innerHTML.trim() !== "") panel.appendChild(body);
+  }
+
+  const provenance = document.createElement("p");
+  provenance.id = "tier-band-provenance";
+  provenance.className = "tier-band__provenance";
+  provenance.textContent = tierProvenanceText(facts, coverage);
+  panel.appendChild(provenance);
+
+  const note = document.createElement("p");
+  note.className = "hint-text";
+  note.id = "tier-band-note";
+  note.textContent = TIER_BAND_NOTE;
+  panel.appendChild(note);
+
+  return panel;
+}
+
+// ── IL RUOLO STASERA (momento asta) ──────────────────────────────────────────
+// Montaggio nel DOM del riquadro di svuotamento del ruolo. Wrapper SOTTILE,
+// come renderWarBoardMini e renderMomentInsightsBlock: ogni scelta di resa —
+// quali numeri si dicono, in che ordine, e quale frase si dice quando un
+// numero non c'è — vive nei costruttori puri di ./roleDepletion.ts, verificati
+// senza DOM; il calcolo vive in src/roleDepletion.ts, che legge SOLO l'event
+// log di stasera e il censimento dei posti delle squadre.
+//
+// Questo file non deriva un numero suo, non riordina niente e non conosce
+// nessuna quotazione: riceve una lettura già fatta e la appende.
+
+export interface RoleDepletionProps {
+  readonly reading: RoleDepletionReading;
+  /** Etichette delle squadre, per nominare chi ha preso invece del solo id. */
+  readonly teamLabels: Readonly<Record<string, string>>;
+}
+
+/**
+ * Il riquadro sta SEMPRE sulla schermata live, anche quando non ha un ruolo di
+ * cui parlare: è la resa della regola per cui «quando il dato non c'è, il
+ * pannello lo dice». Nasconderlo nel caso senza chiamata, o nel caso in cui
+ * stasera non è ancora passato nessuno di quel ruolo, riporterebbe il silenzio
+ * che le frasi di ./roleDepletion.ts esistono per rompere.
+ */
+export function renderRoleDepletionBlock(props: RoleDepletionProps): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "role-depletion-panel";
+  panel.className = "panel role-depletion";
+  panel.setAttribute("aria-label", roleDepletionSpoken(props.reading));
+
+  const title = document.createElement("div");
+  title.className = "panel-title";
+  title.textContent = ROLE_DEPLETION_TITLE;
+  panel.appendChild(title);
+
+  // Il ruolo per esteso accanto alla pastiglia, mai la sola sigla: la stessa
+  // regola delle quattro celle della scarsità. Assente quando non c'è chiamata,
+  // perché non c'è un ruolo da nominare.
+  const role = document.createElement("div");
+  role.id = "role-depletion-role";
+  role.className = "role-depletion__role";
+  role.innerHTML = roleDepletionRoleHtml(props.reading);
+  if (role.innerHTML !== "") panel.appendChild(role);
+
+  // aria-live: la riga cambia SIGNIFICATO — non solo contenuto — quando cambia
+  // il giocatore chiamato e quando il primo acquisto di quel ruolo entra nel
+  // registro, cioè quando si passa dal silenzio onesto ai fatti.
+  const headline = document.createElement("p");
+  headline.id = "role-depletion-headline";
+  headline.className = "role-depletion__headline";
+  headline.setAttribute("role", "status");
+  headline.setAttribute("aria-live", "polite");
+  headline.textContent = roleDepletionHeadline(props.reading);
+  panel.appendChild(headline);
+
+  if (props.reading.kind === "facts") {
+    const facts = props.reading.facts;
+    const buyers = roleDepletionBuyersHtml(facts, props.teamLabels);
+    if (buyers !== "") {
+      const body = document.createElement("div");
+      body.id = "role-depletion-body";
+      body.className = "role-depletion__body";
+      body.innerHTML = buyers;
+      panel.appendChild(body);
+    }
+
+    // Il censimento resta anche quando stasera non è passato nessuno: non è un
+    // campione, non ha cold start, e tacerlo perché manca l'altra metà
+    // significherebbe nascondere ciò che si sa per colpa di ciò che non si sa.
+    const census = document.createElement("div");
+    census.innerHTML = roleDepletionCensusHtml(facts);
+    panel.appendChild(census);
+  }
+
+  const note = document.createElement("p");
+  note.className = "hint-text";
+  note.id = "role-depletion-note";
+  note.textContent = ROLE_DEPLETION_NOTE;
+  panel.appendChild(note);
+
+  return panel;
+}
+
+// ── CHI ERA IN GARA — la riga di pastiglie dentro ASSEGNA A ─────────────────
+// Wrapper sottile: le parole e le regole d'ordine stanno in ./interestFlags.ts,
+// verificate senza DOM; qui c'è il montaggio e il clic.
+//
+// PERCHÉ IL CLIC NON RIDIPINGE LA SCHERMATA. `render()` ricostruisce l'intero
+// albero, e in mezzo a un'asta questo significa perdere fuoco e cursore del
+// campo del prezzo — cioè far pagare al gesto principale il costo di un dato di
+// contorno. La pastiglia aggiorna quindi SOLO sé stessa (classe, `aria-pressed`,
+// etichetta parlata) e la riga di sintesi, esattamente come il campo del prezzo
+// aggiorna in place il numero grande e la proiezione «dopo l'acquisto».
+// `onToggle` porta la marcatura nello stato dell'app: la fonte di verità resta
+// lì, il DOM ne è il riflesso.
+
+export interface InterestFlagRowProps {
+  /** I posti marcabili, nell'ordine dichiarato: i sette avversari, mai il mio. */
+  readonly seatIds: readonly string[];
+  readonly seatLabels: Readonly<Record<string, string>>;
+  /** I posti marcati adesso, per QUESTO giocatore chiamato. */
+  readonly marked: readonly string[];
+  /** Registra la marcatura nello stato dell'app e ritorna il nuovo elenco. */
+  readonly onToggle: (seatId: string) => readonly string[];
+}
+
+export function renderInterestFlagRow(props: InterestFlagRowProps): HTMLElement {
+  const block = document.createElement("div");
+  block.id = "interest-flag-row";
+  block.className = "interest-flags";
+
+  const head = document.createElement("div");
+  head.className = "interest-flags__head";
+
+  const title = document.createElement("span");
+  title.className = "field-label";
+  title.textContent = `${INTEREST_FLAG_TITLE} (${INTEREST_FLAG_OPTIONAL_HINT})`;
+  head.appendChild(title);
+
+  const summary = document.createElement("span");
+  summary.id = "interest-flag-summary";
+  summary.className = "interest-flags__summary";
+  // `role="status"`: la riga cambia solo su gesto dell'operatore, quindi
+  // `polite` non interrompe nulla e conferma a voce ciò che il colore mostra.
+  summary.setAttribute("role", "status");
+  summary.setAttribute("aria-live", "polite");
+  head.appendChild(summary);
+  block.appendChild(head);
+
+  const chips = document.createElement("div");
+  chips.className = "interest-flags__chips";
+  block.appendChild(chips);
+
+  let marked: readonly string[] = props.marked;
+
+  const paintSummary = (): void => {
+    summary.textContent = interestFlagSummary(marked, props.seatIds, props.seatLabels);
+  };
+
+  for (const seatId of props.seatIds) {
+    const label = props.seatLabels[seatId] ?? seatId;
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.id = `interest-flag-${seatId}`;
+    chip.className = "btn interest-chip";
+    chip.dataset["seat"] = seatId;
+    chip.textContent = label;
+
+    const paintChip = (): void => {
+      const on = marked.includes(seatId);
+      chip.setAttribute("aria-pressed", on ? "true" : "false");
+      chip.classList.toggle("interest-chip--on", on);
+      chip.setAttribute("aria-label", interestChipSpoken(label, on));
+    };
+    paintChip();
+
+    chip.addEventListener("click", () => {
+      marked = props.onToggle(seatId);
+      paintChip();
+      paintSummary();
+    });
+    chips.appendChild(chip);
+  }
+
+  paintSummary();
+
+  const note = document.createElement("p");
+  note.className = "hint-text";
+  note.id = "interest-flag-note";
+  note.textContent = INTEREST_FLAG_NOTE;
+  block.appendChild(note);
+
+  return block;
+}
+
+// ── IL POSTO DELLA RISPOSTA LENTA ───────────────────────────────────────────
+// Il riquadro sta SEMPRE sulla schermata d'asta, anche — anzi soprattutto —
+// quando non ha niente da mostrare: è la resa della regola «se non è pronta lo
+// dice invece di far aspettare». Un riquadro che comparisse solo a risposta
+// arrivata farebbe saltare il layout nel momento peggiore e non direbbe mai
+// che una risposta era stata chiesta.
+//
+// NON C'È NESSUNO SPINNER, e non è una dimenticanza: uno spinner è la promessa
+// che valga la pena aspettare. Qui la riga di stato è testo, e mentre lei dice
+// «in preparazione» ogni controllo della schermata resta usabile.
+
+export interface LateAnswerProps {
+  readonly state: LateAnswerState<string>;
+  /** Come nominare il soggetto della risposta (il giocatore chiamato). */
+  readonly subjectLabel: string;
+}
+
+export function renderLateAnswerBlock(props: LateAnswerProps): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "late-answer-panel";
+  panel.className = "panel late-answer";
+  panel.dataset["state"] = lateAnswerStateAttr(props.state);
+  panel.setAttribute("aria-label", `${LATE_ANSWER_TITLE}: ${lateAnswerStatusText(props.state, props.subjectLabel)}`);
+  // Il soggetto è dichiarato nel DOM: è ciò che rende verificabile che una
+  // risposta non stia comparendo sopra il giocatore sbagliato.
+  panel.dataset["subject"] = props.state.kind === "non-richiesta" ? "" : props.state.subjectKey;
+
+  const title = document.createElement("div");
+  title.className = "panel-title";
+  title.textContent = LATE_ANSWER_TITLE;
+  panel.appendChild(title);
+
+  const status = document.createElement("p");
+  status.id = "late-answer-status";
+  status.className = "late-answer__status";
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
+  status.textContent = lateAnswerStatusText(props.state, props.subjectLabel);
+  panel.appendChild(status);
+
+  const body = lateAnswerBodyHtml(props.state);
+  if (body !== "") {
+    const bodyEl = document.createElement("div");
+    bodyEl.id = "late-answer-body";
+    bodyEl.innerHTML = body;
+    panel.appendChild(bodyEl);
+  }
+
+  const note = document.createElement("p");
+  note.className = "hint-text";
+  note.id = "late-answer-note";
+  note.textContent = LATE_ANSWER_NOTE;
+  panel.appendChild(note);
+
+  return panel;
 }

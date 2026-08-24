@@ -9,14 +9,19 @@ test("the settings menu swaps the right-hand panel and survives a re-render", as
   await gotoScreen(page, "Impostazioni");
 
   // Opens on the area you act on; each menu entry carries its own icon.
-  // Quattro aree: teams, riconferme pre-asta, archivio avversari (la via
-  // d'ingresso dello storico d'asta, senza la quale il pannello AVVERSARI
-  // resterebbe muto in produzione), status.
+  // CINQUE aree: teams, riconferme pre-asta (#231), schede Gruppo Esperti,
+  // archivio avversari (la via d'ingresso dello storico d'asta, senza la quale
+  // il pannello AVVERSARI resterebbe muto in produzione), status.
   await expect(page.locator("#settings-tab-teams")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#settings-tab-riconferme")).toHaveAttribute("aria-selected", "false");
+  await expect(page.locator("#settings-tab-schede")).toHaveAttribute("aria-selected", "false");
   await expect(page.locator("#settings-tab-archivio")).toHaveAttribute("aria-selected", "false");
   await expect(page.locator("#settings-tab-status")).toHaveAttribute("aria-selected", "false");
-  await expect(page.locator("#settings-menu svg")).toHaveCount(4);
+  // Era 4 finché «schede» e «archivio» si contendevano lo stesso slot: sono
+  // nate in parallelo e sono atterrate entrambe, quindi le icone sono 5. Il
+  // numero è aggiornato al vero, non allentato: se un'area sparisse dal menu
+  // questa riga deve tornare rossa.
+  await expect(page.locator("#settings-menu svg")).toHaveCount(5);
   await expect(page.locator("#new-person-name")).toBeVisible();
 
   // Only the selected area is built, so the other one is absent from the DOM
@@ -36,13 +41,29 @@ test("the settings menu swaps the right-hand panel and survives a re-render", as
   await page.locator("#add-person").click();
   await expect(page.locator("#league-people-list input")).toHaveValue("Bruno");
   await expect(page.locator("#settings-tab-teams")).toHaveAttribute("aria-selected", "true");
+  // Adding a participant hands the keyboard BACK to the name field, so the
+  // next one can be typed without reaching for the mouse — and it does so ONE
+  // FRAME after the re-render (focusAfterRender, src/main.ts). Asserting it
+  // here is not a wait dressed up as an assertion: it is that contract, and
+  // until it has landed the app still owes the page a focus move that will
+  // overwrite whatever this test focuses next. That is precisely how CI run
+  // #45 lost the ArrowDown below into the text field — the menu never moved
+  // and #settings-tab-riconferme stayed aria-selected="false" for the whole
+  // timeout. Same guard purchase() already uses in e2e/critical-overlays.spec.ts.
+  await expect(page.locator("#new-person-name")).toBeFocused();
 
   // Arrow keys move within the menu, and focus follows across the re-render.
-  // Quattro fermate (teams -> riconferme -> archivio -> status -> torna a teams).
+  // CINQUE fermate ora, non quattro:
+  // teams -> riconferme -> schede -> archivio -> status -> torna a teams.
+  // È l'arrivo di «archivio» accanto a «schede» ad aver reso falsa la versione
+  // a quattro fermate di questa asserzione.
   await page.locator("#settings-tab-teams").focus();
   await page.keyboard.press("ArrowDown");
   await expect(page.locator("#settings-tab-riconferme")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#settings-tab-riconferme")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.locator("#settings-tab-schede")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#settings-tab-schede")).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(page.locator("#settings-tab-archivio")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#settings-tab-archivio")).toBeFocused();
@@ -55,6 +76,7 @@ test("the settings menu swaps the right-hand panel and survives a re-render", as
   // Roving tabindex: the menu is a single tab stop, not one per entry.
   await expect(page.locator("#settings-tab-teams")).toHaveAttribute("tabindex", "0");
   await expect(page.locator("#settings-tab-riconferme")).toHaveAttribute("tabindex", "-1");
+  await expect(page.locator("#settings-tab-schede")).toHaveAttribute("tabindex", "-1");
   await expect(page.locator("#settings-tab-archivio")).toHaveAttribute("tabindex", "-1");
   await expect(page.locator("#settings-tab-status")).toHaveAttribute("tabindex", "-1");
 

@@ -32,7 +32,6 @@ import {
   type TeamState,
   ROLES,
   ROSTER_REQUIREMENTS,
-  INITIAL_BUDGET,
   COST_FLOOR,
 } from "../packages/engine/src/types.js";
 import { reduce } from "../packages/engine/src/reduce.js";
@@ -73,6 +72,10 @@ import { purchaseFeasibility, recordPurchase, type ProposedPurchase } from "../p
 import type { ConfirmationInput } from "../packages/engine/src/confirmations.js";
 import { C, escHtml, roleChipHtml, renderRoleChip } from "./ui/theme.js";
 import { ROLE_LABELS, ROLE_LABEL_SING } from "./ui/labels.js";
+// #333 §A — un nome solo per grandezza, e viene da qui. Le due superfici di
+// questo file che stampavano una formulazione propria (la metrica della fascia
+// critica e la nota sotto «Prezzo da pagare») leggono adesso la costante.
+import { MAX_BID_LABEL_LONG, MAX_BID_LABEL_LONG_SENTENCE } from "./ui/budgetLabels.js";
 import {
   addPerson,
   assignSeat,
@@ -84,6 +87,20 @@ import {
   seatPerson,
   type LeagueRoster,
 } from "./leagueTeams.js";
+// PIANO ROSA (PLAN-01): la dichiarazione di Owner e la sua lettura. Il calcolo
+// vero resta nel motore (livePlan.ts) — qui si legge, si conserva, e si passa
+// al pannello. La forma PARZIALE della dichiarazione (`RolePlanDraft`) è ciò
+// che tiene separati «ruolo non dichiarato» e «ruolo dichiarato a zero»: vedi
+// la testa di src/rolePlan.ts.
+import {
+  EMPTY_ROLE_PLAN_DRAFT,
+  type RolePlanDraft,
+  clearRolePlan,
+  declaredTotal,
+  loadRolePlan,
+  rolePlanReading,
+  saveRolePlan,
+} from "./rolePlan.js";
 import { requiredRoleError } from "./callGuard.js";
 import { parsePositiveIntegerPrice } from "./price.js";
 import {
@@ -95,18 +112,15 @@ import {
 } from "./postPurchaseProjection.js";
 import { executeVoidCommand, voidErrorText } from "./voidCommand.js";
 import { rolePriceFacts, roleTopPurchases } from "./nominationContext.js";
-import {
-  executeAssignCommand,
-  resolveAssignCommand,
-  type AssignCommandPlayer,
-  type AssignCommandResolution,
-} from "./assignCommand.js";
+import { tierBandReading } from "./tierOrdering.js";
 import {
   renderListoneSvincolati,
   renderPlayerInsightsBlock,
   type PlayerInsightProps,
   renderMomentInsightsBlock,
   renderOpponentPrecedentsBlock,
+  renderTierBandBlock,
+  type TierBandProps,
   renderImpostazioniScreen,
   SETTINGS_ICONS,
   type SettingsArea,
@@ -117,7 +131,7 @@ import {
   renderRoleScarcityPanel,
   renderWarBoardFull,
   renderWarBoardMini,
-  renderAssignCommandPanel,
+  renderRolePlanPanel,
   renderRoseScreen,
   renderMockModal,
   renderRecoveryBlockedScreen,
@@ -125,8 +139,23 @@ import {
   renderConfirmationsBlockedScreen,
   renderConfirmationsQuarantineBanner,
   renderConfirmationsStorageErrorScreen,
+  renderRoleDepletionBlock,
+  type RoleDepletionProps,
   type RecoveryBlockedProps,
+  renderInterestFlagRow,
+  renderLateAnswerBlock,
 } from "./ui/views.js";
+import {
+  INTEREST_FLAG_NOT_PERSISTED_NOTICE,
+  enqueueInterestFlag,
+  loadInterestFlags,
+  type InterestFlag,
+} from "./interestFlags.js";
+import {
+  createLateAnswerSlot,
+  type LateAnswerProducer,
+} from "./lateAnswer.js";
+import { roleDepletionReading } from "./roleDepletion.js";
 import {
   loadAuctionLog,
   saveAuctionLog,
@@ -161,6 +190,7 @@ import {
   filterListonePool,
   listonePlayerKey,
   listonePoolIndex,
+  normalizeIdentityPart,
   orphanPlayerIds,
   resolvePlayerDisplayName,
   DEFAULT_VISIBLE_COLUMN_KEYS,
@@ -169,13 +199,30 @@ import {
 } from "./ui/listone.js";
 import { roleBudgetPlanHtml } from "./ui/roleBudgetPlan.js";
 import {
+  AVVISO_VALUES,
   EXPERT_SCHEDA_ENDPOINT,
   EXPERT_SCHEDE_ABSENT,
+  FONTE_VALUES,
+  PIAZZATI_VALUES,
+  RIGORI_VALUES,
+  SCHEDA_GERARCHIA_MAX,
+  SCHEDA_GERARCHIA_MIN,
+  SCHEDA_NOTA_MAX,
+  SCHEDA_PERCENTUALE_MAX,
+  SCHEDA_PERCENTUALE_MIN,
+  TITOLARITA_VALUES,
   parseExpertSchedaDeposit,
   resolveExpertInsight,
   type ExpertSchedaStore,
   type SchedaTarget,
 } from "./expertScheda.js";
+import {
+  AVVISO_LABELS,
+  FONTE_LABELS,
+  PIAZZATI_LABELS,
+  RIGORI_LABELS,
+  TITOLARITA_LABELS,
+} from "./ui/expertInsight.js";
 import {
   loadSchedaLinks,
   saveSchedaLinks,
@@ -183,6 +230,37 @@ import {
   withSchedaLink,
   type SchedaLinks,
 } from "./schedaLinks.js";
+import {
+  EMPTY_SCHEDA_FORM,
+  SCHEDA_DEPOSIT_FILENAME,
+  applySchedaImport,
+  buildScheda,
+  buildSchedaDeposit,
+  loadSchedaDrafts,
+  planSchedaImport,
+  saveSchedaDrafts,
+  schedaProgress,
+  schedaSummary,
+  schedaToForm,
+  withEditing,
+  withScheda,
+  type SchedaDraftState,
+  type SchedaFieldError,
+  type SchedaFormValues,
+  type SchedaImportPlan,
+  type SchedaImportResolution,
+} from "./schedaCompiler.js";
+
+/**
+ * Un'importazione letta e non ancora applicata. Vive solo in `AppState`: è la
+ * domanda che il pannello sta facendo, non un dato da conservare.
+ */
+interface PendingSchedaImport {
+  readonly fileName: string;
+  readonly plan: SchedaImportPlan;
+  /** `null` finché Pico non ha scelto. Serve solo quando ci sono conflitti. */
+  readonly resolution: SchedaImportResolution | null;
+}
 
 // Path of the shipped, Cloudflare-Access-gated static listone asset — see
 // docs/data/LISTONE_UI_LOAD_CONTRACT.md for the shape and authorization.
@@ -364,13 +442,13 @@ interface AppState {
   // is app state (not DOM state) because render() rebuilds the tree on every
   // keystroke of the search box.
   tableDetailOpen: boolean;
-  // T13 #231 — the fast-path command line. Raw text exactly as typed; the
-  // interpretation is recomputed from it on every render (resolveAssignCommand
-  // is pure), never cached, so it can never drift from the current log/pool.
-  assignCommand: string;
-  // Human-readable outcome of the LAST attempted command execution. Cleared on
-  // the next keystroke, so a stale refusal never sits under a new line.
-  assignCommandError: string;
+  // #331 punto 2 — MOMENTO DELL'ASTA è ridotto al ruolo chiamato dentro la
+  // scheda del giocatore; gli altri tre ruoli, il censimento MERCATO e la nota
+  // metodologica stanno dietro questo gesto. Come le due bandiere qui sopra è
+  // stato dell'app e non del DOM, perché render() ricostruisce l'albero a ogni
+  // tasto battuto nel campo del prezzo: una `aria-expanded` tenuta solo nel DOM
+  // si richiuderebbe da sola alla prima cifra.
+  momentFactsDetailOpen: boolean;
   // True only immediately after entering the "chiamata" moment (boot, the
   // "← Indietro" link, or right after a completed purchase) — consumed once
   // by renderMomentoChiamata to focus the search input, so re-renders
@@ -378,6 +456,28 @@ interface AppState {
   // back. See #219.
   chiamataFocusPending: boolean;
   assign: AssignState;
+  /**
+   * CHI ERA IN GARA — la marcatura in corso, LEGATA AL SUO SOGGETTO.
+   *
+   * `subjectKey` è il `listonePlayerKey` del giocatore per cui le marcature
+   * valgono. Tenere il soggetto accanto alle marcature, invece di ricordarsi di
+   * azzerarle a ogni cambio di giocatore, è ciò che rende STRUTTURALMENTE
+   * impossibile che una marcatura fatta per un giocatore finisca sull'acquisto
+   * di un altro: chi legge confronta la chiave, e una chiave diversa vale
+   * quanto nessuna marcatura. Le tre strade che cambiano giocatore
+   * (selezione di una riga, ricerca azzerata, listone che non contiene più il
+   * selezionato) non hanno quindi nulla da ricordarsi.
+   */
+  interestMarks: { subjectKey: string | null; contenders: string[] };
+  /**
+   * La coda locale dei flag già registrati, in memoria. Rispecchia lo storage
+   * quando l'ultima scrittura è riuscita; quando NON è riuscita resta più
+   * ricca di lui — la marcatura non si perde per la sessione — e
+   * `interestFlagsNotice` lo dice.
+   */
+  interestFlags: readonly InterestFlag[];
+  /** Perché la coda dei flag non è al sicuro. Vuoto è lo stato normale. */
+  interestFlagsNotice: string;
   confirmVoidSeq: number | null;
   confirmVoidLabel: string;
   // Whether the purchase being confirmed for void is the most recent one still
@@ -417,6 +517,15 @@ interface AppState {
   poolStatusFilterOpen: boolean;
   offline: boolean;
   leagueRoster: LeagueRoster;
+  /**
+   * La dichiarazione di piano rosa di Owner, in forma parziale.
+   *
+   * `null` = non è mai stata dichiarata (o la copia conservata era illeggibile
+   * ed è stata rifiutata in blocco: fail-closed, mai una dichiarazione
+   * parziale indovinata). Non è la stessa cosa di una dichiarazione con tutti i
+   * ruoli a zero, e il pannello le mostra in due modi diversi.
+   */
+  rolePlan: RolePlanDraft | null;
   /**
    * Lo storico d'asta multi-stagione e i profili d'intervista, letti al boot
    * dallo storage locale del browser.
@@ -459,6 +568,41 @@ interface AppState {
   schedaLinks: SchedaLinks;
   /** `false` solo quando l'ULTIMA risposta non è stata scritta nello storage. */
   schedaLinksPersisted: boolean;
+  /**
+   * LE SCHEDE CHE PICO STA SCRIVENDO, non quelle che il deposito serve.
+   *
+   * Due archivi distinti e nessuna confusione possibile: `expertSchede` è il
+   * deposito LETTO a runtime dall'endpoint privato in sola lettura, e resta
+   * intoccabile; questo è il lavoro in corso nel browser di chi compila
+   * (src/schedaCompiler.ts), che alla fine diventa il file che Pico deposita a
+   * mano. Il sito non scrive mai sul deposito, né qui né altrove.
+   */
+  schedaDrafts: SchedaDraftState;
+  /** `false` solo quando l'ULTIMA scrittura delle schede non ha attecchito. */
+  schedaDraftsPersisted: boolean;
+  /** La riga di listone su cui si sta compilando, o `null` — chiave di riga. */
+  schedaTargetKey: string | null;
+  /** Il modulo in composizione, come lo rende il DOM: tutto stringa. */
+  schedaForm: SchedaFormValues;
+  /** I motivi dell'ultimo salvataggio rifiutato. Vuoto è lo stato normale. */
+  schedaErrors: readonly SchedaFieldError[];
+  /** L'esito dell'ultima azione riuscita, o il motivo per cui il deposito non è pronto. */
+  schedaNotice: string;
+  /** Filtro sul selettore del giocatore: il listone reale supera le 500 righe. */
+  schedaFilter: string;
+  /** La scheda per cui è stata chiesta la cancellazione, in attesa del secondo clic. */
+  schedaConfirmDelete: string | null;
+  /**
+   * L'importazione LETTA e non ancora applicata: che cosa succederebbe se si
+   * confermasse, in attesa che Pico lo confermi. `null` è lo stato normale.
+   *
+   * Transitoria per scelta, e non persistita come le schede: è una domanda
+   * aperta su un file scelto adesso, non lavoro da mettere al sicuro. Un
+   * reload la chiude, e il file si ricarica con un gesto.
+   */
+  schedaImport: PendingSchedaImport | null;
+  /** Perché l'ultimo file NON è stato importato. Vuoto è lo stato normale. */
+  schedaImportError: string;
   rosterError: string;
   newPersonName: string;
   /**
@@ -639,6 +783,34 @@ const bootPool: ResolvedListonePool = resolveListonePool({
 
 const bootLogEvents = logFromLoadResult(bootLog);
 
+// Le schede in composizione, rilette una volta al boot: sono ore di battitura
+// e devono essere di nuovo lì al reload, compreso il modulo lasciato aperto a
+// metà (src/schedaCompiler.ts).
+const bootSchedaDrafts = loadSchedaDrafts(browserStorage);
+
+// La coda dei flag «chi era in gara», riletta al boot. Fail-SOFT per
+// costruzione (src/interestFlags.ts): nessuno dei quattro esiti blocca lo
+// schermo, e in tutti e quattro `pending` è utilizzabile. Il solo caso che
+// produce una riga a schermo è quello in cui qualcosa si è perso davvero, e la
+// riga lo dice senza allarmare: la contabilità dell'asta non è toccata.
+const bootInterestFlags = loadInterestFlags(browserStorage);
+
+function interestFlagsBootNotice(result: ReturnType<typeof loadInterestFlags>): string {
+  if (result.status === "quarantined") {
+    return (
+      "La coda locale delle marcature «chi era in gara» non era leggibile ed è stata messa da parte: " +
+      "riparte vuota. Storico dell'asta, budget e slot non sono toccati."
+    );
+  }
+  if (result.status === "storage-error") {
+    return (
+      "La coda locale delle marcature «chi era in gara» non è accessibile in questo browser: " +
+      "le marcature di stasera resteranno solo in memoria. Storico dell'asta, budget e slot non sono toccati."
+    );
+  }
+  return "";
+}
+
 const state: AppState = {
   screen: "asta",
   moment: "chiamata",
@@ -654,10 +826,12 @@ const state: AppState = {
   nominationContextOpen: false,
   criticalPlanOpen: false,
   tableDetailOpen: false,
-  assignCommand: "",
-  assignCommandError: "",
+  momentFactsDetailOpen: false,
   chiamataFocusPending: true,
   assign: { fantaTeamId: SELF_ID, price: "" },
+  interestMarks: { subjectKey: null, contenders: [] },
+  interestFlags: bootInterestFlags.pending,
+  interestFlagsNotice: interestFlagsBootNotice(bootInterestFlags),
   confirmVoidSeq: null,
   confirmVoidLabel: "",
   confirmVoidIsLatest: true,
@@ -678,6 +852,7 @@ const state: AppState = {
   poolStatusFilterOpen: false,
   offline: !navigator.onLine,
   leagueRoster: loadLeagueRoster(browserStorage, FANTA_TEAM_IDS),
+  rolePlan: loadRolePlan(browserStorage),
   // Fail-closed entrambi: assente o corrotto -> lista vuota, mai parziale. Un
   // conteggio di precedenti fatto su metà delle righe sarebbe un numero
   // sbagliato con l'aria di un fatto.
@@ -692,6 +867,19 @@ const state: AppState = {
   expertSchede: EXPERT_SCHEDE_ABSENT,
   schedaLinks: loadSchedaLinks(browserStorage),
   schedaLinksPersisted: true,
+  // Fail-closed a vuoto come gli altri side-store: un archivio illeggibile
+  // riparte da zero DICENDOLO, invece di mostrare un elenco a cui manca in
+  // silenzio qualcosa.
+  schedaDrafts: bootSchedaDrafts,
+  schedaDraftsPersisted: true,
+  schedaTargetKey: bootSchedaDrafts.editing?.rowKey ?? null,
+  schedaForm: bootSchedaDrafts.editing?.values ?? EMPTY_SCHEDA_FORM,
+  schedaErrors: [],
+  schedaNotice: "",
+  schedaFilter: "",
+  schedaConfirmDelete: null,
+  schedaImport: null,
+  schedaImportError: "",
   rosterError: "",
   newPersonName: "",
   personIdCopy: null,
@@ -887,6 +1075,9 @@ function disarmSelectionOutsidePool(index: ReadonlyMap<string, ListonePlayer>): 
     state.assign = { fantaTeamId: SELF_ID, price: "" };
     state.error = "";
   }
+  // Il selezionato non esiste più nel listone: il posto della risposta lenta si
+  // svuota con lui, dopo le mutazioni e prima che il chiamante ridipinga.
+  armLateAnswer(null);
   const head = wasInAsta ? "Selezione annullata e asta in corso interrotta" : "Selezione annullata";
   return `${head}: ${selected.name} non è più nel listone caricato.`;
 }
@@ -1166,6 +1357,12 @@ function selectListonePlayer(p: ListonePlayer): void {
   // on-demand closed state instead of silently re-pointing at another player.
   state.nominationContextOpen = false;
   state.chiamataFocusPending = true;
+  // Nuovo soggetto: la risposta lenta si arma su di lui e quella del giocatore
+  // di prima viene annullata nello stesso gesto (src/lateAnswer.ts). Le
+  // marcature «chi era in gara» non hanno bisogno di essere azzerate qui:
+  // portano il proprio soggetto con sé, e per un soggetto diverso valgono
+  // quanto nessuna marcatura.
+  armLateAnswer(listonePlayerKey(p));
   render();
 }
 
@@ -1187,6 +1384,18 @@ function toggleTableDetail(): void {
   state.tableDetailOpen = !state.tableDetailOpen;
   render();
   focusAfterRender("table-detail-toggle");
+}
+
+/**
+ * #331 punto 2 — il gesto che apre gli altri tre ruoli e il censimento MERCATO
+ * dentro la scheda del giocatore. Stessa forma di toggleTableDetail: stato
+ * dell'app, re-render intero, tastiera rimessa sul controllo che adesso porta
+ * il nuovo `aria-expanded`.
+ */
+function toggleMomentFactsDetail(): void {
+  state.momentFactsDetailOpen = !state.momentFactsDetailOpen;
+  render();
+  focusAfterRender("moment-facts-toggle");
 }
 
 // True only when the search bar's three fields still exactly match the
@@ -1211,6 +1420,7 @@ function resetListoneSearch(): void {
   state.poolStatusFilter = "available";
   state.poolPage = 1;
   state.chiamataFocusPending = true;
+  armLateAnswer(null);
   render();
 }
 
@@ -1222,6 +1432,33 @@ function resetListoneSearch(): void {
 // touching reduce() directly. render() guards this exact call against a
 // confirmations/live-log conflict throw (audit fix 3) before any screen is
 // built — see the render() comment "Fix 3 (#283) fail-closed guard".
+// ── IL MIO PIANO (PLAN-01) — costruzione del pannello ───────────────────────
+//
+// Il motore calcolava già il piano rosa vivo e nessuna schermata lo importava.
+// Qui si chiudono i due fili che mancavano: la LETTURA (`rolePlanReading`, che
+// chiama `livePlan()` solo quando la dichiarazione è completa e valida) e la
+// PERSISTENZA della dichiarazione. views.ts riceve le due funzioni e non tocca
+// né il motore né lo storage, come ogni altro pannello.
+function renderMyRolePlanPanel(aState: AuctionState): HTMLElement | null {
+  const team = myTeam(aState);
+  if (team === undefined) return null;
+  return renderRolePlanPanel({
+    draft: state.rolePlan ?? EMPTY_ROLE_PLAN_DRAFT,
+    read: (draft) => rolePlanReading(team, draft),
+    persist: (draft) => {
+      state.rolePlan = draft;
+      // Una dichiarazione tornata completamente vuota non lascia dietro di sé
+      // un guscio conservato: niente dichiarato, niente scritto. Al prossimo
+      // avvio si rilegge «nessun piano», che è la verità.
+      const { roles } = declaredTotal(draft);
+      if (roles === 0 && draft.planVersion.trim().length === 0) {
+        return clearRolePlan(browserStorage);
+      }
+      return saveRolePlan(browserStorage, draft);
+    },
+  });
+}
+
 function deriveAuctionState(): AuctionState {
   return reduce(state.log, FANTA_TEAM_IDS, state.confirmations);
 }
@@ -1248,6 +1485,14 @@ function auctionDisplayPool(): ListonePlayer[] {
  * complete auction (224 purchases) against a real listone (532 rows) cost
  * ~140 ms per keystroke, on the critical path of a call, growing exactly as
  * the auction went on.
+ *
+ * «Una volta per pannello» qui è una DISCIPLINA, non una garanzia provata:
+ * nessun test fallisce se una chiamata futura sposta questa costruzione
+ * dentro il ciclo che risolve gli id. `renderZona4` costruisce DOM e questo
+ * progetto non ha un ambiente di test jsdom/happy-dom, quindi il contatore
+ * che protegge la passata O(pool) (src/ui/listone.test.ts) arriva fino alla
+ * funzione, non fino a questo call site. Chi tocca questa riga lo faccia
+ * sapendo che è sorvegliata da un commento, non da un rosso.
  */
 function auctionDisplayIndex(): ReadonlyMap<string, ListonePlayer> {
   return listonePoolIndex(state.pool);
@@ -1369,6 +1614,37 @@ function renderArchivioAvversariSettings(): HTMLElement {
 }
 
 /**
+ * Ingressi del riquadro FASCIA DEL CHIAMATO (views.ts `renderTierBandBlock`):
+ * in che fascia d'asta sta il giocatore chiamato e cosa è stato davvero pagato
+ * in quella fascia stasera.
+ *
+ * Tutto il lavoro sta in `tierBandReading` (src/tierOrdering.ts), che è puro e
+ * testato senza DOM: qui si passano soltanto i pezzi di stato che quella
+ * funzione non può conoscere. `listonePlayerKey` è la STESSA chiave con cui
+ * l'event log registra un acquisto — usarne una seconda qui significherebbe
+ * cercare le fasce di un giocatore diverso da quello comprato.
+ *
+ * `role` viene dalla riga selezionata e non da `state.call.role`: sono lo
+ * stesso valore finché la chiamata è correlata (isCallCorrelated), e la riga è
+ * la sola delle due a essere anche l'identità su cui la fascia è costruita.
+ */
+function tierBandProps(aState: AuctionState): TierBandProps {
+  const selected = state.call.selectedPlayer;
+  return {
+    reading: tierBandReading({
+      pool: state.pool,
+      source: state.poolSource,
+      state: aState,
+      log: state.log,
+      called:
+        selected === null ? null : { playerId: listonePlayerKey(selected), role: selected.role },
+      selfId: SELF_ID,
+    }),
+    role: selected === null ? "" : selected.role,
+  };
+}
+
+/**
  * L'identità con cui il riquadro INSIGHT GIOCATORE cerca la scheda: NOME +
  * SQUADRA della riga selezionata, `null` quando non c'è nessuna riga.
  *
@@ -1422,88 +1698,6 @@ function chooseScheda(schedaKey: string | null): void {
   render();
 }
 
-// ── Command line di inserimento (T13 #231) ───────────────────────────────────
-// The resolver is pure and cheap, so the interpretation is recomputed from the
-// raw text on every render instead of being cached in state: it can never go
-// stale against a log or a pool that changed under it.
-
-/** The listone rows the command line can address, keyed exactly like the log. */
-function assignCommandPool(): AssignCommandPlayer[] {
-  return state.pool.map((p) => ({
-    playerId: listonePlayerKey(p),
-    name: p.name,
-    club: p.club,
-    role: p.role,
-  }));
-}
-
-/** `null` while the line is empty — there is nothing to interpret yet. */
-function assignCommandResolution(aState: AuctionState): AssignCommandResolution | null {
-  if (state.assignCommand.trim() === "") return null;
-  return resolveAssignCommand(state.assignCommand, {
-    seats: FANTA_TEAM_IDS.map((id) => ({ fantaTeamId: id, label: displayTeamLabel(id) })),
-    pool: assignCommandPool(),
-    assignedPlayerIds: new Set(aState.purchasedPlayerIds),
-  });
-}
-
-function onAssignCommandInput(value: string): void {
-  state.assignCommand = value;
-  // A refusal belongs to the line that produced it, never to the next one.
-  state.assignCommandError = "";
-  render();
-}
-
-function submitAssignCommand(aState: AuctionState): void {
-  const resolution = assignCommandResolution(aState);
-  // Inert unless the line resolves to exactly one purchase. The preview
-  // already says why it does not, and picking a "best" match is precisely
-  // what this path must never do.
-  if (resolution === null || !resolution.ok) return;
-  const resolved = resolution.resolved;
-
-  const result = executeAssignCommand(
-    browserStorage,
-    state.log,
-    aState,
-    resolved,
-    new Date().toISOString(),
-    FANTA_TEAM_IDS,
-    state.confirmations,
-  );
-
-  if (!result.ok) {
-    if (result.reason === "not-feasible") {
-      state.assignCommandError = feasibilityErrorText(result.violations, resolved.role);
-    } else if (result.reason === "application-error") {
-      state.assignCommandError = result.message;
-    } else {
-      // Storage failures are app-wide fail-closed state (LIVE-02), not a
-      // command-line message: the in-memory log stays where it was.
-      handleSaveFailure(result);
-      render();
-      return;
-    }
-    render();
-    focusAfterRender("assign-command-input");
-    return;
-  }
-
-  state.log = result.events as AuctionEvent[];
-  state.persistenceError = "";
-  state.assignCommand = "";
-  state.assignCommandError = "";
-  // A command purchase leaves the call surfaces exactly as an ordinary one
-  // does — nothing stays pointing at the player just bought.
-  state.call = { playerName: "", role: "", club: "", selectedPlayer: null };
-  state.callInteractions = 0;
-  state.nominationContextOpen = false;
-  state.error = "";
-  render();
-  // Straight back on the line, ready for the next call.
-  focusAfterRender("assign-command-input");
-}
-
 // How many already-assigned top-of-role purchases the "Contesto chiamata"
 // panel lists. Small on purpose: it is a factual recap of what the role has
 // already cost, not a leaderboard.
@@ -1517,6 +1711,37 @@ function nominationContextTopAssigned(role: Role): NominationContextTopEntry[] {
     teamLabel: displayTeamLabel(entry.fantaTeamId),
     price: entry.price,
   }));
+}
+
+/**
+ * Ingressi del riquadro IL RUOLO STASERA (views.ts `renderRoleDepletionBlock`):
+ * che cosa è successo al ruolo in asta stasera, e quanti posti di quel ruolo
+ * restano aperti al tavolo.
+ *
+ * Tutto il lavoro sta in `roleDepletionReading` (src/roleDepletion.ts), che è
+ * puro e testato senza DOM: qui si passano soltanto i pezzi di stato che quella
+ * funzione non può conoscere.
+ *
+ * `state.call.role` e non il ruolo della riga selezionata: è il ruolo con cui
+ * la chiamata è partita, cioè quello che il resto della schermata live sta già
+ * usando (`momentScarcityHtml` marca la sua cella con lo stesso valore), e due
+ * ruoli diversi sulla stessa schermata sarebbero due risposte a due domande
+ * mentre la domanda è una sola. `""` — nessuna chiamata — arriva fino alla
+ * frase che lo dice, e non diventa un ruolo di ripiego.
+ *
+ * NON RICEVE IL LISTONE, e non è una dimenticanza: la decisione di Pico del
+ * 16/08/2026 tiene la quotazione fuori dal calcolo, quindi questo pannello non
+ * ha nemmeno il modo di guardarla. Vedi la nota in testa a src/roleDepletion.ts.
+ */
+function roleDepletionProps(aState: AuctionState): RoleDepletionProps {
+  return {
+    reading: roleDepletionReading({
+      log: state.log,
+      state: aState,
+      role: state.call.role,
+    }),
+    teamLabels: seatLabelMap(),
+  };
 }
 
 // ── Render entry point ────────────────────────────────────────────────────────
@@ -1642,8 +1867,9 @@ function render(): void {
   // wide as the header and sit flush against it (inside .screen-container it
   // was capped at the 1200px column and floated 20px below the bar). And it is
   // mounted ONLY in the chiamata moment: during the live asta the same numbers
-  // are answered by the player card (max per completare la rosa) and the war
-  // board MINI, and Pico asked for the vertical room back exactly there.
+  // are answered by the player card (la nota «max bid sicuro» sotto «Prezzo da
+  // pagare») and the war board MINI, and Pico asked for the vertical room back
+  // exactly there.
   if (criticalStripMounted()) {
     wrapper.appendChild(renderCriticalAuctionStrip(myTeam(deriveAuctionState())));
   }
@@ -1679,6 +1905,7 @@ function render(): void {
         // Tier-1 accounting lives HERE, not on the Asta screen — see the UI
         // invariant in docs/FRONTEND_STRUCTURE.md and renderOpponentTier1Panel.
         opponentTier1(roseState, SELF_ID),
+        renderMyRolePlanPanel(roseState),
       ),
     );
   } else if (state.screen === "impostazioni") {
@@ -2201,6 +2428,22 @@ function renderAsta(): HTMLElement {
     wrap.appendChild(poolNotice);
   }
 
+  // LA CODA DEI FLAG «CHI ERA IN GARA» NON È AL SICURO — e si dice a voce
+  // bassa, di proposito. Non è `role="alert"` e non è rossa come le due righe
+  // qui sopra: quelle parlano della contabilità dell'asta, questa di un dato di
+  // contorno che si è perso. Alzare la voce per lui mentre l'asta corre
+  // costerebbe attenzione più di quanto il dato valga, e la frase dice come
+  // prima cosa che l'acquisto c'è.
+  if (state.interestFlagsNotice) {
+    const flagNotice = document.createElement("div");
+    flagNotice.id = "interest-flag-notice";
+    flagNotice.setAttribute("role", "status");
+    flagNotice.className = "hint-text";
+    flagNotice.style.cssText = `border:1px solid ${C.border};border-radius:8px;padding:8px 12px;`;
+    flagNotice.textContent = state.interestFlagsNotice;
+    wrap.appendChild(flagNotice);
+  }
+
   // The critical strip used to be appended here. It now lives next to the
   // header (see render()) so it can be header-wide and header-attached, and
   // only in the chiamata moment — #331 punto 5.
@@ -2222,21 +2465,18 @@ function renderAsta(): HTMLElement {
 
   // #333 — where the table lives, per moment.
   //
-  // CHIAMATA: scarsità per ruolo + war board + SQUADRE (LEGA) are one block
-  // behind one gesture (renderTableDetail). They are the same eight seats read
-  // three ways, they answer the four auction-speed questions only from the
-  // TABLE's side, and together they were more than half of this screen's
-  // height while the search field — the reason the screen exists — sat below
-  // the fold. Moved and grouped, not removed: every number is still one
-  // click/Invio away, in the DOM, in the same three panels.
+  // CHIAMATA: scarsità per ruolo + war board are one block behind one gesture
+  // (renderTableDetail). They read the same eight seats from the TABLE's side,
+  // and together they were more than half of this screen's height while the
+  // search field — the reason the screen exists — sat below the fold. Moved
+  // and grouped, not removed: every number is still one click/Invio away, in
+  // the DOM, in the same panels.
   //
-  // ASTA: unchanged. SQUADRE (LEGA) stays exactly where it was, plainly
-  // visible, because the live moment has no such block and nothing here may
-  // take information away from that screen.
+  // ASTA: il momento live non ha questo gruppo. La contabilità di tutto il
+  // tavolo lì è la striscia WAR BOARD (MINI), renderWarBoardMini in
+  // renderMomentoAsta.
   if (state.moment === "chiamata") {
     wrap.appendChild(renderTableDetail(aState, scarcity));
-  } else {
-    wrap.appendChild(renderTeamsPanel(aState));
   }
 
   // Zone 4
@@ -2302,7 +2542,7 @@ function renderCriticalAuctionStrip(team: TeamState | undefined): HTMLElement {
   strip.setAttribute("aria-label", "Budget, rosa e vincoli critici asta");
 
   if (!team) {
-    strip.innerHTML = `<div class="critical-strip__row"><div class="critical-metric critical-metric--bid critical-bid--stop"><span>Max bid sicuro</span><strong>— <em>stato squadra non disponibile</em></strong></div></div>`;
+    strip.innerHTML = `<div class="critical-strip__row"><div class="critical-metric critical-metric--bid critical-bid--stop"><span>${MAX_BID_LABEL_LONG_SENTENCE}</span><strong>— <em>stato squadra non disponibile</em></strong></div></div>`;
     return strip;
   }
 
@@ -2419,7 +2659,7 @@ function renderCriticalAuctionStrip(team: TeamState | undefined): HTMLElement {
       ${roster}
       <div class="critical-metric critical-metric--bid ${bidState}"
            id="critical-max-bid" role="status" aria-live="polite">
-        <span>Max bid sicuro</span>
+        <span>${MAX_BID_LABEL_LONG_SENTENCE}</span>
         <strong>${bidValue}${bidNote ? ` <em>${bidNote}</em>` : ""}</strong>
       </div>
     </div>
@@ -2464,6 +2704,17 @@ const SETTINGS_AREAS: readonly SettingsArea[] = [
     body: () => renderRiconfermeSettings(),
   },
   {
+    id: "schede",
+    title: "Schede Gruppo Esperti",
+    icon: SETTINGS_ICONS.scheda,
+    body: () => renderSchedeSettings(),
+  },
+  {
+    // La via d'ingresso dello storico d'asta: senza questa area il pannello
+    // AVVERSARI resterebbe muto in produzione, perché non esisterebbe alcun
+    // punto in cui caricare l'archivio. Convive con "schede": le due aree
+    // sono nate in parallelo e occupavano lo stesso slot, ma rispondono a
+    // due domande diverse e nessuna sostituisce l'altra.
     id: "archivio",
     title: "Archivio avversari",
     icon: ARCHIVE_SETTINGS_ICON,
@@ -2480,6 +2731,130 @@ const SETTINGS_AREAS: readonly SettingsArea[] = [
 /** Seat -> display name, for views that render many seats at once. */
 function seatLabelMap(): Record<string, string> {
   return Object.fromEntries(FANTA_TEAM_IDS.map((id) => [id, displayTeamLabel(id)]));
+}
+
+// ── CHI ERA IN GARA — il flag al submit ───────────────────────────────────
+// Uno stream SECONDARIO e best-effort accanto all'acquisto, mai dentro di lui:
+// la meccanica, la coda e il motivo per cui qui il fail-closed sarebbe il
+// difetto e non la garanzia stanno in testa a src/interestFlags.ts.
+
+/** I posti marcabili: i sette avversari, mai il mio (la domanda è su di loro). */
+function interestSeatIds(): readonly string[] {
+  return FANTA_TEAM_IDS.filter((id) => id !== SELF_ID);
+}
+
+/** Il soggetto delle marcature: il giocatore selezionato, o `null`. */
+function currentInterestSubjectKey(): string | null {
+  const selected = state.call.selectedPlayer;
+  return selected === null ? null : listonePlayerKey(selected);
+}
+
+/**
+ * Le marcature valide ADESSO. Una marcatura il cui soggetto non è il giocatore
+ * corrente non vale niente e non viene mostrata: è la garanzia strutturale
+ * descritta su `AppState.interestMarks`.
+ */
+function currentInterestMarks(): readonly string[] {
+  const subject = currentInterestSubjectKey();
+  if (subject === null || state.interestMarks.subjectKey !== subject) return [];
+  return state.interestMarks.contenders;
+}
+
+/**
+ * Marca/smarca un posto e restituisce l'elenco aggiornato al chiamante, che
+ * ridipinge SOLO la pastiglia toccata e la riga di sintesi. Nessun `render()`:
+ * ricostruire l'albero intero costerebbe il fuoco del campo del prezzo, cioè
+ * farebbe pagare al gesto principale il costo di un dato di contorno.
+ */
+function toggleInterestMark(seatId: string): readonly string[] {
+  const subject = currentInterestSubjectKey();
+  if (subject === null) return [];
+  const previous = currentInterestMarks();
+  const next = previous.includes(seatId)
+    ? previous.filter((id) => id !== seatId)
+    : [...previous, seatId];
+  state.interestMarks = { subjectKey: subject, contenders: [...next] };
+  return next;
+}
+
+/**
+ * Accoda il flag dell'acquisto appena registrato. BEST-EFFORT ASSOLUTO: viene
+ * chiamata DOPO che l'acquisto è già stato scritto e non ha alcun modo di
+ * disfarlo — non lancia (il modulo restituisce esiti, e questo `try` copre
+ * anche uno storage che lanci da dentro un punto non previsto), non tocca
+ * `state.log`, non imposta `state.error` e non impedisce il `render()` finale.
+ *
+ * Nessuna marcatura è un esito NORMALE e silenzioso: si accoda comunque una
+ * voce con `contenders: []`, perché «l'operatore non ha marcato nessuno» e
+ * «non gli è stato chiesto» sono due fatti diversi e solo il primo è vero qui.
+ */
+function recordInterestFlag(
+  purchaseSeq: number,
+  proposed: ProposedPurchase,
+  contenders: readonly string[],
+): void {
+  try {
+    const result = enqueueInterestFlag(browserStorage, state.interestFlags, {
+      purchaseSeq,
+      playerId: proposed.playerId,
+      winnerFantaTeamId: proposed.fantaTeamId,
+      price: proposed.price,
+      contenders: [...contenders],
+      flaggedAt: new Date().toISOString(),
+    });
+    state.interestFlags = result.pending;
+    state.interestFlagsNotice = result.ok ? "" : INTEREST_FLAG_NOT_PERSISTED_NOTICE;
+  } catch {
+    // Irraggiungibile per costruzione (enqueueInterestFlag non lancia), e
+    // tenuto lo stesso: è l'ultima rete fra un dato di contorno e un acquisto
+    // registrato. Il flag si perde, l'asta no.
+    state.interestFlagsNotice = INTEREST_FLAG_NOT_PERSISTED_NOTICE;
+  }
+}
+
+// ── IL POSTO DELLA RISPOSTA LENTA ─────────────────────────────────────────
+// La meccanica (generazioni, annullamento, i tre stati più il silenzio onesto)
+// sta in src/lateAnswer.ts; qui c'è solo il cablaggio.
+//
+// `onChange` ridipinge la schermata SOLO quando lo stato visibile cambia
+// davvero: una risposta obsoleta viene scartata dal posto e non arriva
+// nemmeno a chiedere un re-render.
+const lateAnswerSlot = createLateAnswerSlot<string>({ onChange: () => render() });
+
+/**
+ * L'UNICO punto d'innesto dichiarato. La corsia che alimenterà questo posto —
+ * l'agente di lettura — registrerà qui il proprio produttore; finché resta
+ * `null` non parte nessuna richiesta, e il riquadro lo DICE («Non richiesta»)
+ * invece di far finta di stare preparando qualcosa.
+ *
+ * In questo task l'esito è deliberatamente `null`: nessuna dipendenza nuova,
+ * nessuna rete, nessuna chiamata a modelli. Il produttore finto vive nei test.
+ *
+ * È una funzione e non una costante perché una costante inizializzata a `null`
+ * verrebbe ristretta a `null` dal compilatore in ogni punto d'uso: il tipo del
+ * posto d'innesto sparirebbe, e con lui la dichiarazione di che cosa ci andrà.
+ */
+function lateAnswerProducer(): LateAnswerProducer<string> | null {
+  return null;
+}
+
+/**
+ * La richiesta parte QUANDO IL GIOCATORE VIENE SELEZIONATO, non quando la
+ * risposta servirebbe: è la differenza fra «si prepara mentre l'asta va
+ * avanti» e «l'asta aspetta».
+ *
+ * Il cambio di soggetto passa sempre di qui — con un produttore (nuova
+ * richiesta, generazione nuova, la precedente annullata) o senza (posto
+ * svuotato) — quindi non esiste una strada che cambi giocatore lasciando in
+ * piedi la risposta del giocatore di prima.
+ */
+function armLateAnswer(subjectKey: string | null): void {
+  const producer = lateAnswerProducer();
+  if (subjectKey === null || producer === null) {
+    lateAnswerSlot.clear();
+    return;
+  }
+  lateAnswerSlot.request(subjectKey, producer);
 }
 
 function persistRoster(next: LeagueRoster): void {
@@ -3113,6 +3488,1066 @@ function applyRiconfermeBatch(next: readonly ConfirmationInput[], draftOnFailure
   render();
 }
 
+// ── SCHEDE GRUPPO ESPERTI — la schermata che le compila ─────────────────────
+//
+// PERCHÉ ESISTE. Il deposito delle schede (src/expertScheda.ts) è un file JSON
+// che Pico scrive PRIMA dell'asta: ~200 schede, misurate fra i 20 secondi di
+// una magra e i 90 di una piena, circa due ore. Finora l'unico modo era battere
+// il JSON a mano contro uno schema `.strict()` e un lettore fail-closed: un
+// refuso di virgola non rovina una riga, rifiuta il file intero. Questa
+// schermata esiste perché quelle due ore non dipendano da una virgola.
+//
+// LE QUATTRO REGOLE DEL PANNELLO, e ognuna toglie di mezzo un modo di sbagliare:
+//
+//  1. L'IDENTITÀ SI SCEGLIE, NON SI SCRIVE. Il giocatore si prende da una riga
+//     del listone caricato, mai da un campo di testo: `player` e `club` vengono
+//     da lì, quindi la scheda si aggancia a quella riga per costruzione
+//     (`findSchedaCandidates`). L'errore peggiore possibile per queste schede è
+//     il silenzioso — scheda scritta, depositata e mai resa perché il nome non
+//     combacia — e questo lo rende impossibile invece che improbabile.
+//  2. OGNI CAMPO DEL VOCABOLARIO È UN CONTROLLO. Titolarità, rigori e fonte
+//     sono `<select>` costruiti sui vocabolari del contratto; calci piazzati e
+//     avvisi sono checkbox; i due numerici portano i limiti dello schema, letti
+//     da `src/expertScheda.ts` e non riscritti qui. Non c'è un punto in cui si
+//     possa digitare un valore che il contratto non conosce.
+//  3. LA NOTA NON VIENE MAI TAGLIATA DA SOLA. Contatore visibile e limite
+//     dichiarato; oltre il limite il salvataggio si RIFIUTA e dice di quanto si
+//     è lunghi. Un `maxlength` che tronca un incollaggio perderebbe la coda
+//     della frase senza dirlo, che è esattamente ciò che non deve succedere.
+//  4. IL DEPOSITO SI VALIDA PRIMA DI OFFRIRLO, con `parseExpertSchedaDeposit` —
+//     la funzione vera, quella che leggerà il file a runtime. Se non passa, il
+//     pannello dice perché invece di consegnare un file rotto.
+//
+// NIENTE DI DIRETTIVO, QUI DENTRO NON C'È E NON PUÒ ENTRARE. Nessun prezzo,
+// nessun `value` / `fair_to_me` / `target_band`, nessun punteggio, nessuna
+// classifica, nessun «conviene»: i campi compilabili sono esattamente quelli
+// del contratto, che è descrittivo per costruzione (docs/NO_GO.md §Prodotto).
+//
+// Vive in main.ts e non in views.ts per la stessa ragione dei due pannelli
+// sopra: legge e muta lo stato dell'app.
+
+/** La riga di listone dietro una chiave di riga, o `null` se non c'è (più). */
+function schedaRowTarget(rowKey: string | null): SchedaTarget | null {
+  if (rowKey === null) return null;
+  const row = auctionDisplayIndex().get(rowKey);
+  return row === undefined ? null : { name: row.name, club: row.club };
+}
+
+/**
+ * Scrive l'archivio e RICORDA se la scrittura ha attecchito.
+ *
+ * Il lavoro resta a schermo anche quando lo storage lo rifiuta — buttarlo via
+ * sarebbe la perdita che questa schermata esiste per evitare — ma il pannello
+ * lo dichiara con `#schede-persist-error`: una scheda che sembra salvata e non
+ * lo è vale meno di zero.
+ */
+function persistSchedaDrafts(next: SchedaDraftState): void {
+  state.schedaDrafts = next;
+  state.schedaDraftsPersisted = saveSchedaDrafts(browserStorage, next);
+}
+
+/** Il modulo attualmente aperto, nella forma che l'archivio persiste. */
+function schedaEditingSnapshot(): SchedaDraftState {
+  return withEditing(
+    state.schedaDrafts,
+    state.schedaTargetKey === null ? null : { rowKey: state.schedaTargetKey, values: state.schedaForm },
+  );
+}
+
+/**
+ * Apre (o chiude) la compilazione su una riga di listone. Una riga già scritta
+ * si riapre com'era: correggere una scheda sbagliata non deve costare quanto
+ * riscriverla.
+ */
+function selectSchedaTarget(rowKey: string | null): void {
+  const existing = rowKey === null ? undefined : state.schedaDrafts.schede.get(rowKey);
+  state.schedaTargetKey = rowKey;
+  state.schedaForm = existing === undefined ? EMPTY_SCHEDA_FORM : schedaToForm(existing);
+  state.schedaErrors = [];
+  state.schedaNotice = "";
+  state.schedaConfirmDelete = null;
+  persistSchedaDrafts(schedaEditingSnapshot());
+  render();
+}
+
+/** Un campo cambiato. Non ridisegna: il DOM del modulo è già quello giusto. */
+function updateSchedaForm(patch: Partial<SchedaFormValues>): void {
+  state.schedaForm = { ...state.schedaForm, ...patch };
+}
+
+/**
+ * Il modulo aperto, messo al sicuro.
+ *
+ * Legato a `change` (cioè al momento in cui un campo è stato lasciato) e non a
+ * `input`: una scrittura per tasto premuto rifarebbe `JSON.stringify` + la
+ * validazione di contratto su tutte le schede a ogni carattere. Il peggio che
+ * si perde così è il campo che si sta battendo in questo istante, e solo se la
+ * scheda del browser muore prima di lasciarlo.
+ */
+function persistSchedaEditing(): void {
+  const before = state.schedaDraftsPersisted;
+  persistSchedaDrafts(schedaEditingSnapshot());
+  // RIDISEGNA SOLO QUANDO L'ESITO DELLA SCRITTURA CAMBIA, e non a ogni campo
+  // lasciato. Non è un'ottimizzazione: `change` scatta al BLUR, cioè
+  // nell'istante esatto in cui si preme «Salva la scheda», e un `render()` lì
+  // dentro distrugge il pulsante fra il mousedown e il click — il clic non
+  // arriva mai al gestore. Misurato sul campo: dopo aver scritto in un campo,
+  // il primo clic su «Salva» non faceva niente. L'unica cosa che questo
+  // ridisegno deve mostrare è la comparsa (o la sparizione) della riga «ULTIMA
+  // MODIFICA NON SALVATA», e quella cambia una volta sola.
+  if (before !== state.schedaDraftsPersisted) render();
+}
+
+/** Salva la scheda compilata, o mostra TUTTI i motivi per cui non si può. */
+function saveSchedaFromForm(): void {
+  const target = schedaRowTarget(state.schedaTargetKey);
+  const rowKey = state.schedaTargetKey;
+  if (target === null || rowKey === null) {
+    state.schedaErrors = [
+      { field: "identita", message: "Scegli prima una riga del listone: nome e squadra della scheda vengono da lì." },
+    ];
+    state.schedaNotice = "";
+    render();
+    return;
+  }
+  const result = buildScheda(target, state.schedaForm);
+  if (!result.ok) {
+    state.schedaErrors = result.errors;
+    state.schedaNotice = "";
+    render();
+    focusAfterRender("schede-errors");
+    return;
+  }
+  state.schedaErrors = [];
+  state.schedaTargetKey = null;
+  state.schedaForm = EMPTY_SCHEDA_FORM;
+  state.schedaConfirmDelete = null;
+  persistSchedaDrafts(withEditing(withScheda(state.schedaDrafts, rowKey, result.scheda), null));
+  state.schedaNotice = `Scheda salvata: ${result.scheda.player} (${result.scheda.club}).`;
+  render();
+  // Il giro è: scegli, compila, salva, scegli il prossimo. La messa a fuoco
+  // torna dove ricomincia, non dove è finita.
+  focusAfterRender("schede-player");
+}
+
+/** Riapre una scheda già scritta per correggerla. */
+function editScheda(rowKey: string): void {
+  selectSchedaTarget(rowKey);
+  focusAfterRender("schede-titolarita");
+}
+
+/**
+ * Cancella una scheda, in due tempi.
+ *
+ * Il primo clic chiede conferma, il secondo cancella. Una scheda piena sono 90
+ * secondi di battitura e non c'è nessun annulla: un clic sbagliato su una fila
+ * di pulsanti identici è il modo normale in cui quel lavoro sparirebbe.
+ */
+function requestSchedaDelete(rowKey: string): void {
+  state.schedaConfirmDelete = rowKey;
+  state.schedaNotice = "";
+  render();
+  focusAfterRender(`schede-delete-${rowKey}`);
+}
+
+function cancelSchedaDelete(): void {
+  state.schedaConfirmDelete = null;
+  render();
+}
+
+function deleteScheda(rowKey: string): void {
+  const removed = state.schedaDrafts.schede.get(rowKey);
+  const closing = state.schedaTargetKey === rowKey;
+  if (closing) {
+    state.schedaTargetKey = null;
+    state.schedaForm = EMPTY_SCHEDA_FORM;
+    state.schedaErrors = [];
+  }
+  state.schedaConfirmDelete = null;
+  persistSchedaDrafts(
+    withEditing(
+      withScheda(state.schedaDrafts, rowKey, null),
+      closing ? null : state.schedaDrafts.editing,
+    ),
+  );
+  state.schedaNotice =
+    removed === undefined
+      ? "Scheda già rimossa."
+      : `Scheda cancellata: ${removed.player} (${removed.club}).`;
+  render();
+  focusAfterRender("schede-player");
+}
+
+function downloadSchedaDeposit(text: string): void {
+  const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = SCHEDA_DEPOSIT_FILENAME;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Copia il deposito negli appunti. Gli appunti sono una capacità del browser
+ * che può mancare (contesto non sicuro) o essere negata: entrambi i casi
+ * diventano una frase che rimanda al pulsante che scarica il file, mai un
+ * silenzio che si legge come «fatto».
+ */
+function copySchedaDeposit(text: string, count: number): void {
+  const clipboard = navigator.clipboard as Clipboard | undefined;
+  if (clipboard === undefined || typeof clipboard.writeText !== "function") {
+    state.schedaNotice = "Questo browser non dà accesso agli appunti: usa «Scarica il deposito».";
+    render();
+    return;
+  }
+  void clipboard.writeText(text).then(
+    () => {
+      state.schedaNotice = `Deposito copiato negli appunti: ${count} sched${count === 1 ? "a" : "e"}.`;
+      render();
+    },
+    () => {
+      state.schedaNotice = "Il browser ha rifiutato la copia negli appunti: usa «Scarica il deposito».";
+      render();
+    },
+  );
+}
+
+// ── RIPRENDERE UN DEPOSITO GIÀ SCRITTO ───────────────────────────────────────
+//
+// Il giro si chiude qui. Le due ore sono distribuite su più sere e il deposito
+// finisce su Drive: senza rilettura il lavoro viveva solo in `localStorage` —
+// un browser pulito, un'altra macchina, una cronologia svuotata, e sparivano
+// senza un errore — e una scheda da correggere tre giorni dopo si poteva solo
+// riscrivere.
+//
+// LA FUSIONE NON SI DECIDE DA SOLA. Le schede del file su righe che in locale
+// sono vuote entrano sempre: aggiungono e non distruggono, quindi non c'è
+// niente da chiedere. Le schede in CONFLITTO — stessa riga, due versioni — non
+// si sovrascrivono e non si scartano: la tendina non ha nessuna opzione
+// preselezionata, esattamente come la domanda dell'aggancio in
+// src/ui/expertInsight.ts, e senza una risposta `applySchedaImport` rende
+// `null` invece di sceglierne una.
+
+const SCHEDA_IMPORT_REFUSALS: Readonly<Record<"absent" | "unreadable" | "invalid" | "empty", string>> = {
+  absent: "Nessun file letto: riprova a sceglierlo.",
+  unreadable: "Il file non è JSON leggibile. Non è stato toccato niente di quello che hai già scritto.",
+  invalid:
+    "Il file non è un deposito valido secondo il contratto (parseExpertSchedaDeposit): versione diversa, un campo fuori vocabolario o una chiave che non esiste. Non è stato toccato niente di quello che hai già scritto.",
+  empty: "Il file è un deposito valido ma non contiene nessuna scheda.",
+};
+
+/** Le righe del listone come le vede il pianificatore d'importazione. */
+function schedaImportRows(): { rowKey: string; name: string; club: string }[] {
+  return state.pool.map((p) => ({ rowKey: listonePlayerKey(p), name: p.name, club: p.club }));
+}
+
+/**
+ * Legge il file scelto e prepara la domanda. Non importa niente: mostra che
+ * cosa succederebbe, e aspetta.
+ *
+ * Il campo viene svuotato subito dopo la lettura, così riscegliere LO STESSO
+ * file torna a produrre un evento — senza, un secondo tentativo dopo un
+ * rifiuto non farebbe nulla e sembrerebbe un pannello morto.
+ */
+function readSchedaImportFile(input: HTMLInputElement): void {
+  const file = input.files?.[0] ?? null;
+  // NON si azzera qui `input.value`: ogni strada che segue finisce in un
+  // `render()`, che ricostruisce il campo vuoto da sé — e azzerarlo mentre la
+  // lettura del file è ancora in volo è un modo di far sparire il file da sotto
+  // la promessa.
+  if (file === null) {
+    state.schedaImport = null;
+    state.schedaImportError = "Nessun file letto: riprova a sceglierlo.";
+    render();
+    return;
+  }
+  const failed = (why: string): void => {
+    state.schedaImport = null;
+    state.schedaImportError = why;
+    render();
+  };
+  file
+    .text()
+    .then((text) => openSchedaImport(text, file.name))
+    // Una sola rete di sicurezza per TUTTO ciò che sta sopra, lettura e
+    // pianificazione comprese: un errore inatteso qui dentro, senza questa,
+    // resterebbe una promessa rifiutata e nessuno vedrebbe niente — il
+    // pannello sembrerebbe semplicemente non rispondere al file scelto.
+    .catch((err: unknown) =>
+      failed(
+        `Il file non è stato letto dal browser (${err instanceof Error ? err.message : String(err)}). Non è stato toccato niente.`,
+      ),
+    );
+}
+
+function openSchedaImport(text: string, fileName: string): void {
+  const result = planSchedaImport(text, schedaImportRows(), state.schedaDrafts.schede);
+  if (!result.ok) {
+    state.schedaImport = null;
+    state.schedaImportError =
+      result.reason === "duplicate"
+        ? `Il file contiene due schede sulla stessa identità (${result.identities.join("; ")}): il riquadro non ne mostrerebbe nessuna delle due. Non è stato importato niente.`
+        : SCHEDA_IMPORT_REFUSALS[result.reason];
+    render();
+    return;
+  }
+  state.schedaImport = { fileName, plan: result.plan, resolution: null };
+  state.schedaImportError = "";
+  state.schedaNotice = "";
+  render();
+  focusAfterRender(
+    result.plan.conflicts.length > 0 ? "schede-import-resolution" : "schede-import-confirm",
+  );
+}
+
+function cancelSchedaImport(): void {
+  state.schedaImport = null;
+  state.schedaImportError = "";
+  render();
+}
+
+function confirmSchedaImport(): void {
+  const pending = state.schedaImport;
+  if (pending === null) return;
+  const next = applySchedaImport(state.schedaDrafts.schede, pending.plan, pending.resolution);
+  if (next === null) {
+    state.schedaImportError =
+      "Scegli prima che cosa fare delle schede in conflitto: non ne sovrascrivo nessuna da solo.";
+    render();
+    return;
+  }
+  const { fresh, conflicts, unmatched } = pending.plan;
+  const parts = [`${fresh.length} nuov${fresh.length === 1 ? "a" : "e"}`];
+  if (conflicts.length > 0) {
+    parts.push(
+      pending.resolution === "take-file"
+        ? `${conflicts.length} sostituit${conflicts.length === 1 ? "a" : "e"} con quell${conflicts.length === 1 ? "a" : "e"} del file`
+        : `${conflicts.length} conflitt${conflicts.length === 1 ? "o risolto" : "i risolti"} tenendo le tue`,
+    );
+  }
+  if (unmatched.length > 0) {
+    parts.push(`${unmatched.length} senza riga nel listone caricato`);
+  }
+  // Il modulo eventualmente aperto si chiude: le sue caselle sono state
+  // riempite PRIMA dell'importazione, e salvarle dopo rimetterebbe in silenzio
+  // la versione vecchia sopra quella appena importata.
+  state.schedaTargetKey = null;
+  state.schedaForm = EMPTY_SCHEDA_FORM;
+  state.schedaErrors = [];
+  state.schedaConfirmDelete = null;
+  state.schedaImport = null;
+  state.schedaImportError = "";
+  persistSchedaDrafts({ schede: next, editing: null });
+  state.schedaNotice = `Deposito ripreso da «${pending.fileName}»: ${parts.join(", ")}.`;
+  render();
+  focusAfterRender("schede-player");
+}
+
+/** Che cosa succederebbe a confermare, scritto prima di chiedere. */
+function renderSchedaImportPreview(pending: PendingSchedaImport): HTMLElement {
+  const box = document.createElement("div");
+  box.id = "schede-import-preview";
+  box.className = "schede-progress";
+
+  const headline = document.createElement("p");
+  headline.id = "schede-import-headline";
+  headline.className = "schede-progress__count";
+  const total = pending.plan.incoming.size;
+  headline.textContent = `«${pending.fileName}»: ${total} sched${total === 1 ? "a" : "e"} nel file — ${pending.plan.fresh.length} nuov${pending.plan.fresh.length === 1 ? "a" : "e"}, ${pending.plan.conflicts.length} in conflitto con quelle che hai già.`;
+  box.appendChild(headline);
+
+  if (pending.plan.unmatched.length > 0) {
+    const unmatched = document.createElement("p");
+    unmatched.id = "schede-import-unmatched";
+    unmatched.className = "hint-text";
+    unmatched.textContent = `${pending.plan.unmatched.length} sched${pending.plan.unmatched.length === 1 ? "a" : "e"} non corrispond${pending.plan.unmatched.length === 1 ? "e" : "ono"} a nessuna riga del listone caricato (${pending.plan.unmatched.map((e) => `${e.player} — ${e.club}`).join("; ")}). Entrano lo stesso e restano nel deposito, ma non contano nell'avanzamento finché la riga non c'è.`;
+    box.appendChild(unmatched);
+  }
+
+  if (pending.plan.conflicts.length > 0) {
+    const list = document.createElement("p");
+    list.id = "schede-import-conflicts";
+    list.className = "hint-text";
+    list.textContent = `In conflitto: ${pending.plan.conflicts.map((e) => `${e.player} — ${e.club}`).join("; ")}.`;
+    box.appendChild(list);
+
+    // Nessuna opzione preselezionata: la scelta è di Pico, e su queste righe
+    // costa del lavoro in un verso o nell'altro.
+    const select = document.createElement("select");
+    select.id = "schede-import-resolution";
+    select.className = "field-input";
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = "— scegli che cosa fare —";
+    select.appendChild(empty);
+    for (const [value, label] of [
+      ["keep-local", "tieni le mie schede sulle righe in conflitto"],
+      ["take-file", "usa quelle del file sulle righe in conflitto"],
+    ] as const) {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = label;
+      select.appendChild(opt);
+    }
+    select.value = pending.resolution ?? "";
+    select.addEventListener("change", (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      state.schedaImport = {
+        ...pending,
+        resolution: value === "" ? null : (value as SchedaImportResolution),
+      };
+      state.schedaImportError = "";
+      render();
+    });
+    box.appendChild(schedaField("schede-import-resolution", "SCHEDE IN CONFLITTO", select));
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "schede-form__actions";
+  const confirm = document.createElement("button");
+  confirm.type = "button";
+  confirm.id = "schede-import-confirm";
+  confirm.className = "btn btn--primary";
+  confirm.textContent = "Riprendi questo deposito";
+  confirm.disabled = pending.plan.conflicts.length > 0 && pending.resolution === null;
+  confirm.addEventListener("click", () => confirmSchedaImport());
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.id = "schede-import-cancel";
+  cancel.className = "btn btn--secondary";
+  cancel.textContent = "Annulla";
+  cancel.addEventListener("click", () => cancelSchedaImport());
+  actions.append(confirm, cancel);
+  box.appendChild(actions);
+
+  return box;
+}
+
+/** Una `<label>` col suo controllo, nella forma già usata dagli altri pannelli. */
+function schedaField(id: string, caption: string, control: HTMLElement): HTMLElement {
+  const field = document.createElement("label");
+  field.className = "league-team-field";
+  field.htmlFor = id;
+  const label = document.createElement("span");
+  label.className = "field-label";
+  label.textContent = caption;
+  field.append(label, control);
+  return field;
+}
+
+/** Un `<select>` costruito su un vocabolario del contratto. Mai testo libero. */
+function schedaSelect(
+  id: string,
+  emptyLabel: string,
+  values: readonly string[],
+  labels: Readonly<Record<string, string>>,
+  current: string,
+  onChange: (value: string) => void,
+): HTMLSelectElement {
+  const select = document.createElement("select");
+  select.id = id;
+  select.className = "field-input";
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = emptyLabel;
+  select.appendChild(empty);
+  for (const value of values) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = labels[value] ?? value;
+    select.appendChild(opt);
+  }
+  select.value = current;
+  select.addEventListener("change", (e) => {
+    onChange((e.target as HTMLSelectElement).value);
+    persistSchedaEditing();
+  });
+  return select;
+}
+
+/** Un gruppo di checkbox su un vocabolario chiuso: presenza/assenza, non testo. */
+function schedaCheckGroup(
+  id: string,
+  legend: string,
+  values: readonly string[],
+  labels: Readonly<Record<string, string>>,
+  chosen: readonly string[],
+  onChange: (next: readonly string[]) => void,
+): HTMLElement {
+  const group = document.createElement("fieldset");
+  group.id = id;
+  group.className = "schede-checks";
+  const caption = document.createElement("legend");
+  caption.className = "field-label";
+  caption.textContent = legend;
+  group.appendChild(caption);
+  for (const value of values) {
+    const item = document.createElement("label");
+    item.className = "schede-check";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.id = `${id}-${value}`;
+    box.checked = chosen.includes(value);
+    box.addEventListener("change", () => {
+      const next = box.checked ? [...chosen, value] : chosen.filter((v) => v !== value);
+      onChange(next);
+      persistSchedaEditing();
+    });
+    const text = document.createElement("span");
+    text.textContent = labels[value] ?? value;
+    item.append(box, text);
+    group.appendChild(item);
+  }
+  return group;
+}
+
+/** Un intero coi limiti LETTI dal contratto, mai riscritti qui. */
+function schedaNumberInput(
+  id: string,
+  min: number,
+  max: number,
+  current: string,
+  onChange: (value: string) => void,
+): HTMLInputElement {
+  const input = document.createElement("input");
+  input.id = id;
+  input.className = "field-input";
+  input.type = "number";
+  input.min = String(min);
+  input.max = String(max);
+  input.step = "1";
+  input.setAttribute("inputmode", "numeric");
+  input.value = current;
+  input.addEventListener("input", (e) => onChange((e.target as HTMLInputElement).value));
+  input.addEventListener("change", () => persistSchedaEditing());
+  return input;
+}
+
+const SCHEDA_DEPOSIT_REFUSALS: Readonly<Record<"empty" | "invalid", string>> = {
+  empty: "Nessuna scheda scritta: non c'è ancora niente da depositare.",
+  invalid:
+    "Il contratto del deposito rifiuta l'insieme delle schede scritte. Non viene offerto un file che il sito non saprebbe rileggere: correggi o cancella le schede qui sopra.",
+};
+
+function renderSchedeSettings(): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "schede-settings";
+  panel.className = "schede-settings";
+  panel.setAttribute("aria-label", "Schede Gruppo Esperti");
+
+  const intro = document.createElement("p");
+  intro.className = "hint-text";
+  intro.textContent =
+    "Le schede del Gruppo Esperti si scrivono qui, una per giocatore, e alla fine diventano il file da depositare nella cartella privata. Il riquadro che le mostra durante l'asta è descrittivo: non ci sono prezzi, punteggi né consigli d'asta, né qui né lì. Il sito non scrive mai sul deposito: il file lo scarichi e lo carichi tu.";
+  panel.appendChild(intro);
+
+  const pool = auctionDisplayPool();
+  const rowKeys = pool.map((p) => listonePlayerKey(p));
+  const progress = schedaProgress(rowKeys, state.schedaDrafts.schede);
+
+  // ── L'avanzamento delle due ore ───────────────────────────────────────────
+  const progressBox = document.createElement("div");
+  progressBox.className = "schede-progress";
+  progressBox.id = "schede-progress";
+
+  const progressLine = document.createElement("div");
+  progressLine.className = "schede-progress__line";
+  const progressCount = document.createElement("span");
+  progressCount.id = "schede-progress-count";
+  progressCount.className = "schede-progress__count";
+  progressCount.textContent =
+    progress.total === 0
+      ? `${progress.written} sched${progress.written === 1 ? "a" : "e"} scritt${progress.written === 1 ? "a" : "e"} — nessuna riga di listone caricata`
+      : `${progress.written} su ${progress.total} righe del listone — ne mancano ${progress.missing}`;
+  const progressPercent = document.createElement("span");
+  progressPercent.id = "schede-progress-percent";
+  progressPercent.className = "schede-progress__percent";
+  progressPercent.textContent = `${progress.percent}%`;
+  progressLine.append(progressCount, progressPercent);
+  progressBox.appendChild(progressLine);
+
+  const track = document.createElement("span");
+  track.className = "schede-progress__track";
+  track.setAttribute("role", "progressbar");
+  track.setAttribute("aria-valuemin", "0");
+  track.setAttribute("aria-valuemax", String(progress.total));
+  track.setAttribute("aria-valuenow", String(progress.written));
+  track.setAttribute("aria-label", "Schede scritte sulle righe del listone");
+  const fill = document.createElement("span");
+  fill.className = "schede-progress__fill";
+  fill.style.width = `${progress.percent}%`;
+  track.appendChild(fill);
+  progressBox.appendChild(track);
+
+  // Le schede scritte su righe che il listone caricato ORA non ha più. Contate
+  // a parte e DETTE: sparire dal conteggio senza dirlo è il modo in cui il
+  // lavoro si perde senza un errore.
+  if (progress.orphans > 0) {
+    const orphans = document.createElement("p");
+    orphans.id = "schede-orphans";
+    orphans.className = "hint-text";
+    orphans.textContent = `${progress.orphans} sched${progress.orphans === 1 ? "a" : "e"} non corrispond${progress.orphans === 1 ? "e" : "ono"} a nessuna riga del listone caricato: rest${progress.orphans === 1 ? "a" : "ano"} nel deposito e nell'elenco qui sotto, ma non contano nell'avanzamento.`;
+    progressBox.appendChild(orphans);
+  }
+  panel.appendChild(progressBox);
+
+  if (!state.schedaDraftsPersisted) {
+    const persistError = document.createElement("p");
+    persistError.id = "schede-persist-error";
+    persistError.className = "schede-alert";
+    persistError.setAttribute("role", "alert");
+    persistError.textContent =
+      "ULTIMA MODIFICA NON SALVATA: la memoria locale del browser ha rifiutato la scrittura. Quello che vedi è ancora qui, ma un ricaricamento lo perde — scarica subito il deposito.";
+    panel.appendChild(persistError);
+  }
+
+  if (pool.length === 0) {
+    const emptyPool = document.createElement("p");
+    emptyPool.id = "schede-empty-listone";
+    emptyPool.className = "hint-text";
+    emptyPool.textContent =
+      "Carica il listone (Asta → Ricerca giocatore) per scegliere il giocatore di una scheda: qui non si scrive un nome a mano, si sceglie una riga — è ciò che garantisce che la scheda si agganci a quel giocatore.";
+    panel.appendChild(emptyPool);
+  } else {
+    panel.appendChild(renderSchedaPicker(pool));
+    const target = schedaRowTarget(state.schedaTargetKey);
+    if (target !== null) panel.appendChild(renderSchedaForm(target));
+  }
+
+  panel.appendChild(renderSchedaList());
+  panel.appendChild(renderSchedaDeposit());
+
+  if (state.schedaNotice) {
+    const notice = document.createElement("p");
+    notice.id = "schede-notice";
+    notice.className = "hint-text schede-notice";
+    notice.setAttribute("role", "status");
+    notice.textContent = state.schedaNotice;
+    panel.appendChild(notice);
+  }
+
+  return panel;
+}
+
+/** Il giocatore si SCEGLIE da una riga del listone. Mai un campo di testo. */
+function renderSchedaPicker(pool: readonly ListonePlayer[]): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "schede-picker";
+
+  const filter = document.createElement("input");
+  filter.id = "schede-filter";
+  filter.className = "field-input";
+  filter.type = "text";
+  filter.placeholder = "es. Placeholder";
+  filter.value = state.schedaFilter;
+  filter.addEventListener("input", (e) => {
+    state.schedaFilter = (e.target as HTMLInputElement).value;
+    // render() rimette la messa a fuoco e il cursore dov'erano (vedi render()).
+    render();
+  });
+  box.appendChild(schedaField("schede-filter", "FILTRA IL LISTONE", filter));
+
+  const needle = normalizeIdentityPart(state.schedaFilter);
+  const rows = pool.filter((p) => {
+    if (needle === "") return true;
+    return (
+      normalizeIdentityPart(p.name).includes(needle) || normalizeIdentityPart(p.club).includes(needle)
+    );
+  });
+
+  const select = document.createElement("select");
+  select.id = "schede-player";
+  select.className = "field-input";
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = rows.length === 0 ? "— nessuna riga corrisponde al filtro —" : "— scegli un giocatore —";
+  select.appendChild(empty);
+  for (const row of rows) {
+    const key = listonePlayerKey(row);
+    const opt = document.createElement("option");
+    opt.value = key;
+    // «✓» davanti a chi ha già una scheda: si vede quale riga è fatta senza
+    // cercarla nell'elenco più in basso.
+    opt.textContent = `${state.schedaDrafts.schede.has(key) ? "✓ " : ""}${row.name} (${row.club})`;
+    select.appendChild(opt);
+  }
+  select.value = state.schedaTargetKey ?? "";
+  select.disabled = rows.length === 0;
+  select.addEventListener("change", (e) => {
+    const value = (e.target as HTMLSelectElement).value;
+    selectSchedaTarget(value === "" ? null : value);
+    if (value !== "") focusAfterRender("schede-titolarita");
+  });
+  box.appendChild(schedaField("schede-player", "GIOCATORE (DAL LISTONE)", select));
+
+  return box;
+}
+
+/** Il modulo: un controllo per campo, nessun testo libero fuori dalla nota. */
+function renderSchedaForm(target: SchedaTarget): HTMLElement {
+  const form = document.createElement("div");
+  form.id = "schede-form";
+  form.className = "schede-form";
+
+  const heading = document.createElement("h3");
+  heading.id = "schede-form-title";
+  heading.className = "schede-form__title";
+  const known = state.schedaTargetKey !== null && state.schedaDrafts.schede.has(state.schedaTargetKey);
+  heading.textContent = `${known ? "Correggi" : "Scrivi"} la scheda — ${target.name} (${target.club})`;
+  form.appendChild(heading);
+
+  const identity = document.createElement("p");
+  identity.className = "hint-text";
+  identity.id = "schede-identity-note";
+  identity.textContent =
+    "Nome e squadra sono quelli della riga del listone e non si modificano qui: è ciò che fa agganciare la scheda a questo giocatore durante l'asta.";
+  form.appendChild(identity);
+
+  const grid = document.createElement("div");
+  grid.className = "league-teams-grid";
+
+  grid.appendChild(
+    schedaField(
+      "schede-titolarita",
+      "TITOLARITÀ",
+      schedaSelect(
+        "schede-titolarita",
+        "— non dichiarata —",
+        TITOLARITA_VALUES,
+        TITOLARITA_LABELS,
+        state.schedaForm.titolarita,
+        (value) => updateSchedaForm({ titolarita: value }),
+      ),
+    ),
+  );
+
+  grid.appendChild(
+    schedaField(
+      "schede-percentuale",
+      `QUOTA DEL BALLOTTAGGIO (${SCHEDA_PERCENTUALE_MIN}–${SCHEDA_PERCENTUALE_MAX}%)`,
+      schedaNumberInput(
+        "schede-percentuale",
+        SCHEDA_PERCENTUALE_MIN,
+        SCHEDA_PERCENTUALE_MAX,
+        state.schedaForm.percentuale,
+        (value) => updateSchedaForm({ percentuale: value }),
+      ),
+    ),
+  );
+
+  grid.appendChild(
+    schedaField(
+      "schede-gerarchia",
+      `GERARCHIA NEL RUOLO (${SCHEDA_GERARCHIA_MIN}–${SCHEDA_GERARCHIA_MAX}, 1 = PRIMA SCELTA)`,
+      schedaNumberInput(
+        "schede-gerarchia",
+        SCHEDA_GERARCHIA_MIN,
+        SCHEDA_GERARCHIA_MAX,
+        state.schedaForm.gerarchia,
+        (value) => updateSchedaForm({ gerarchia: value }),
+      ),
+    ),
+  );
+
+  grid.appendChild(
+    schedaField(
+      "schede-rigori",
+      "RIGORI",
+      schedaSelect(
+        "schede-rigori",
+        "— non dichiarati —",
+        RIGORI_VALUES,
+        RIGORI_LABELS,
+        state.schedaForm.rigori,
+        (value) => updateSchedaForm({ rigori: value }),
+      ),
+    ),
+  );
+
+  grid.appendChild(
+    schedaField(
+      "schede-fonte",
+      "FONTE DELLA SCHEDA",
+      schedaSelect(
+        "schede-fonte",
+        "— non dichiarata —",
+        FONTE_VALUES,
+        FONTE_LABELS,
+        state.schedaForm.fonte,
+        (value) => updateSchedaForm({ fonte: value }),
+      ),
+    ),
+  );
+
+  const date = document.createElement("input");
+  date.id = "schede-aggiornata";
+  date.className = "field-input";
+  date.type = "date";
+  date.value = state.schedaForm.aggiornata;
+  date.addEventListener("input", (e) => updateSchedaForm({ aggiornata: (e.target as HTMLInputElement).value }));
+  date.addEventListener("change", () => persistSchedaEditing());
+  grid.appendChild(schedaField("schede-aggiornata", "AGGIORNATA AL", date));
+
+  form.appendChild(grid);
+
+  form.appendChild(
+    schedaCheckGroup(
+      "schede-piazzati",
+      "CALCI PIAZZATI",
+      PIAZZATI_VALUES,
+      PIAZZATI_LABELS,
+      state.schedaForm.piazzati,
+      (next) => updateSchedaForm({ piazzati: next }),
+    ),
+  );
+
+  form.appendChild(
+    schedaCheckGroup(
+      "schede-avvisi",
+      "AVVISI",
+      AVVISO_VALUES,
+      AVVISO_LABELS,
+      state.schedaForm.avvisi,
+      (next) => updateSchedaForm({ avvisi: next }),
+    ),
+  );
+
+  // ── La nota: l'unico testo libero, col suo limite scritto ─────────────────
+  const notaField = document.createElement("div");
+  notaField.className = "league-team-field";
+  const notaLabel = document.createElement("label");
+  notaLabel.className = "field-label";
+  notaLabel.htmlFor = "schede-nota";
+  notaLabel.textContent = "NOTA (IL PERCHÉ DI UN AVVISO, UNA SITUAZIONE DI MERCATO, UN CONTESTO)";
+  const nota = document.createElement("textarea");
+  nota.id = "schede-nota";
+  nota.className = "field-input schede-nota";
+  nota.rows = 4;
+  nota.value = state.schedaForm.nota;
+  const counter = document.createElement("span");
+  counter.id = "schede-nota-counter";
+  const notaLength = (value: string): number => value.trim().length;
+  const paintCounter = (value: string): void => {
+    const used = notaLength(value);
+    counter.className = `schede-nota__counter${used > SCHEDA_NOTA_MAX ? " is-over" : ""}`;
+    counter.textContent =
+      used > SCHEDA_NOTA_MAX
+        ? `${used} / ${SCHEDA_NOTA_MAX} caratteri — ${used - SCHEDA_NOTA_MAX} di troppo, la nota non viene tagliata da sola`
+        : `${used} / ${SCHEDA_NOTA_MAX} caratteri`;
+  };
+  paintCounter(state.schedaForm.nota);
+  // Nessun `maxlength`: troncherebbe un incollaggio perdendone la coda senza
+  // dirlo. Il contatore si aggiorna qui, sul nodo, senza ridisegnare tutto.
+  nota.addEventListener("input", (e) => {
+    const value = (e.target as HTMLTextAreaElement).value;
+    updateSchedaForm({ nota: value });
+    paintCounter(value);
+  });
+  nota.addEventListener("change", () => persistSchedaEditing());
+  notaField.append(notaLabel, nota, counter);
+  form.appendChild(notaField);
+
+  const actions = document.createElement("div");
+  actions.className = "schede-form__actions";
+  const save = document.createElement("button");
+  save.type = "button";
+  save.id = "schede-save";
+  save.className = "btn btn--primary";
+  save.textContent = known ? "Salva la correzione" : "Salva la scheda";
+  save.addEventListener("click", () => saveSchedaFromForm());
+  const close = document.createElement("button");
+  close.type = "button";
+  close.id = "schede-close";
+  close.className = "btn btn--secondary";
+  close.textContent = "Chiudi senza salvare";
+  close.addEventListener("click", () => {
+    selectSchedaTarget(null);
+    focusAfterRender("schede-player");
+  });
+  actions.append(save, close);
+  form.appendChild(actions);
+
+  if (state.schedaErrors.length > 0) {
+    const errors = document.createElement("ul");
+    errors.id = "schede-errors";
+    errors.className = "schede-alert schede-errors";
+    errors.setAttribute("role", "alert");
+    errors.tabIndex = -1;
+    for (const error of state.schedaErrors) {
+      const item = document.createElement("li");
+      item.id = `schede-error-${error.field}`;
+      item.textContent = error.message;
+      errors.appendChild(item);
+    }
+    form.appendChild(errors);
+  }
+
+  return form;
+}
+
+/** Le schede già scritte: rileggibili, correggibili, cancellabili. */
+function renderSchedaList(): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "schede-list";
+  box.id = "schede-list";
+
+  const title = document.createElement("h3");
+  title.className = "league-people-title";
+  title.textContent = "SCHEDE SCRITTE";
+  box.appendChild(title);
+
+  if (state.schedaDrafts.schede.size === 0) {
+    const empty = document.createElement("p");
+    empty.id = "schede-list-empty";
+    empty.className = "hint-text";
+    empty.textContent = "Nessuna scheda scritta finora.";
+    box.appendChild(empty);
+    return box;
+  }
+
+  for (const [rowKey, scheda] of state.schedaDrafts.schede) {
+    const row = document.createElement("div");
+    row.className = "schede-row";
+    const head = document.createElement("div");
+    head.className = "schede-row__head";
+    row.appendChild(head);
+
+    const identity = document.createElement("span");
+    identity.className = "schede-row__identity";
+    identity.textContent = `${scheda.player} (${scheda.club})`;
+    head.appendChild(identity);
+
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.id = `schede-edit-${rowKey}`;
+    edit.className = "btn btn--secondary";
+    edit.textContent = "Modifica";
+    edit.setAttribute("aria-label", `Modifica la scheda di ${scheda.player}`);
+    edit.addEventListener("click", () => editScheda(rowKey));
+    head.appendChild(edit);
+
+    // Cancellazione in due tempi: il primo clic chiede, il secondo esegue.
+    const confirming = state.schedaConfirmDelete === rowKey;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.id = `schede-delete-${rowKey}`;
+    remove.className = confirming ? "btn btn--danger" : "btn btn--secondary";
+    remove.textContent = confirming ? "Confermi?" : "Cancella";
+    remove.setAttribute(
+      "aria-label",
+      confirming
+        ? `Conferma la cancellazione della scheda di ${scheda.player}`
+        : `Cancella la scheda di ${scheda.player}`,
+    );
+    remove.addEventListener("click", () => (confirming ? deleteScheda(rowKey) : requestSchedaDelete(rowKey)));
+    head.appendChild(remove);
+
+    if (confirming) {
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.id = `schede-delete-cancel-${rowKey}`;
+      cancel.className = "btn btn--secondary";
+      cancel.textContent = "No";
+      cancel.setAttribute("aria-label", `Non cancellare la scheda di ${scheda.player}`);
+      cancel.addEventListener("click", () => cancelSchedaDelete());
+      head.appendChild(cancel);
+    }
+
+    const summary = document.createElement("span");
+    summary.className = "schede-row__summary";
+    summary.textContent = schedaSummary(scheda);
+    row.appendChild(summary);
+
+    box.appendChild(row);
+  }
+
+  return box;
+}
+
+/** Il deposito pronto — o il motivo per cui non lo è, mai un file rotto. */
+function renderSchedaDeposit(): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "schede-deposit";
+  box.id = "schede-deposit";
+
+  const title = document.createElement("h3");
+  title.className = "league-people-title";
+  title.textContent = "IL DEPOSITO";
+  box.appendChild(title);
+
+  const result = buildSchedaDeposit(state.schedaDrafts.schede);
+
+  const status = document.createElement("p");
+  status.id = "schede-deposit-status";
+  status.className = result.ok ? "hint-text" : "schede-alert";
+  if (!result.ok) status.setAttribute("role", "alert");
+  status.textContent = result.ok
+    ? `Deposito pronto: ${result.count} sched${result.count === 1 ? "a" : "e"}, validate col contratto vero (parseExpertSchedaDeposit). Scaricalo come «${SCHEDA_DEPOSIT_FILENAME}» e caricalo tu nella cartella privata: il sito non lo scrive mai.`
+    : result.reason === "duplicate"
+      ? `Due schede finiscono sulla stessa identità (${result.identities.join("; ")}): il riquadro non ne mostrerebbe nessuna delle due. Cancellane una o correggi il giocatore prima di depositare.`
+      : SCHEDA_DEPOSIT_REFUSALS[result.reason];
+  box.appendChild(status);
+
+  const actions = document.createElement("div");
+  actions.className = "schede-form__actions";
+
+  const download = document.createElement("button");
+  download.type = "button";
+  download.id = "schede-download";
+  download.className = "btn btn--primary";
+  download.textContent = "Scarica il deposito";
+  download.disabled = !result.ok;
+  if (result.ok) download.addEventListener("click", () => downloadSchedaDeposit(result.text));
+
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.id = "schede-copy";
+  copy.className = "btn btn--secondary";
+  copy.textContent = "Copia negli appunti";
+  copy.disabled = !result.ok;
+  if (result.ok) copy.addEventListener("click", () => copySchedaDeposit(result.text, result.count));
+
+  actions.append(download, copy);
+  box.appendChild(actions);
+
+  // ── L'altra direzione: riprendere un deposito già scritto ────────────────
+  const importTitle = document.createElement("h3");
+  importTitle.className = "league-people-title";
+  importTitle.textContent = "RIPRENDI UN DEPOSITO GIÀ SCRITTO";
+  box.appendChild(importTitle);
+
+  const importHint = document.createElement("p");
+  importHint.className = "hint-text";
+  importHint.textContent =
+    "Carica un file di deposito per continuare da dove eri: quello che scarichi qui rientra identico, anche su un altro browser o su un'altra macchina. Il file viene letto in locale, non viene mandato da nessuna parte, e prima di applicarlo il pannello ti dice esattamente che cosa cambierebbe.";
+  box.appendChild(importHint);
+
+  const importFile = document.createElement("input");
+  importFile.type = "file";
+  importFile.id = "schede-import-file";
+  importFile.className = "field-input schede-import-file";
+  importFile.accept = "application/json,.json";
+  importFile.setAttribute("aria-label", "Scegli il file di deposito da riprendere");
+  importFile.addEventListener("change", (e) => readSchedaImportFile(e.target as HTMLInputElement));
+  box.appendChild(importFile);
+
+  if (state.schedaImportError) {
+    const error = document.createElement("p");
+    error.id = "schede-import-error";
+    error.className = "schede-alert";
+    error.setAttribute("role", "alert");
+    error.textContent = state.schedaImportError;
+    box.appendChild(error);
+  }
+
+  if (state.schedaImport !== null) box.appendChild(renderSchedaImportPreview(state.schedaImport));
+
+  return box;
+}
+
 function renderOperatingModeStatus(): HTMLElement {
   const panel = document.createElement("section");
   panel.id = "operating-mode-status";
@@ -3141,56 +4576,16 @@ function renderOperatingModeStatus(): HTMLElement {
   return panel;
 }
 
-// ── League teams — read-only list of all configured teams ─────────────────────
-// Vista d'insieme di sola lettura: budget residuo + slot residui per ogni
-// squadra (incluso "Io"), derivati dall'engine. Nessun editing, nessun
-// add/rename/remove, nessuna reintroduzione di Impostazioni/team management.
-function renderTeamsPanel(aState: AuctionState): HTMLElement {
-  const panel = document.createElement("div");
-  panel.className = "panel";
-
-  const title = document.createElement("div");
-  title.className = "panel-title";
-  title.style.marginBottom = "12px";
-  title.textContent = "SQUADRE (LEGA)";
-  panel.appendChild(title);
-
-  // Responsive breakpoints (1/2/4 per row) live in src/styles/asta.css
-  // (.teams-grid) — inline styles can't express @media, see that file.
-  const grid = document.createElement("div");
-  grid.className = "teams-grid";
-
-  for (const tid of FANTA_TEAM_IDS) {
-    const t = aState.teams[tid];
-    const residuo = t?.budgetResidual ?? INITIAL_BUDGET;
-    const slotsLeft = t?.totalSlotsRemaining ?? 0;
-    const isSelf = tid === SELF_ID;
-
-    const card = document.createElement("div");
-    card.style.cssText = `background:${C.panelInner};border:1px solid ${isSelf ? C.accent : C.border};border-radius:10px;padding:14px 16px;`;
-    const slotStr = ROLES.map((r) => `${roleChipHtml(r)}<span style="font-family:${C.mono};margin-left:3px;margin-right:10px;">${t?.slotsRemaining[r] ?? ROSTER_REQUIREMENTS[r] ?? 0}</span>`).join("");
-    card.innerHTML = `<div style="font-size:14px;font-weight:600;color:${C.textPrimary};margin-bottom:6px;">${escHtml(displayTeamLabel(tid))}${isSelf ? ` <span style="font-size:11px;font-weight:700;color:${C.textAccent};">● io</span>` : ""}</div>` +
-      `<div class="kpi-value" style="font-size:22px;color:${C.green};">${residuo} <span style="font-size:13px;font-weight:600;color:${C.textSec};">cr</span></div>` +
-      `<div style="font-size:12.5px;color:${C.textSec};margin-top:6px;">slot residui: <span class="kpi-value" style="color:${C.textPrimary};">${slotsLeft}</span></div>` +
-      `<div style="font-size:13px;color:${C.textSec};margin-top:8px;display:flex;align-items:center;flex-wrap:wrap;">${slotStr}</div>`;
-    grid.appendChild(card);
-  }
-
-  panel.appendChild(grid);
-  return panel;
-}
-
 // ── #333 — Il tavolo, dietro un gesto (momento chiamata) ─────────────────────
-// SCARSITÀ PER RUOLO, TAVOLO — WAR BOARD e SQUADRE (LEGA) sono le stesse otto
-// squadre lette tre volte, e nessuna delle tre risponde alle quattro domande
-// dal MIO posto (quanto posso spendere per questo · chi me lo contende ·
-// quanto mi serve questo ruolo adesso · quanto mi resta se lo prendo): quelle
-// risposte stanno nella fascia critica e nel CONTESTO CHIAMATA. Sono il
-// contorno con cui si decide fra una chiamata e l'altra, non nei due secondi
-// in cui qualcuno urla un prezzo — quindi stanno dietro un gesto solo.
+// SCARSITÀ PER RUOLO e TAVOLO — WAR BOARD sono le stesse otto squadre lette
+// due volte, e nessuna delle due risponde alle quattro domande dal MIO posto
+// (quanto posso spendere per questo · chi me lo contende · quanto mi serve
+// questo ruolo adesso · quanto mi resta se lo prendo): quelle risposte stanno
+// nella fascia critica e nel CONTESTO CHIAMATA. Sono il contorno con cui si
+// decide fra una chiamata e l'altra, non nei due secondi in cui qualcuno urla
+// un prezzo — quindi stanno dietro un gesto solo.
 //
-// Vincolo di Pico rispettato alla lettera: RIDURRE NON TOGLIE INFORMAZIONE.
-// I tre pannelli restano nel DOM anche da chiusi (attributo `hidden`, non
+// I due pannelli restano nel DOM anche da chiusi (attributo `hidden`, non
 // rimozione), identici a se stessi, raggiungibili da tastiera con
 // aria-expanded/aria-controls — lo stesso idioma della fascia critica
 // (#331 punto 5, `.critical-roster` / `.critical-roster-detail`), non un
@@ -3202,10 +4597,10 @@ function renderTableDetail(
   const section = document.createElement("section");
   section.id = "table-detail";
   // Deliberatamente NON `.panel`: i pannelli interni lo sono già, e diverse
-  // spec localizzano SQUADRE (LEGA) con `.panel` + hasText — un antenato con
-  // la stessa classe renderebbe quel locator ambiguo.
+  // spec localizzano un pannello con `.panel` + hasText — un antenato con la
+  // stessa classe renderebbe quei locator ambigui.
   section.className = "table-detail";
-  section.setAttribute("aria-label", "Tavolo: scarsità, war board e squadre");
+  section.setAttribute("aria-label", "Tavolo: scarsità e war board");
 
   const open = state.tableDetailOpen;
 
@@ -3217,7 +4612,7 @@ function renderTableDetail(
   toggle.setAttribute("aria-controls", "table-detail-body");
   toggle.innerHTML =
     `<span class="panel-title">IL TAVOLO</span>` +
-    `<span class="table-detail__what">scarsità per ruolo · war board · squadre (lega)</span>` +
+    `<span class="table-detail__what">scarsità per ruolo · war board</span>` +
     `<span class="table-detail__caret" aria-hidden="true">${open ? "▴" : "▾"}</span>`;
   toggle.addEventListener("click", toggleTableDetail);
   section.appendChild(toggle);
@@ -3237,7 +4632,6 @@ function renderTableDetail(
   body.appendChild(
     renderWarBoardFull(warBoardRows(aState, SELF_ID), seatLabelMap(), auctionDisplayIndex()),
   );
-  body.appendChild(renderTeamsPanel(aState));
   section.appendChild(body);
 
   return section;
@@ -3495,7 +4889,35 @@ function renderMomentoChiamata(
     );
   }
 
+  // Suggested player block — design slot "CHI CHIAMARE ORA".
+  // Honest placeholder: there is NO suggestion engine yet (richiede dati reali +
+  // gate non attivi). Mostriamo il blocco in modo stabile, senza fingere una
+  // predizione. Non è una raccomandazione.
+  const suggested = document.createElement("div");
+  suggested.id = "suggested-player";
+  suggested.style.cssText = `background:${C.panelInner};border:1px solid ${C.border};border-radius:8px;padding:12px 16px;margin-top:18px;`;
+  const suggestedEyebrow = document.createElement("div");
+  suggestedEyebrow.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.06em;color:${C.textSec};margin-bottom:4px;`;
+  suggestedEyebrow.textContent = "GIOCATORE SUGGERITO — CHI CHIAMARE ORA";
+  const suggestedBody = document.createElement("div");
+  suggestedBody.style.cssText = `font-size:13px;line-height:1.5;color:${C.textMid};`;
+  suggestedBody.textContent = "Nessun suggerimento automatico attivo: il motore richiede dati reali, non ancora abilitati. Inserisci manualmente il giocatore chiamato nella ricerca qui sopra. (Non è una predizione.)";
+  suggested.appendChild(suggestedEyebrow);
+  suggested.appendChild(suggestedBody);
+  wrap.appendChild(suggested);
+
+  // Il listone sta SOTTO il blocco del giocatore suggerito (richiesta di Pico,
+  // 2026-08-17). L'ordine verticale della schermata è una decisione di
+  // prodotto e vive qui, nell'ordine degli appendChild: la ricerca resta in
+  // cima — è la ragione per cui la schermata esiste, e `e2e/call-screen-order.
+  // spec.ts` la tiene sopra la piega — poi il contesto della chiamata, poi il
+  // segnaposto del suggerito, e infine la tabella da cui si seleziona.
   const listoneWrap = document.createElement("div");
+  // Ancora stabile per l'ordine verticale: `e2e/call-screen-order.spec.ts`
+  // confronta la posizione di questo blocco con quella di `#suggested-player`,
+  // e senza un id il confronto dovrebbe appoggiarsi a una classe di layout
+  // interna al listone, che può cambiare senza che l'ordine cambi.
+  listoneWrap.id = "listone-block";
   listoneWrap.style.cssText = `margin-top:18px;`;
   const assignedKeys = new Set(aState.purchasedPlayerIds);
   const displayPool = filterListonePool(
@@ -3539,45 +4961,6 @@ function renderMomentoChiamata(
   );
   wrap.appendChild(listoneWrap);
 
-  // T13 #231 — the fast path: one line records a purchase without walking the
-  // select -> Avvia -> prezzo -> conferma sequence, which stays exactly as it
-  // was for every other case. #333 moved it BELOW the search/listone pair: it
-  // is a write action performed once an aggiudicazione is already over, not
-  // one of the four questions asked while a price is being shouted. It stays a
-  // full, always-visible panel (no gesture in front of it) because it is used
-  // at every single aggiudicazione of the table, not occasionally.
-  wrap.appendChild(
-    renderAssignCommandPanel(
-      {
-        value: state.assignCommand,
-        resolution: assignCommandResolution(aState),
-        error: state.assignCommandError,
-      },
-      { onInput: onAssignCommandInput, onSubmit: () => submitAssignCommand(aState) },
-    ),
-  );
-
-  // Suggested player block — design slot "CHI CHIAMARE ORA".
-  // Honest placeholder: there is NO suggestion engine yet (richiede dati reali +
-  // gate non attivi). Mostriamo il blocco in modo stabile, senza fingere una
-  // predizione. Non è una raccomandazione.
-  // #333: sta in fondo, non in cima. È vuoto per costruzione, quindi non può
-  // rispondere a nessuna delle quattro domande, e in cima costava la posizione
-  // migliore della pagina. Spostato, non tolto — toglierlo è una decisione di
-  // prodotto che non è stata presa.
-  const suggested = document.createElement("div");
-  suggested.id = "suggested-player";
-  suggested.style.cssText = `background:${C.panelInner};border:1px solid ${C.border};border-radius:8px;padding:12px 16px;margin-top:18px;`;
-  const suggestedEyebrow = document.createElement("div");
-  suggestedEyebrow.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.06em;color:${C.textSec};margin-bottom:4px;`;
-  suggestedEyebrow.textContent = "GIOCATORE SUGGERITO — CHI CHIAMARE ORA";
-  const suggestedBody = document.createElement("div");
-  suggestedBody.style.cssText = `font-size:13px;line-height:1.5;color:${C.textMid};`;
-  suggestedBody.textContent = "Nessun suggerimento automatico attivo: il motore richiede dati reali, non ancora abilitati. Inserisci manualmente il giocatore chiamato nella ricerca qui sopra. (Non è una predizione.)";
-  suggested.appendChild(suggestedEyebrow);
-  suggested.appendChild(suggestedBody);
-  wrap.appendChild(suggested);
-
   // Focus the search input only on the first render after entering this
   // moment (boot, "← Indietro", or right after a completed purchase) — never
   // on a re-render triggered by typing/selecting here, which would otherwise
@@ -3592,18 +4975,62 @@ function renderMomentoChiamata(
   return wrap;
 }
 
+/**
+ * Il testo scritto SUL bottone del terzo portiere a 0 — una costante e non tre
+ * stringhe uguali, perché il messaggio d'errore del prezzo digitato lo cita
+ * alla lettera: se il bottone cambia nome, il messaggio che ci manda l'operatore
+ * cambia con lui e non può indicare un comando che non esiste più.
+ */
+const THIRD_GOALKEEPER_ZERO_LABEL = "Dichiaro e registro a 0 cr";
+
+/**
+ * La condizione STRUTTURALE del terzo portiere: questo acquisto è l'ultimo
+ * slot P della squadra selezionata. È l'unica cosa che decide se il gesto a 0
+ * si vede a schermo — l'ammissione resta di purchaseFeasibility(). Sta in una
+ * funzione sola perché la usano tre punti (bottone, nota di max_safe,
+ * messaggio d'errore del prezzo) e devono dire tutti la stessa cosa.
+ */
+function isThirdGoalkeeperSlot(assignTeam: TeamState | undefined): boolean {
+  return state.call.role === "P" && assignTeam !== undefined && assignTeam.slotsRemaining.P === 1;
+}
+
+/**
+ * L'acquisto ESATTO che il bottone registrerebbe adesso, o `null` quando non
+ * c'è un giocatore selezionato. Costruito qui una volta sola: la schermata lo
+ * usa per CHIEDERE a purchaseFeasibility() se quel gesto passerebbe, e
+ * registerThirdGoalkeeperZero() usa lo stesso oggetto per commetterlo. Testo a
+ * schermo e comportamento del click nascono così dalla stessa proposta, non da
+ * due derivazioni che possono divergere.
+ */
+function thirdGoalkeeperZeroProposal(): ProposedPurchase | null {
+  const selectedPlayer = state.call.selectedPlayer;
+  if (!selectedPlayer) return null;
+  return {
+    playerId: listonePlayerKey(selectedPlayer),
+    role: selectedPlayer.role,
+    fantaTeamId: state.assign.fantaTeamId,
+    price: 0,
+    declareThirdGoalkeeperZero: true,
+  };
+}
+
 // ── «Dopo l'acquisto»: quanto resta se lo prendi a questa cifra ─────────────
 // La quarta domanda del tavolo. Budget, Spesi e Slot dicono lo stato ADESSO;
 // nessun pannello diceva lo stato che si otterrebbe pagando la cifra che si sta
 // digitando, e a due secondi dal rilancio quel conto si faceva a mente.
 //
 // DOVE STA, E PERCHÉ LÌ. Dentro la riga ASSEGNA A, fra il campo del prezzo e
-// «Registra acquisto». Non in alto accanto a «Prezzo da pagare»: misurato sul
-// DOM vivo, mentre il campo del prezzo è a fuoco quel blocco è già fuori
-// schermo (a 1440×900 il suo bordo superiore sta a −65 px), quindi una
-// proiezione lì non la vedrebbe nessuno proprio nell'istante in cui serve. Qui
-// invece occupa lo spazio orizzontale che la riga aveva già libero, e per
-// questo non allunga una schermata che è già lunga il doppio del viewport.
+// «Registra acquisto», dove occupa lo spazio orizzontale che quella riga aveva
+// già libero e non allunga la schermata di una riga.
+//
+// La motivazione originale era un'altra e non vale più: quando questo blocco è
+// nato, «Prezzo da pagare» era in cima allo schermo e il campo del prezzo
+// 1000px più giù, quindi mentre si digitava quel blocco era già fuori (bordo
+// superiore a −65px a 1440×900) e una proiezione lì non l'avrebbe vista
+// nessuno. Con #331 punti 2-3 i due stanno nella stessa scheda e sono in vista
+// insieme: la posizione resta questa perché è quella che non costa altezza e
+// che mette la conseguenza PRIMA del bottone nell'ordine di lettura e di
+// tabulazione, non più perché l'alternativa fosse invisibile.
 //
 // DI CHI PARLA. Della squadra selezionata nel menu ASSEGNA A — quella che sta
 // per ricevere l'acquisto — e lo dice per esteso nell'etichetta. Sulla stessa
@@ -3714,6 +5141,29 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   });
   wrap.appendChild(back);
 
+  // ── LA SCHEDA DEL GIOCATORE ────────────────────────────────────────────────
+  // #331 punti 2 e 3, e il numero che li ha resi urgenti. Misurato con Chromium
+  // su pool sintetico da 532 righe e log vuoto: «ASSEGNA A» — il gesto per cui
+  // questa schermata esiste — cominciava a 1154px in produzione (254px sotto la
+  // piega a 1440×900, 74px sotto a 1920×1080) e a 1262px una volta arrivato il
+  // pannello FASCIA DEL CHIAMATO (362px e 182px sotto). Ogni corsia misurava il
+  // proprio pannello; nessuna misurava la schermata risultante.
+  //
+  // La scheda porta, in quest'ordine, le tre cose che si guardano nei due
+  // secondi in cui qualcuno urla un prezzo: chi è chiamato e quanto costa
+  // (con «max bid sicuro» accanto), come sta il mercato PER QUEL RUOLO, e il
+  // gesto che registra l'acquisto. Tutto il resto della schermata sta sotto.
+  //
+  // PERCHÉ UNA SCHEDA E NON TRE BLOCCHI SPOSTATI. Sopra il gesto resta soltanto
+  // la riga d'identità del giocatore: un pannello aggiunto domani finisce sotto
+  // la scheda e non può più spingere «ASSEGNA A» fuori dallo schermo. È
+  // l'invariante che e2e/asta-gesto-principale.spec.ts asserisce per ordine,
+  // non solo per pixel, proprio perché la schermata continuerà a crescere.
+  const card = document.createElement("section");
+  card.id = "call-card";
+  card.className = "call-card";
+  card.setAttribute("aria-label", "Giocatore chiamato: prezzo, momento del ruolo e assegnazione");
+
   // Player info + maxSafe row
   const topRow = document.createElement("div");
   topRow.style.cssText = `display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:18px;`;
@@ -3748,6 +5198,17 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   const maxSafeWrap = document.createElement("div");
   maxSafeWrap.style.cssText = `text-align:right;`;
   const assignTeam = aState.teams[state.assign.fantaTeamId] ?? team;
+
+  // IL GESTO A 0, DECISO UNA VOLTA SOLA PER TUTTA LA SCHERMATA.
+  // `zeroGestureAvailable` è la condizione strutturale (si vede il bottone);
+  // `zeroAdmitted` è la risposta di purchaseFeasibility() alla proposta esatta
+  // che il click commetterebbe — cioè il comportamento vero, non una sua
+  // seconda derivazione. La nota di max_safe qui sotto legge il secondo, così
+  // non può dichiarare indisponibile un acquisto che il bottone registrerebbe.
+  const zeroGestureAvailable = isThirdGoalkeeperSlot(assignTeam);
+  const zeroProposal = zeroGestureAvailable ? thirdGoalkeeperZeroProposal() : null;
+  const zeroAdmitted = zeroProposal !== null && purchaseFeasibility(aState, zeroProposal).ok;
+
   if (assignTeam && state.call.role) {
     const ms = maxSafe(assignTeam, state.call.role as Role);
     const priceLabel = document.createElement("div");
@@ -3758,9 +5219,27 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
     priceDisplay.className = "kpi-value";
     priceDisplay.style.cssText = `font-size:32px;color:${C.textPrimary};background:${C.panelInner};border-radius:7px;padding:6px 16px;display:inline-block;`;
     priceDisplay.textContent = state.assign.price ? `${state.assign.price} cr` : "— cr";
+    // #333 §A — QUESTO NUMERO SI CHIAMA COME SI CHIAMA ALTROVE. Era «max per
+    // completare la rosa di X»: terza formulazione per la cifra che la fascia
+    // critica chiama «Max bid sicuro» e la war board «max bid», e la sola per
+    // cui src/ui/budgetLabels.ts dichiarava ancora un'eccezione «da allineare
+    // quando quei file si toccano». Si stanno toccando: l'eccezione è rientrata
+    // e l'etichetta viene dalla costante, non da una stringa scritta a mano.
     const maxSafeNote = document.createElement("div");
+    maxSafeNote.id = "max-safe-note";
     maxSafeNote.style.cssText = `font-size:11.5px;color:${C.textSec};margin-top:5px;`;
-    maxSafeNote.textContent = `max per completare la rosa di ${displayTeamLabel(state.assign.fantaTeamId)}: ${ms.biddable ? ms.maxSafe + " cr" : "n/d"}`;
+    // «n/d» da solo dice "nessun acquisto possibile qui", ed è vero per ogni
+    // prezzo digitabile (il minimo è 1 cr) ma NON quando il terzo portiere a 0
+    // è ancora ammesso. Succede in un caso limite reale: budget residuo
+    // esattamente pari agli altri slot da riempire (budgetResidual ===
+    // otherSlots) — max_safe vale 0 e non è offribile, mentre l'acquisto a 0
+    // non consuma nulla e resta ammesso. Prima la nota diceva «n/d» mentre il
+    // bottone sotto registrava davvero: schermata e comportamento in
+    // contraddizione. La coda qui sotto la toglie, e la toglie solo quando è
+    // purchaseFeasibility() a dire di sì.
+    const ceiling = ms.biddable ? `${ms.maxSafe} cr` : "n/d";
+    const zeroTail = !ms.biddable && zeroAdmitted ? " — resta solo il terzo portiere a 0 cr" : "";
+    maxSafeNote.textContent = `${MAX_BID_LABEL_LONG} di ${displayTeamLabel(state.assign.fantaTeamId)}: ${ceiling}${zeroTail}`;
     maxSafeWrap.appendChild(priceLabel);
     maxSafeWrap.appendChild(priceDisplay);
     maxSafeWrap.appendChild(maxSafeNote);
@@ -3768,60 +5247,53 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
 
   topRow.appendChild(playerInfo);
   topRow.appendChild(maxSafeWrap);
-  wrap.appendChild(topRow);
+  card.appendChild(topRow);
 
-  // War board MINI — #231 tranche 3, decisione di Owner #222 voce 18
-  // (revisione registrata dell'invariante #86, docs/FRONTEND_STRUCTURE.md).
-  // Placed straight under "what is being called and for how much": during a
-  // live auction the next question is always "who else can still go there,
-  // and up to where". Two numbers per team, no detail — the detail lives in
-  // the COMPLETA variant of the chiamata moment.
-  wrap.appendChild(renderWarBoardMini(warBoardRows(aState, SELF_ID), seatLabelMap()));
-
-  wrap.appendChild(renderPlayerInsightsBlock(playerInsightProps()));
-
-  // The two blocks below used to be DEV STATICO placeholders on the tightest
-  // screen of the app. They now carry the facts the engine already knew:
-  //  - MOMENTO DELL'ASTA: roleScarcity() — the same panel the chiamata moment
-  //    shows, brought to the live screen where the role's remaining supply is
-  //    what the next bid is decided against — plus residualPressure(), the
-  //    census of credits and slots still on the table (anchors.ts);
-  //  - AVVERSARI: auctionPrecedents() — cosa ogni avversario ha già fatto che
-  //    riguardi il giocatore chiamato, contato sullo storico d'asta
-  //    multi-stagione (packages/opponent-profiles). Prima qui c'era
-  //    competitorSet(), cioè chi poteva arrivare alla cifra per solo vincolo
-  //    duro: quei numeri non sono spariti dall'app — max bid e budget di tutte
-  //    le squadre stanno nella striscia WAR BOARD (MINI) poche righe sopra,
-  //    gli slot per ruolo nella war board COMPLETA del momento CHIAMATA e in
-  //    AVVERSARI TIER-1 su Rose — hanno smesso di essere ricontati qui (#331).
-  // Both are pure functions of the reduced AuctionState (+ the listone row
-  // count for availability): no model field, no network, no receipt needed —
-  // docs/AUCTION_2026_EXECUTION_PLAN.md §3, rows "Scarsità" and "Contabilità".
-  // The grid keeps its two columns and gains a stacking breakpoint (see
-  // .moment-blocks-grid in src/styles/asta.css): two dense panels side by side
-  // stop being readable on a phone well before they stop fitting.
-  const suggestionsGrid = document.createElement("div");
-  suggestionsGrid.className = "moment-blocks-grid";
-  suggestionsGrid.appendChild(
+  // MOMENTO DELL'ASTA — ridotto al ruolo chiamato, dentro la scheda (#331
+  // punto 2). Le altre tre celle di ruolo, il censimento MERCATO e la nota
+  // metodologica restano nel DOM dietro un gesto: la motivazione per esteso e
+  // il vincolo «ridurre non toglie informazione» stanno sopra
+  // renderMomentInsightsBlock in src/ui/views.ts.
+  card.appendChild(
     renderMomentInsightsBlock({
       scarcity: roleScarcity(aState, scarcityPool()),
       poolLoaded: state.pool.length > 0,
       calledRole: state.call.role,
       pressure: residualPressure(aState),
+      detailOpen: state.momentFactsDetailOpen,
+      onToggleDetail: toggleMomentFactsDetail,
     }),
   );
-  suggestionsGrid.appendChild(renderOpponentPrecedentsBlock(opponentPrecedentsProps()));
-  wrap.appendChild(suggestionsGrid);
 
-  // Assign form
+  // ── ASSEGNA A — il gesto, dentro la scheda e rimpicciolito ────────────────
+  // #331 punto 3. Era una sezione a sé in fondo alla pagina, sotto la griglia a
+  // due colonne e (dal ramo delle fasce) sotto anche FASCIA DEL CHIAMATO. Le
+  // stesse tre cose — squadra, prezzo, registrazione — e la proiezione «dopo
+  // l'acquisto» stanno adesso nella scheda, subito sotto ciò che si sta
+  // comprando e a che punto è il mercato di quel ruolo.
+  //
+  // RIMPICCIOLITO, NON SVUOTATO: nessun controllo, nessuna etichetta e nessuna
+  // nota sono spariti. È cambiata la scatola — il titolo e la nota di esito
+  // condividono una riga sola invece di prenderne due, e la riga di campi non
+  // porta più il bordo/padding di una sezione separata, perché la scheda che
+  // la contiene fa già quel lavoro.
   const divider = document.createElement("div");
-  divider.style.cssText = `border-top:1px solid ${C.border};padding-top:18px;`;
+  divider.id = "assign-block";
+  divider.className = "assign-block";
+
+  const assignHead = document.createElement("div");
+  assignHead.className = "assign-block__head";
 
   const assignLabel = document.createElement("div");
   assignLabel.className = "panel-title";
-  assignLabel.style.marginBottom = "14px";
   assignLabel.textContent = "ASSEGNA A";
-  divider.appendChild(assignLabel);
+  assignHead.appendChild(assignLabel);
+
+  const headNote = document.createElement("div");
+  headNote.className = "hint-text assign-block__note";
+  headNote.textContent = "Il prezzo viene registrato nello storico; il piano rosa viene rivalutato subito dopo.";
+  assignHead.appendChild(headNote);
+  divider.appendChild(assignHead);
 
   const formRow = document.createElement("div");
   formRow.className = "form-row";
@@ -3845,8 +5317,8 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   }
   teamSelect.addEventListener("change", (e) => {
     state.assign.fantaTeamId = (e.target as HTMLSelectElement).value;
-    // The "max per completare la rosa" note below reads the selected team,
-    // not always "my" team — it must reflect the switch. See #219.
+    // The «max bid sicuro di X» note above reads the selected team, not always
+    // "my" team — it must reflect the switch. See #219.
     render();
   });
   teamGroup.appendChild(teamLabel);
@@ -3910,6 +5382,66 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   formRow.appendChild(submitBtn);
   divider.appendChild(formRow);
 
+  // CHI ERA IN GARA — il flag al submit, DENTRO il gesto e sotto la riga di
+  // campi. Sta qui e non altrove per tre motivi che si sommano:
+  //
+  //  1. è la marcatura DI QUESTO acquisto: metterla in un pannello a parte
+  //     vorrebbe dire chiedere all'operatore di ricordarsi di tornarci;
+  //  2. sotto la riga di campi, quindi il titolo «ASSEGNA A» non si sposta di
+  //     un pixel — e2e/asta-gesto-principale.spec.ts misura esattamente quello;
+  //  3. saltarla non costa NIENTE: non è un passo del percorso verso «Registra
+  //     acquisto», è una riga che si può ignorare, e ignorarla non produce
+  //     avvisi né conferme.
+  divider.appendChild(
+    renderInterestFlagRow({
+      seatIds: interestSeatIds(),
+      seatLabels: seatLabelMap(),
+      marked: currentInterestMarks(),
+      onToggle: toggleInterestMark,
+    }),
+  );
+
+  // Terzo portiere a 0 — LEAGUE_RULES.md §6 (decisione Pico, 2026-08-15).
+  // Rendered ONLY when this purchase is structurally the selected team's
+  // third (last) portiere slot — `zeroGestureAvailable`, computed at the top
+  // of this function and SHARED with the max_safe note above, so the two
+  // cannot disagree about whether this gesture exists. That condition only
+  // decides whether to SHOW the gesture; the engine call below is still the
+  // sole authority on whether it is actually admitted. Everywhere else this
+  // button does not exist, so there is nothing to misclick into recording a 0.
+  //
+  // ONE gesture, not two: this click both DECLARES (that the table-level
+  // facts the engine cannot see — same real club as a portiere already on
+  // the roster, no other participant interested — hold right now) AND
+  // commits the purchase at price 0, in the same action. No modal, no
+  // field, no second confirm — see registerThirdGoalkeeperZero below.
+  if (zeroGestureAvailable) {
+    const zeroWrap = document.createElement("div");
+    zeroWrap.style.cssText = `margin-top:12px;padding:10px 12px;border:1px dashed ${C.accent};border-radius:7px;background:${C.panelInner};display:flex;align-items:center;gap:12px;flex-wrap:wrap;`;
+    const zeroNote = document.createElement("div");
+    zeroNote.style.cssText = `font-size:12px;color:${C.textSec};flex:1;min-width:220px;`;
+    zeroNote.textContent = `Terzo portiere di ${displayTeamLabel(state.assign.fantaTeamId)}: se stesso club di un portiere già in rosa e nessun altro interessato (LEAGUE_RULES §6) → registralo a 0 cr.`;
+    const zeroBtn = document.createElement("button");
+    zeroBtn.id = "declare-third-goalkeeper-zero";
+    zeroBtn.textContent = THIRD_GOALKEEPER_ZERO_LABEL;
+    // PESO VISIVO = COSA FA. Questo bottone scrive nel registro degli
+    // acquisti esattamente come «Registra acquisto», quindi porta la stessa
+    // classe e lo stesso peso: prima era `btn--secondary`, l'aspetto di
+    // un'azione minore (fantasma, bordo sottile) su un comando che invece
+    // registra un acquisto. Nessun colore nuovo è stato introdotto per
+    // ottenerlo — è la classe primaria che l'app già usa e che la guardia di
+    // contrasto già copre. A distinguerlo dall'acquisto ordinario resta il
+    // riquadro tratteggiato che lo contiene, con la sua nota.
+    zeroBtn.className = "btn btn--primary";
+    zeroBtn.style.flex = "none";
+    zeroBtn.title =
+      "Un solo click: dichiara che le condizioni del regolamento sono soddisfatte adesso e registra l'acquisto a 0 crediti. La dichiarazione resta nello storico.";
+    zeroBtn.addEventListener("click", () => registerThirdGoalkeeperZero(aState));
+    zeroWrap.appendChild(zeroNote);
+    zeroWrap.appendChild(zeroBtn);
+    divider.appendChild(zeroWrap);
+  }
+
   if (state.error) {
     const errEl = document.createElement("div");
     errEl.style.cssText = `font-size:13px;color:${C.stopRed};margin-top:10px;`;
@@ -3917,13 +5449,75 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
     divider.appendChild(errEl);
   }
 
-  const note = document.createElement("div");
-  note.className = "hint-text";
-  note.style.marginTop = "10px";
-  note.textContent = "Il prezzo viene registrato nello storico; il piano rosa viene rivalutato subito dopo.";
-  divider.appendChild(note);
+  card.appendChild(divider);
+  wrap.appendChild(card);
 
-  wrap.appendChild(divider);
+  // ── Sotto la scheda: tutto ciò che informa la decisione senza esserne il
+  // gesto. L'ordine segue le quattro domande del tavolo confermate da Pico
+  // (#333): la fascia del chiamato resta la più vicina al campo del prezzo,
+  // perché il registro di quella fascia è il numero che si guarda mentre si
+  // batte la cifra; poi la scheda esperto sul giocatore chiamato; poi chi me lo
+  // contende (war board MINI, AVVERSARI). Niente di tutto questo può più
+  // spingere «ASSEGNA A» sotto la piega: sta tutto DOPO la scheda che lo
+  // contiene.
+  wrap.appendChild(renderTierBandBlock(tierBandProps(aState)));
+
+  // INSIGHT GIOCATORE sopra la war board MINI — richiesta di Pico 2026-08-17:
+  // scambio di posizione verticale fra i due blocchi adiacenti, niente altro.
+  // L'ordine è asserito da e2e/call-screen-order.spec.ts.
+  wrap.appendChild(renderPlayerInsightsBlock(playerInsightProps()));
+
+  // IL POSTO DELLA RISPOSTA LENTA — sempre presente, anche (anzi soprattutto)
+  // quando non ha niente da mostrare: è la resa della regola «se non è pronta
+  // lo dice invece di far aspettare». Sta SOTTO la scheda del giocatore, come
+  // ogni altro riquadro: una risposta che arriva non può spingere il gesto
+  // principale fuori dallo schermo, e mentre lei si prepara la schermata resta
+  // interamente usabile.
+  wrap.appendChild(
+    renderLateAnswerBlock({
+      state: lateAnswerSlot.state(),
+      subjectLabel: state.call.playerName === "" ? "il giocatore chiamato" : state.call.playerName,
+    }),
+  );
+
+  // War board MINI — #231 tranche 3, decisione di Owner #222 voce 18
+  // (revisione registrata dell'invariante #86, docs/FRONTEND_STRUCTURE.md).
+  // "Chi altro può ancora arrivarci, e fin dove": due numeri per squadra,
+  // nessun dettaglio — il dettaglio vive nella variante COMPLETA del momento
+  // di chiamata. La riga di legenda («bdg = crediti residui · max bid = …») è
+  // parte di questo pannello (renderWarBoardMini) e si sposta con lui.
+  wrap.appendChild(renderWarBoardMini(warBoardRows(aState, SELF_ID), seatLabelMap()));
+
+  // IL RUOLO STASERA — che cosa è successo al ruolo in asta stasera (quanti ne
+  // sono passati, da chi, a che prezzi) e quanti posti di quel ruolo restano
+  // aperti al tavolo. Sta QUI, subito sopra il blocco MOMENTO DELL'ASTA, perché
+  // le due letture si leggono in fila: prima come il ruolo si è svuotato, poi
+  // quanto ne resta. Sola lettura, sola aritmetica sull'event log e sul
+  // censimento dei posti: nessuna quotazione di listino entra nel calcolo
+  // (decisione di Pico 16/08/2026 — vedi la nota in testa a
+  // src/roleDepletion.ts).
+  wrap.appendChild(renderRoleDepletionBlock(roleDepletionProps(aState)));
+
+  // AVVERSARI — auctionPrecedents(): cosa ogni avversario ha già fatto che
+  // riguardi il giocatore chiamato, contato sullo storico d'asta multi-stagione
+  // (packages/opponent-profiles). Prima qui c'era competitorSet(), cioè chi
+  // poteva arrivare alla cifra per solo vincolo duro: quei numeri non sono
+  // spariti dall'app — max bid e budget di tutte le squadre stanno nella
+  // striscia WAR BOARD (MINI) qui sopra, gli slot per ruolo nella war board
+  // COMPLETA del momento CHIAMATA e in AVVERSARI TIER-1 su Rose — hanno
+  // smesso di essere ricontati qui (#331 punto 1).
+  //
+  // LA FASCIA A DUE COLONNE RESTA, con un pannello solo dentro. Non è un
+  // residuo: è la casa che #331 punto 4 destina alla divisione «interessati /
+  // non interessati», e toglierla adesso vorrebbe dire ricostruirla poi. Il
+  // pannello superstite attraversa entrambe le colonne (.moment-blocks-grid--
+  // single) invece di lasciarne una vuota; le colonne e il loro breakpoint di
+  // impilamento sono quelli di prima.
+  const suggestionsGrid = document.createElement("div");
+  suggestionsGrid.className = "moment-blocks-grid moment-blocks-grid--single";
+  suggestionsGrid.appendChild(renderOpponentPrecedentsBlock(opponentPrecedentsProps()));
+  wrap.appendChild(suggestionsGrid);
+
   return wrap;
 }
 
@@ -3964,6 +5558,72 @@ function feasibilityErrorText(violations: readonly string[], role: Role): string
   return violations.map((v) => msgs[v] ?? v).join(" ");
 }
 
+/**
+ * Shared commit path for every purchase-entry gesture in the app: the
+ * typed-price form (doAssign) and the one-click third-portiere-at-0
+ * declaration (registerThirdGoalkeeperZero) below. Runs the SAME
+ * purchaseFeasibility() -> recordPurchase() -> saveAuctionLog() sequence
+ * regardless of which gesture produced `proposed`, so `max_safe`/hard
+ * reserve stay non-overridable no matter which UI path is used.
+ */
+function commitPurchase(aState: AuctionState, proposed: ProposedPurchase, role: Role): void {
+  const feasibility = purchaseFeasibility(aState, proposed);
+  if (!feasibility.ok) {
+    state.error = feasibilityErrorText(feasibility.violations, role);
+    render();
+    return;
+  }
+
+  try {
+    const newLog = recordPurchase(state.log, aState, proposed, new Date().toISOString());
+    // `state.log` is the baseline this purchase was computed FROM: it is what
+    // arms the optimistic-concurrency guard (audit fix 1), so a second tab
+    // that moved the canonical underneath gets a refusal, not a silent
+    // overwrite.
+    const saveResult = saveAuctionLog(browserStorage, newLog, FANTA_TEAM_IDS, state.log, state.confirmations);
+    if (!saveResult.ok) {
+      // Fail-closed: the in-memory log is never advanced past what was
+      // actually persisted — no false "saved" state, no silent data loss
+      // risk if the browser reloads right after this.
+      handleSaveFailure(saveResult);
+      render();
+      return;
+    }
+    state.log = newLog as AuctionEvent[];
+    state.persistenceError = "";
+    // IL FLAG NON PUÒ FAR FALLIRE L'ACQUISTO, E QUESTO È IL PUNTO IN CUI SI
+    // VEDE. L'acquisto è già registrato e persistito quando questa riga viene
+    // eseguita: `recordInterestFlag` non può tornare indietro, non lancia e
+    // non ha un ramo che salti il `render()` qui sotto. Se lo storage del flag
+    // rifiuta la scrittura, la marcatura resta in coda in memoria e la
+    // schermata lo dice — l'acquisto resta registrato in ogni caso.
+    //
+    // Le marcature si leggono PRIMA di azzerare `state.call`: dopo, il
+    // soggetto non esiste più e `currentInterestMarks()` restituirebbe — con
+    // ragione — un elenco vuoto.
+    const flagged = currentInterestMarks();
+    const purchaseSeq = newLog[newLog.length - 1]?.seq;
+    if (purchaseSeq !== undefined) recordInterestFlag(purchaseSeq, proposed, flagged);
+    state.interestMarks = { subjectKey: null, contenders: [] };
+    state.moment = "chiamata";
+    state.chiamataFocusPending = true;
+    state.call = { playerName: "", role: "", club: "", selectedPlayer: null };
+    state.callInteractions = 0;
+    state.nominationContextOpen = false;
+    state.assign = { fantaTeamId: SELF_ID, price: "" };
+    state.error = "";
+    // Il soggetto non c'è più: il posto della risposta lenta si svuota e
+    // qualunque risposta in volo viene annullata. Sta QUI, subito prima del
+    // render, perché svuotarlo prima significherebbe ridipingere la schermata
+    // in mezzo alle mutazioni.
+    armLateAnswer(null);
+    render();
+  } catch (err) {
+    state.error = err instanceof Error ? err.message : "Errore sconosciuto.";
+    render();
+  }
+}
+
 function doAssign(aState: AuctionState): void {
   const selectedPlayer = state.call.selectedPlayer;
   if (!selectedPlayer) {
@@ -3976,7 +5636,7 @@ function doAssign(aState: AuctionState): void {
   }
   const price = parsePositiveIntegerPrice(state.assign.price);
   if (price === null) {
-    state.error = "Prezzo non valido: inserisci un numero intero positivo.";
+    state.error = priceRejectedText(state.assign.price, aState);
     render();
     return;
   }
@@ -3988,42 +5648,54 @@ function doAssign(aState: AuctionState): void {
     fantaTeamId: state.assign.fantaTeamId,
     price,
   };
+  commitPurchase(aState, proposed, role);
+}
 
-  const feasibility = purchaseFeasibility(aState, proposed);
-  if (!feasibility.ok) {
-    state.error = feasibilityErrorText(feasibility.violations, role);
+/**
+ * Il rifiuto di un prezzo che il parser non accetta — invariato in ogni caso
+ * tranne UNO: uno zero digitato mentre la schermata sta mostrando il gesto del
+ * terzo portiere. Lì «inserisci un numero intero positivo» è vero ma è un
+ * vicolo cieco: lo 0 in quel punto è un caso legittimo del regolamento e
+ * l'operatore ha davanti il comando che lo registra, senza che niente glielo
+ * dica. La coda lo nomina, con le stesse identiche parole scritte sul bottone
+ * (THIRD_GOALKEEPER_ZERO_LABEL, una costante sola per non poter divergere).
+ * Fuori da quel caso il messaggio resta parola per parola quello di prima:
+ * dove il bottone non c'è, indicarlo sarebbe una bugia.
+ */
+function priceRejectedText(raw: string, aState: AuctionState): string {
+  const base = "Prezzo non valido: inserisci un numero intero positivo.";
+  // Solo uno zero (anche scritto "00" o con spazi): un prezzo negativo o una
+  // parola non sono il caso del regolamento e non vanno indirizzati lì.
+  const typedZero = /^0+$/.test(raw.trim());
+  if (!typedZero || !isThirdGoalkeeperSlot(aState.teams[state.assign.fantaTeamId])) return base;
+  return `${base} Per il terzo portiere a 0 usa il bottone «${THIRD_GOALKEEPER_ZERO_LABEL}».`;
+}
+
+/**
+ * One-gesture declaration path for LEAGUE_RULES.md §6's third-portiere
+ * exception (Pico, 2026-08-15). Only reachable by clicking the button
+ * renderMomentoAsta shows exclusively when this IS the selected team's
+ * third portiere slot — this function does not re-derive that gate, it
+ * defers entirely to purchaseFeasibility() (via commitPurchase) as the
+ * single source of truth, same as every other purchase path. The click
+ * itself is both the operator's declaration that the table-level facts
+ * (same real club as a portiere already on the roster; no other
+ * participant interested) hold right now, AND the commit — no second step,
+ * no field to fill in. `commitPurchase` -> `recordPurchase` writes that
+ * declaration onto the event (`thirdGoalkeeperZeroDeclared: true`), so the
+ * log explains the 0 on replay.
+ */
+function registerThirdGoalkeeperZero(aState: AuctionState): void {
+  // La proposta viene dalla stessa funzione che la schermata ha già
+  // interrogato per decidere cosa scrivere nella nota di max_safe: quello che
+  // il testo dichiara possibile è letteralmente ciò che questo click commette.
+  const proposed = thirdGoalkeeperZeroProposal();
+  if (!proposed) {
+    state.error = "Nessun giocatore selezionato dal listone.";
     render();
     return;
   }
-
-  try {
-    const newLog = recordPurchase(state.log, aState, proposed, new Date().toISOString());
-    // `state.log` is the baseline this purchase was computed FROM — the form
-    // path is separate from the command-line one (executeAssignCommand), so
-    // it needs the same optimistic-concurrency guard (audit fix 1).
-    const saveResult = saveAuctionLog(browserStorage, newLog, FANTA_TEAM_IDS, state.log, state.confirmations);
-    if (!saveResult.ok) {
-      // Fail-closed: the in-memory log is never advanced past what was
-      // actually persisted — no false "saved" state, no silent data loss
-      // risk if the browser reloads right after this.
-      handleSaveFailure(saveResult);
-      render();
-      return;
-    }
-    state.log = newLog as AuctionEvent[];
-    state.persistenceError = "";
-    state.moment = "chiamata";
-    state.chiamataFocusPending = true;
-    state.call = { playerName: "", role: "", club: "", selectedPlayer: null };
-    state.callInteractions = 0;
-    state.nominationContextOpen = false;
-    state.assign = { fantaTeamId: SELF_ID, price: "" };
-    state.error = "";
-    render();
-  } catch (err) {
-    state.error = err instanceof Error ? err.message : "Errore sconosciuto.";
-    render();
-  }
+  commitPurchase(aState, proposed, proposed.role);
 }
 
 /** Human-readable, non-alarmist explanation of a failed save — always
@@ -4134,6 +5806,25 @@ function renderZona4(aState: AuctionState): HTMLElement {
     const row = document.createElement("div");
     row.style.cssText = `display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid ${C.border};font-size:14px;`;
 
+    // LO ZERO DICHIARATO SI LEGGE COME TALE. Un acquisto a 0 cr, in mezzo a
+    // prezzi che per regola partono da 1, è indistinguibile da un errore di
+    // battitura di chi rilegge lo storico: qui la dichiarazione che l'ha reso
+    // possibile — l'unica cosa che spiega quello 0 — smette di restare solo
+    // dentro l'evento (`thirdGoalkeeperZeroDeclared`, scritto da
+    // recordPurchase) e viene mostrata accanto alla cifra. Compare SOLO sugli
+    // eventi che la portano davvero: nessun acquisto ordinario la vede, e uno
+    // 0 senza dichiarazione (che l'admission layer non ammette) resterebbe
+    // nudo, come deve.
+    const declaredZero = entry.thirdGoalkeeperZeroDeclared === true;
+    // `badge--declared-zero` è una classe di sola IDENTITÀ (nessuna regola CSS
+    // la usa): serve alla guardia di contrasto per trovare questo testo per
+    // quello che è, non per il colore che ha — stessa ragione per cui le
+    // pastiglie di ruolo si cercano per classe (e2e/text-contrast-aa.spec.ts).
+    const declaredZeroBadge = declaredZero
+      ? `<span class="badge--declared-zero" style="font-size:11.5px;color:${C.textSec};border:1px solid ${C.border};border-radius:5px;padding:1px 7px;white-space:nowrap;"
+               title="Registrato a 0 crediti su dichiarazione esplicita dell'operatore (terzo portiere, regolamento di lega §6). Non è un errore di inserimento.">terzo portiere dichiarato</span>`
+      : "";
+
     const left = document.createElement("div");
     left.style.cssText = `display:flex;align-items:center;gap:14px;color:${C.textMid};flex-wrap:wrap;`;
     left.innerHTML = `
@@ -4141,6 +5832,7 @@ function renderZona4(aState: AuctionState): HTMLElement {
       <span style="font-weight:600;">${escHtml(resolvePlayerDisplayName(entry.playerId, poolIndex))}</span>
       ${roleChipHtml(entry.role)}
       <span style="font-family:${C.mono};">${entry.price} cr</span>
+      ${declaredZeroBadge}
       <span style="color:${C.textDim};">${escHtml(displayTeamLabel(entry.fantaTeamId))}</span>
     `;
     row.appendChild(left);
@@ -4166,7 +5858,11 @@ function renderZona4(aState: AuctionState): HTMLElement {
       // does, exactly as before this panel got its index.
       const playerDisplay = resolvePlayerDisplayName(entry.playerId, auctionDisplayIndex());
       state.confirmVoidSeq = entry.seq;
-      state.confirmVoidLabel = `${playerDisplay} – ${entry.price} cr – ${displayTeamLabel(entry.fantaTeamId)}`;
+      // La dichiarazione segue l'acquisto anche qui: chi sta per annullare uno
+      // 0 deve sapere se sta cancellando un errore o una scelta dichiarata.
+      state.confirmVoidLabel = `${playerDisplay} – ${entry.price} cr${
+        declaredZero ? " (terzo portiere dichiarato)" : ""
+      } – ${displayTeamLabel(entry.fantaTeamId)}`;
       state.confirmVoidIsLatest = isLatest;
       render();
     });

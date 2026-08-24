@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { E2E_PURCHASE_PRICE, E2E_TARGET_PLAYER, SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { gotoScreen, installSyntheticNetworkGuard, readLocalStorageJson } from "./helpers.js";
+import { gotoScreen, installSyntheticNetworkGuard, openTableDetail, readLocalStorageJson } from "./helpers.js";
 
 // Participants are people, not seats. A person's identity survives moving to
 // another team and survives leaving the league entirely, which is what makes
@@ -35,15 +35,21 @@ test("a participant keeps their identity across seats and across leaving the lea
   await seat(page, "Io", "Anna");
   await seat(page, "Squadra2", "Bruno");
   await gotoScreen(page, "Asta");
-  await expect(page.locator(".panel", { hasText: "SQUADRE (LEGA)" })).toContainText("Anna");
-  await expect(page.locator(".panel", { hasText: "SQUADRE (LEGA)" })).toContainText("Bruno");
+  // Le etichette dei posti si leggono nella war board COMPLETA (la griglia
+  // SQUADRE (LEGA) è stata rimossa su richiesta di Pico, 2026-08-17): stessa
+  // domanda — il nome della persona compare al posto della sigla del posto —
+  // su un altro pannello, dietro il gesto IL TAVOLO.
+  await openTableDetail(page);
+  await expect(page.locator("#war-board-full")).toContainText("Anna");
+  await expect(page.locator("#war-board-full")).toContainText("Bruno");
 
   // Same person, different team: Squadra2 goes free, nobody is duplicated.
   await gotoScreen(page, "Impostazioni");
   await seat(page, "Squadra3", "Bruno");
   await expect(page.locator("#seat-person-Squadra2")).toHaveValue("");
   await gotoScreen(page, "Asta");
-  const teams = page.locator(".panel", { hasText: "SQUADRE (LEGA)" });
+  await openTableDetail(page);
+  const teams = page.locator("#war-board-full");
   await expect(teams).toContainText("Bruno");
   await expect(teams).toContainText("Squadra2");
 
@@ -59,7 +65,8 @@ test("a participant keeps their identity across seats and across leaving the lea
 
   await seat(page, "Squadra4", "Bruno");
   await gotoScreen(page, "Asta");
-  await expect(page.locator(".panel", { hasText: "SQUADRE (LEGA)" })).toContainText("Bruno");
+  await openTableDetail(page);
+  await expect(page.locator("#war-board-full")).toContainText("Bruno");
   expect(externalRequests).toEqual([]);
 });
 

@@ -86,7 +86,7 @@ describe("Fase 4 preregistered executable contract", () => {
   });
 
   it("preregisters the goalkeeper ladder before any metric, richest family first", () => {
-    expect(PHASE4_PROTOCOL).toBe("VAL-PROTOCOL-A-PHASE4@2.2.0");
+    expect(PHASE4_PROTOCOL).toBe("VAL-PROTOCOL-A-PHASE4@2.3.0");
     expect(PHASE4_CONFIG.goalkeeperLadder).toEqual([
       "goalkeeper_specific_full", "goalkeeper_specific_core", "goalkeeper_specific_minimal",
     ]);
@@ -105,7 +105,7 @@ describe("Fase 4 preregistered executable contract", () => {
   it("registers the anagrafica feature in the pooled vector and leaves the goalkeeper one alone", () => {
     expect(PHASE4_CONFIG.features).toEqual([
       "fantamedia_lag1", "fantamedia_mean3", "presenze_lag1", "presenze_mean3",
-      "volatility_lag1", "seasons_observed", "goals_mean3", "assists_mean3",
+      "volatility_last_observed", "seasons_observed", "goals_mean3", "assists_mean3",
       "team_changed", "role", "age_at_season_start",
     ]);
     expect(PHASE4_CONFIG.goalkeeperFeatures).toContain("clean_sheet_rate_mean3");
@@ -159,7 +159,7 @@ describe("Fase 4 preregistered executable contract", () => {
     // protocolVersion, features, families and the anagrafica block all moved.
     const hash = phase4ConfigHash();
     expect(hash).toMatch(/^sha256:[a-f0-9]{64}$/);
-    expect(stableJson(PHASE4_CONFIG)).toContain("VAL-PROTOCOL-A-PHASE4@2.2.0");
+    expect(stableJson(PHASE4_CONFIG)).toContain("VAL-PROTOCOL-A-PHASE4@2.3.0");
     expect(stableJson(PHASE4_CONFIG)).toContain("age_at_season_start");
   });
 
