@@ -134,6 +134,13 @@ export interface ListonePanelState {
   /** Line qualifying the "Indice" column — quality label and recipe version,
    *  both carried by the served rows. `null` when the pool carries no index. */
   readonly appealIndexNote: string | null;
+  /**
+   * La riga che qualifica le sette colonne di pagella — o che dichiara che non
+   * ci sono, che è il caso di oggi. Non è `string | null` come quella
+   * dell'indice: un'assenza taciuta è indistinguibile da un listone normale,
+   * e questa è l'unica riga che la dice (`listonePagellaNote`, ui/listone.ts).
+   */
+  readonly pagellaNote: string;
   readonly sort: ListoneSort | null;
   readonly visibleColumnKeys: readonly string[];
   readonly page: number;
@@ -179,6 +186,7 @@ export function renderListoneSvincolati(
     loadError,
     sourceNote,
     appealIndexNote,
+    pagellaNote,
     sort,
     visibleColumnKeys,
     page,
@@ -319,6 +327,12 @@ export function renderListoneSvincolati(
     indexNote.textContent = appealIndexNote;
     panel.appendChild(indexNote);
   }
+
+  const pagellaNoteEl = document.createElement("div");
+  pagellaNoteEl.id = "listone-pagella-note";
+  pagellaNoteEl.style.cssText = `font-size:11px;color:${C.textDim};margin-top:4px;`;
+  pagellaNoteEl.textContent = pagellaNote;
+  panel.appendChild(pagellaNoteEl);
 
   panel.appendChild(renderListoneManualOverride(onFileText, true, onForget, manualOverrideOpen, onToggleManualOverride));
 

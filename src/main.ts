@@ -187,6 +187,7 @@ import {
   resolveListonePool,
   listoneSourceNote,
   listoneAppealIndexNote,
+  listonePagellaNote,
   filterListonePool,
   listonePlayerKey,
   listonePoolIndex,
@@ -1658,7 +1659,11 @@ function tierBandProps(aState: AuctionState): TierBandProps {
 function playerInsightTarget(): SchedaTarget | null {
   const selected = state.call.selectedPlayer;
   if (selected === null) return null;
-  return { name: selected.name, club: selected.club ?? state.call.club };
+  // Il RUOLO viaggia insieme a nome e squadra, e serve a una cosa sola: sapere
+  // quale sia il quarto asse della pagella (src/pagellaEsperti.ts). Non entra
+  // nell'identità — `schedaLinkRowKey` continua a essere nome + squadra — e
+  // senza di lui il quarto asse non si indovina, si dichiara `ruolo ignoto`.
+  return { name: selected.name, club: selected.club ?? state.call.club, role: selected.role };
 }
 
 /**
@@ -3530,7 +3535,7 @@ function applyRiconfermeBatch(next: readonly ConfirmationInput[], draftOnFailure
 function schedaRowTarget(rowKey: string | null): SchedaTarget | null {
   if (rowKey === null) return null;
   const row = auctionDisplayIndex().get(rowKey);
-  return row === undefined ? null : { name: row.name, club: row.club };
+  return row === undefined ? null : { name: row.name, club: row.club, role: row.role };
 }
 
 /**
@@ -4935,6 +4940,7 @@ function renderMomentoChiamata(
           state.poolSource, state.poolModifiedAt, poolHasAppealIndex(state.pool),
         ),
         appealIndexNote: listoneAppealIndexNote(state.pool),
+        pagellaNote: listonePagellaNote(state.pool),
         sort: state.poolSort,
         visibleColumnKeys: state.poolVisibleColumns,
         page: state.poolPage,
