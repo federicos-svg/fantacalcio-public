@@ -66,6 +66,7 @@ import {
   SCHEDA_PERCENTUALE_MAX,
   SCHEDA_PERCENTUALE_MIN,
   TITOLARITA_VALUES,
+  ballottaggioVisibile,
   isValidIsoDate,
   parseExpertSchedaDeposit,
   schedaHasContent,
@@ -165,6 +166,20 @@ export interface SchedaBallottaggioValues {
   /** La sua quota, o `""` quando la scheda non la dichiara. `""` non è `0`. */
   readonly sharePercent: string;
 }
+
+/**
+ * Una riga di ballottaggio vuota — la casella che la schermata apre in coda.
+ *
+ * È una COSTANTE e non un letterale ripetuto perché è la testimone della
+ * guardia annidata: le sue chiavi sono ciò che la guardia confronta con le
+ * chiavi vere del soggetto nel contratto. Un letterale scritto in tre posti
+ * avrebbe permesso a due di essi di restare indietro senza che si veda, che è
+ * il difetto di cui questo file parla dalla prima riga.
+ */
+export const EMPTY_SCHEDA_BALLOTTAGGIO_ROW: SchedaBallottaggioValues = {
+  surface: "",
+  sharePercent: "",
+};
 
 /**
  * I VOTI DELLA PAGELLA come li rende il DOM: sei caselle e il totale, tutte
@@ -490,6 +505,30 @@ export const SCHEDA_PAGELLA_ENTRY_POINTS = {
   voti: { kind: "form", field: "pagella" },
   totaleFonte: { kind: "form", field: "pagella" },
 } as const satisfies Readonly<Record<string, SchedaEntryPoint>>;
+
+/**
+ * E lo stesso patto dentro il SOGGETTO DEL BALLOTTAGGIO — il terzo livello
+ * annidato del contratto, e il solo che era rimasto scoperto.
+ *
+ * Il commento del contratto chiamava per nome «il punto cieco classico di uno
+ * schema rigido solo al primo livello», e `.strict()` lo chiudeva in LETTURA:
+ * una chiave in più dentro il soggetto è un errore di validazione. In
+ * SCRITTURA no. Un campo dichiarato dentro il soggetto e non cablato nel
+ * modulo passava l'intera suite senza che una sola prova diventasse rossa —
+ * misurato dalla review, 179 test su 179 verdi. Oggi non c'è nessun campo
+ * scoperto (zero su due), ed è esattamente per questo che la guardia va messa
+ * adesso: è il posto in cui il quarto ripetersi dello stesso difetto
+ * aspetterebbe in silenzio.
+ *
+ * Le due chiavi si compilano dalla stessa riga del modulo — un `<select>` per
+ * il nome, una casella numerica per la quota — quindi la via d'ingresso è il
+ * campo `ballottaggio`; quale casella della riga sia quale lo verifica la
+ * guardia confrontando le chiavi del contratto con `EMPTY_SCHEDA_BALLOTTAGGIO_ROW`.
+ */
+export const SCHEDA_BALLOTTAGGIO_ENTRY_POINTS = {
+  surface: { kind: "form", field: "ballottaggio" },
+  sharePercent: { kind: "form", field: "ballottaggio" },
+} as const satisfies Readonly<Record<keyof BallottaggioSoggetto, SchedaEntryPoint>>;
 
 export interface SchedaFieldError {
   readonly field: SchedaField;
@@ -856,7 +895,12 @@ export function buildScheda(target: SchedaTarget, values: SchedaFormValues): Sch
     }
     soggetti.push({ surface, ...(sharePercent === undefined ? {} : { sharePercent }) });
   }
-  if (soggetti.length > 0 && titolarita !== "ballottaggio") {
+  // La condizione non è riscritta qui: è `ballottaggioVisibile`, la funzione
+  // che il riquadro d'asta usa per decidere che cosa mostrare. Il compilatore
+  // CHIEDE alla vista — «con questa titolarità, questi nomi arriverebbero a
+  // schermo?» — invece di sapere per conto proprio, che è il modo in cui due
+  // regole identiche cominciano a divergere.
+  if (soggetti.length > 0 && ballottaggioVisibile({ titolarita, ballottaggio: soggetti }).length === 0) {
     errors.push({
       field: "ballottaggio",
       message: "Questi nomi non verrebbero mostrati dal riquadro: gli altri del ballottaggio arrivano alla vista solo con la titolarità «ballottaggio». Scegli quella titolarità o togli i nomi.",

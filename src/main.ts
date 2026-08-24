@@ -267,6 +267,7 @@ import {
   type SchedaLinks,
 } from "./schedaLinks.js";
 import {
+  EMPTY_SCHEDA_BALLOTTAGGIO_ROW,
   EMPTY_SCHEDA_FORM,
   SCHEDA_DEPOSIT_FILENAME,
   applySchedaImport,
@@ -4765,7 +4766,7 @@ function renderSchedaBallottaggio(target: SchedaTarget, pool: readonly ListonePl
   const quante = Math.min(righe.length + 1, SCHEDA_BALLOTTAGGIO_MAX);
 
   for (let i = 0; i < quante; i += 1) {
-    const riga = righe[i] ?? { surface: "", sharePercent: "" };
+    const riga = righe[i] ?? EMPTY_SCHEDA_BALLOTTAGGIO_ROW;
     const row = document.createElement("div");
     row.className = "league-teams-grid";
 
@@ -4856,7 +4857,7 @@ function renderSchedaBallottaggio(target: SchedaTarget, pool: readonly ListonePl
  */
 function updateSchedaBallottaggio(index: number, patch: Partial<SchedaBallottaggioValues>): void {
   const righe = [...state.schedaForm.ballottaggio];
-  while (righe.length <= index) righe.push({ surface: "", sharePercent: "" });
+  while (righe.length <= index) righe.push(EMPTY_SCHEDA_BALLOTTAGGIO_ROW);
   righe[index] = { ...(righe[index] as SchedaBallottaggioValues), ...patch };
   const compacted = righe.filter((r) => r.surface.trim() !== "" || r.sharePercent.trim() !== "");
   updateSchedaForm({ ballottaggio: compacted });

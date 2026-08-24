@@ -15,12 +15,14 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  EMPTY_SCHEDA_BALLOTTAGGIO_ROW,
   EMPTY_SCHEDA_FORM,
   EMPTY_SCHEDA_PAGELLA,
   NO_SCHEDA_DRAFTS,
   SCHEDA_DEPOSIT_FILENAME,
   SCHEDA_DRAFTS_SCHEMA_VERSION,
   SCHEDA_DRAFTS_STORAGE_KEY,
+  SCHEDA_BALLOTTAGGIO_ENTRY_POINTS,
   SCHEDA_ENTRY_POINTS,
   SCHEDA_PAGELLA_ENTRY_POINTS,
   applySchedaImport,
@@ -41,14 +43,18 @@ import {
   type SchedaPagellaValues,
 } from "./schedaCompiler.js";
 import {
+  EXPERT_SCHEDA_NESTED_SHAPES,
   EXPERT_SCHEDA_SCHEMA_KEYS,
   EXPERT_SCHEDA_SCHEMA_VERSION,
   LISTA_ESPERTI_VALUES,
   SCHEDA_BALLOTTAGGIO_MAX,
+  SCHEDA_BALLOTTAGGIO_SCHEMA_KEYS,
   SCHEDA_GERARCHIA_MAX,
   SCHEDA_NAME_MAX,
   SCHEDA_NOTA_MAX,
   SCHEDA_PERCENTUALE_MAX,
+  TITOLARITA_VALUES,
+  ballottaggioVisibile,
   parseExpertSchedaDeposit,
   resolveExpertInsight,
   type ExpertScheda,
@@ -792,6 +798,71 @@ describe("la guardia strutturale: il contratto cresce, il modulo se ne accorge",
     expect(senzaCasella, `assi senza casella: ${senzaCasella.join(", ")}`).toEqual([]);
   });
 
+  // ── IL SOGGETTO DEL BALLOTTAGGIO: il terzo livello annidato ──────────────
+  //
+  // `.strict()` lo chiudeva in LETTURA (una chiave in più è un errore di
+  // validazione) e nessuno lo chiudeva in SCRITTURA. La review l'ha misurato:
+  // un campo dichiarato dentro il soggetto e non cablato nel modulo passava
+  // 179 test su 179. Le tre prove qui sotto sono lo stesso stampo della
+  // pagella, un livello più giù.
+  it("ogni chiave del SOGGETTO del ballottaggio ha una via d'ingresso dichiarata", () => {
+    const senzaIngresso = SCHEDA_BALLOTTAGGIO_SCHEMA_KEYS.filter(
+      (key) => !(key in SCHEDA_BALLOTTAGGIO_ENTRY_POINTS),
+    );
+    expect(
+      senzaIngresso,
+      `chiavi del soggetto senza via d'ingresso: ${senzaIngresso.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("ogni chiave del soggetto ha la sua casella nella riga del modulo", () => {
+    const senzaCasella = SCHEDA_BALLOTTAGGIO_SCHEMA_KEYS.filter(
+      (key) => !(key in EMPTY_SCHEDA_BALLOTTAGGIO_ROW),
+    );
+    expect(senzaCasella, `chiavi del soggetto senza casella: ${senzaCasella.join(", ")}`).toEqual(
+      [],
+    );
+  });
+
+  it("una riga compilata in ogni sua parte produce un soggetto con TUTTE le chiavi del contratto", () => {
+    // La prova che le due caselle non sono solo dichiarate: arrivano nel file.
+    const result = buildScheda(TARGET_MOVIMENTO, fullForm());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const soggetto = result.scheda.ballottaggio?.[0];
+    expect(soggetto).toBeDefined();
+    expect([...Object.keys(soggetto ?? {})].sort()).toEqual(
+      [...SCHEDA_BALLOTTAGGIO_SCHEMA_KEYS].sort(),
+    );
+  });
+
+  // ── IL CENSIMENTO: e i livelli che nessuno ha dichiarato? ────────────────
+  //
+  // Le prove qui sopra chiudono i tre livelli annidati che il contratto ha
+  // OGGI. Questa chiude la classe: cammina dentro lo schema, conta i livelli
+  // annidati che ci trova e pretende che siano esattamente quelli per cui una
+  // guardia esiste. Un quarto livello — il giorno che nascerà — è rosso senza
+  // che nessuno debba ricordarsi di aggiungerlo a un elenco, che è
+  // esattamente il modo in cui questo buco era nato.
+  it("i livelli annidati dello schema sono TRE, e per ognuno esiste una guardia", () => {
+    expect([...EXPERT_SCHEDA_NESTED_SHAPES.keys()].sort()).toEqual([
+      "ballottaggio",
+      "pagella",
+      "pagella.voti",
+    ]);
+  });
+
+  it("le chiavi che il censimento trova sono le stesse che le guardie confrontano", () => {
+    // Il legame fra il censimento e le tre costanti: se una delle due parti si
+    // muovesse per conto proprio, la guardia starebbe sorvegliando un elenco
+    // che non è più quello dello schema.
+    expect(EXPERT_SCHEDA_NESTED_SHAPES.get("ballottaggio")).toEqual(
+      SCHEDA_BALLOTTAGGIO_SCHEMA_KEYS,
+    );
+    expect(EXPERT_SCHEDA_NESTED_SHAPES.get("pagella")).toEqual(PAGELLA_SCHEMA_KEYS);
+    expect(EXPERT_SCHEDA_NESTED_SHAPES.get("pagella.voti")).toEqual(PAGELLA_VOTI_SCHEMA_KEYS);
+  });
+
   it("i due assi di ruolo hanno ciascuno la propria via, e insieme coprono i sei dello schema", () => {
     const movimento = buildScheda(TARGET_MOVIMENTO, fullForm());
     const portiere = buildScheda(TARGET_PORTIERE, fullForm({ pagella: PAGELLA_PORTIERE }));
@@ -845,6 +916,28 @@ describe("gli altri del ballottaggio: con chi si gioca il posto", () => {
       expect(result.ok, `titolarità «${titolarita}» non deve portare un ballottaggio`).toBe(false);
       if (result.ok) continue;
       expect(result.errors.some((e) => e.field === "ballottaggio")).toBe(true);
+    }
+  });
+
+  it("il rifiuto del compilatore e la resa della vista sono la STESSA regola, su tutto il vocabolario", () => {
+    // Non «si somigliano»: coincidono, valore per valore, perché sono la stessa
+    // funzione (`ballottaggioVisibile`). Se un domani qualcuno riscrivesse la
+    // condizione a mano da una delle due parti, questa prova lo direbbe.
+    for (const titolarita of ["", ...TITOLARITA_VALUES]) {
+      const result = buildScheda(
+        TARGET,
+        form({ titolarita, ballottaggio: [{ surface: "Bruna Placeholder", sharePercent: "40" }] }),
+      );
+      const comeSarebbeScritta = {
+        player: TARGET.name,
+        club: TARGET.club,
+        ...(titolarita === "" ? {} : { titolarita: titolarita as (typeof TITOLARITA_VALUES)[number] }),
+        ballottaggio: [{ surface: "Bruna Placeholder", sharePercent: 40 }],
+      };
+      const mostrati = ballottaggioVisibile(comeSarebbeScritta).length;
+      expect(result.ok, `titolarità «${titolarita}»: il salvataggio deve seguire la vista`).toBe(
+        mostrati > 0,
+      );
     }
   });
 
