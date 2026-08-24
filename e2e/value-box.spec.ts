@@ -2,7 +2,13 @@ import { expect, test, type Page } from "@playwright/test";
 import type { ListonePlayer } from "../src/ui/listone.js";
 import { VALUE_SLOT_LABELS, VALUE_UNKNOWN } from "../src/ui/valueBox.js";
 import { VALUE_SLOT_ORDER } from "../src/valueBox.js";
-import { AA_NORMAL_TEXT, installSyntheticNetworkGuard, selectListoneRowByName } from "./helpers.js";
+import {
+  AA_NORMAL_TEXT,
+  installSyntheticNetworkGuard,
+  measureAllText,
+  selectListoneRowByName,
+  textContrast,
+} from "./helpers.js";
 
 // IL RIQUADRO DEL VALORE ARRIVA SULLO SCHERMO, DENTRO LA SCHEDA DEL CHIAMATO.
 //
@@ -174,51 +180,75 @@ test("il riquadro non accende nessun altro output direttivo", async ({ page }) =
   await expect(page.locator("#value-box-note")).toContainText("Nessun consiglio");
   await expect(page.locator("#value-box-note")).toContainText("il giudizio è tuo");
 
-  // Il testo del riquadro si legge: nessuna riga nuova sotto WCAG AA.
-  const worst = await page.evaluate(() => {
-    const srgb = (c: number): number => {
-      const v = c / 255;
-      return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-    };
-    const parse = (value: string): readonly [number, number, number, number] => {
-      const canvas = document.createElement("canvas");
-      canvas.width = 1;
-      canvas.height = 1;
-      const ctx = canvas.getContext("2d")!;
-      ctx.clearRect(0, 0, 1, 1);
-      ctx.fillStyle = value;
-      ctx.fillRect(0, 0, 1, 1);
-      const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
-      return [r!, g!, b!, a! / 255];
-    };
-    const luminance = (rgb: readonly [number, number, number]): number =>
-      0.2126 * srgb(rgb[0]) + 0.7152 * srgb(rgb[1]) + 0.0722 * srgb(rgb[2]);
-    const backgroundOf = (el: Element): readonly [number, number, number] => {
-      let node: Element | null = el;
-      while (node !== null) {
-        const [r, g, b, a] = parse(getComputedStyle(node).backgroundColor);
-        if (a > 0) return [r, g, b];
-        node = node.parentElement;
-      }
-      return [0, 0, 0];
-    };
-    const ratio = (fg: readonly [number, number, number], bg: readonly [number, number, number]): number => {
-      const [a, b] = [luminance(fg), luminance(bg)].sort((x, y) => y - x) as [number, number];
-      return (a + 0.05) / (b + 0.05);
-    };
-    const box = document.getElementById("value-box")!;
-    let worstRatio = Number.POSITIVE_INFINITY;
-    for (const el of [box, ...box.querySelectorAll("*")]) {
-      const hasOwnText = [...el.childNodes].some(
-        (n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? "").trim() !== "",
-      );
-      if (!hasOwnText) continue;
-      const [r, g, b] = parse(getComputedStyle(el).color);
-      worstRatio = Math.min(worstRatio, ratio([r, g, b], backgroundOf(el)));
-    }
-    return worstRatio;
-  });
-  expect(worst).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+  // IL TESTO DEL RIQUADRO SI LEGGE — CON LA MISURA CONDIVISA, non con una
+  // seconda scritta qui.
+  //
+  // Qui c'era una misura di contrasto tutta locale (canvas, sRGB, luminanza).
+  // Non dava un falso verde quel giorno, ma erano DUE FONTI DI VERITÀ sullo
+  // stesso fatto, e la copia era la meno rigorosa delle due: leggeva
+  // `getComputedStyle(el).color` così com'è e si fermava al primo antenato con
+  // uno sfondo opaco. Quindi non vedeva NIENTE di ciò che un antenato può fare
+  // al colore composito — `opacity`, `filter`, `mix-blend-mode` — né il testo
+  // dipinto da `::before` / `::after`. Il giorno in cui un antenato del
+  // riquadro guadagna un `opacity: 0.6` la copia continuerebbe a leggere il
+  // colore pieno e a dire «si legge» mentre a schermo non si legge più: è
+  // esattamente la fuga che helpers.ts ha già chiuso una volta, e riaprirla in
+  // un file diverso non la rende meno aperta.
+  //
+  // DUE GUARDIE, le stesse di e2e/text-contrast-aa.spec.ts e con lo stesso
+  // codice di misura:
+  //
+  //  a. UN ELENCO ESPLICITO di punti d'uso — diagnosticabile, e impossibile da
+  //     passare per vuoto: `textContrast` FALLISCE quando l'elemento non c'è o
+  //     quando il colore reso non è ricostruibile, invece di restituire un
+  //     numero comodo. Una cella che smettesse di essere renderizzata farebbe
+  //     rosso qui, non verde per assenza — che è il modo esatto in cui la
+  //     versione locale, partendo da `Number.POSITIVE_INFINITY`, sarebbe
+  //     passata su un riquadro senza più una riga di testo;
+  //  b. LA SPAZZATA sul riquadro intero — non aggirabile: una riga aggiunta
+  //     domani dentro `#value-box` viene misurata senza che nessuno debba
+  //     ricordarsi di aggiungerla all'elenco, e ciò che non è classificabile
+  //     fa rosso col motivo stampato invece di uscire in silenzio.
+  for (const sel of [
+    "#value-box .panel-title",
+    "#value-box-note",
+    ...VALUE_SLOT_ORDER.flatMap((id) => [
+      `#value-box-cell-${id} em`,
+      `#value-box-number-${id}`,
+      `#value-box-why-${id}`,
+    ]),
+  ]) {
+    expect(
+      await textContrast(page, sel),
+      `riquadro del valore: ${sel}`,
+    ).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+  }
+
+  const swept = await measureAllText(page, "#value-box, #value-box *");
+  expect(
+    swept.flatMap((m) => (m.kind === "unclassified" ? [`${m.reason} — ${m.label}`] : [])),
+    "testo del riquadro non classificabile: la spazzata non può dirlo leggibile, quindi lo boccia",
+  ).toEqual([]);
+  const measured = swept.flatMap((m) => (m.kind === "measured" ? [m] : []));
+  // Il pavimento della spazzata, con lo stesso scopo del pavimento della
+  // spazzata d'insieme: le quattordici righe di testo del riquadro sono il
+  // titolo, la nota e le tre righe di ognuna delle quattro celle (nome,
+  // numero, perché). Se il conto crolla, qualcosa ha smesso di renderizzare o
+  // la spazzata ha ricominciato a saltare.
+  expect(
+    measured.length,
+    "la spazzata del riquadro non ha misurato quasi nulla: riquadro vuoto o spazzata inerte",
+  ).toBeGreaterThanOrEqual(14);
+  expect(
+    measured
+      .filter((m) => m.exempt === null && m.ratio < AA_NORMAL_TEXT)
+      .map(
+        (m) =>
+          `${m.fg} su ${m.bg} @opacity ${m.opacity.toFixed(2)} = ${m.ratio.toFixed(2)}:1 ` +
+          `(${m.fontSize}px) — ${m.label}`,
+      ),
+    `contrasto del riquadro sotto ${AA_NORMAL_TEXT}:1`,
+  ).toEqual([]);
 });
 
 test("senza indice nel listone la prima cella tace anche lei, e lo dice", async ({ page }) => {
