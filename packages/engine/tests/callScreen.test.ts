@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  ABSOLUTE_VALUE_UNRATIFIED_CHOICES,
   ALPHA_BY_PROFILE,
   COST_FLOOR,
   DECLARED_VALUE_PROVENANCE,
@@ -370,6 +371,13 @@ describe("callScreen — scelte del motore non ratificate, dichiarate nel dato",
       ...screens.numbers!.ratification.unratifiedChoices,
       ...screens.widthGate!.ratification.unratifiedChoices,
       ...screens.quality.ratification.unratifiedChoices,
+      // LA SECONDA SUPERFICIE che porta scelte aperte del motore: la
+      // derivazione del valore assoluto (../src/absoluteValue.ts). Entra qui
+      // per elenco dichiarato e non per esecuzione perché la lista che quella
+      // lettura porta è la stessa su ogni ramo — e il suo contenuto è a sua
+      // volta pinnato in packages/engine/tests/absoluteValue.test.ts, quindi
+      // non può gonfiarsi in silenzio per far passare questo confronto.
+      ...ABSOLUTE_VALUE_UNRATIFIED_CHOICES,
     ];
     for (const id of used) expect(UNRATIFIED_CHOICES[id].length).toBeGreaterThan(0);
     // Nessun identificatore del vocabolario resta orfano: se se ne aggiunge uno

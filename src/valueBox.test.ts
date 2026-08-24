@@ -22,9 +22,19 @@ import {
   stateOf,
 } from "../packages/engine/tests/layer2Fixtures.js";
 import { plan, value, valueBookOf } from "../packages/engine/tests/layer3Fixtures.js";
+import {
+  APPEAL_ORDER_TIE_BREAK,
+  tierBook,
+  type TierBook,
+} from "../packages/engine/src/tiers.js";
+import {
+  NO_LEG_INPUTS,
+  type AbsoluteValueInput,
+} from "../packages/engine/src/absoluteValue.js";
 import type { ListoneAppealIndex } from "./ui/listone.js";
 import {
   DECLARED_INPUTS_WITHOUT_SOURCE,
+  SLOT_4_SUPERSEDED,
   VALUE_SLOT_ORDER,
   valueBoxReading,
   type ValueBoxReading,
@@ -142,12 +152,56 @@ function engineCallWith(
  */
 const DRAINED_LOG = buildLog([...fillRole(SELF, "D", 9, 25), ...fillRole(SELF, "C", 9, 25)]);
 
+// ── GLI INGRESSI DEL VALORE ASSOLUTO ────────────────────────────────────────
+// Dalla decisione di Pico del 2026-08-24 lo slot 3 non è più una dichiarazione
+// giocatore per giocatore: è la scala del regolamento (budget → target di ruolo
+// → slot del ruolo → fascia) più tre gambe a peso zero. Qui si costruiscono i
+// suoi ingressi con le stesse fixture sintetiche del resto del file.
+
+/** Il libro delle fasce del motore vero, su un ordine sintetico di soli `a_*`. */
+const TIER_BOOK: TierBook = tierBook(
+  {
+    provenance: {
+      source: "listone sintetico di test",
+      recipe: RECIPE,
+      tieBreak: APPEAL_ORDER_TIE_BREAK,
+    },
+    roles: [
+      {
+        role: "A",
+        playerIds: ["a_uno", "a_due", "a_tre", "a_non_valutato", "a_zero", "a_muto"],
+      },
+    ],
+  },
+  { teamsCount: 8 },
+);
+
+/** Gli stessi target del piano dichiarato del file: A = 210 su 7 slot = 30 cr. */
+const ABSOLUTE_TARGETS = { P: 20, D: 80, C: 140, A: 210 } as const;
+
+/** Base attesa per un attaccante in fascia: `210 / ROSTER_REQUIREMENTS.A`. */
+const BASE_A = 210 / 7;
+
+const ABSOLUTE: Omit<AbsoluteValueInput, "called"> = {
+  roleTargets: ABSOLUTE_TARGETS,
+  book: TIER_BOOK,
+  legs: NO_LEG_INPUTS,
+};
+
+/** Nessun target dichiarato: è lo stato dell'app finché Pico non compila il piano. */
+const ABSOLUTE_UNDECLARED: Omit<AbsoluteValueInput, "called"> = {
+  roleTargets: {},
+  book: TIER_BOOK,
+  legs: NO_LEG_INPUTS,
+};
+
 function readingWithEngine(playerId: string, appealIndex?: ListoneAppealIndex): ValueBoxReading {
   return valueBoxReading({
     called: { playerId, role: "A" },
     appealIndex,
     call: engineCall(playerId),
     missingDeclaredInputs: [],
+    absolute: ABSOLUTE,
   });
 }
 
@@ -158,6 +212,7 @@ function readingAsShipped(appealIndex?: ListoneAppealIndex): ValueBoxReading {
     appealIndex,
     call: null,
     missingDeclaredInputs: DECLARED_INPUTS_WITHOUT_SOURCE,
+    absolute: ABSOLUTE_UNDECLARED,
   });
 }
 
@@ -173,7 +228,7 @@ describe("riquadro del valore — i quattro numeri", () => {
     expect(Object.keys(reading.slots).sort()).toEqual([...VALUE_SLOT_ORDER].sort());
   });
 
-  it("i due numeri in crediti sono il valore dichiarato e fairToMeMaxEffective, non un loro parente", () => {
+  it("il valore relativo è fairToMeMaxEffective, non un suo parente arrotondato", () => {
     const call = engineCall("a_uno");
     expect(call.numbers).not.toBeNull();
     const reading = valueBoxReading({
@@ -181,21 +236,63 @@ describe("riquadro del valore — i quattro numeri", () => {
       appealIndex: index(72),
       call,
       missingDeclaredInputs: [],
+      absolute: ABSOLUTE,
     });
 
-    expect(reading.slots["valore-assoluto"]).toEqual({
-      kind: "numero",
-      value: call.declaredValue,
-      unit: "crediti",
-    });
     expect(reading.slots["valore-relativo"]).toEqual({
       kind: "numero",
       value: call.numbers!.fairToMeMaxEffective,
       unit: "crediti",
     });
-    // La provenienza dei due numeri è quella imposta dal motore, non una frase
-    // scritta nella vista.
+    // La provenienza è quella imposta dal motore, non una frase scritta nella
+    // vista — e qualifica il SOLO numero costruito sui valori dichiarati.
     expect(reading.creditsProvenance).toBe("derivato dai tuoi valori");
+  });
+
+  it("il valore assoluto è la scala del regolamento, NON più il valore dichiarato di Pico", () => {
+    const call = engineCall("a_uno");
+    // Il valore che Pico ha dichiarato per `a_uno` è 60; la base derivata è
+    // 210/7 = 30. Se il riquadro leggesse ancora `declaredValue` mostrerebbe
+    // 60, ed è esattamente la differenza che questo test tiene ferma.
+    expect(call.declaredValue).toBe(60);
+    const reading = valueBoxReading({
+      called: { playerId: "a_uno", role: "A" },
+      appealIndex: index(72),
+      call,
+      missingDeclaredInputs: [],
+      absolute: ABSOLUTE,
+    });
+    expect(reading.slots["valore-assoluto"]).toEqual({
+      kind: "numero",
+      value: BASE_A,
+      unit: "crediti",
+    });
+    expect(reading.slots["valore-assoluto"]).not.toEqual({
+      kind: "numero",
+      value: call.declaredValue,
+      unit: "crediti",
+    });
+    // La catena arriva fino a chi mostra: budget, target, slot, fascia.
+    expect(reading.absoluteChain).not.toBeNull();
+    expect(reading.absoluteChain).toMatchObject({
+      role: "A",
+      budget: 500,
+      roleTarget: 210,
+      roleSlots: 7,
+      perSlot: BASE_A,
+      tier: 1,
+      base: BASE_A,
+      total: BASE_A,
+    });
+    expect(valueBoxHtml(reading)).toContain("210 cr sul ruolo / 7 slot");
+  });
+
+  it("il debito dello slot 4 è dichiarato in chiaro, con la data della decisione che lo ha sostituito", () => {
+    // Documentato senza essere approvato, come le scelte non ratificate del
+    // motore: la riparazione è un'altra PR, ma il difetto non resta implicito.
+    expect(SLOT_4_SUPERSEDED).toContain("fairToMeMaxEffective");
+    expect(SLOT_4_SUPERSEDED).toContain("2026-08-24");
+    expect(SLOT_4_SUPERSEDED).toContain("secondo offerente");
   });
 
   it("l'indice assoluto è il punteggio servito, con qualità e ricetta portate dal dato", () => {
@@ -291,6 +388,7 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       appealIndex: undefined,
       call: null,
       missingDeclaredInputs: DECLARED_INPUTS_WITHOUT_SOURCE,
+      absolute: ABSOLUTE,
     });
     for (const id of VALUE_SLOT_ORDER) {
       expect(reading.slots[id]).toEqual({ kind: "assente", reason: "nessun-chiamato" });
@@ -329,6 +427,7 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       appealIndex: index(50),
       call,
       missingDeclaredInputs: [],
+      absolute: ABSOLUTE,
     });
     expect(reading.slots["valore-relativo"]).toEqual({
       kind: "assente",
@@ -372,12 +471,11 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       appealIndex: index(64),
       call,
       missingDeclaredInputs: [],
+      absolute: ABSOLUTE,
     });
 
-    expect(reading.slots["valore-assoluto"]).toEqual({
-      kind: "assente",
-      reason: "motore-senza-numeri",
-    });
+    // Lo slot 4 — l'unico che passa ancora dai valori dichiarati — tace, e dice
+    // esattamente quale dichiarazione manca.
     expect(reading.slots["valore-relativo"]).toEqual({
       kind: "assente",
       reason: "motore-senza-numeri",
@@ -385,16 +483,24 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
     expect(reading.engineReason).toBe("declared-value-missing");
 
     // A schermo: `n/d`, col perché del motore e non con una frase generica.
-    expect(valueSlotText(reading.slots["valore-assoluto"])).toBe(VALUE_UNKNOWN);
+    expect(valueSlotText(reading.slots["valore-relativo"])).toBe(VALUE_UNKNOWN);
     const html = valueBoxHtml(reading);
     expect(html).toContain("non hai dichiarato un valore per lui");
-    // E NESSUNO ZERO: un'assenza non si arrotonda al numero più vicino a nulla.
-    expect(html).not.toContain(">0 cr<");
     // La provenienza non compare: qualificherebbe un numero che non c'è.
     expect(reading.creditsProvenance).toBeNull();
+
+    // E LO SLOT 3 NON NE RISENTE, che è il senso della decisione del
+    // 2026-08-24: il valore assoluto non attraversa più il listino di Pico,
+    // quindi un giocatore mai valutato ha lo stesso identico valore assoluto
+    // di uno valutato.
+    expect(reading.slots["valore-assoluto"]).toEqual({
+      kind: "numero",
+      value: BASE_A,
+      unit: "crediti",
+    });
   });
 
-  it("DICHIARATO ZERO: 0 è una dichiarazione — a schermo è «0 cr», mai n/d", () => {
+  it("DICHIARATO ZERO: 0 resta una dichiarazione, e non collassa su «non dichiarato»", () => {
     const call = engineCallWith("a_zero", BOOK_CON_ZERO, VALUES_CON_ZERO);
     // Il motore NON lo tratta come una mancanza: lo zero attraversa la guardia
     // su `declaredValue === null` e arriva fino in fondo alla catena.
@@ -406,8 +512,59 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       appealIndex: index(64),
       call,
       missingDeclaredInputs: [],
+      absolute: ABSOLUTE,
     });
 
+    // IL CONFRONTO, che è il punto: le due scene restano DUE, e il riquadro le
+    // racconta con due motivi diversi. Un `!declaredValue` al posto di
+    // `=== null` le farebbe collassare in una sola, e questa riga lo impedisce.
+    const nonDichiarato = valueBoxReading({
+      called: { playerId: "a_non_valutato", role: "A" },
+      appealIndex: index(64),
+      call: engineCallWith("a_non_valutato", BOOK_CON_NON_VALUTATO, VALUES),
+      missingDeclaredInputs: [],
+      absolute: ABSOLUTE,
+    });
+    expect(reading.engineReason).not.toBe(nonDichiarato.engineReason);
+    expect(nonDichiarato.engineReason).toBe("declared-value-missing");
+  });
+
+  // ── «RUOLO NON DICHIARATO» E «RUOLO DICHIARATO ZERO» ───────────────────────
+  // La stessa distinzione, trasferita dov'è finita la dichiarazione di Pico:
+  // dai valori per giocatore ai TARGET DI RUOLO. `src/rolePlan.ts` tiene i due
+  // silenzi separati apposta («sul portiere NON HO ANCORA DECISO» contro «sul
+  // portiere HO DECISO ZERO»), e il riquadro non può fonderli.
+
+  it("RUOLO SENZA TARGET: n/d col motivo che nomina il target, e NESSUNA ripartizione di ripiego", () => {
+    const reading = valueBoxReading({
+      called: { playerId: "a_uno", role: "A" },
+      appealIndex: index(72),
+      call: engineCall("a_uno"),
+      missingDeclaredInputs: [],
+      absolute: ABSOLUTE_UNDECLARED,
+    });
+    expect(reading.slots["valore-assoluto"]).toEqual({
+      kind: "assente",
+      reason: "ruolo-senza-target",
+    });
+    expect(reading.absoluteChain).toBeNull();
+    const html = valueBoxHtml(reading);
+    expect(html).toContain("manca il tuo target di ruolo");
+    // Nessun numero al posto del buco: né una media dei ruoli dichiarati, né
+    // 500/28, né uno zero. Una ripartizione inventata è il peso nascosto che
+    // §D9 vieta, e sarebbe indistinguibile a schermo da una dichiarazione vera.
+    expect(valueSlotText(reading.slots["valore-assoluto"])).toBe(VALUE_UNKNOWN);
+    expect(html).not.toContain(">0 cr<");
+  });
+
+  it("RUOLO DICHIARATO ZERO: 0 è un piano, e a schermo è «0 cr» — mai n/d", () => {
+    const reading = valueBoxReading({
+      called: { playerId: "a_uno", role: "A" },
+      appealIndex: index(72),
+      call: engineCall("a_uno"),
+      missingDeclaredInputs: [],
+      absolute: { ...ABSOLUTE, roleTargets: { ...ABSOLUTE_TARGETS, A: 0 } },
+    });
     expect(reading.slots["valore-assoluto"]).toEqual({
       kind: "numero",
       value: 0,
@@ -415,29 +572,19 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
     });
     expect(valueSlotText(reading.slots["valore-assoluto"])).toBe("0 cr");
     expect(valueBoxHtml(reading)).toContain(">0 cr<");
-    // Uno zero DICHIARATO porta la provenienza, perché è un numero costruito
-    // sui valori di Pico come qualunque altro.
-    expect(reading.creditsProvenance).toBe("derivato dai tuoi valori");
-
-    // IL CONFRONTO, che è il punto: la stessa cella, le due scene, due esiti
-    // che non si somigliano. Un `!declaredValue` al posto di `=== null` le
-    // farebbe collassare in una sola, e questa riga è ciò che lo impedisce.
-    const nonDichiarato = valueBoxReading({
-      called: { playerId: "a_non_valutato", role: "A" },
-      appealIndex: index(64),
-      call: engineCallWith("a_non_valutato", BOOK_CON_NON_VALUTATO, VALUES),
-      missingDeclaredInputs: [],
-    });
-    expect(reading.slots["valore-assoluto"]).not.toEqual(
-      nonDichiarato.slots["valore-assoluto"],
-    );
+    // SOTTO IL CREDITO MINIMO, e lo DICE invece di aggiustarlo: nessun clamp
+    // al pavimento, che sarebbe una scelta silenziosa.
+    expect(reading.absoluteBelowCostFloor).toBe(true);
+    expect(valueBoxHtml(reading)).toContain("sotto il credito minimo");
   });
 
   it("l'app di oggi non ha le dichiarazioni di Pico: lo dice, e dice quali mancano", () => {
     const reading = readingAsShipped(index(72));
+    // Lo slot 3 tace per il SUO motivo — il target di ruolo — e non più per
+    // quello dello slot 4: i due `n/d` non sono più lo stesso `n/d`.
     expect(reading.slots["valore-assoluto"]).toEqual({
       kind: "assente",
-      reason: "ingredienti-dichiarati-assenti",
+      reason: "ruolo-senza-target",
     });
     expect(reading.slots["valore-relativo"]).toEqual({
       kind: "assente",
@@ -466,6 +613,7 @@ describe("riquadro del valore — la resa non accende nient'altro", () => {
         appealIndex: undefined,
         call: null,
         missingDeclaredInputs: [],
+        absolute: ABSOLUTE,
       }),
     ];
     for (const reading of readings) {
@@ -492,6 +640,7 @@ describe("riquadro del valore — la resa non accende nient'altro", () => {
       appealIndex: index(72),
       call,
       missingDeclaredInputs: [],
+      absolute: ABSOLUTE,
     });
     expect(reading.slots["valore-relativo"]).toEqual({
       kind: "numero",
@@ -505,13 +654,15 @@ describe("riquadro del valore — la resa non accende nient'altro", () => {
     expect(valueBoxHtml(reading)).not.toContain(`>${raw}<`);
   });
 
-  it("valori precisi, mai intervalli: ogni numero è uno scalare intero di crediti o un indice", () => {
+  it("valori precisi, mai intervalli: ogni numero è uno scalare, mai una coppia di estremi", () => {
     const reading = readingWithEngine("a_uno", index(72));
     for (const id of VALUE_SLOT_ORDER) {
       const slot = reading.slots[id];
       if (slot.kind !== "numero") continue;
       expect(Number.isFinite(slot.value)).toBe(true);
-      expect(valueSlotText(slot)).toMatch(/^-?\d+(\.\d+)?( cr)?$/);
+      // Uno scalare secco, con la virgola italiana quando la quota di uno slot
+      // non è intera (210/7 lo è, 200/9 no). Mai «fra 55 e 70».
+      expect(valueSlotText(slot)).toMatch(/^-?\d+(,\d)?( cr)?$/);
     }
   });
 });

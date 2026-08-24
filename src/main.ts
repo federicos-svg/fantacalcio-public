@@ -115,7 +115,11 @@ import {
 } from "./postPurchaseProjection.js";
 import { executeVoidCommand, voidErrorText } from "./voidCommand.js";
 import { rolePriceFacts, roleTopPurchases } from "./nominationContext.js";
-import { tierBandReading } from "./tierOrdering.js";
+import { buildTierBook, tierBandReading } from "./tierOrdering.js";
+// L'elenco DICHIARATO delle squadre di Serie A impegnate in una coppa europea
+// nel 2026/27 — la gamba «coppe e turnover» del valore assoluto. Costante
+// verificata, non un dato acquisito: src/serieACompetitions.ts.
+import { playsInEurope } from "./serieACompetitions.js";
 import {
   renderListoneSvincolati,
   renderPlayerInsightsBlock,
@@ -220,8 +224,10 @@ import {
   EXPERT_SCHEDA_ENDPOINT,
   EXPERT_SCHEDE_ABSENT,
   FONTE_VALUES,
+  LISTA_ESPERTI_VALUES,
   PIAZZATI_VALUES,
   RIGORI_VALUES,
+  SCHEDA_BALLOTTAGGIO_MAX,
   SCHEDA_GERARCHIA_MAX,
   SCHEDA_GERARCHIA_MIN,
   SCHEDA_NOTA_MAX,
@@ -234,7 +240,17 @@ import {
   type SchedaTarget,
   expertSchedeHavePagella,
 } from "./expertScheda.js";
-import type { PagellaView } from "./pagellaEsperti.js";
+import {
+  PAGELLA_ASSI_COMUNI,
+  PAGELLA_ETICHETTE,
+  PAGELLA_QUARTO_ASSE_IGNOTO,
+  PAGELLA_TOTALE_MAX,
+  PAGELLA_VOTO_MAX,
+  PAGELLA_VOTO_MIN,
+  pagellaAsseDelRuolo,
+  type PagellaAsse,
+  type PagellaView,
+} from "./pagellaEsperti.js";
 import {
   AVVISO_LABELS,
   FONTE_LABELS,
@@ -242,6 +258,7 @@ import {
   RIGORI_LABELS,
   TITOLARITA_LABELS,
 } from "./ui/expertInsight.js";
+import { LISTA_ESPERTI_LABELS } from "./ui/schedaLabels.js";
 import {
   loadSchedaLinks,
   saveSchedaLinks,
@@ -250,6 +267,7 @@ import {
   type SchedaLinks,
 } from "./schedaLinks.js";
 import {
+  EMPTY_SCHEDA_BALLOTTAGGIO_ROW,
   EMPTY_SCHEDA_FORM,
   SCHEDA_DEPOSIT_FILENAME,
   applySchedaImport,
@@ -258,6 +276,8 @@ import {
   loadSchedaDrafts,
   planSchedaImport,
   saveSchedaDrafts,
+  schedaBallottaggioFuoriListone,
+  schedaPagellaVerificaText,
   schedaProgress,
   schedaSummary,
   schedaToForm,
@@ -265,7 +285,9 @@ import {
   withScheda,
   type SchedaDraftState,
   type SchedaFieldError,
+  type SchedaBallottaggioValues,
   type SchedaFormValues,
+  type SchedaPagellaValues,
   type SchedaImportPlan,
   type SchedaImportResolution,
 } from "./schedaCompiler.js";
@@ -1763,11 +1785,42 @@ function tierBandProps(aState: AuctionState): TierBandProps {
  * regola dei tre ingredienti (§D9), cioè far dire all'app che Pico ha
  * dichiarato qualcosa che non ha dichiarato. Il riquadro dice invece `n/d` e
  * dice quale dichiarazione manca; il giorno in cui quelle due entrano nell'app,
- * questa funzione passa un `CallScreen` vero e i due slot in crediti si
- * accendono senza toccare né la lettura né la vista.
+ * questa funzione passa un `CallScreen` vero e lo SLOT 4 si accende senza
+ * toccare né la lettura né la vista.
+ *
+ * LO SLOT 3, INVECE, HA GIÀ TUTTI I SUOI INGRESSI, e da questa corsia in poi
+ * non passa più di lì. Il valore assoluto è DERIVATO
+ * (packages/engine/src/absoluteValue.ts): budget del regolamento ripartito dai
+ * TARGET DI RUOLO che Pico dichiara nel piano rosa (`state.rolePlan`, che una
+ * sorgente ce l'ha), diviso per gli slot del ruolo, collocato dalla fascia del
+ * libro. Le tre gambe arrivano da dove già vivono — la titolarità e la pagella
+ * dalla scheda del Gruppo Esperti, la partecipazione alle coppe dall'elenco
+ * dichiarato di src/serieACompetitions.ts — e oggi hanno tutte peso zero,
+ * quindi la loro assenza non toglie il numero.
+ *
+ * NIENTE DI QUESTO SI MUOVE DURANTE LA SERATA, ed è vero per costruzione e non
+ * per attenzione: `AbsoluteValueInput` non ha un campo in cui uno stato d'asta
+ * possa entrare. `aState` serve a UNA cosa sola — derivare il censimento delle
+ * squadre al tavolo dentro `buildTierBook` — ed è la stessa cosa che il
+ * riquadro FASCIA fa già; il libro che ne esce è memoizzato su
+ * `(pool, source, teamsCount)` e non conosce il log.
  */
-function valueBoxProps(): ValueBoxProps {
+function valueBoxProps(aState: AuctionState): ValueBoxProps {
   const selected = state.call.selectedPlayer;
+  const book = buildTierBook(state.pool, state.poolSource, aState);
+  // La scheda del Gruppo Esperti del chiamato, risolta come la risolve il
+  // riquadro INSIGHT GIOCATORE: una sorgente sola per gli stessi fatti, così le
+  // due superfici non possono dire due cose diverse sullo stesso giocatore.
+  const target = playerInsightTarget();
+  const insight =
+    target === null
+      ? null
+      : resolveExpertInsight(
+          state.expertSchede,
+          target,
+          state.schedaLinks.get(schedaLinkRowKey(target)) ?? null,
+        );
+  const pagella = insight?.pagella;
   return {
     reading: valueBoxReading({
       called:
@@ -1775,6 +1828,26 @@ function valueBoxProps(): ValueBoxProps {
       appealIndex: selected?.appealIndex,
       call: null,
       missingDeclaredInputs: DECLARED_INPUTS_WITHOUT_SOURCE,
+      absolute: {
+        // I TARGET DICHIARATI, così come Pico li ha scritti: la forma parziale
+        // attraversa il confine intatta, e un ruolo non dichiarato resta una
+        // chiave assente invece di diventare uno zero (src/rolePlan.ts).
+        roleTargets: state.rolePlan?.targets ?? {},
+        book: book.kind === "book" ? book.book : null,
+        legs: {
+          titolarita: insight?.titolarita ?? null,
+          // `null` quando la riga non porta il club o quando il club non è fra
+          // quelli di Serie A 2026/27: un'assenza dichiarata al posto di una
+          // dedotta (src/serieACompetitions.ts).
+          inEurope: playsInEurope(selected?.club ?? state.call.club),
+          // SOLO PAGELLE COMPLETE, che è già la regola di src/pagellaEsperti.ts:
+          // `totaleRicalcolato` è `null` finché i cinque assi non ci sono tutti.
+          pagella:
+            pagella !== undefined && pagella.completa && pagella.totaleRicalcolato !== null
+              ? { totale: pagella.totaleRicalcolato, totaleMax: PAGELLA_TOTALE_MAX }
+              : null,
+        },
+      },
     }),
   };
 }
@@ -3713,11 +3786,22 @@ function applyRiconfermeBatch(next: readonly ConfirmationInput[], draftOnFailure
 //     (`findSchedaCandidates`). L'errore peggiore possibile per queste schede è
 //     il silenzioso — scheda scritta, depositata e mai resa perché il nome non
 //     combacia — e questo lo rende impossibile invece che improbabile.
-//  2. OGNI CAMPO DEL VOCABOLARIO È UN CONTROLLO. Titolarità, rigori e fonte
-//     sono `<select>` costruiti sui vocabolari del contratto; calci piazzati e
-//     avvisi sono checkbox; i due numerici portano i limiti dello schema, letti
-//     da `src/expertScheda.ts` e non riscritti qui. Non c'è un punto in cui si
-//     possa digitare un valore che il contratto non conosce.
+//  2. OGNI CAMPO DEL VOCABOLARIO È UN CONTROLLO. Titolarità, rigori, fonte e
+//     lista editoriale sono `<select>` costruiti sui vocabolari del contratto;
+//     calci piazzati e avvisi sono checkbox; i numerici — le due quote, la
+//     gerarchia, i cinque voti della pagella e il totale dichiarato — portano i
+//     limiti dello schema, letti da `src/expertScheda.ts` e
+//     `src/pagellaEsperti.ts` e non riscritti qui. Anche i NOMI degli altri in
+//     ballottaggio si scelgono da una riga di listone: fuori dalla nota non
+//     esiste un punto in cui si possa digitare un valore che il contratto non
+//     conosce.
+//  2-bis. E OGNI CAMPO DEL CONTRATTO HA IL SUO CONTROLLO. Per tre volte il
+//     contratto era cresciuto e questo pannello era rimasto indietro: il campo
+//     che risponde a «quanti si contendono quel posto», la quarta icona e i
+//     cinque voti del radar erano irraggiungibili per l'unica persona che può
+//     scriverli. Adesso la corrispondenza è sorvegliata da una guardia
+//     strutturale (src/schedaCompiler.ts §«la via d'ingresso di ogni campo»),
+//     che diventa rossa il giorno in cui il contratto cresce e il modulo no.
 //  3. LA NOTA NON VIENE MAI TAGLIATA DA SOLA. Contatore visibile e limite
 //     dichiarato; oltre il limite il salvataggio si RIFIUTA e dice di quanto si
 //     è lunghi. Un `maxlength` che tronca un incollaggio perderebbe la coda
@@ -4322,7 +4406,7 @@ function renderSchedeSettings(): HTMLElement {
   } else {
     panel.appendChild(renderSchedaPicker(pool));
     const target = schedaRowTarget(state.schedaTargetKey);
-    if (target !== null) panel.appendChild(renderSchedaForm(target));
+    if (target !== null) panel.appendChild(renderSchedaForm(target, pool));
   }
 
   panel.appendChild(renderSchedaList());
@@ -4395,7 +4479,7 @@ function renderSchedaPicker(pool: readonly ListonePlayer[]): HTMLElement {
 }
 
 /** Il modulo: un controllo per campo, nessun testo libero fuori dalla nota. */
-function renderSchedaForm(target: SchedaTarget): HTMLElement {
+function renderSchedaForm(target: SchedaTarget, pool: readonly ListonePlayer[]): HTMLElement {
   const form = document.createElement("div");
   form.id = "schede-form";
   form.className = "schede-form";
@@ -4490,6 +4574,24 @@ function renderSchedaForm(target: SchedaTarget): HTMLElement {
     ),
   );
 
+  // LA QUARTA ICONA. `""` è un'opzione a sé — «non dichiarata» — e non un
+  // quarto valore del vocabolario: una scheda che non dice in quale lista sta
+  // è diversa da una che dice «in nessuna», e il riquadro le rende diverse.
+  grid.appendChild(
+    schedaField(
+      "schede-lista",
+      "LISTA DEL GRUPPO ESPERTI",
+      schedaSelect(
+        "schede-lista",
+        "— non dichiarata —",
+        LISTA_ESPERTI_VALUES,
+        LISTA_ESPERTI_LABELS,
+        state.schedaForm.lista,
+        (value) => updateSchedaForm({ lista: value }),
+      ),
+    ),
+  );
+
   const date = document.createElement("input");
   date.id = "schede-aggiornata";
   date.className = "field-input";
@@ -4522,6 +4624,9 @@ function renderSchedaForm(target: SchedaTarget): HTMLElement {
       (next) => updateSchedaForm({ avvisi: next }),
     ),
   );
+
+  form.appendChild(renderSchedaBallottaggio(target, pool));
+  form.appendChild(renderSchedaPagella(target));
 
   // ── La nota: l'unico testo libero, col suo limite scritto ─────────────────
   const notaField = document.createElement("div");
@@ -4594,6 +4699,287 @@ function renderSchedaForm(target: SchedaTarget): HTMLElement {
   }
 
   return form;
+}
+
+// ── CON CHI SI GIOCA IL POSTO ────────────────────────────────────────────────
+//
+// PERCHÉ QUESTO CAMPO CONTA PIÙ DEGLI ALTRI. La quota del ballottaggio dice
+// QUANTO vale la contesa; questo dice CON CHI, ed è il solo dato del deposito
+// che risponda davvero a «quanti si contendono quel posto». Fino a ieri le
+// uniche due occorrenze di `ballottaggio` in questo pannello erano commenti: il
+// contratto lo ammetteva e l'unica persona che può scriverlo non aveva nessuna
+// via per farlo.
+//
+// SI SCEGLIE DA UNA RIGA, COME IL GIOCATORE. È la prima regola del pannello, e
+// vale anche qui: nessun campo di testo per un nome. Un nome battuto a mano
+// finirebbe nel deposito con un refuso, e il refuso non lo vedrebbe nessuno —
+// il riquadro d'asta scrive quel nome così com'è.
+//
+// I DUE GRUPPI NON SONO UNA GRADUATORIA. «Stessa squadra» sta in cima perché
+// un ballottaggio è una contesa per un posto in una formazione, e i rivali
+// plausibili sono i compagni: è un raggruppamento per un fatto dichiarato,
+// non un ordinamento per merito, e ogni riga del listone resta scegliibile.
+//
+// UN NOME CHE IL LISTONE NON HA SI DICHIARA, NON SI ABBINA. Riaprendo una
+// scheda ripresa da un deposito scritto altrove, un nome può non corrispondere
+// a nessuna riga caricata: resta scritto COM'È, l'opzione lo porta segnato, e
+// una riga sotto il campo lo dice. Agganciarlo «al più simile» attaccherebbe in
+// silenzio il rivale sbagliato — la stessa cosa che `planSchedaImport` si
+// rifiuta di fare.
+
+/** Le righe che una casella «con chi» può nominare: tutte tranne lui stesso. */
+function ballottaggioOptions(
+  target: SchedaTarget,
+  pool: readonly ListonePlayer[],
+): { readonly stessoClub: readonly ListonePlayer[]; readonly altri: readonly ListonePlayer[] } {
+  const self = listonePlayerKey({ name: target.name, club: target.club });
+  const club = normalizeIdentityPart(target.club);
+  const stessoClub: ListonePlayer[] = [];
+  const altri: ListonePlayer[] = [];
+  for (const row of pool) {
+    if (listonePlayerKey(row) === self) continue;
+    (normalizeIdentityPart(row.club) === club ? stessoClub : altri).push(row);
+  }
+  return { stessoClub, altri };
+}
+
+function renderSchedaBallottaggio(target: SchedaTarget, pool: readonly ListonePlayer[]): HTMLElement {
+  const group = document.createElement("fieldset");
+  group.id = "schede-ballottaggio";
+  group.className = "schede-group";
+  const legend = document.createElement("legend");
+  legend.className = "field-label";
+  legend.textContent = `CON CHI SI GIOCA IL POSTO (FINO A ${SCHEDA_BALLOTTAGGIO_MAX})`;
+  group.appendChild(legend);
+
+  const hint = document.createElement("p");
+  hint.id = "schede-ballottaggio-hint";
+  hint.className = "hint-text";
+  hint.textContent =
+    "Gli altri in ballottaggio, ciascuno con la sua quota quando la scheda la dichiara. Arrivano al riquadro d'asta solo con la titolarità «ballottaggio»: senza quella non verrebbero mostrati, e il salvataggio lo dice invece di perderli. La quota non è obbligatoria — lasciarla vuota vuol dire «non dichiarata», non «zero».";
+  group.appendChild(hint);
+
+  const { stessoClub, altri } = ballottaggioOptions(target, pool);
+  const righe = state.schedaForm.ballottaggio;
+  // Le righe scritte più UNA vuota in coda, fino al tetto del contratto: quattro
+  // caselle sempre aperte sarebbero tre caselle vuote nel caso normale.
+  const quante = Math.min(righe.length + 1, SCHEDA_BALLOTTAGGIO_MAX);
+
+  for (let i = 0; i < quante; i += 1) {
+    const riga = righe[i] ?? EMPTY_SCHEDA_BALLOTTAGGIO_ROW;
+    const row = document.createElement("div");
+    row.className = "league-teams-grid";
+
+    const select = document.createElement("select");
+    select.id = `schede-ballottaggio-nome-${i}`;
+    select.className = "field-input";
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = "— nessuno —";
+    select.appendChild(empty);
+    const appendRows = (rows: readonly ListonePlayer[], label: string): void => {
+      if (rows.length === 0) return;
+      const optgroup = document.createElement("optgroup");
+      optgroup.label = label;
+      for (const p of rows) {
+        const opt = document.createElement("option");
+        // Il VALORE è il nome: è esattamente ciò che il contratto deposita
+        // (`surface`), quindi fra il controllo e il file non c'è nessuna
+        // traduzione che possa perdersi.
+        opt.value = p.name;
+        opt.textContent = `${p.name} (${p.club})`;
+        optgroup.appendChild(opt);
+      }
+      select.appendChild(optgroup);
+    };
+    appendRows(stessoClub, "Stessa squadra");
+    appendRows(altri, "Altre squadre");
+    // Un nome che nessuna riga porta: entra COM'È, segnato, e non viene
+    // riabbinato a niente.
+    const fuori = schedaBallottaggioFuoriListone([riga], pool);
+    for (const nome of fuori) {
+      const opt = document.createElement("option");
+      opt.value = nome;
+      opt.textContent = `${nome} — fuori dal listone caricato`;
+      select.appendChild(opt);
+    }
+    select.value = riga.surface;
+    select.addEventListener("change", (e) => {
+      updateSchedaBallottaggio(i, { surface: (e.target as HTMLSelectElement).value });
+      persistSchedaEditing();
+      // Ridisegna: una riga scelta ne apre una nuova in coda, una riga svuotata
+      // sparisce, e gli indici delle altre si spostano.
+      render();
+    });
+    row.appendChild(schedaField(`schede-ballottaggio-nome-${i}`, `ALTRO ${i + 1}`, select));
+
+    const quota = document.createElement("input");
+    quota.id = `schede-ballottaggio-quota-${i}`;
+    quota.className = "field-input";
+    quota.type = "number";
+    quota.min = String(SCHEDA_PERCENTUALE_MIN);
+    quota.max = String(SCHEDA_PERCENTUALE_MAX);
+    quota.step = "1";
+    quota.setAttribute("inputmode", "numeric");
+    quota.value = riga.sharePercent;
+    quota.addEventListener("input", (e) => {
+      updateSchedaBallottaggio(i, { sharePercent: (e.target as HTMLInputElement).value });
+    });
+    quota.addEventListener("change", () => persistSchedaEditing());
+    row.appendChild(
+      schedaField(
+        `schede-ballottaggio-quota-${i}`,
+        `QUOTA ${i + 1} (${SCHEDA_PERCENTUALE_MIN}–${SCHEDA_PERCENTUALE_MAX}%, FACOLTATIVA)`,
+        quota,
+      ),
+    );
+
+    group.appendChild(row);
+  }
+
+  const fuoriListone = schedaBallottaggioFuoriListone(righe, pool);
+  if (fuoriListone.length > 0) {
+    const note = document.createElement("p");
+    note.id = "schede-ballottaggio-fuori-listone";
+    note.className = "hint-text";
+    note.textContent = `${fuoriListone.join(", ")}: ${fuoriListone.length === 1 ? "questo nome non corrisponde" : "questi nomi non corrispondono"} a nessuna riga del listone caricato. Rest${fuoriListone.length === 1 ? "a scritto com'è" : "ano scritti come sono"} — non ${fuoriListone.length === 1 ? "viene abbinato" : "vengono abbinati"} al nome più somigliante.`;
+    group.appendChild(note);
+  }
+
+  return group;
+}
+
+/**
+ * Una casella del ballottaggio cambia: la riga si crea se non c'era, e sparisce
+ * quando resta senza NIENTE dentro. Una riga con la sola quota NON sparisce —
+ * il numero c'è, e buttarlo via in silenzio sarebbe la perdita che questo
+ * pannello esiste per non avere: `buildScheda` lo dice invece.
+ */
+function updateSchedaBallottaggio(index: number, patch: Partial<SchedaBallottaggioValues>): void {
+  const righe = [...state.schedaForm.ballottaggio];
+  while (righe.length <= index) righe.push(EMPTY_SCHEDA_BALLOTTAGGIO_ROW);
+  righe[index] = { ...(righe[index] as SchedaBallottaggioValues), ...patch };
+  const compacted = righe.filter((r) => r.surface.trim() !== "" || r.sharePercent.trim() !== "");
+  updateSchedaForm({ ballottaggio: compacted });
+  // Non persiste qui: come per gli altri numerici, si scrive su `change` e non
+  // a ogni tasto (schedaNumberInput). Chi cambia il `<select>` persiste da sé,
+  // perché lì un gesto solo è già la modifica finita.
+}
+
+// ── LA PAGELLA: I CINQUE VOTI, ATTERRATI ─────────────────────────────────────
+//
+// Il radar del riquadro d'asta esiste da tempo ed è VUOTO PER COSTRUZIONE:
+// l'estrazione che lo riempirebbe vive nel repository privato e non esiste
+// ancora. Queste caselle sono la via d'ingresso che mancava — non un
+// estrattore, non un giudizio: i cinque numeri che la fonte scrive, ricopiati.
+//
+// IL QUARTO ASSE LO DECIDE IL RUOLO DELLA RIGA, non chi compila: «Porta
+// inviolata» per i portieri, «Bonus» per il movimento. Lo schema RIFIUTA una
+// pagella che li porti entrambi, quindi non c'è una casella per ciascuno: c'è
+// la casella del ruolo. L'unica eccezione è la scheda ripresa da un deposito
+// che porta l'asse dell'altro ruolo: quella casella compare in più, segnata,
+// perché si possa TOGLIERE — nasconderla avrebbe lasciato un valore
+// incorreggibile dentro un modulo che si rifiuta di salvare.
+//
+// IL TOTALE È QUELLO DELLA FONTE. La somma dei cinque si ricalcola e serve a
+// SMENTIRLO: la riga sotto le caselle scrive tutti e due i numeri quando non
+// tornano, e non ne appiana nessuno. Una pagella parziale non produce nessuna
+// somma — «20/50» con tre voti su cinque è un numero falso che sembra vero.
+
+function renderSchedaPagella(target: SchedaTarget): HTMLElement {
+  const group = document.createElement("fieldset");
+  group.id = "schede-pagella";
+  group.className = "schede-group";
+  const legend = document.createElement("legend");
+  legend.className = "field-label";
+  legend.textContent = `PAGELLA DEL GRUPPO ESPERTI (CINQUE VOTI ${PAGELLA_VOTO_MIN}–${PAGELLA_VOTO_MAX} E IL TOTALE DICHIARATO)`;
+  group.appendChild(legend);
+
+  const hint = document.createElement("p");
+  hint.id = "schede-pagella-hint";
+  hint.className = "hint-text";
+  hint.textContent =
+    "Un voto lasciato vuoto resta mancante e si legge «n/d»: non diventa uno zero, perché uno zero è un giudizio durissimo della fonte. Il TOTALE è quello che la scheda dichiara, non la somma: la somma la ricalcola l'app, qui sotto, per poterlo smentire.";
+  group.appendChild(hint);
+
+  const grid = document.createElement("div");
+  grid.className = "league-teams-grid";
+
+  const verifica = document.createElement("p");
+  verifica.id = "schede-pagella-verifica";
+  verifica.className = "hint-text";
+  const paintVerifica = (): void => {
+    verifica.textContent = schedaPagellaVerificaText(state.schedaForm.pagella, target.role);
+  };
+
+  const votoInput = (asse: PagellaAsse, etichetta: string): HTMLElement => {
+    const id = `schede-${asse.replace(/_/g, "-")}`;
+    const input = schedaNumberInput(
+      id,
+      PAGELLA_VOTO_MIN,
+      PAGELLA_VOTO_MAX,
+      state.schedaForm.pagella[asse],
+      (value) => {
+        updateSchedaPagella({ [asse]: value } as Partial<SchedaPagellaValues>);
+        paintVerifica();
+      },
+    );
+    return schedaField(id, etichetta.toUpperCase(), input);
+  };
+
+  const [primo, secondo, terzo, quinto] = PAGELLA_ASSI_COMUNI;
+  for (const asse of [primo, secondo, terzo] as const) {
+    grid.appendChild(votoInput(asse, PAGELLA_ETICHETTE[asse]));
+  }
+
+  // Il quarto: quello che il RUOLO della riga chiede.
+  const atteso = pagellaAsseDelRuolo(target.role);
+  if (atteso === null) {
+    const ignoto = document.createElement("p");
+    ignoto.id = "schede-pagella-ruolo-ignoto";
+    ignoto.className = "hint-text";
+    ignoto.textContent = `${PAGELLA_QUARTO_ASSE_IGNOTO}: questa riga di listone non dichiara un ruolo, quindi non si sa quale sia il quarto asse e non se ne sceglie uno al posto suo.`;
+    grid.appendChild(ignoto);
+  } else {
+    grid.appendChild(votoInput(atteso, `${PAGELLA_ETICHETTE[atteso]} (dal ruolo della riga)`));
+  }
+
+  grid.appendChild(votoInput(quinto as PagellaAsse, `${PAGELLA_ETICHETTE.pagella_consiglio} (parere della fonte)`));
+
+  // L'asse dell'ALTRO ruolo, solo se una scheda ripresa ne porta uno: c'è per
+  // poterlo togliere, e lo dice.
+  const estraneo =
+    atteso === "pagella_porta_inviolata"
+      ? "pagella_bonus"
+      : atteso === "pagella_bonus"
+        ? "pagella_porta_inviolata"
+        : null;
+  if (estraneo !== null && state.schedaForm.pagella[estraneo].trim() !== "") {
+    grid.appendChild(votoInput(estraneo, `${PAGELLA_ETICHETTE[estraneo]} — asse di un altro ruolo, da togliere`));
+  }
+
+  const totale = schedaNumberInput(
+    "schede-pagella-totale",
+    0,
+    PAGELLA_TOTALE_MAX,
+    state.schedaForm.pagella.totaleFonte,
+    (value) => {
+      updateSchedaPagella({ totaleFonte: value });
+      paintVerifica();
+    },
+  );
+  grid.appendChild(
+    schedaField("schede-pagella-totale", `TOTALE DICHIARATO DALLA FONTE (0–${PAGELLA_TOTALE_MAX})`, totale),
+  );
+
+  group.appendChild(grid);
+  paintVerifica();
+  group.appendChild(verifica);
+  return group;
+}
+
+function updateSchedaPagella(patch: Partial<SchedaPagellaValues>): void {
+  updateSchedaForm({ pagella: { ...state.schedaForm.pagella, ...patch } });
 }
 
 /** Le schede già scritte: rileggibili, correggibili, cancellabili. */
@@ -5493,7 +5879,7 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   // dettaglio: e2e/asta-gesto-principale.spec.ts asserisce che «ASSEGNA A»
   // resti entro 560px dal bordo del documento, ed è la ragione per cui le
   // quattro celle stanno su una riga sola (src/styles/asta.css).
-  card.appendChild(renderValueBoxBlock(valueBoxProps()));
+  card.appendChild(renderValueBoxBlock(valueBoxProps(aState)));
 
   // MOMENTO DELL'ASTA — ridotto al ruolo chiamato, dentro la scheda (#331
   // punto 2). Le altre tre celle di ruolo, il censimento MERCATO e la nota
