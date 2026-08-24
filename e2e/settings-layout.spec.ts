@@ -22,6 +22,48 @@ test("the settings menu swaps the right-hand panel and survives a re-render", as
   // numero è aggiornato al vero, non allentato: se un'area sparisse dal menu
   // questa riga deve tornare rossa.
   await expect(page.locator("#settings-menu svg")).toHaveCount(5);
+
+  // …E OGNUNA DELLE CINQUE DISEGNA DAVVERO QUALCOSA.
+  //
+  // Il conteggio qui sopra conta gli INVOLUCRI, non i glifi.
+  // `renderImpostazioniScreen` (src/ui/views.ts) emette il tag <svg> in ogni
+  // caso e ci interpola dentro `area.icon`: un'area con `icon: ""` produce un
+  // <svg> vuoto, il conteggio resta 5 e questa riga resterebbe VERDE su un
+  // menu con un buco. Non è un ragionamento: provato svuotando davvero
+  // ARCHIVE_SETTINGS_ICON, il test passava.
+  //
+  // La guardia qui sotto guarda DENTRO ogni involucro e pretende almeno una
+  // forma disegnata. Raccoglie le schede per RUOLO (`[role="tab"]`) e non per
+  // nome, così un'area aggiunta domani entra in questa misura da sé; i cinque
+  // id sono il CONTROLLO che la raccolta stia guardando qualcosa, perché una
+  // raccolta vuota passerebbe per vuoto — lo stesso difetto, un piano più in
+  // basso, di quello che questo blocco esiste per chiudere.
+  const menuGlyphs = await page.evaluate(() =>
+    [...document.querySelectorAll('#settings-menu [role="tab"]')].map((tab) => ({
+      id: tab.id,
+      shapes: tab.querySelectorAll(
+        "svg path, svg circle, svg rect, svg line, svg polyline, svg polygon, svg ellipse",
+      ).length,
+    })),
+  );
+  for (const expected of [
+    "settings-tab-teams",
+    "settings-tab-riconferme",
+    "settings-tab-schede",
+    "settings-tab-archivio",
+    "settings-tab-status",
+  ]) {
+    expect(
+      menuGlyphs.map((g) => g.id),
+      `la raccolta delle icone deve vedere #${expected}`,
+    ).toContain(expected);
+  }
+  for (const glyph of menuGlyphs) {
+    expect(
+      glyph.shapes,
+      `#${glyph.id}: l'involucro <svg> c'è ma non disegna niente — icona vuota`,
+    ).toBeGreaterThan(0);
+  }
   await expect(page.locator("#new-person-name")).toBeVisible();
 
   // Only the selected area is built, so the other one is absent from the DOM

@@ -88,6 +88,23 @@ const POOL_WITHOUT_INDEX: readonly ListonePlayer[] = POOL.map(
 const DIRECTIVE =
   /fair.?to.?me|target.?band|stretch.?cap|prendilo|mollalo|dovresti|spingi|convien|consigli[ao]|ranking|projection|prezzo atteso/i;
 
+/**
+ * LE RIGHE DI TESTO DEL RIQUADRO, DERIVATE DALLA SUA STRUTTURA e non contate a
+ * mano: la testata ne porta DUE (il titolo e la nota) e ogni cella ne porta
+ * TRE — il nome dello slot (`<em>`), il numero o `n/d` (`<strong>`) e la riga
+ * che dice perché (`<span>`): src/ui/valueBox.ts, `valueBoxHtml`.
+ *
+ * PERCHÉ NON UN `14` SCRITTO A MANO. Un letterale può soltanto essere
+ * dimenticato: il giorno in cui una cella guadagna una quarta riga il numero
+ * diventa lasco in silenzio, e nessuno se ne accorge finché il riquadro non si
+ * svuota davvero. Scritto così è un VINCOLO STRUTTURALE ESATTO — cambiare la
+ * forma della cella senza toccare questa riga fa fallire il conteggio invece
+ * di scivolarci sopra, in tutte e due le direzioni: una riga persa e una riga
+ * comparsa (un `::before { content: … }` compreso, che `measureAllText`
+ * misura come testo dipinto) fanno rosso uguale.
+ */
+const VALUE_BOX_TEXT_ROWS = VALUE_SLOT_ORDER.length * 3 + 2;
+
 async function boot(page: Page, pool: readonly ListonePlayer[] = POOL): Promise<void> {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(page.context(), pool, externalRequests);
@@ -230,15 +247,19 @@ test("il riquadro non accende nessun altro output direttivo", async ({ page }) =
     "testo del riquadro non classificabile: la spazzata non può dirlo leggibile, quindi lo boccia",
   ).toEqual([]);
   const measured = swept.flatMap((m) => (m.kind === "measured" ? [m] : []));
-  // Il pavimento della spazzata, con lo stesso scopo del pavimento della
-  // spazzata d'insieme: le quattordici righe di testo del riquadro sono il
-  // titolo, la nota e le tre righe di ognuna delle quattro celle (nome,
-  // numero, perché). Se il conto crolla, qualcosa ha smesso di renderizzare o
-  // la spazzata ha ricominciato a saltare.
+  // IL CONTO DELLE RIGHE, che è il pezzo che l'elenco esplicito qui sopra non
+  // può dare. I due coprono modi di rompersi DIVERSI, non sono un doppione:
+  // l'elenco cattura un elemento SPARITO (`textContrast` fallisce quando il
+  // selettore non trova niente); questo cattura un elemento rimasto nel DOM ma
+  // SVUOTATO DEL TESTO, che l'elenco non vedrebbe perché il colore di un nodo
+  // senza testo si misura lo stesso. È un'uguaglianza e non un pavimento:
+  // `VALUE_BOX_TEXT_ROWS` descrive la forma esatta del riquadro, quindi una
+  // riga in meno e una riga in più devono essere entrambe rosse.
   expect(
     measured.length,
-    "la spazzata del riquadro non ha misurato quasi nulla: riquadro vuoto o spazzata inerte",
-  ).toBeGreaterThanOrEqual(14);
+    "le righe di testo misurate nel riquadro non sono quelle che la sua forma prevede: " +
+      "riquadro svuotato, spazzata inerte, o una riga nuova che nessuno ha dichiarato",
+  ).toBe(VALUE_BOX_TEXT_ROWS);
   expect(
     measured
       .filter((m) => m.exempt === null && m.ratio < AA_NORMAL_TEXT)
