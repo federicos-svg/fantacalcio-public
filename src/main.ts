@@ -24,6 +24,7 @@ import "./styles/layout.css";
 import "./styles/components.css";
 import "./styles/asta.css";
 import "./styles/listone.css";
+import "./styles/bait.css";
 import {
   type AuctionEvent,
   type AuctionState,
@@ -50,6 +51,8 @@ import {
   type OpponentProfile,
   type PastAuctionPurchase,
 } from "../packages/opponent-profiles/src/index.js";
+import { baitCandidates, exposureBook } from "./baitCandidates.js";
+import { renderBaitSection, type BaitSectionProps } from "./ui/baitRow.js";
 import {
   applyAuctionHistoryText,
   applyOpponentProfilesText,
@@ -1611,6 +1614,39 @@ function opponentPrecedentsProps(): OpponentPrecedentsProps {
       selfSeatId: SELF_ID,
     }),
     teamLabels: seatLabelMap(),
+  };
+}
+
+/**
+ * Ingressi della seconda metà del blocco «giocatore suggerito»: i LIBERI su cui
+ * più avversari hanno insieme un precedente misurato, lo slot e i crediti.
+ *
+ * Legge le stesse tre memorie del pannello AVVERSARI: I PRECEDENTI — storico
+ * d'asta, registro lega, listone — e nessuna in più. `exposureBook` è
+ * memoizzato sull'IDENTITÀ di `state.auctionHistory`, `baitCandidates`
+ * sull'identità di `state.pool`: fra un tasto e l'altro della ricerca cambia
+ * solo `state.call.playerName`, che non è nella firma di nessuno dei due.
+ *
+ * `state.log.length` è una delle due firme dello stato derivato; l'altra la
+ * costruisce `baitCandidates` da sé (budget, slot e chiavi dei venduti per
+ * esteso). Servono entrambe, e il log NON è append-only per questa via:
+ * `applyImportedRaw` più sopra lo SOSTITUISCE — vedi il commento su
+ * `BaitCacheEntry` in src/baitCandidates.ts.
+ */
+function baitSectionProps(aState: AuctionState): BaitSectionProps {
+  const selected = state.call.selectedPlayer;
+  return {
+    reading: baitCandidates({
+      pool: state.pool,
+      source: state.poolSource,
+      book: exposureBook(state.auctionHistory),
+      seats: state.leagueRoster.seats,
+      state: aState,
+      selfId: SELF_ID,
+      logLength: state.log.length,
+    }),
+    teamLabels: seatLabelMap(),
+    selectedKey: selected === null ? null : listonePlayerKey(selected),
   };
 }
 
@@ -5068,14 +5104,26 @@ function renderMomentoChiamata(
   const suggested = document.createElement("div");
   suggested.id = "suggested-player";
   suggested.style.cssText = `background:${C.panelInner};border:1px solid ${C.border};border-radius:8px;padding:12px 16px;margin-top:18px;`;
+  // PRIMA METÀ — «chi chiamare per me». Resta il SEGNAPOSTO ONESTO che era qui:
+  // poggerà su packages/engine/src/opportunities.ts e sui valori dichiarati da
+  // Pico, che non esistono ancora. Il contenitore ospita due <section>, così la
+  // seconda metà non deve spostare la prima quando arriverà.
+  const suggestedFirst = document.createElement("section");
+  suggestedFirst.id = "suggested-player-mine";
   const suggestedEyebrow = document.createElement("div");
   suggestedEyebrow.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.06em;color:${C.textSec};margin-bottom:4px;`;
   suggestedEyebrow.textContent = "GIOCATORE SUGGERITO — CHI CHIAMARE ORA";
   const suggestedBody = document.createElement("div");
   suggestedBody.style.cssText = `font-size:13px;line-height:1.5;color:${C.textMid};`;
   suggestedBody.textContent = "Nessun suggerimento automatico attivo: il motore richiede dati reali, non ancora abilitati. Inserisci manualmente il giocatore chiamato nella ricerca qui sopra. (Non è una predizione.)";
-  suggested.appendChild(suggestedEyebrow);
-  suggested.appendChild(suggestedBody);
+  suggestedFirst.appendChild(suggestedEyebrow);
+  suggestedFirst.appendChild(suggestedBody);
+  suggested.appendChild(suggestedFirst);
+  // SECONDA METÀ — «chi chiamare per far spendere gli altri». `onSelect` è
+  // `selectListonePlayer`, cioè L'UNICA via che arma la CTA «Avvia»: il
+  // candidato È una riga di listone, quindi la stessa funzione si applica senza
+  // adattatori e non nasce una seconda superficie di selezione.
+  suggested.appendChild(renderBaitSection(baitSectionProps(aState), selectListonePlayer));
   wrap.appendChild(suggested);
 
   // Il listone sta SOTTO il blocco del giocatore suggerito (richiesta di Pico,
