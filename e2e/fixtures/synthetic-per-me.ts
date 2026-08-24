@@ -1,0 +1,92 @@
+// PER ME — listone e piano rosa sintetici per la suite E2E.
+//
+// Tutto inventato: club «ClubAlfa/Beta/Gamma», giocatori «Attaccante Forte» e
+// compagnia, quotazioni scelte per esercitare l'ordine e non copiate da nessuna
+// fonte reale. Nessuna riga del listone vero (public/data/listone_2025_26.json)
+// entra qui, e il network guard aborta qualunque richiesta esterna.
+//
+// LA SCENA È COSTRUITA PERCHÉ LA SOTTRAZIONE CADUTA SBAGLIEREBBE. Il valore
+// assoluto del ruolo A è piatto per tutti gli attaccanti: con `valore − ancora`
+// l'unico candidato con differenza positiva sarebbe «Attaccante Scarso» a 2 cr,
+// e i due da 40 e 60 sarebbero esclusi. Il sottoblocco costruito senza
+// sottrazione lo mette invece ULTIMO, e a tetto di tre righe non lo mostra
+// nemmeno: è ciò che e2e/per-me-row.spec.ts asserisce sul DOM vivo.
+//
+// IL PIANO ROSA passa da `localStorage` con la stessa chiave e lo stesso schema
+// che `loadRolePlan` legge davvero (src/rolePlan.ts): la suite esercita il
+// percorso vero — parsing zod, forma parziale, lettura del motore — e non una
+// porta di servizio aperta apposta per i test.
+
+import type { Page } from "@playwright/test";
+import type { ListonePlayer } from "../../src/ui/listone.js";
+import { listonePlayerKey } from "../../src/ui/listone.js";
+
+export const ROLE_PLAN_KEY = "fac_role_plan";
+
+/** La ricetta dell'indice, nella forma che la Factory emette. Una sola per
+ *  tutto il listone: con due ricette la provenienza non sarebbe dichiarabile e
+ *  il libro delle fasce si rifiuterebbe (src/tierOrdering.ts). */
+export const PER_ME_RECIPE = "APPEAL-INDEX-RECIPE@1.0.0";
+
+function withIndex(row: ListonePlayer, score: number): ListonePlayer {
+  return {
+    ...row,
+    appealIndex: {
+      score,
+      quality: "sintetico — fixture E2E, non validato",
+      recipe: PER_ME_RECIPE,
+      components: { base: score },
+    },
+  };
+}
+
+export const A_FORTE = withIndex(
+  { name: "Attaccante Forte", role: "A", club: "ClubAlfa", quotation: 60 },
+  90,
+);
+export const A_MEDIO = withIndex(
+  { name: "Attaccante Medio", role: "A", club: "ClubAlfa", quotation: 40 },
+  80,
+);
+export const A_SCARSO = withIndex(
+  { name: "Attaccante Scarso", role: "A", club: "ClubBeta", quotation: 2 },
+  10,
+);
+export const D_FORTE = withIndex(
+  { name: "Difensore Forte", role: "D", club: "ClubGamma", quotation: 30 },
+  70,
+);
+
+/**
+ * Il listone sintetico. L'ordine di ingresso è deliberatamente DIVERSO
+ * dall'ordine atteso a schermo: se il sottoblocco stampasse il pool così com'è,
+ * il test lo vedrebbe.
+ */
+export const PER_ME_POOL: readonly ListonePlayer[] = [A_SCARSO, D_FORTE, A_MEDIO, A_FORTE];
+
+/** Le chiavi con cui l'app identifica le righe: le stesse dell'event log. */
+export const PER_ME_KEYS = {
+  forte: listonePlayerKey(A_FORTE),
+  medio: listonePlayerKey(A_MEDIO),
+  scarso: listonePlayerKey(A_SCARSO),
+  difensore: listonePlayerKey(D_FORTE),
+} as const;
+
+/** Il piano rosa DICHIARATO, completo: quattro target più la versione. */
+export const PER_ME_PLAN = {
+  schemaVersion: 1,
+  planVersion: "e2e pre-asta",
+  targets: { P: 20, D: 80, C: 140, A: 210 },
+} as const;
+
+/** Semina il piano rosa e ricarica, perché l'app lo legge al boot. Da chiamare
+ *  dopo `page.goto("/")` e dopo l'eventuale `localStorage.clear()`. */
+export async function seedRolePlan(page: Page): Promise<void> {
+  await page.evaluate(
+    ([key, plan]) => {
+      localStorage.setItem(key as string, JSON.stringify(plan));
+    },
+    [ROLE_PLAN_KEY, PER_ME_PLAN] as const,
+  );
+  await page.reload();
+}

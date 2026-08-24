@@ -18,6 +18,7 @@ import {
   type CallScreenInput,
   type DeclaredDataQuality,
   type PlayerAnchor,
+  type UnratifiedChoiceId,
   type ValueProfile,
 } from "../src/index.js";
 import { TEAMS, anchor, buildLog, buy, fillRole, stateOf } from "./layer2Fixtures.js";
@@ -364,6 +365,27 @@ describe("callScreen — scelte del motore non ratificate, dichiarate nel dato",
     expect(wide.widthGate!.ratification.ratified).toBe(false);
   });
 
+  /**
+   * LE SCELTE APERTE CHE UNA SUPERFICIE FUORI DAL MOTORE PORTA.
+   *
+   * `UNRATIFIED_CHOICES` è il vocabolario del motore perché è lì che sta la
+   * casa delle scelte aperte, ma non tutte le superfici che ne portano una
+   * vivono qui: il sottoblocco «PER ME» (src/perMeCandidates.ts) è codice
+   * d'app, e un test del motore non importa codice d'app — sarebbe il motore a
+   * dipendere dall'app, cioè il confine al contrario.
+   *
+   * Quindi l'elenco si dichiara qui PER NOME, e la dichiarazione non è
+   * autocertificata: src/perMeCandidates.test.ts §"le DUE scelte non
+   * ratificate" pinna che quella lettura porti esattamente questi due
+   * identificatori. Se qualcuno li togliesse di là, questo elenco resterebbe
+   * qui a mentire — ed è per questo che il test di là esiste e li nomina uno
+   * per uno invece di contarli.
+   */
+  const CARRIED_OUTSIDE_THE_ENGINE: readonly UnratifiedChoiceId[] = [
+    "PER_ME_ORDER_APPEAL_REPLACES_SURPLUS",
+    "PER_ME_REQUIRES_COMPLETE_ROLE_PLAN",
+  ];
+
   it("ogni scelta aperta ha un motivo scritto, non solo un identificatore", () => {
     const screens = screen({ playerId: "a_occ" });
     const used = [
@@ -378,6 +400,7 @@ describe("callScreen — scelte del motore non ratificate, dichiarate nel dato",
       // volta pinnato in packages/engine/tests/absoluteValue.test.ts, quindi
       // non può gonfiarsi in silenzio per far passare questo confronto.
       ...ABSOLUTE_VALUE_UNRATIFIED_CHOICES,
+      ...CARRIED_OUTSIDE_THE_ENGINE,
     ];
     for (const id of used) expect(UNRATIFIED_CHOICES[id].length).toBeGreaterThan(0);
     // Nessun identificatore del vocabolario resta orfano: se se ne aggiunge uno

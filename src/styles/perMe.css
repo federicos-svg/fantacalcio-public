@@ -1,0 +1,119 @@
+/* PER ME — la riga cliccabile come una riga di listone.
+ *
+ * File a sé e gemello di bait.css, non un'aggiunta in coda a quello: i due
+ * sottoblocchi vivono nello stesso riquadro ma sono due moduli separati, e una
+ * modifica all'uno non deve poter cambiare la forma dell'altro per sbaglio.
+ *
+ * CONTRASTO. Il sottoblocco sta dentro `#suggested-player`, che dipinge
+ * `--panel-inner`. Ogni token di testo usato qui è ≥ 4,5:1 su quel fondo (vedi
+ * la rampa dichiarata in src/styles/base.css), e la riga selezionata dipinge
+ * `--panel`, che è più scuro: il contrasto migliora, non peggiora.
+ *
+ * LA SELEZIONE SU DUE CANALI. Colore di fondo + CONTORNO pieno a sinistra +
+ * la parola «✓ selezionato» dentro la riga. Chi non distingue i colori ha
+ * comunque due segnali.
+ *
+ * ALTEZZA. Tre righe di testo per candidato e tre candidati al massimo: la
+ * schermata di chiamata è già oltre budget, quindi qui non ci sono margini
+ * decorativi e i corpi sono gli stessi di .bait-row, non più grandi. */
+
+.per-me {
+  margin-top: 8px;
+}
+
+.per-me__title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-sec);
+  margin-bottom: 6px;
+}
+
+.per-me__empty {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-mid);
+}
+
+.per-me__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.per-me__note {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-sec);
+  margin-top: 7px;
+}
+
+.per-me-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  background: transparent;
+  color: var(--text-mid);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 7px 10px;
+  cursor: pointer;
+  /* Interlinea DICHIARATA e non ereditata: con quella del corpo pagina le
+     quattro righe di un candidato costavano 175px a 390px, e tre candidati
+     mezza schermata. Misurato, non stimato. */
+  line-height: 1.35;
+}
+
+.per-me-row:hover {
+  border-color: var(--accent);
+}
+
+/* Il focus da tastiera si vede sempre: la riga è raggiungibile con Tab, e una
+   riga raggiungibile senza anello di fuoco è raggiungibile solo in teoria. */
+.per-me-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.per-me-row--selected {
+  background: var(--panel);
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.per-me-row__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.per-me-row__name {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.per-me-row__appeal {
+  font-size: 12.5px;
+  color: var(--text-mid);
+}
+
+.per-me-row__anchor {
+  font-size: 12px;
+  color: var(--text-sec);
+}
+
+.per-me-row__plan {
+  font-size: 12px;
+  color: var(--text-sec);
+}
+
+.per-me-row__selected {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-accent);
+}

@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { installSyntheticNetworkGuard } from "./helpers.js";
 import { PRECEDENT_POOL, seedPrecedents } from "./fixtures/synthetic-precedents.js";
 import { BAIT_TITLE, BAIT_TITLE_SHORT } from "../src/ui/baitRow.js";
+import { PER_ME_TITLE_SHORT } from "../src/ui/perMeRow.js";
 
 // LA RIGA DELL'ESCA SI CLICCA COME UNA RIGA DI LISTONE — il gesto, dal primo
 // tocco all'ultimo.
@@ -122,7 +123,13 @@ test("il sottoblocco mostra i candidati attesi, in ordine, dentro GIOCATORE SUGG
   // stato toccato, e il listone resta sotto (e2e/call-screen-order.spec.ts).
   const suggested = page.locator("#suggested-player");
   await expect(suggested).toContainText("GIOCATORE SUGGERITO — CHI CHIAMARE ORA");
-  await expect(suggested).toContainText("Nessun suggerimento automatico attivo");
+  // La PRIMA metà non è più un segnaposto: è il sottoblocco «PER ME», che in
+  // questa scena non ha un piano rosa dichiarato e quindi dice quale
+  // dichiarazione gli manca invece di ordinare su un piano che non esiste.
+  // L'asserzione è la stessa domanda di prima — «la prima metà c'è e dice
+  // qualcosa di onesto» — aggiornata al contenuto che adesso c'è davvero.
+  await expect(suggested).toContainText(PER_ME_TITLE_SHORT);
+  await expect(page.locator("#per-me-empty")).toHaveAttribute("data-reason", "plan-absent");
   expect(await page.evaluate(() =>
     document.getElementById("suggested-player")!.contains(document.getElementById("bait-block")),
   )).toBe(true);

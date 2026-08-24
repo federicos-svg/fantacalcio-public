@@ -68,7 +68,10 @@ export type UnratifiedChoiceId =
   | "CONCORRENZA_SCALE_SYMMETRIC" // +1/0/−1: passo uguale sopra e sotto la parola di mezzo
   | "CONCORRENZA_ONLY_TITOLARITA" // ballottaggio e gerarchia restano fuori dal numero
   | "COPPE_BASELINE_IS_ABSENCE" // «non gioca in Europa» = 0, non −1
-  | "PAGELLA_POSITION_IS_TOTAL_OVER_MAX"; // rapporto sul fondo scala, non scarto dal punto medio
+  | "PAGELLA_POSITION_IS_TOTAL_OVER_MAX" // rapporto sul fondo scala, non scarto dal punto medio
+  // ── Le due letture del sottoblocco «PER ME» (src/perMeCandidates.ts) ──────
+  | "PER_ME_ORDER_APPEAL_REPLACES_SURPLUS" // chi occupa il posto lasciato dal surplus
+  | "PER_ME_REQUIRES_COMPLETE_ROLE_PLAN"; // senza piano completo il sottoblocco tace
 
 /** Perché ciascuna scelta è aperta. Testo macchina-leggibile, non prosa libera. */
 export const UNRATIFIED_CHOICES: Readonly<Record<UnratifiedChoiceId, string>> = {
@@ -96,6 +99,10 @@ export const UNRATIFIED_CHOICES: Readonly<Record<UnratifiedChoiceId, string>> = 
     "«non gioca in Europa» è trattato come linea di base (0) e non come l'opposto di «ci gioca»: è una lettura, non il dato",
   PAGELLA_POSITION_IS_TOTAL_OVER_MAX:
     "il totale entra come rapporto sul fondo scala della fonte: uno scarto dal punto medio sarebbe altrettanto scrivibile e nessuno ha scelto",
+  PER_ME_ORDER_APPEAL_REPLACES_SURPLUS:
+    "il secondo criterio del radar occasioni era il surplus, caduto con il valore per me: metterci la posizione nell'ordine di appetibilità dichiarato è una lettura del motore, e nessun documento assegna quel posto a quel criterio",
+  PER_ME_REQUIRES_COMPLETE_ROLE_PLAN:
+    "«dentro il mio piano» è il primo criterio dell'ordine: qui senza piano completo il sottoblocco tace invece di ordinare con un criterio in meno, e nessun documento sceglie fra le due",
 };
 
 /**
