@@ -1,0 +1,118 @@
+/* PER FAR SPENDERE GLI ALTRI — la riga cliccabile come una riga di listone.
+ *
+ * File a sé, non un'aggiunta in coda a listone.css: il blocco vive nella
+ * schermata di chiamata sopra il listone, e tenerne le regole separate evita
+ * che una modifica alla tabella ne cambi la forma per sbaglio.
+ *
+ * CONTRASTO. Il sottoblocco sta dentro `#suggested-player`, che dipinge
+ * `--panel-inner`. Ogni token di testo usato qui è ≥ 4,5:1 su quel fondo (vedi
+ * la rampa dichiarata in src/styles/base.css), e la riga selezionata dipinge
+ * `--panel`, che è più scuro: il contrasto migliora, non peggiora.
+ *
+ * LA SELEZIONE SU DUE CANALI. Colore di fondo + CONTORNO pieno a sinistra +
+ * la parola «✓ selezionato» dentro la riga. Chi non distingue i colori ha
+ * comunque due segnali. */
+
+.bait {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.bait__title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-sec);
+  margin-bottom: 6px;
+}
+
+.bait__empty {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-mid);
+}
+
+.bait__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bait__note {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-sec);
+  margin-top: 8px;
+}
+
+.bait-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  background: transparent;
+  color: var(--text-mid);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.bait-row:hover {
+  border-color: var(--accent);
+}
+
+/* Il focus da tastiera si vede sempre: la riga è raggiungibile con Tab, e una
+   riga raggiungibile senza anello di fuoco è raggiungibile solo in teoria. */
+.bait-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.bait-row--selected {
+  background: var(--panel);
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.bait-row__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.bait-row__name {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.bait-row__count {
+  font-size: 12.5px;
+  color: var(--text-mid);
+}
+
+.bait-row__projection {
+  font-size: 12px;
+  color: var(--text-sec);
+}
+
+.bait-row__mark {
+  font-size: 12px;
+  color: var(--stop-red);
+}
+
+.bait-row__evidence {
+  font-size: 11.5px;
+  color: var(--text-sec);
+}
+
+.bait-row__selected {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-accent);
+}

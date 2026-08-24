@@ -20,6 +20,7 @@
 import { reduce } from "../packages/engine/src/reduce.js";
 import { ROLES, ROSTER_REQUIREMENTS } from "../packages/engine/src/types.js";
 import type { AuctionEvent, AuctionState, Role } from "../packages/engine/src/types.js";
+import type { PastAuctionPurchase } from "../packages/opponent-profiles/src/types.js";
 import type { ListonePlayer } from "./ui/listone.js";
 import { listonePlayerKey } from "./ui/listone.js";
 
@@ -217,4 +218,103 @@ export function tierPerfScenario(
     }
   }
   return { pool, log, state: reduce(log, PERF_TEAMS), called };
+}
+
+// ─── LO SCENARIO DELL'ESCA ───────────────────────────────────────────────────
+//
+// Estende QUESTO banco invece di aprirne un secondo: la sagoma operativa (532
+// righe, otto squadre, un log vero) è la stessa, e due laboratori che generano
+// «lo stesso listone» sono due listoni che divergono. Qui si aggiunge l'unica
+// cosa che l'esca ha in più — uno STORICO D'ASTA multi-stagione, ~1.100 righe —
+// e si tolgono un po' di acquisti dal log, perché a tavolo pieno ogni reparto è
+// chiuso e il cancello di ammissione uscirebbe subito: si misurerebbe il ramo
+// che non fa niente.
+//
+// Zero dati reali, come sopra: persone con UUID sintetici, club «Club NN»,
+// giocatori «Sintetico NNN», prezzi da PRNG seminato.
+
+/** Le sette persone rivali dello scenario. UUID sintetici, nessun essere umano. */
+export const PERF_PEOPLE: readonly string[] = [
+  "person:00000000-0000-4000-8000-0000000000a1",
+  "person:00000000-0000-4000-8000-0000000000a2",
+  "person:00000000-0000-4000-8000-0000000000a3",
+  "person:00000000-0000-4000-8000-0000000000a4",
+  "person:00000000-0000-4000-8000-0000000000a5",
+  "person:00000000-0000-4000-8000-0000000000a6",
+  "person:00000000-0000-4000-8000-0000000000a7",
+];
+
+/** Le stagioni dello storico sintetico, crescenti. */
+export const PERF_SEASONS: readonly string[] = [
+  "2021/22",
+  "2022/23",
+  "2023/24",
+  "2024/25",
+  "2025/26",
+];
+
+export interface BaitPerfScenario extends TierPerfScenario {
+  /** posto → persona: i sette rivali occupati, il posto di Pico libero. */
+  readonly seats: Record<string, string | null>;
+  /** Lo storico d'asta multi-stagione, ~1.100 righe. */
+  readonly history: PastAuctionPurchase[];
+}
+
+/**
+ * Listone, log, stato, registro lega e storico d'asta in un colpo solo.
+ *
+ * `purchases` è basso di proposito (40, non 224): serve un tavolo con reparti
+ * ancora aperti, altrimenti il cancello per ruolo chiude tutto prima di
+ * valutare un solo candidato — che è il comportamento giusto e la misura
+ * sbagliata.
+ */
+export function baitPerfScenario(
+  rows = PERF_POOL_ROWS,
+  historyRows = 1100,
+  purchases = 40,
+  seed = 20260824,
+): BaitPerfScenario {
+  const pool = perfPool(rows, seed);
+  const log = perfLog(pool, purchases, seed);
+  const state = reduce(log, PERF_TEAMS);
+  const rnd = mulberry32(seed ^ 0x1d0a);
+
+  const seats: Record<string, string | null> = {};
+  PERF_TEAMS.forEach((teamId, i) => {
+    seats[teamId] = i === 0 ? null : (PERF_PEOPLE[i - 1] ?? null);
+  });
+
+  const history: PastAuctionPurchase[] = [];
+  const perPersonSeason = Math.max(
+    1,
+    Math.round(historyRows / (PERF_PEOPLE.length * PERF_SEASONS.length)),
+  );
+  for (const personId of PERF_PEOPLE) {
+    for (const season of PERF_SEASONS) {
+      for (let i = 0; i < perPersonSeason && history.length < historyRows; i += 1) {
+        const row = pool[Math.floor(rnd() * pool.length)]!;
+        history.push({
+          season,
+          personId,
+          playerId: listonePlayerKey(row),
+          club: row.club,
+          price: 1 + Math.floor(rnd() * 80),
+          // Un rinnovo ogni tanto: è la provenienza che spiega perché il
+          // conteggio dei «ricomprato» è più basso delle stagioni possedute.
+          acquisition: rnd() < 0.05 ? "riconferma" : "asta",
+        });
+      }
+    }
+  }
+
+  const sold = new Set(log.map((e) => (e.type === "PURCHASE" ? e.playerId : "")));
+  let called = pool[0]!;
+  for (const row of pool) {
+    if (!sold.has(listonePlayerKey(row))) {
+      called = row;
+      break;
+    }
+  }
+
+  return { pool, log, state, called, seats, history };
 }
