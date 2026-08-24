@@ -35,7 +35,42 @@ describe("classifySwRequest", () => {
 
   it("routes hashed build output to the shell strategy", () => {
     expect(classifySwRequest(facts({ url: `${ORIGIN}/assets/index-abc.js` }))).toBe("shell-asset");
-    expect(classifySwRequest(facts({ url: `${ORIGIN}/assets/index-abc.css` }))).toBe("shell-asset");
+    // INVERTED, declared: this line used to assert "shell-asset" for
+    // /assets/index-abc.css, and it passed for the wrong reason — the css is
+    // NOT in this fixture's precache set, so what it really proved was the old
+    // rule "anything under /assets/ is shell", the rule that sent a cold start
+    // to the network for files the build does not contain. The prefix no longer
+    // decides on its own; the precache list does. The same file, precached, is
+    // still shell — asserted right below, so nothing that was proved here is
+    // lost.
+    expect(classifySwRequest(facts({ url: `${ORIGIN}/assets/index-abc.css` }))).toBe("absent-asset");
+    const withCss = new Set([...PRECACHED, "/assets/index-abc.css"]);
+    expect(
+      classifySwRequest(facts({ url: `${ORIGIN}/assets/index-abc.css`, precachedPaths: withCss })),
+    ).toBe("shell-asset");
+  });
+
+  it("answers a /assets/ path this build does not contain without touching the network", () => {
+    // The club logos: their URL is computed from the club name at runtime
+    // (src/ui/serieA.ts), so it exists whether or not the build ships the file.
+    // When it does not, the precache list says so, and the only honest answer
+    // is a local 404 — the app degrades to its text badge on `onerror` and the
+    // network is never asked, offline or not.
+    expect(classifySwRequest(facts({ url: `${ORIGIN}/assets/clubs/milan.svg` }))).toBe("absent-asset");
+    expect(classifySwRequest(facts({ url: `${ORIGIN}/assets/clubs/verona.png` }))).toBe("absent-asset");
+    // And when the build DOES ship it, it is an ordinary precached shell asset:
+    // the private overlay's real logos are copied into dist/ before the policy
+    // is computed, so they are in the list like every other built file.
+    const withLogo = new Set([...PRECACHED, "/assets/clubs/milan.svg"]);
+    expect(classifySwRequest(facts({ url: `${ORIGIN}/assets/clubs/milan.svg`, precachedPaths: withLogo }))).toBe(
+      "shell-asset",
+    );
+  });
+
+  it("keeps a /assets/ document load a navigation, absent or not", () => {
+    // The navigation rule is checked before both, and must stay that way: a
+    // deep link is how the app comes back from a cold start.
+    expect(classifySwRequest(facts({ mode: "navigate", url: `${ORIGIN}/assets/clubs/milan.svg` }))).toBe("navigation");
   });
 
   it("routes anything else that was precached to the shell strategy too", () => {
