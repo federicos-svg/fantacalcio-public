@@ -32,19 +32,33 @@
 // non attecchisce rende `false`, perché chi chiama lo DICA: la promessa «il
 // lavoro non si perde» vale solo se la sua rottura è visibile subito.
 //
+// DODICI CAMPI, NON NOVE — E UNA GUARDIA CHE LO SORVEGLIA. Il contratto del
+// deposito è cresciuto tre volte (`ballottaggio`, `lista`, `pagella`) mentre
+// questo modulo restava a nove campi, e nessun test è diventato rosso: le prove
+// guardavano un campo alla volta, cioè esattamente i campi che c'erano già. Un
+// test per campo non può accorgersi di un campo che manca. Da qui
+// `SCHEDA_ENTRY_POINTS` più sotto — l'elenco di dove arriva OGNI chiave del
+// contratto — e la guardia strutturale che lo confronta con le chiavi vere
+// dello schema (src/schedaCompiler.test.ts). Le due sole eccezioni, `player` e
+// `club`, sono dichiarate col loro motivo: non sono incompilabili, sono
+// compilate dalla riga di listone.
+//
 // NIENTE DI DIRETTIVO, MAI. Non c'è (e non può entrare) `value`, `fair_to_me`,
 // `target_band`, un prezzo, un `maxBid` o un punteggio: lo schema `.strict()`
 // del contratto rifiuta qualunque chiave che non sia nel suo vocabolario, e
 // questo modulo non ne inventa nessuna — docs/NO_GO.md §Prodotto.
 
 import { z } from "zod";
+import type { Role } from "../packages/engine/src/types.js";
 import type { StorageLike } from "./logRecovery.js";
 import {
   AVVISO_VALUES,
   EXPERT_SCHEDA_SCHEMA_VERSION,
   FONTE_VALUES,
+  LISTA_ESPERTI_VALUES,
   PIAZZATI_VALUES,
   RIGORI_VALUES,
+  SCHEDA_BALLOTTAGGIO_MAX,
   SCHEDA_GERARCHIA_MAX,
   SCHEDA_GERARCHIA_MIN,
   SCHEDA_NAME_MAX,
@@ -56,14 +70,32 @@ import {
   parseExpertSchedaDeposit,
   schedaHasContent,
   type Avviso,
+  type BallottaggioSoggetto,
   type ExpertScheda,
   type Fonte,
+  type ListaEsperti,
   type Piazzati,
   type Rigori,
   type SchedaTarget,
   type Titolarita,
 } from "./expertScheda.js";
-import { listonePlayerKey } from "./ui/listone.js";
+import {
+  PAGELLA_ASSI,
+  PAGELLA_ASSENTE,
+  PAGELLA_ASSI_TUTTI,
+  PAGELLA_ETICHETTE,
+  PAGELLA_TOTALE_MAX,
+  PAGELLA_VOTI_SCHEMA_KEYS,
+  PAGELLA_VOTO_MAX,
+  PAGELLA_VOTO_MIN,
+  pagellaAsseDelRuolo,
+  pagellaHasContent,
+  resolvePagella,
+  type PagellaAsse,
+  type PagellaAsseDiRuolo,
+  type PagellaScheda,
+} from "./pagellaEsperti.js";
+import { listonePlayerKey, normalizeIdentityPart } from "./ui/listone.js";
 import {
   AVVISO_LABELS,
   FONTE_LABELS,
@@ -73,6 +105,7 @@ import {
   formatSchedaDate,
   gerarchiaLabel,
 } from "./ui/expertInsight.js";
+import { LISTA_ESPERTI_LABELS } from "./ui/schedaLabels.js";
 
 // ── L'archivio locale ────────────────────────────────────────────────────────
 
@@ -101,25 +134,91 @@ export const SCHEDA_DEPOSIT_FILENAME = "schede_gruppo_esperti.json";
 export interface SchedaFormValues {
   readonly titolarita: string;
   readonly percentuale: string;
+  /**
+   * GLI ALTRI in ballottaggio, una riga per soggetto e due stringhe per riga.
+   * Una riga esiste appena UNO dei due campi è scritto. Una quota battuta
+   * senza il nome non sparisce quindi dalla forma: diventa un rifiuto che si
+   * legge (`buildScheda`), perché il numero c'è e chi l'ha scritto deve
+   * saperlo.
+   */
+  readonly ballottaggio: readonly SchedaBallottaggioValues[];
   readonly gerarchia: string;
   readonly rigori: string;
   readonly piazzati: readonly string[];
   readonly avvisi: readonly string[];
+  /**
+   * La lista editoriale. `""` è L'ASSENZA e non un quarto valore del
+   * vocabolario: è la stessa forma di `titolarita`, `rigori` e `fonte` — un
+   * `<option value="">` separato, che non finisce mai dentro la scheda.
+   */
+  readonly lista: string;
   readonly nota: string;
   readonly aggiornata: string;
   readonly fonte: string;
+  readonly pagella: SchedaPagellaValues;
 }
+
+/** Un soggetto del ballottaggio come lo rende il DOM: due stringhe. */
+export interface SchedaBallottaggioValues {
+  /** Il nome dell'altro, preso da una riga del listone — mai battuto a mano. */
+  readonly surface: string;
+  /** La sua quota, o `""` quando la scheda non la dichiara. `""` non è `0`. */
+  readonly sharePercent: string;
+}
+
+/**
+ * I VOTI DELLA PAGELLA come li rende il DOM: sei caselle e il totale, tutte
+ * stringhe, `""` per «non scritto».
+ *
+ * SEI e non cinque: le chiavi sono quelle dello schema (src/pagellaEsperti.ts),
+ * e lo schema ne ammette sei perché il QUARTO ASSE dipende dal ruolo — «porta
+ * inviolata» per i portieri, «bonus» per il movimento. La pagella ne porta
+ * comunque cinque: lo schema RIFIUTA quella che li dichiara entrambi, e
+ * `buildScheda` oppone lo stesso rifiuto prima, con la stessa parola.
+ *
+ * Tenere qui tutte e sei — invece di un solo campo «quarto asse» — è ciò che
+ * permette di RIAPRIRE una scheda che porta l'asse dell'altro ruolo (importata
+ * da un deposito scritto altrove) e di toglierlo. Un campo solo l'avrebbe
+ * scartato in silenzio alla riapertura, cioè avrebbe cancellato del lavoro per
+ * non doverlo mostrare.
+ *
+ * `totaleFonte` è il totale COME LO DICHIARA LA FONTE, non la somma dei
+ * cinque: la somma si ricalcola e serve a smentirlo, e su divergenza restano
+ * scritti tutti e due (src/pagellaEsperti.ts §«il totale è derivato»).
+ */
+export interface SchedaPagellaValues {
+  readonly pagella_titolarita: string;
+  readonly pagella_media_voto: string;
+  readonly pagella_salute: string;
+  readonly pagella_porta_inviolata: string;
+  readonly pagella_bonus: string;
+  readonly pagella_consiglio: string;
+  readonly totaleFonte: string;
+}
+
+export const EMPTY_SCHEDA_PAGELLA: SchedaPagellaValues = {
+  pagella_titolarita: "",
+  pagella_media_voto: "",
+  pagella_salute: "",
+  pagella_porta_inviolata: "",
+  pagella_bonus: "",
+  pagella_consiglio: "",
+  totaleFonte: "",
+};
 
 export const EMPTY_SCHEDA_FORM: SchedaFormValues = {
   titolarita: "",
   percentuale: "",
+  ballottaggio: [],
   gerarchia: "",
   rigori: "",
   piazzati: [],
   avvisi: [],
+  lista: "",
   nota: "",
   aggiornata: "",
   fonte: "",
+  pagella: EMPTY_SCHEDA_PAGELLA,
 };
 
 /**
@@ -158,17 +257,44 @@ export interface SchedaDraftState {
 
 export const NO_SCHEDA_DRAFTS: SchedaDraftState = { schede: new Map(), editing: null };
 
+/**
+ * I TRE CAMPI NUOVI PORTANO UN `.default()`, e gli altri nove no.
+ *
+ * Non è una svista di simmetria: è la sola forma in cui l'archivio già scritto
+ * sopravvive al giorno in cui il modulo cresce. Una scheda APERTA salvata ieri
+ * non ha `ballottaggio`, `lista` né `pagella`; senza il default cadrebbe fuori
+ * da `formSchema`, e il `.catch(null)` qui sotto la trasformerebbe in «nessuna
+ * scheda aperta» — cioè fino a 90 secondi di battitura persi in silenzio, per
+ * un campo che nessuno aveva ancora compilato. Col default rientra intera, coi
+ * campi nuovi vuoti.
+ */
 const formSchema = z
   .object({
     titolarita: z.string(),
     percentuale: z.string(),
+    ballottaggio: z
+      .array(z.object({ surface: z.string(), sharePercent: z.string() }).strict())
+      .default([]),
     gerarchia: z.string(),
     rigori: z.string(),
     piazzati: z.array(z.string()),
     avvisi: z.array(z.string()),
+    lista: z.string().default(""),
     nota: z.string(),
     aggiornata: z.string(),
     fonte: z.string(),
+    pagella: z
+      .object({
+        pagella_titolarita: z.string(),
+        pagella_media_voto: z.string(),
+        pagella_salute: z.string(),
+        pagella_porta_inviolata: z.string(),
+        pagella_bonus: z.string(),
+        pagella_consiglio: z.string(),
+        totaleFonte: z.string(),
+      })
+      .strict()
+      .default(EMPTY_SCHEDA_PAGELLA),
   })
   .strict();
 
@@ -289,14 +415,81 @@ export type SchedaField =
   | "identita"
   | "titolarita"
   | "percentuale"
+  | "ballottaggio"
   | "gerarchia"
   | "rigori"
   | "piazzati"
   | "avvisi"
+  | "lista"
   | "nota"
   | "aggiornata"
   | "fonte"
+  | "pagella"
   | "scheda";
+
+// ── LA VIA D'INGRESSO DI OGNI CAMPO DEL CONTRATTO ────────────────────────────
+//
+// IL DIFETTO CHE QUESTO ELENCO ESISTE PER RENDERE RUMOROSO, misurato: il
+// contratto `ExpertScheda` è cresciuto tre volte — `ballottaggio`, `lista`,
+// `pagella` — e questo modulo è rimasto a nove campi su dodici. Nessun test è
+// diventato rosso, perché nessun test guardava il contratto e il modulo
+// INSIEME: le due cose erano corrette ciascuna per conto proprio, e in mezzo
+// c'era un dato che il deposito ammetteva e che l'unica persona autorizzata a
+// scriverlo non poteva scrivere. Un campo irraggiungibile non è un campo
+// mancante: è lavoro impossibile che nessuno dichiara.
+//
+// LA GUARDIA. `src/schedaCompiler.test.ts` §«la guardia strutturale» legge
+// `EXPERT_SCHEDA_SCHEMA_KEYS` — le chiavi VERE dello schema, non un elenco
+// scritto a mano — e pretende che ognuna compaia qui sotto. Aggiungere una
+// chiave al contratto senza darle una via d'ingresso rende rossa la guardia lo
+// stesso giorno.
+//
+// LE ECCEZIONI SI DICHIARANO UNA PER UNA, COL MOTIVO, e non con uno `skip`
+// generico: uno `skip` avrebbe spento la guardia esattamente sui campi su cui
+// serve. Oggi sono due, `player` e `club`, e il motivo è lo stesso per
+// entrambe — non sono «non compilabili», sono compilate DA UN'ALTRA PARTE, la
+// riga di listone, ed è quella scelta che fa agganciare la scheda al giocatore.
+
+/**
+ * Da dove arriva una chiave del contratto: da un campo del modulo, oppure —
+ * dichiarandolo — dalla riga di listone scelta.
+ */
+export type SchedaEntryPoint =
+  | { readonly kind: "form"; readonly field: keyof SchedaFormValues }
+  | { readonly kind: "riga-di-listone"; readonly perche: string };
+
+const IDENTITA_DA_LISTONE =
+  "Non si batte a mano: viene dalla riga di listone scelta (SchedaTarget). È la sola cosa che garantisce che la scheda si agganci a quel giocatore invece di sperarci — un campo di testo qui riaprirebbe il difetto peggiore di questo riquadro, la scheda scritta, depositata e mai resa.";
+
+export const SCHEDA_ENTRY_POINTS = {
+  player: { kind: "riga-di-listone", perche: IDENTITA_DA_LISTONE },
+  club: { kind: "riga-di-listone", perche: IDENTITA_DA_LISTONE },
+  titolarita: { kind: "form", field: "titolarita" },
+  percentuale: { kind: "form", field: "percentuale" },
+  ballottaggio: { kind: "form", field: "ballottaggio" },
+  gerarchia: { kind: "form", field: "gerarchia" },
+  rigori: { kind: "form", field: "rigori" },
+  piazzati: { kind: "form", field: "piazzati" },
+  avvisi: { kind: "form", field: "avvisi" },
+  lista: { kind: "form", field: "lista" },
+  nota: { kind: "form", field: "nota" },
+  aggiornata: { kind: "form", field: "aggiornata" },
+  fonte: { kind: "form", field: "fonte" },
+  pagella: { kind: "form", field: "pagella" },
+} as const satisfies Readonly<Record<keyof ExpertScheda, SchedaEntryPoint>>;
+
+/**
+ * Lo stesso patto un livello più giù, dentro la pagella: uno schema `.strict()`
+ * rigido solo al primo livello lascia crescere l'oggetto annidato senza che
+ * niente diventi rosso, ed è il punto cieco classico. I SEI ASSI non stanno
+ * qui uno per uno: la guardia li confronta direttamente con le chiavi di
+ * `SchedaPagellaValues`, così un asse nuovo nel contratto è rosso senza che
+ * nessuno debba ricordarsi di aggiungerlo anche a un elenco.
+ */
+export const SCHEDA_PAGELLA_ENTRY_POINTS = {
+  voti: { kind: "form", field: "pagella" },
+  totaleFonte: { kind: "form", field: "pagella" },
+} as const satisfies Readonly<Record<string, SchedaEntryPoint>>;
 
 export interface SchedaFieldError {
   readonly field: SchedaField;
@@ -329,6 +522,202 @@ function pickVocabulary<T extends string>(
   const values = vocabulary.filter((v) => set.has(v));
   const known = new Set<string>(vocabulary);
   return { values, unknown: chosen.filter((c) => !known.has(c)) };
+}
+
+/**
+ * L'identità di un nome ai fini del confronto: la stessa piega con cui
+ * `listonePlayerKey` costruisce la metà «nome» della chiave di riga.
+ *
+ * Uguaglianza, non somiglianza. È la differenza che tiene in piedi la regola
+ * qui sotto: due nomi piegati uguali SONO lo stesso nome scritto in due modi,
+ * mentre due nomi che si somigliano restano due nomi diversi e nessuno li
+ * abbina al posto di chi scrive.
+ */
+function foldName(value: string): string {
+  return normalizeIdentityPart(value);
+}
+
+/**
+ * I NOMI DEL BALLOTTAGGIO CHE NESSUNA RIGA DEL LISTONE CARICATO PORTA.
+ *
+ * Non è una validazione e non rifiuta niente: è una DICHIARAZIONE. Un rivale
+ * può legittimamente non stare nel listone della lega, e rifiutare quel nome
+ * cancellerebbe un fatto vero della scheda. Ma il caso opposto — il nome che
+ * non corrisponde a nessuno perché è un refuso, o perché arriva da un deposito
+ * scritto contro un altro listone — deve essere VISIBILE, non silenzioso.
+ *
+ * E si dice per UGUAGLIANZA di nome piegato, mai per somiglianza: agganciare
+ * «al più simile» attaccherebbe in silenzio il rivale sbagliato, che è
+ * esattamente ciò che `planSchedaImport` si rifiuta di fare quando riprende un
+ * deposito. Qui vale la stessa regola, per la stessa ragione.
+ *
+ * Rende i nomi COME SONO SCRITTI, nell'ordine in cui compaiono e senza
+ * ripetizioni: è un elenco da mostrare, non un insieme da contare.
+ */
+export function schedaBallottaggioFuoriListone(
+  soggetti: readonly SchedaBallottaggioValues[],
+  rows: Iterable<{ readonly name: string }>,
+): readonly string[] {
+  const known = new Set<string>();
+  for (const row of rows) known.add(foldName(row.name));
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const soggetto of soggetti) {
+    const surface = soggetto.surface.trim();
+    if (surface === "") continue;
+    const folded = foldName(surface);
+    if (known.has(folded) || seen.has(folded)) continue;
+    seen.add(folded);
+    out.push(surface);
+  }
+  return out;
+}
+
+/**
+ * I CINQUE VOTI E IL TOTALE DICHIARATO, dal modulo alla forma del deposito.
+ *
+ * Sta fuori da `buildScheda` perché serve due volte: al salvataggio, e alla
+ * riga di verifica che il pannello scrive MENTRE si compila. Due copie di
+ * questa lettura divergerebbero proprio sul punto delicato — che cosa vuol
+ * dire un voto mancante — quindi ce n'è una sola.
+ *
+ * LE TRE REGOLE, tutte già scritte in src/pagellaEsperti.ts:
+ *
+ *  1. UN VOTO MANCANTE RESTA MANCANTE. `""` non diventa `0` e non diventa
+ *     niente: la chiave semplicemente non entra. `Titolarità 1/10` è un
+ *     giudizio durissimo e legittimo della fonte, «titolarità non scritta» è
+ *     un buco nostro, e uno zero fabbricato renderebbe le due indistinguibili
+ *     a schermo e dentro il totale.
+ *  2. IL QUARTO ASSE DIPENDE DAL RUOLO. Lo schema RIFIUTA la pagella che porta
+ *     «porta inviolata» e «bonus» insieme; qui lo stesso rifiuto arriva prima
+ *     e con la stessa parola, invece di uscire come «il contratto ha rifiutato
+ *     questa scheda». E quando l'asse scritto non è quello che il ruolo della
+ *     riga si aspetta, il voto NON verrebbe usato dalla vista
+ *     (`resolvePagella` → `asseIncoerente`): scriverlo comunque sarebbe una
+ *     perdita silenziosa, quindi si rifiuta dicendolo.
+ *  3. IL TOTALE NON SI RICALCOLA QUI. `totaleFonte` è il numero che la FONTE
+ *     dichiara, e serve a smentire l'estrazione: sommare i cinque e scrivere
+ *     il risultato al suo posto cancellerebbe l'unica prova che qualcosa è
+ *     stato letto male. Su divergenza restano scritti entrambi — non è un
+ *     errore di compilazione, è un fatto della scheda, e il pannello lo
+ *     dichiara.
+ */
+export function buildSchedaPagella(
+  values: SchedaPagellaValues,
+  role: Role | null | undefined,
+): { readonly pagella: PagellaScheda; readonly errors: readonly SchedaFieldError[] } {
+  const errors: SchedaFieldError[] = [];
+  // Si LEGGE nell'ordine degli assi (comuni, poi quello di ruolo) perché è
+  // l'ordine in cui i messaggi d'errore devono uscire — quello in cui le
+  // caselle stanno a schermo.
+  const letti = new Map<PagellaAsse, number>();
+  for (const asse of PAGELLA_ASSI_TUTTI) {
+    const raw = values[asse].trim();
+    if (raw === "") continue;
+    const parsed = parseInteger(raw);
+    if (parsed === null || parsed < PAGELLA_VOTO_MIN || parsed > PAGELLA_VOTO_MAX) {
+      errors.push({
+        field: "pagella",
+        message: `Il voto «${PAGELLA_ETICHETTE[asse]}» è un intero fra ${PAGELLA_VOTO_MIN} e ${PAGELLA_VOTO_MAX}.`,
+      });
+      continue;
+    }
+    letti.set(asse, parsed);
+  }
+
+  // Si SCRIVE nell'ordine dello SCHEMA, che non è lo stesso.
+  //
+  // Non è pedanteria: è la condizione perché il giro si chiuda. Il deposito
+  // riletto passa per zod, e zod ricostruisce l'oggetto nell'ordine della
+  // propria `shape`; se il compilatore scrivesse le stesse chiavi in un altro
+  // ordine, scaricare → reimportare → riscaricare renderebbe un file DIVERSO a
+  // parità di contenuto. Un diff che mostra differenze che non ci sono su un
+  // file che Pico rilegge a occhio, e l'asserzione «byte per byte» del giro
+  // completo (e2e/schede-compiler.spec.ts) diventerebbe rossa. Misurato: senza
+  // questa riga il round trip di una pagella completa non torna.
+  const voti: { -readonly [K in PagellaAsse]?: number } = {};
+  for (const asse of PAGELLA_VOTI_SCHEMA_KEYS) {
+    const voto = letti.get(asse);
+    if (voto !== undefined) voti[asse] = voto;
+  }
+
+  const porta = voti.pagella_porta_inviolata !== undefined;
+  const bonus = voti.pagella_bonus !== undefined;
+  if (porta && bonus) {
+    errors.push({
+      field: "pagella",
+      message: `Il quarto asse dipende dal ruolo: «${PAGELLA_ETICHETTE.pagella_porta_inviolata}» (portieri) e «${PAGELLA_ETICHETTE.pagella_bonus}» (movimento) non possono stare nella stessa pagella. Una scheda parla di un giocatore, e quel giocatore ha un ruolo solo.`,
+    });
+  } else {
+    const atteso = pagellaAsseDelRuolo(role);
+    const dichiarato: PagellaAsseDiRuolo | null = porta
+      ? "pagella_porta_inviolata"
+      : bonus
+        ? "pagella_bonus"
+        : null;
+    if (atteso !== null && dichiarato !== null && atteso !== dichiarato) {
+      errors.push({
+        field: "pagella",
+        message: `Questa riga di listone si aspetta «${PAGELLA_ETICHETTE[atteso]}» come quarto asse: il voto scritto su «${PAGELLA_ETICHETTE[dichiarato]}» non verrebbe mostrato dal riquadro. Spostalo o toglilo.`,
+      });
+    }
+  }
+
+  let totaleFonte: number | undefined;
+  const totaleRaw = values.totaleFonte.trim();
+  if (totaleRaw !== "") {
+    const parsed = parseInteger(totaleRaw);
+    if (parsed === null || parsed < 0 || parsed > PAGELLA_TOTALE_MAX) {
+      errors.push({
+        field: "pagella",
+        message: `Il TOTALE dichiarato dalla fonte è un intero fra 0 e ${PAGELLA_TOTALE_MAX}.`,
+      });
+    } else {
+      totaleFonte = parsed;
+    }
+  }
+
+  return {
+    pagella: { voti, ...(totaleFonte === undefined ? {} : { totaleFonte }) },
+    errors,
+  };
+}
+
+/**
+ * LA RIGA CHE IL PANNELLO SCRIVE SOTTO LA PAGELLA MENTRE SI COMPILA.
+ *
+ * Serve a smentire chi compila prima che il deposito parta, ed è la ragione per
+ * cui il totale della fonte vive nel contratto: la somma si ricalcola e si
+ * CONFRONTA. Su divergenza la riga scrive tutti e due i numeri e non ne appiana
+ * nessuno — appianare cancellerebbe la prova che almeno un voto è stato letto
+ * male. Su pagella parziale non scrive nessuna somma: «20/50» con tre voti su
+ * cinque è un numero falso che sembra vero.
+ *
+ * La verifica non è riscritta qui: è `resolvePagella` + `verificaTotale`, le
+ * stesse che il riquadro d'asta e la nota sotto il listone già usano.
+ */
+export function schedaPagellaVerificaText(
+  values: SchedaPagellaValues,
+  role: Role | null | undefined,
+): string {
+  const view = resolvePagella(buildSchedaPagella(values, role).pagella, role);
+  const scritti = `${view.votiPresenti} ${view.votiPresenti === 1 ? "voto" : "voti"} su ${PAGELLA_ASSI}`;
+  const dichiarato =
+    view.totaleFonte === null ? null : `${view.totaleFonte}/${PAGELLA_TOTALE_MAX}`;
+  switch (view.verificaTotale) {
+    case "nessun_voto":
+      return `Nessun voto scritto: la pagella resta assente. Assente si scrive «${PAGELLA_ASSENTE}» e non «0».`;
+    case "senza_totale_dichiarato":
+      return view.completa
+        ? `${scritti}: somma ${view.totaleRicalcolato}/${PAGELLA_TOTALE_MAX}. La scheda non dichiara un TOTALE: non c'è niente da confrontare.`
+        : `${scritti}: una pagella parziale non produce nessuna somma. Nessun TOTALE dichiarato.`;
+    case "non_verificabile":
+      return `${scritti}: una pagella parziale non produce nessuna somma, quindi il TOTALE dichiarato (${dichiarato}) resta scritto ma non confrontabile.`;
+    case "coerente":
+      return `${scritti}: somma ${view.totaleRicalcolato}/${PAGELLA_TOTALE_MAX}, TOTALE dichiarato ${dichiarato}. Tornano.`;
+    case "divergente":
+      return `${scritti}: somma ${view.totaleRicalcolato}/${PAGELLA_TOTALE_MAX} contro un TOTALE dichiarato di ${dichiarato}. NON TORNANO: almeno un numero è stato letto male. Restano scritti tutti e due — non si appiana nessuno dei due, e la scheda si salva lo stesso.`;
+  }
 }
 
 /**
@@ -392,6 +781,88 @@ export function buildScheda(target: SchedaTarget, values: SchedaFormValues): Sch
     }
   }
 
+  // ── GLI ALTRI IN BALLOTTAGGIO ────────────────────────────────────────────
+  //
+  // È l'unico campo che risponde a «quanti si contendono quel posto»: la quota
+  // dice quanto vale la contesa, questo dice CON CHI. Le regole applicate qui
+  // sono tutte scritte altrove e nessuna è inventata:
+  //  - il TETTO di quattro e la lunghezza del nome vengono dal contratto
+  //    (`SCHEDA_BALLOTTAGGIO_MAX`, `SCHEDA_NAME_MAX`);
+  //  - «il giocatore stesso non è in questa lista» è dichiarato da
+  //    `BallottaggioSoggetto` in src/expertScheda.ts: la sua quota è
+  //    `percentuale`, scritta una volta sola, e due numeri per la stessa quota
+  //    possono divergere;
+  //  - senza `titolarita: "ballottaggio"` l'elenco NON ARRIVA ALLA VISTA
+  //    (`resolveExpertInsight`: un elenco di rivali su un giocatore dato
+  //    titolare non è un ballottaggio, è un elenco senza soggetto). Scritto
+  //    così verrebbe salvato, depositato e mai reso — la stessa perdita
+  //    silenziosa che `percentuale` senza titolarità già rifiuta, e la si
+  //    rifiuta allo stesso modo.
+  const soggetti: BallottaggioSoggetto[] = [];
+  if (values.ballottaggio.length > SCHEDA_BALLOTTAGGIO_MAX) {
+    errors.push({
+      field: "ballottaggio",
+      message: `Un ballottaggio porta al massimo ${SCHEDA_BALLOTTAGGIO_MAX} altri nomi: oltre non è un ballottaggio, è un elenco di rosa.`,
+    });
+  }
+  const soggettiVisti = new Set<string>();
+  for (const riga of values.ballottaggio) {
+    const surface = riga.surface.trim();
+    const quotaRaw = riga.sharePercent.trim();
+    if (surface === "" && quotaRaw === "") continue;
+    if (surface === "") {
+      // Il numero c'è: buttarlo via in silenzio sarebbe la perdita che questo
+      // pannello esiste per non avere.
+      errors.push({
+        field: "ballottaggio",
+        message: `Una quota (${quotaRaw}) senza nome non è un soggetto: scegli chi si gioca il posto, oppure togli il numero.`,
+      });
+      continue;
+    }
+    if (surface.length > SCHEDA_NAME_MAX) {
+      errors.push({
+        field: "ballottaggio",
+        message: `«${surface}» supera ${SCHEDA_NAME_MAX} caratteri: il contratto del deposito non lo accetta.`,
+      });
+      continue;
+    }
+    const folded = foldName(surface);
+    if (player !== "" && folded === foldName(player)) {
+      errors.push({
+        field: "ballottaggio",
+        message: "Il giocatore della scheda non va fra gli altri del ballottaggio: la sua quota è QUOTA DEL BALLOTTAGGIO, scritta una volta sola.",
+      });
+      continue;
+    }
+    if (soggettiVisti.has(folded)) {
+      errors.push({
+        field: "ballottaggio",
+        message: `«${surface}» compare due volte nello stesso ballottaggio: due righe per la stessa persona sono due quote che possono divergere.`,
+      });
+      continue;
+    }
+    soggettiVisti.add(folded);
+    let sharePercent: number | undefined;
+    if (quotaRaw !== "") {
+      const parsed = parseInteger(quotaRaw);
+      if (parsed === null || parsed < SCHEDA_PERCENTUALE_MIN || parsed > SCHEDA_PERCENTUALE_MAX) {
+        errors.push({
+          field: "ballottaggio",
+          message: `La quota di «${surface}» è un intero fra ${SCHEDA_PERCENTUALE_MIN} e ${SCHEDA_PERCENTUALE_MAX}.`,
+        });
+        continue;
+      }
+      sharePercent = parsed;
+    }
+    soggetti.push({ surface, ...(sharePercent === undefined ? {} : { sharePercent }) });
+  }
+  if (soggetti.length > 0 && titolarita !== "ballottaggio") {
+    errors.push({
+      field: "ballottaggio",
+      message: "Questi nomi non verrebbero mostrati dal riquadro: gli altri del ballottaggio arrivano alla vista solo con la titolarità «ballottaggio». Scegli quella titolarità o togli i nomi.",
+    });
+  }
+
   let gerarchia: number | undefined;
   if (values.gerarchia.trim() !== "") {
     const parsed = parseInteger(values.gerarchia);
@@ -421,6 +892,24 @@ export function buildScheda(target: SchedaTarget, values: SchedaFormValues): Sch
   const avvisiPick = pickVocabulary<Avviso>(values.avvisi, AVVISO_VALUES);
   if (avvisiPick.unknown.length > 0) {
     errors.push({ field: "avvisi", message: "Avvisi fuori dal vocabolario della scheda." });
+  }
+
+  // ── LA LISTA EDITORIALE ──────────────────────────────────────────────────
+  //
+  // Vocabolario chiuso e `""` = ASSENZA, tenuta distinta dai tre valori: non
+  // esiste una quarta lista «nessuna», esiste una scheda che non lo dice. È la
+  // stessa forma di `titolarita`, `rigori` e `fonte`, e il riquadro la legge
+  // così — `resolveListaEsperti` rende `null`, e la quarta icona resta spenta.
+  //
+  // Non è un consiglio d'asta e non può diventarlo: dice IN QUALE LISTA la
+  // fonte ha messo il giocatore, come `fonte` dice chi parla.
+  let lista: ListaEsperti | undefined;
+  if (values.lista !== "") {
+    if ((LISTA_ESPERTI_VALUES as readonly string[]).includes(values.lista)) {
+      lista = values.lista as ListaEsperti;
+    } else {
+      errors.push({ field: "lista", message: "Lista fuori dal vocabolario della scheda." });
+    }
   }
 
   // `.trim()` prima di misurare perché è quello che misura lo schema
@@ -453,6 +942,13 @@ export function buildScheda(target: SchedaTarget, values: SchedaFormValues): Sch
     }
   }
 
+  // La pagella: i cinque voti col ruolo della RIGA accanto, perché è la riga a
+  // sapere quale sia il quarto asse — la scheda non dichiara un ruolo, e
+  // chiederglielo aprirebbe una seconda verità sull'identità del giocatore.
+  const pagellaBuild = buildSchedaPagella(values.pagella, target.role);
+  errors.push(...pagellaBuild.errors);
+  const pagella = pagellaHasContent(pagellaBuild.pagella) ? pagellaBuild.pagella : undefined;
+
   if (errors.length > 0) return { ok: false, errors };
 
   const scheda: ExpertScheda = {
@@ -460,13 +956,19 @@ export function buildScheda(target: SchedaTarget, values: SchedaFormValues): Sch
     club,
     ...(titolarita === undefined ? {} : { titolarita }),
     ...(percentuale === undefined ? {} : { percentuale }),
+    ...(soggetti.length === 0 ? {} : { ballottaggio: soggetti }),
     ...(gerarchia === undefined ? {} : { gerarchia }),
     ...(rigori === undefined ? {} : { rigori }),
     ...(piazzatiPick.values.length === 0 ? {} : { piazzati: piazzatiPick.values }),
     ...(avvisiPick.values.length === 0 ? {} : { avvisi: avvisiPick.values }),
+    ...(lista === undefined ? {} : { lista }),
     ...(nota === "" ? {} : { nota }),
     ...(aggiornata === undefined ? {} : { aggiornata }),
     ...(fonte === undefined ? {} : { fonte }),
+    // Una pagella VUOTA non entra: `{ voti: {} }` passerebbe lo schema e
+    // sarebbe una chiave in più che non dice niente — e `schedaHasContent` la
+    // conta per zero, quindi la scheda finirebbe comunque «aperta ma vuota».
+    ...(pagella === undefined ? {} : { pagella }),
   };
 
   // Aperta ≠ compilata: una scheda senza un solo segnale e senza prosa è
@@ -499,16 +1001,32 @@ export function buildScheda(target: SchedaTarget, values: SchedaFormValues): Sch
 
 /** La scheda salvata -> il modulo, per riaprirla e correggerla. */
 export function schedaToForm(scheda: ExpertScheda): SchedaFormValues {
+  const voti = scheda.pagella?.voti ?? {};
+  const pagella: SchedaPagellaValues = {
+    ...EMPTY_SCHEDA_PAGELLA,
+    // Un voto assente torna `""`, mai `"0"`: la distinzione fra «non estratto»
+    // e «zero» è la stessa in lettura e in scrittura, o non è.
+    ...Object.fromEntries(
+      PAGELLA_ASSI_TUTTI.map((asse) => [asse, voti[asse] === undefined ? "" : String(voti[asse])]),
+    ),
+    totaleFonte: scheda.pagella?.totaleFonte === undefined ? "" : String(scheda.pagella.totaleFonte),
+  };
   return {
     titolarita: scheda.titolarita ?? "",
     percentuale: scheda.percentuale === undefined ? "" : String(scheda.percentuale),
+    ballottaggio: (scheda.ballottaggio ?? []).map((soggetto) => ({
+      surface: soggetto.surface,
+      sharePercent: soggetto.sharePercent === undefined ? "" : String(soggetto.sharePercent),
+    })),
     gerarchia: scheda.gerarchia === undefined ? "" : String(scheda.gerarchia),
     rigori: scheda.rigori ?? "",
     piazzati: [...(scheda.piazzati ?? [])],
     avvisi: [...(scheda.avvisi ?? [])],
+    lista: scheda.lista ?? "",
     nota: scheda.nota ?? "",
     aggiornata: scheda.aggiornata ?? "",
     fonte: scheda.fonte ?? "",
+    pagella,
   };
 }
 
@@ -749,6 +1267,15 @@ export function schedaSummary(scheda: ExpertScheda): string {
     const share = scheda.percentuale === undefined ? "" : ` ${scheda.percentuale}%`;
     parts.push(`${TITOLARITA_LABELS[scheda.titolarita]}${share}`);
   }
+  // Gli altri del ballottaggio, ciascuno con la propria quota quando c'è. Una
+  // quota assente resta assente: nessun «0%» fabbricato accanto a un nome.
+  const soggetti = scheda.ballottaggio ?? [];
+  if (soggetti.length > 0) {
+    const nomi = soggetti.map((s) =>
+      s.sharePercent === undefined ? s.surface : `${s.surface} ${s.sharePercent}%`,
+    );
+    parts.push(`con: ${nomi.join(", ")}`);
+  }
   if (scheda.gerarchia !== undefined) parts.push(gerarchiaLabel(scheda.gerarchia));
   if (scheda.rigori !== undefined) parts.push(`rigori: ${RIGORI_LABELS[scheda.rigori]}`);
   const piazzati = scheda.piazzati ?? [];
@@ -756,6 +1283,25 @@ export function schedaSummary(scheda: ExpertScheda): string {
   for (const avviso of scheda.avvisi ?? []) parts.push(`! ${AVVISO_LABELS[avviso]}`);
   const nota = (scheda.nota ?? "").trim();
   if (nota !== "") parts.push(`nota (${nota.length} caratteri)`);
+  // La lista COME LA SCHEDA LA SCRIVE, non `resolveListaEsperti`: qui si
+  // rilegge ciò che si è compilato, e l'avviso `sconsigliato` — che nella vista
+  // avrebbe la precedenza — è già scritto due righe più su come avviso. La
+  // precedenza è una regola della VISTA, non un modo di riassumere il campo.
+  if (scheda.lista !== undefined) parts.push(`lista: ${LISTA_ESPERTI_LABELS[scheda.lista]}`);
+  if (scheda.pagella !== undefined && pagellaHasContent(scheda.pagella)) {
+    // Nessun ruolo da passare: il riassunto rilegge la scheda, non una riga di
+    // listone. `resolvePagella` senza ruolo mostra l'asse che la scheda stessa
+    // dichiara — che è esattamente ciò che qui si sta rileggendo.
+    const view = resolvePagella(scheda.pagella, null);
+    const totale = view.completa
+      ? `${view.totaleRicalcolato}/${PAGELLA_TOTALE_MAX}`
+      : PAGELLA_ASSENTE;
+    const dichiarato =
+      view.totaleFonte === null
+        ? ""
+        : `, dichiarato ${view.totaleFonte}/${PAGELLA_TOTALE_MAX}${view.verificaTotale === "divergente" ? " — non torna" : ""}`;
+    parts.push(`pagella: ${view.votiPresenti}/${PAGELLA_ASSI} voti, somma ${totale}${dichiarato}`);
+  }
   if (scheda.fonte !== undefined) parts.push(FONTE_LABELS[scheda.fonte]);
   if (scheda.aggiornata !== undefined) parts.push(formatSchedaDate(scheda.aggiornata));
   return parts.join(" · ");

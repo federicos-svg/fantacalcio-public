@@ -16,16 +16,21 @@
 import { describe, expect, it } from "vitest";
 import {
   EMPTY_SCHEDA_FORM,
+  EMPTY_SCHEDA_PAGELLA,
   NO_SCHEDA_DRAFTS,
   SCHEDA_DEPOSIT_FILENAME,
   SCHEDA_DRAFTS_SCHEMA_VERSION,
   SCHEDA_DRAFTS_STORAGE_KEY,
+  SCHEDA_ENTRY_POINTS,
+  SCHEDA_PAGELLA_ENTRY_POINTS,
   applySchedaImport,
   buildScheda,
   buildSchedaDeposit,
   loadSchedaDrafts,
   planSchedaImport,
   saveSchedaDrafts,
+  schedaBallottaggioFuoriListone,
+  schedaPagellaVerificaText,
   schedaProgress,
   schedaSummary,
   schedaToForm,
@@ -33,16 +38,26 @@ import {
   withScheda,
   type SchedaDraftState,
   type SchedaFormValues,
+  type SchedaPagellaValues,
 } from "./schedaCompiler.js";
 import {
+  EXPERT_SCHEDA_SCHEMA_KEYS,
   EXPERT_SCHEDA_SCHEMA_VERSION,
+  LISTA_ESPERTI_VALUES,
+  SCHEDA_BALLOTTAGGIO_MAX,
   SCHEDA_GERARCHIA_MAX,
+  SCHEDA_NAME_MAX,
   SCHEDA_NOTA_MAX,
   SCHEDA_PERCENTUALE_MAX,
   parseExpertSchedaDeposit,
   resolveExpertInsight,
   type ExpertScheda,
 } from "./expertScheda.js";
+import {
+  PAGELLA_SCHEMA_KEYS,
+  PAGELLA_TOTALE_MAX,
+  PAGELLA_VOTI_SCHEMA_KEYS,
+} from "./pagellaEsperti.js";
 import { listonePlayerKey } from "./ui/listone.js";
 import type { StorageLike } from "./logRecovery.js";
 
@@ -84,6 +99,53 @@ function builtScheda(overrides: Partial<SchedaFormValues> = {}): ExpertScheda {
 
 function stateWith(entries: readonly (readonly [string, ExpertScheda])[]): SchedaDraftState {
   return { schede: new Map(entries), editing: null };
+}
+
+/**
+ * Le due righe di listone con un RUOLO: il quarto asse della pagella dipende da
+ * lì, e senza ruolo non si potrebbe provare né che il portiere prende «porta
+ * inviolata» né che il movimento prende «bonus».
+ */
+const TARGET_MOVIMENTO = { name: TARGET.name, club: TARGET.club, role: "A" } as const;
+const TARGET_PORTIERE = { name: "Elia Portiere", club: "ClubCinque", role: "P" } as const;
+
+const PAGELLA_MOVIMENTO: SchedaPagellaValues = {
+  ...EMPTY_SCHEDA_PAGELLA,
+  pagella_titolarita: "9",
+  pagella_media_voto: "7",
+  pagella_salute: "9",
+  pagella_bonus: "6",
+  pagella_consiglio: "8",
+  totaleFonte: "39",
+};
+
+const PAGELLA_PORTIERE: SchedaPagellaValues = {
+  ...EMPTY_SCHEDA_PAGELLA,
+  pagella_titolarita: "1",
+  pagella_media_voto: "1",
+  pagella_salute: "8",
+  pagella_porta_inviolata: "1",
+  pagella_consiglio: "1",
+  totaleFonte: "12",
+};
+
+/** Il modulo compilato in OGNI sua parte: la fixture della guardia strutturale. */
+function fullForm(overrides: Partial<SchedaFormValues> = {}): SchedaFormValues {
+  return form({
+    titolarita: "ballottaggio",
+    percentuale: "60",
+    ballottaggio: [{ surface: "Bruna Placeholder", sharePercent: "40" }],
+    gerarchia: "2",
+    rigori: "designato",
+    piazzati: ["punizioni", "angoli"],
+    avvisi: ["mercato"],
+    lista: "consigliato",
+    nota: "Nota sintetica.",
+    aggiornata: "2026-08-30",
+    fonte: "scheda",
+    pagella: PAGELLA_MOVIMENTO,
+    ...overrides,
+  });
 }
 
 describe("costruire una scheda dal modulo compilato", () => {
@@ -642,5 +704,542 @@ describe("il riassunto di una scheda salvata", () => {
 
   it("una scheda magra rende una riga magra", () => {
     expect(schedaSummary(builtScheda({ titolarita: "titolare" }))).toBe("titolare");
+  });
+});
+
+// ── LA GUARDIA STRUTTURALE ───────────────────────────────────────────────────
+//
+// PERCHÉ ESISTE, E PERCHÉ È LA PARTE PIÙ IMPORTANTE DI QUESTO FILE. Tre campi
+// del contratto — `ballottaggio`, `lista`, `pagella` — sono nati e cresciuti
+// senza che il modulo di compilazione ne sapesse niente. Per tre volte il
+// deposito ha ammesso un dato che l'unica persona autorizzata a scriverlo non
+// aveva nessun modo di scrivere, e per tre volte NESSUN TEST È DIVENTATO ROSSO:
+// tutte le prove di questo file guardavano un campo alla volta, cioè
+// esattamente i campi che c'erano già. Un test per campo non può accorgersi di
+// un campo che manca.
+//
+// Questa guardia guarda invece il CONFINE fra le due cose: enumera le chiavi
+// che lo schema della scheda ammette — lette dallo schema, non ricopiate — e
+// pretende che ognuna abbia una via d'ingresso nel modulo. Il giorno in cui il
+// contratto cresce e il modulo resta indietro, diventa rossa da sola.
+//
+// LE ECCEZIONI NON SONO UNO `skip`. `player` e `club` non hanno un campo del
+// modulo e non devono averlo: si scelgono dalla riga di listone, ed è quella
+// scelta che aggancia la scheda al giocatore. Sono dichiarate una per una col
+// loro motivo dentro `SCHEDA_ENTRY_POINTS`, e la guardia pretende che restino
+// DUE: una terza eccezione va scritta a mano qui sotto, cioè decisa.
+describe("la guardia strutturale: il contratto cresce, il modulo se ne accorge", () => {
+  it("ogni chiave che lo SCHEMA della scheda ammette ha una via d'ingresso dichiarata", () => {
+    const senzaIngresso = EXPERT_SCHEDA_SCHEMA_KEYS.filter((key) => !(key in SCHEDA_ENTRY_POINTS));
+    expect(
+      senzaIngresso,
+      `campi del contratto che nessuno può compilare: ${senzaIngresso.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("nessuna via d'ingresso punta a una chiave che il contratto non ammette più", () => {
+    const orfane = Object.keys(SCHEDA_ENTRY_POINTS).filter(
+      (key) => !EXPERT_SCHEDA_SCHEMA_KEYS.includes(key),
+    );
+    expect(orfane, `vie d'ingresso senza chiave nel contratto: ${orfane.join(", ")}`).toEqual([]);
+  });
+
+  it("ogni via d'ingresso «form» nomina un campo che il modulo ha DAVVERO", () => {
+    for (const [key, entry] of Object.entries(SCHEDA_ENTRY_POINTS)) {
+      if (entry.kind !== "form") continue;
+      expect(EMPTY_SCHEDA_FORM, `${key} dichiara il campo «${entry.field}»`).toHaveProperty(
+        entry.field,
+      );
+    }
+  });
+
+  it("le eccezioni sono DUE, dichiarate una per una col loro motivo — mai uno skip", () => {
+    const eccezioni = Object.entries(SCHEDA_ENTRY_POINTS).filter(
+      ([, entry]) => entry.kind === "riga-di-listone",
+    );
+    expect(eccezioni.map(([key]) => key)).toEqual(["player", "club"]);
+    for (const [key, entry] of eccezioni) {
+      if (entry.kind !== "riga-di-listone") continue;
+      expect(
+        entry.perche.length,
+        `l'eccezione «${key}» deve portare un motivo scritto, non una riga vuota`,
+      ).toBeGreaterThan(60);
+    }
+  });
+
+  it("un modulo compilato in OGNI sua parte produce una scheda con tutte le chiavi del contratto", () => {
+    // La prova che le vie d'ingresso non sono solo dichiarate: funzionano.
+    const result = buildScheda(TARGET_MOVIMENTO, fullForm());
+    expect(result.ok, `il modulo pieno deve passare: ${JSON.stringify(result)}`).toBe(true);
+    if (!result.ok) return;
+    expect([...Object.keys(result.scheda)].sort()).toEqual([...EXPERT_SCHEDA_SCHEMA_KEYS].sort());
+  });
+
+  it("ogni chiave dello schema della PAGELLA ha una via d'ingresso dichiarata", () => {
+    // Il livello annidato è il punto cieco classico di uno schema rigido solo
+    // al primo livello: `pagella` avrebbe una via d'ingresso anche se dentro
+    // mancasse metà del suo contenuto.
+    const senzaIngresso = PAGELLA_SCHEMA_KEYS.filter(
+      (key) => !(key in SCHEDA_PAGELLA_ENTRY_POINTS),
+    );
+    expect(senzaIngresso, `chiavi della pagella senza via d'ingresso: ${senzaIngresso.join(", ")}`).toEqual(
+      [],
+    );
+  });
+
+  it("ogni ASSE che lo schema della pagella ammette ha la sua casella nel modulo", () => {
+    const senzaCasella = PAGELLA_VOTI_SCHEMA_KEYS.filter((asse) => !(asse in EMPTY_SCHEDA_PAGELLA));
+    expect(senzaCasella, `assi senza casella: ${senzaCasella.join(", ")}`).toEqual([]);
+  });
+
+  it("i due assi di ruolo hanno ciascuno la propria via, e insieme coprono i sei dello schema", () => {
+    const movimento = buildScheda(TARGET_MOVIMENTO, fullForm());
+    const portiere = buildScheda(TARGET_PORTIERE, fullForm({ pagella: PAGELLA_PORTIERE }));
+    expect(movimento.ok).toBe(true);
+    expect(portiere.ok).toBe(true);
+    if (!movimento.ok || !portiere.ok) return;
+    const scritti = new Set([
+      ...Object.keys(movimento.scheda.pagella?.voti ?? {}),
+      ...Object.keys(portiere.scheda.pagella?.voti ?? {}),
+    ]);
+    expect([...scritti].sort()).toEqual([...PAGELLA_VOTI_SCHEMA_KEYS].sort());
+    // E MAI insieme nella stessa scheda: è la regola dello schema, non una in più.
+    expect(movimento.scheda.pagella?.voti.pagella_porta_inviolata).toBeUndefined();
+    expect(portiere.scheda.pagella?.voti.pagella_bonus).toBeUndefined();
+  });
+});
+
+// ── I TRE CAMPI, UNO PER UNO ─────────────────────────────────────────────────
+
+describe("gli altri del ballottaggio: con chi si gioca il posto", () => {
+  it("arrivano alla vista, con la loro quota, e la quota assente resta assente", () => {
+    const scheda = builtScheda({
+      titolarita: "ballottaggio",
+      percentuale: "50",
+      ballottaggio: [
+        { surface: "Bruna Placeholder", sharePercent: "30" },
+        { surface: "Carlo Segnaposto", sharePercent: "" },
+      ],
+    });
+    expect(scheda.ballottaggio).toEqual([
+      { surface: "Bruna Placeholder", sharePercent: 30 },
+      { surface: "Carlo Segnaposto" },
+    ]);
+    // Nessun `?? 0`: la seconda quota manca e resta mancante.
+    expect(scheda.ballottaggio?.[1]).not.toHaveProperty("sharePercent");
+    const deposit = buildSchedaDeposit(new Map([[ROW_KEY, scheda]]));
+    expect(deposit.ok).toBe(true);
+    if (!deposit.ok) return;
+    const view = resolveExpertInsight(parseExpertSchedaDeposit(deposit.text), TARGET);
+    expect(view.ballottaggio).toEqual(scheda.ballottaggio);
+  });
+
+  it("SENZA la titolarità «ballottaggio» si rifiuta: il riquadro non li mostrerebbe", () => {
+    // La regola è scritta in `resolveExpertInsight` e non è inventata qui: un
+    // elenco di rivali su un giocatore dato titolare non arriva alla vista.
+    for (const titolarita of ["titolare", "riserva", ""]) {
+      const result = buildScheda(
+        TARGET,
+        form({ titolarita, ballottaggio: [{ surface: "Bruna Placeholder", sharePercent: "" }] }),
+      );
+      expect(result.ok, `titolarità «${titolarita}» non deve portare un ballottaggio`).toBe(false);
+      if (result.ok) continue;
+      expect(result.errors.some((e) => e.field === "ballottaggio")).toBe(true);
+    }
+  });
+
+  it("e il rifiuto non è teorico: scritti così, il riquadro li scarterebbe davvero", () => {
+    const scheda: ExpertScheda = {
+      player: TARGET.name,
+      club: TARGET.club,
+      titolarita: "titolare",
+      ballottaggio: [{ surface: "Bruna Placeholder", sharePercent: 40 }],
+    };
+    const view = resolveExpertInsight(parseExpertSchedaDeposit(JSON.stringify({ schemaVersion: EXPERT_SCHEDA_SCHEMA_VERSION, schede: [scheda] })), TARGET);
+    expect(view.ballottaggio).toEqual([]);
+  });
+
+  it("una quota senza nome NON sparisce in silenzio: si dice", () => {
+    const result = buildScheda(
+      TARGET,
+      form({ titolarita: "ballottaggio", ballottaggio: [{ surface: "", sharePercent: "40" }] }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.map((e) => e.field)).toContain("ballottaggio");
+    expect(result.errors[0]?.message).toContain("40");
+  });
+
+  it("una riga del tutto vuota non è un soggetto e non è un errore", () => {
+    const scheda = builtScheda({
+      titolarita: "ballottaggio",
+      ballottaggio: [{ surface: "", sharePercent: "" }],
+    });
+    expect(scheda).not.toHaveProperty("ballottaggio");
+  });
+
+  it("il giocatore stesso non entra fra gli altri: la sua quota è scritta una volta sola", () => {
+    const result = buildScheda(
+      TARGET,
+      form({ titolarita: "ballottaggio", ballottaggio: [{ surface: TARGET.name, sharePercent: "50" }] }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.map((e) => e.field)).toEqual(["ballottaggio"]);
+  });
+
+  it("lo stesso nome due volte si rifiuta: due quote per la stessa persona possono divergere", () => {
+    const result = buildScheda(
+      TARGET,
+      form({
+        titolarita: "ballottaggio",
+        ballottaggio: [
+          { surface: "Bruna Placeholder", sharePercent: "30" },
+          { surface: "bruna  placeholder", sharePercent: "20" },
+        ],
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.map((e) => e.field)).toEqual(["ballottaggio"]);
+  });
+
+  it("oltre il tetto del contratto si rifiuta, dicendo il tetto", () => {
+    const troppi = Array.from({ length: SCHEDA_BALLOTTAGGIO_MAX + 1 }, (_, i) => ({
+      surface: `Rivale ${i}`,
+      sharePercent: "",
+    }));
+    const result = buildScheda(TARGET, form({ titolarita: "ballottaggio", ballottaggio: troppi }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors[0]?.message).toContain(String(SCHEDA_BALLOTTAGGIO_MAX));
+  });
+
+  it("una quota fuori scala e un nome troppo lungo si dicono, uno per uno", () => {
+    const result = buildScheda(
+      TARGET,
+      form({
+        titolarita: "ballottaggio",
+        ballottaggio: [
+          { surface: "Bruna Placeholder", sharePercent: "101" },
+          { surface: "L".repeat(SCHEDA_NAME_MAX + 1), sharePercent: "" },
+        ],
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors).toHaveLength(2);
+    expect(result.errors.every((e) => e.field === "ballottaggio")).toBe(true);
+  });
+
+  it("un nome che il listone caricato non porta si DICHIARA, non si abbina al più simile", () => {
+    const pool = [
+      { name: "Bruna Placeholder", club: TARGET.club },
+      { name: "Carlo Segnaposto", club: "ClubUno" },
+    ];
+    // «Placeholder» somiglia a «Bruna Placeholder» e «Rossini» a «Rossi»:
+    // nessuno dei due viene abbinato, tutti e due vengono detti.
+    expect(
+      schedaBallottaggioFuoriListone(
+        [
+          { surface: "Bruna Placeholder", sharePercent: "" },
+          { surface: "Placeholder", sharePercent: "" },
+          { surface: "Carlo Segnaposto", sharePercent: "" },
+        ],
+        pool,
+      ),
+    ).toEqual(["Placeholder"]);
+  });
+
+  it("la dichiarazione non ripete lo stesso nome due volte e salta le righe vuote", () => {
+    expect(
+      schedaBallottaggioFuoriListone(
+        [
+          { surface: "Ignoto Uno", sharePercent: "" },
+          { surface: "  ", sharePercent: "10" },
+          { surface: "ignoto uno", sharePercent: "" },
+        ],
+        [],
+      ),
+    ).toEqual(["Ignoto Uno"]);
+  });
+
+  it("il riassunto scrive i nomi e le quote, senza fabbricarne nessuna", () => {
+    const scheda = builtScheda({
+      titolarita: "ballottaggio",
+      percentuale: "50",
+      ballottaggio: [
+        { surface: "Bruna Placeholder", sharePercent: "30" },
+        { surface: "Carlo Segnaposto", sharePercent: "" },
+      ],
+    });
+    const summary = schedaSummary(scheda);
+    expect(summary).toContain("ballottaggio 50%");
+    expect(summary).toContain("con: Bruna Placeholder 30%, Carlo Segnaposto");
+    expect(summary).not.toContain("Carlo Segnaposto 0%");
+  });
+});
+
+describe("la lista editoriale: tre valori, e l'assenza che non è un quarto", () => {
+  it.each([...LISTA_ESPERTI_VALUES])("«%s» arriva alla vista", (lista) => {
+    const scheda = builtScheda({ lista });
+    expect(scheda.lista).toBe(lista);
+    const deposit = buildSchedaDeposit(new Map([[ROW_KEY, scheda]]));
+    expect(deposit.ok).toBe(true);
+    if (!deposit.ok) return;
+    const view = resolveExpertInsight(parseExpertSchedaDeposit(deposit.text), TARGET);
+    // `sconsigliato` arriva anche dall'avviso: la vista ha una precedenza
+    // dichiarata (`resolveListaEsperti`), e qui non c'è nessun avviso.
+    expect(view.lista).toBe(lista);
+  });
+
+  it("l'ASSENZA non scrive la chiave: non esiste una quarta lista «nessuna»", () => {
+    const scheda = builtScheda({ lista: "", nota: "Solo prosa." });
+    expect(scheda).not.toHaveProperty("lista");
+    expect(Object.keys(scheda)).toEqual(["player", "club", "nota"]);
+  });
+
+  it("la lista da sola è una scheda valida: è la quarta icona del riquadro", () => {
+    const scheda = builtScheda({ lista: "possibile_sorpresa" });
+    expect(scheda.lista).toBe("possibile_sorpresa");
+  });
+
+  it("rifiuta un valore fuori dal vocabolario", () => {
+    const result = buildScheda(TARGET, form({ lista: "consigliatissimo" }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.map((e) => e.field)).toEqual(["lista"]);
+  });
+});
+
+describe("la pagella: i cinque voti, il totale dichiarato e le due regole del modulo", () => {
+  it("i cinque voti e il totale arrivano al riquadro, col quarto asse del ruolo", () => {
+    const result = buildScheda(TARGET_MOVIMENTO, fullForm());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.scheda.pagella).toEqual({
+      voti: {
+        pagella_titolarita: 9,
+        pagella_media_voto: 7,
+        pagella_salute: 9,
+        pagella_bonus: 6,
+        pagella_consiglio: 8,
+      },
+      totaleFonte: 39,
+    });
+    const deposit = buildSchedaDeposit(new Map([[ROW_KEY, result.scheda]]));
+    expect(deposit.ok).toBe(true);
+    if (!deposit.ok) return;
+    const view = resolveExpertInsight(parseExpertSchedaDeposit(deposit.text), TARGET_MOVIMENTO);
+    expect(view.pagella.completa).toBe(true);
+    expect(view.pagella.totaleRicalcolato).toBe(39);
+    expect(view.pagella.verificaTotale).toBe("coerente");
+  });
+
+  it("UN VOTO MANCANTE RESTA MANCANTE: nessuna chiave, nessuno zero", () => {
+    const result = buildScheda(
+      TARGET_MOVIMENTO,
+      fullForm({
+        pagella: { ...PAGELLA_MOVIMENTO, pagella_salute: "", totaleFonte: "" },
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.scheda.pagella?.voti).not.toHaveProperty("pagella_salute");
+    expect(result.scheda.pagella).not.toHaveProperty("totaleFonte");
+    // E una pagella parziale non produce nessuna somma.
+    const view = resolveExpertInsight(
+      parseExpertSchedaDeposit(
+        JSON.stringify({ schemaVersion: EXPERT_SCHEDA_SCHEMA_VERSION, schede: [result.scheda] }),
+      ),
+      TARGET_MOVIMENTO,
+    );
+    expect(view.pagella.completa).toBe(false);
+    expect(view.pagella.totaleRicalcolato).toBeNull();
+  });
+
+  it("lo ZERO è un voto vero e non si confonde con l'assenza", () => {
+    const result = buildScheda(
+      TARGET_MOVIMENTO,
+      fullForm({ pagella: { ...PAGELLA_MOVIMENTO, pagella_salute: "0", totaleFonte: "" } }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.scheda.pagella?.voti.pagella_salute).toBe(0);
+  });
+
+  it("i due assi di ruolo insieme si rifiutano: una scheda parla di un giocatore solo", () => {
+    const result = buildScheda(
+      TARGET_MOVIMENTO,
+      fullForm({ pagella: { ...PAGELLA_MOVIMENTO, pagella_porta_inviolata: "3" } }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.map((e) => e.field)).toEqual(["pagella"]);
+    expect(result.errors[0]?.message).toContain("Porta inviolata");
+    expect(result.errors[0]?.message).toContain("Bonus");
+  });
+
+  it("l'asse di un ALTRO ruolo si rifiuta: il riquadro non lo userebbe", () => {
+    // `resolvePagella` lo dichiara `asseIncoerente` e lascia l'asse assente:
+    // salvarlo sarebbe una perdita silenziosa, quindi si dice prima.
+    const result = buildScheda(TARGET_PORTIERE, fullForm({ pagella: PAGELLA_MOVIMENTO }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.map((e) => e.field)).toEqual(["pagella"]);
+    expect(result.errors[0]?.message).toContain("Porta inviolata");
+  });
+
+  it("senza ruolo della riga non si indovina il quarto asse: quello scritto passa", () => {
+    const senzaRuolo = buildScheda(TARGET, fullForm());
+    expect(senzaRuolo.ok).toBe(true);
+    if (!senzaRuolo.ok) return;
+    expect(senzaRuolo.scheda.pagella?.voti.pagella_bonus).toBe(6);
+  });
+
+  it("un voto fuori scala e un totale fuori scala si dicono, uno per uno", () => {
+    const result = buildScheda(
+      TARGET_MOVIMENTO,
+      fullForm({
+        pagella: { ...PAGELLA_MOVIMENTO, pagella_salute: "11", totaleFonte: String(PAGELLA_TOTALE_MAX + 1) },
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors).toHaveLength(2);
+    expect(result.errors.every((e) => e.field === "pagella")).toBe(true);
+  });
+
+  it("una pagella vuota non scrive la chiave: `{ voti: {} }` non dice niente", () => {
+    const scheda = builtScheda({ nota: "Solo prosa.", pagella: EMPTY_SCHEDA_PAGELLA });
+    expect(scheda).not.toHaveProperty("pagella");
+  });
+
+  it("la pagella da sola è una scheda valida: sono i cinque voti della fonte", () => {
+    const result = buildScheda(TARGET_MOVIMENTO, form({ pagella: PAGELLA_MOVIMENTO }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(Object.keys(result.scheda)).toEqual(["player", "club", "pagella"]);
+  });
+
+  it("IL TOTALE NON SI APPIANA: su divergenza restano scritti tutti e due", () => {
+    const result = buildScheda(
+      TARGET_MOVIMENTO,
+      fullForm({ pagella: { ...PAGELLA_MOVIMENTO, totaleFonte: "41" } }),
+    );
+    expect(result.ok, "una divergenza è un fatto della scheda, non un errore di compilazione").toBe(
+      true,
+    );
+    if (!result.ok) return;
+    // La somma vera è 39: il deposito conserva il 41 della fonte, non lo corregge.
+    expect(result.scheda.pagella?.totaleFonte).toBe(41);
+    const view = resolveExpertInsight(
+      parseExpertSchedaDeposit(
+        JSON.stringify({ schemaVersion: EXPERT_SCHEDA_SCHEMA_VERSION, schede: [result.scheda] }),
+      ),
+      TARGET_MOVIMENTO,
+    );
+    expect(view.pagella.verificaTotale).toBe("divergente");
+    expect(view.pagella.totaleRicalcolato).toBe(39);
+    expect(view.pagella.totaleFonte).toBe(41);
+  });
+
+  it("la riga di verifica scrive entrambi i numeri quando non tornano, e nessuno quando la pagella è parziale", () => {
+    const divergente = schedaPagellaVerificaText(
+      { ...PAGELLA_MOVIMENTO, totaleFonte: "41" },
+      "A",
+    );
+    expect(divergente).toContain("39/50");
+    expect(divergente).toContain("41/50");
+    expect(divergente).toContain("NON TORNANO");
+
+    const parziale = schedaPagellaVerificaText(
+      { ...PAGELLA_MOVIMENTO, pagella_salute: "", totaleFonte: "39" },
+      "A",
+    );
+    expect(parziale).toContain("4 voti su 5");
+    expect(parziale).not.toContain("/50,");
+    expect(parziale).toContain("non confrontabile");
+
+    expect(schedaPagellaVerificaText(EMPTY_SCHEDA_PAGELLA, "A")).toContain("n/d");
+  });
+
+  it("il riassunto dice quanti voti ci sono e non somma una pagella parziale", () => {
+    const parziale = builtScheda({
+      pagella: { ...EMPTY_SCHEDA_PAGELLA, pagella_titolarita: "9", pagella_salute: "4" },
+    });
+    expect(schedaSummary(parziale)).toContain("pagella: 2/5 voti, somma n/d");
+  });
+});
+
+describe("i tre campi nuovi sopravvivono al giro completo", () => {
+  it("si riaprono nel modulo esattamente come sono stati scritti", () => {
+    const first = buildScheda(TARGET_MOVIMENTO, fullForm());
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const again = buildScheda(TARGET_MOVIMENTO, schedaToForm(first.scheda));
+    expect(again.ok).toBe(true);
+    if (!again.ok) return;
+    expect(again.scheda).toEqual(first.scheda);
+  });
+
+  it("un archivio scritto PRIMA dei tre campi si rilegge intero, modulo aperto compreso", () => {
+    // La scheda aperta di ieri non ha `ballottaggio`, `lista` né `pagella`:
+    // senza i default di `formSchema` sarebbe diventata «nessuna scheda
+    // aperta», cioè fino a 90 secondi di battitura persi senza un errore.
+    const storage = new MemoryStorage();
+    const scheda = builtScheda({ titolarita: "titolare" });
+    const vecchio = {
+      schemaVersion: SCHEDA_DRAFTS_SCHEMA_VERSION,
+      entries: [{ rowKey: ROW_KEY, scheda }],
+      editing: {
+        rowKey: ROW_KEY,
+        values: {
+          titolarita: "titolare",
+          percentuale: "",
+          gerarchia: "",
+          rigori: "",
+          piazzati: [],
+          avvisi: [],
+          nota: "Stavo scrivendo ieri sera.",
+          aggiornata: "",
+          fonte: "",
+        },
+      },
+    };
+    storage.seed(JSON.stringify(vecchio));
+    const reloaded = loadSchedaDrafts(storage);
+    expect(reloaded.schede.get(ROW_KEY)).toEqual(scheda);
+    expect(reloaded.editing?.values.nota).toBe("Stavo scrivendo ieri sera.");
+    expect(reloaded.editing?.values.ballottaggio).toEqual([]);
+    expect(reloaded.editing?.values.lista).toBe("");
+    expect(reloaded.editing?.values.pagella).toEqual(EMPTY_SCHEDA_PAGELLA);
+  });
+
+  it("l'archivio locale conserva e rilegge una scheda che porta tutti e tre", () => {
+    const storage = new MemoryStorage();
+    const result = buildScheda(TARGET_MOVIMENTO, fullForm());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(saveSchedaDrafts(storage, stateWith([[ROW_KEY, result.scheda]]))).toBe(true);
+    expect(loadSchedaDrafts(storage).schede.get(ROW_KEY)).toEqual(result.scheda);
+  });
+
+  it("il deposito con tutti e tre passa il contratto e torna identico dopo un'importazione", () => {
+    const result = buildScheda(TARGET_MOVIMENTO, fullForm());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const deposit = buildSchedaDeposit(new Map([[ROW_KEY, result.scheda]]));
+    expect(deposit.ok).toBe(true);
+    if (!deposit.ok) return;
+    const plan = planSchedaImport(deposit.text, [{ rowKey: ROW_KEY, ...TARGET }], new Map());
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    const applied = applySchedaImport(new Map(), plan.plan, null);
+    expect(applied).not.toBeNull();
+    const again = buildSchedaDeposit(applied as ReadonlyMap<string, ExpertScheda>);
+    expect(again.ok).toBe(true);
+    if (!again.ok) return;
+    expect(again.text).toBe(deposit.text);
   });
 });

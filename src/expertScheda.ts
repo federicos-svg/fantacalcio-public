@@ -347,6 +347,27 @@ const schedaSchema = z
   })
   .strict();
 
+/**
+ * LE CHIAVI CHE LO SCHEMA DELLA SCHEDA AMMETTE, lette DALLO SCHEMA e non
+ * riscritte a mano.
+ *
+ * Serve a una cosa sola, e la cosa è un difetto già successo tre volte: il
+ * contratto cresce — `ballottaggio`, `lista`, `pagella` sono arrivati così — e
+ * il modulo con cui Pico compila le schede (src/schedaCompiler.ts) resta
+ * indietro, senza che niente diventi rosso. Un campo che il contratto ammette e
+ * che nessuno può scrivere è lavoro impossibile, non un dettaglio.
+ *
+ * Da qui la guardia strutturale del compilatore legge l'elenco vero: una chiave
+ * nuova in `schedaSchema` compare in questo array lo stesso giorno, e la
+ * guardia resta rossa finché quella chiave non ha una via d'ingresso — un campo
+ * del modulo, oppure un'eccezione dichiarata col suo motivo.
+ *
+ * `Object.keys` sulla forma dello schema e non un elenco letterale: un elenco
+ * letterale sarebbe una seconda copia del contratto, e divergerebbe in silenzio
+ * esattamente come il modulo che questa guardia esiste per sorvegliare.
+ */
+export const EXPERT_SCHEDA_SCHEMA_KEYS: readonly string[] = Object.keys(schedaSchema.shape);
+
 const depositSchema = z
   .object({
     schemaVersion: z.literal(EXPERT_SCHEDA_SCHEMA_VERSION),
