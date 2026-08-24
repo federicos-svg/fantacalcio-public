@@ -43,65 +43,59 @@
 // della label; a schermo li riassume una sola scritta, «Scheda Esperto» (vedi
 // `expertInsightLabel` più sotto per il perché).
 //
+// ── LE ICONE ACCANTO AL RADAR ────────────────────────────────────────────────
+//
+// Questo modulo MONTA la striscia di icone (src/ui/schedaIcone.ts) dentro il
+// blocco della pagella, nella colonna del radar. Non è un terzo registro: le
+// prime tre — rigorista, piazzati, ballottaggio — ridicono in forma di segno
+// ciò che le pastiglie qui sopra dicono in parole, per il colpo d'occhio, e
+// aggiungono l'unico dato che a schermo non stava da nessuna parte: i NOMI
+// degli altri in ballottaggio, con la loro quota.
+//
+// LA QUARTA ICONA È UNA LISTA, NON UN «CONVIENE». Dice in quale delle tre
+// liste del Gruppo Esperti — consigliati, possibili sorprese, sconsigliati —
+// la FONTE ha messo il giocatore, esattamente come `fonte` dice con quale
+// autorità la fonte parlava: è un fatto sulla scheda, non un giudizio
+// dell'app, non un prezzo, non una banda e non un massimo di spesa.
+// `sconsigliato` era già a schermo come avviso prima di queste icone; le altre
+// due sono le sue sorelle nella stessa frase della fonte. Il riquadro resta
+// descrittivo per costruzione: `directive: false` è ancora letterale nel
+// payload, lo schema `.strict()` continua a rifiutare `value` / `fair_to_me` /
+// `target_band` / `prezzo` / `maxBid` / `raccomandazione`, e i test del
+// contratto continuano a cercarli per nome.
+//
 // Costruttori di stringhe puri — stesso idioma di warBoard.ts, roleBudgetPlan.ts
 // e liveFacts.ts — così tutta la logica di resa è testabile senza DOM. Nessun
 // `Date`, nessun `Intl`: la data della scheda si formatta affettando la sua
 // stringa ISO, così la stessa scheda rende la stessa riga su ogni macchina.
 
 import type {
-  Avviso,
   ExpertInsightAvailability,
   ExpertInsightView,
   ExpertSchedaCandidate,
   Fonte,
-  Piazzati,
-  Rigori,
-  Titolarita,
 } from "../expertScheda.js";
 import { TITOLARITA_VALUES } from "../expertScheda.js";
 import { pagellaBlockHtml, pagellaSpoken } from "./pagellaRadar.js";
+import { schedaIconeHtml, schedaIconeSpoken } from "./schedaIcone.js";
+import {
+  AVVISO_LABELS,
+  PIAZZATI_LABELS,
+  RIGORI_LABELS,
+  TITOLARITA_HEAD,
+  TITOLARITA_LABELS,
+} from "./schedaLabels.js";
 import { escHtml } from "./theme.js";
 
 export const EXPERT_INSIGHT_TITLE = "INSIGHT GIOCATORE";
 
 // ── Etichette utente ─────────────────────────────────────────────────────────
-
-/**
- * L'INTESTAZIONE della pastiglia categorica, come una COSTANTE e non come un
- * letterale dentro il template.
- *
- * Serve a un test, e il test è il motivo per cui questa costante esiste: la
- * pagella del Gruppo Esperti porta un asse che la fonte chiama con la stessa
- * parola («Titolarità 9/10») ma che è un VOTO, non l'affermazione categorica
- * che questa pastiglia mostra. `src/pagellaEsperti.test.ts` §"collisione"
- * confronta questa scritta con le etichette della pagella dopo `foldLabel` e
- * pretende che restino diverse. Con un letterale nel template il test avrebbe
- * confrontato la propria copia con sé stessa, cioè niente.
- */
-export const TITOLARITA_HEAD = "TITOLARITÀ";
-
-export const TITOLARITA_LABELS: Readonly<Record<Titolarita, string>> = {
-  riserva: "riserva",
-  ballottaggio: "ballottaggio",
-  titolare: "titolare",
-};
-
-export const RIGORI_LABELS: Readonly<Record<Rigori, string>> = {
-  designato: "designato",
-  possibile: "possibile",
-};
-
-export const PIAZZATI_LABELS: Readonly<Record<Piazzati, string>> = {
-  punizioni: "punizioni",
-  angoli: "angoli",
-};
-
-export const AVVISO_LABELS: Readonly<Record<Avviso, string>> = {
-  sconsigliato: "sconsigliato",
-  rischio_fisico: "rischio fisico",
-  provvisorio: "provvisorio",
-  mercato: "mercato",
-};
+//
+// Le parole del vocabolario della scheda vivono in ./schedaLabels.ts — sotto
+// questo modulo E sotto le icone accanto al radar, che hanno bisogno delle
+// stesse. Qui restano RIESPORTATE: ogni import esistente le legge da dove le
+// leggeva, e non ne esiste una seconda copia da tenere allineata a mano.
+export { AVVISO_LABELS, PIAZZATI_LABELS, RIGORI_LABELS, TITOLARITA_HEAD, TITOLARITA_LABELS };
 
 /**
  * L'autorità della fonte in parole, senza dire CHI. «Scheda ufficiale» e
@@ -556,7 +550,11 @@ export function expertInsightSpoken(view: ExpertInsightView): string {
     .map((chip) => `${chip.label} ${chip.value}`)
     .join(", ");
   const nota = view.nota === "" ? "nessuna nota scritta" : view.nota;
-  return `${label}: ${view.quality}. ${titolarita}. ${chips === "" ? "nessun altro segnale" : chips}. ${nota}. ${pagellaSpoken(view.pagella)} ${expertInsightMetaText(view)}.${suffix}`;
+  // LE ICONE ENTRANO NELLA FORMA PARLATA, e non sono un doppione delle
+  // pastiglie qui sopra: portano i NOMI degli altri in ballottaggio e la lista
+  // editoriale, che a schermo stanno solo lì. Senza questa riga chi naviga a
+  // voce sentirebbe il riquadro intero tranne il dato che le icone aggiungono.
+  return `${label}: ${view.quality}. ${titolarita}. ${chips === "" ? "nessun altro segnale" : chips}. ${schedaIconeSpoken(view)} ${nota}. ${pagellaSpoken(view.pagella)} ${expertInsightMetaText(view)}.${suffix}`;
 }
 
 /**
@@ -607,7 +605,7 @@ export function expertInsightBodyHtml(view: ExpertInsightView, notPersisted = fa
       ${expertInsightChipsHtml(view)}
     </div>
     ${expertInsightProseHtml(view)}
-  </div>${pagellaBlockHtml(view.pagella)}${choice}`;
+  </div>${pagellaBlockHtml(view.pagella, schedaIconeHtml(view))}${choice}`;
 }
 
 /** L'etichetta di qualità, PORTATA DAL DATO e mai ricostruita dal renderer. */

@@ -73,6 +73,76 @@ export const AVVISO_VALUES = ["sconsigliato", "rischio_fisico", "provvisorio", "
 export type Avviso = (typeof AVVISO_VALUES)[number];
 
 /**
+ * LE TRE LISTE EDITORIALI del Gruppo Esperti — la quarta icona del riquadro
+ * (src/ui/schedaIcone.ts).
+ *
+ * NON È UN CONSIGLIO D'ASTA E NON PUÒ DIVENTARLO. È l'appartenenza a una delle
+ * tre liste che la fonte pubblica: «consigliati», «possibili sorprese»,
+ * «sconsigliati». Il campo dice IN QUALE LISTA la fonte ha messo il giocatore,
+ * come `fonte` dice chi parla — non che cosa deve fare Pico, non a che prezzo,
+ * non fino a quanto spingere. Il riquadro resta descrittivo: `directive: false`
+ * è ancora letterale nel payload e lo schema `.strict()` continua a rifiutare
+ * `value` / `fair_to_me` / `target_band` / `prezzo` / `maxBid` /
+ * `raccomandazione`, verificato dai test di questo file.
+ *
+ * PERCHÉ IL CAMPO NON SI CHIAMA `raccomandazione`. Perché quel nome È nella
+ * lista dei campi direttivi vietati, e un test lo cerca per prefisso sulla
+ * chiave normalizzata: chiamarlo così avrebbe fatto passare per direttivo un
+ * dato che non lo è, o — peggio — avrebbe costretto ad ammorbidire la guardia.
+ * Si chiama `lista` perché è esattamente ciò che è: l'elenco su cui il nome
+ * compare.
+ *
+ * `sconsigliato` VIVE IN DUE POSTI, e non è una svista: era già un `Avviso`
+ * (l'unico dei quattro che è un giudizio e non un rischio) ed è la sola delle
+ * tre liste che il lato privato produce oggi. `resolveListaEsperti` qui sotto
+ * tiene insieme le due strade con una precedenza dichiarata invece di lasciare
+ * due verità che possono divergere.
+ */
+export const LISTA_ESPERTI_VALUES = ["consigliato", "possibile_sorpresa", "sconsigliato"] as const;
+export type ListaEsperti = (typeof LISTA_ESPERTI_VALUES)[number];
+
+/**
+ * UN ALTRO SOGGETTO DEL BALLOTTAGGIO: il nome di chi si gioca il posto con
+ * questo giocatore, e la sua quota.
+ *
+ * PERCHÉ LE DUE CHIAVI SONO IN INGLESE in un contratto che ha tutte le altre in
+ * italiano. Sono i nomi del segnale privato (`packages/gruppo-esperti/src/
+ * signals.ts`, `surface` e `sharePercent`) e restano identici per la stessa
+ * ragione per cui il vocabolario qui sopra è una copia fedele: quando
+ * l'estrazione privata comincerà a produrli, le due forme devono combaciare
+ * senza un adattatore in mezzo, che è il punto in cui due contratti divergono
+ * senza che nessuno se ne accorga.
+ *
+ * `surface` È IL NOME COME PICO LO SCRIVE, non una superficie copiata dal
+ * forum: vale qui la stessa regola che vale per `player` e `club`
+ * (l'intestazione di questo file), cioè l'identità viene dal listone che Pico
+ * ha sotto gli occhi. Nessun handle di persona, nessun URL, nessun testo di
+ * terzi ripubblicato.
+ *
+ * IL GIOCATORE STESSO NON È IN QUESTA LISTA. La sua quota è `percentuale`,
+ * scritta una volta sola: un elenco che contenesse anche lui costringerebbe il
+ * riquadro a riconoscersi per nome — un confronto fragile — per sapere chi
+ * togliere, e due numeri per la stessa quota possono divergere.
+ */
+export interface BallottaggioSoggetto {
+  /** Il nome dell'altro, come sta scritto sulla riga di listone. */
+  readonly surface: string;
+  /** La sua quota in percentuale (es. 40), quando la scheda la dichiara. */
+  readonly sharePercent?: number;
+}
+
+/**
+ * Quanti ALTRI soggetti può portare un ballottaggio.
+ *
+ * Quattro, e non «quanti ne arrivano»: un ballottaggio a cinque non è un
+ * ballottaggio, è un elenco di rosa — e un elenco senza tetto entra in un
+ * riquadro che si legge in due secondi durante un'asta e lo allunga senza
+ * limite. Oltre il tetto il deposito è rifiutato con un errore dichiarato,
+ * non troncato in silenzio: è la stessa postura di `SCHEDA_NOTA_MAX`.
+ */
+export const SCHEDA_BALLOTTAGGIO_MAX = 4;
+
+/**
  * Con quale autorità la scheda sorgente parlava — `PostAuthority` del privato,
  * meno l'identità di chi ha scritto: «scheda ufficiale della squadra» e
  * «risposta staff» sono attribuzioni NON identificanti, l'handle di una
@@ -176,11 +246,23 @@ export interface ExpertScheda {
    * il numero che la scheda sorgente scrive fra parentesi quadre.
    */
   readonly percentuale?: number;
+  /**
+   * GLI ALTRI in ballottaggio con lui, ciascuno con la propria quota.
+   *
+   * Vive accanto a `titolarita: "ballottaggio"` e non al suo posto: quel campo
+   * dice CHE COSA è questo giocatore, questo dice CON CHI. Senza quella
+   * titolarità l'elenco non arriva alla vista — un ballottaggio con qualcuno
+   * mentre la scheda dà il giocatore titolare è una contraddizione, e il
+   * riquadro non ne sceglie una metà (vedi `resolveExpertInsight`).
+   */
+  readonly ballottaggio?: readonly BallottaggioSoggetto[];
   /** Posizione nella gerarchia del ruolo (1 = prima scelta). */
   readonly gerarchia?: number;
   readonly rigori?: Rigori;
   readonly piazzati?: readonly Piazzati[];
   readonly avvisi?: readonly Avviso[];
+  /** In quale delle tre liste editoriali la fonte ha messo il giocatore. */
+  readonly lista?: ListaEsperti;
   /** La prosa: il perché di un avviso, una situazione di mercato, un contesto. */
   readonly nota?: string;
   /** `YYYY-MM-DD` del giorno in cui Pico ha scritto o rivisto la scheda. */
@@ -232,10 +314,32 @@ const schedaSchema = z
       .min(SCHEDA_PERCENTUALE_MIN)
       .max(SCHEDA_PERCENTUALE_MAX)
       .optional(),
+    // Gli ALTRI in ballottaggio: ogni soggetto è `.strict()` a sua volta, così
+    // una chiave in più dentro l'elenco (un prezzo, un punteggio, un giudizio)
+    // è un errore di validazione e non un campo che passa in silenzio dentro
+    // un oggetto annidato — che è il punto cieco classico di uno schema
+    // rigido solo al primo livello.
+    ballottaggio: z
+      .array(
+        z
+          .object({
+            surface: z.string().trim().min(1).max(SCHEDA_NAME_MAX),
+            sharePercent: z
+              .number()
+              .int()
+              .min(SCHEDA_PERCENTUALE_MIN)
+              .max(SCHEDA_PERCENTUALE_MAX)
+              .optional(),
+          })
+          .strict(),
+      )
+      .max(SCHEDA_BALLOTTAGGIO_MAX)
+      .optional(),
     gerarchia: z.number().int().min(SCHEDA_GERARCHIA_MIN).max(SCHEDA_GERARCHIA_MAX).optional(),
     rigori: z.enum(RIGORI_VALUES).optional(),
     piazzati: z.array(z.enum(PIAZZATI_VALUES)).max(PIAZZATI_VALUES.length).optional(),
     avvisi: z.array(z.enum(AVVISO_VALUES)).max(AVVISO_VALUES.length).optional(),
+    lista: z.enum(LISTA_ESPERTI_VALUES).optional(),
     nota: z.string().trim().max(SCHEDA_NOTA_MAX).optional(),
     aggiornata: z.string().refine(isValidIsoDate).optional(),
     fonte: z.enum(FONTE_VALUES).optional(),
@@ -518,10 +622,18 @@ export interface ExpertInsightView {
   readonly matchedPlayer: string | null;
   readonly titolarita: Titolarita | null;
   readonly percentuale: number | null;
+  /**
+   * GLI ALTRI in ballottaggio, o lista vuota. Vuota anche quando la scheda ne
+   * porta ma la titolarità non è `ballottaggio`: vedi `resolveExpertInsight`.
+   * È una lista e non un `null`, come `piazzati` e `avvisi`.
+   */
+  readonly ballottaggio: readonly BallottaggioSoggetto[];
   readonly gerarchia: number | null;
   readonly rigori: Rigori | null;
   readonly piazzati: readonly Piazzati[];
   readonly avvisi: readonly Avviso[];
+  /** La lista editoriale in cui la fonte lo ha messo, o `null`. */
+  readonly lista: ListaEsperti | null;
   readonly nota: string;
   readonly aggiornata: string | null;
   readonly fonte: Fonte | null;
@@ -558,10 +670,12 @@ export function unknownExpertInsight(
     matchedPlayer: null,
     titolarita: null,
     percentuale: null,
+    ballottaggio: [],
     gerarchia: null,
     rigori: null,
     piazzati: [],
     avvisi: [],
+    lista: null,
     nota: "",
     aggiornata: null,
     fonte: null,
@@ -572,12 +686,39 @@ export function unknownExpertInsight(
   };
 }
 
+/**
+ * LA LISTA EDITORIALE RISOLTA, con la precedenza scritta una volta sola.
+ *
+ * Due strade portano allo stesso fatto e non possono restare due verità:
+ *
+ *  - l'AVVISO `sconsigliato` — la sola delle tre liste che oggi esiste davvero
+ *    nel deposito, e che il riquadro mostra già come pastiglia;
+ *  - il campo `lista`, che porterà tutte e tre quando l'estrazione privata
+ *    esisterà.
+ *
+ * L'AVVISO VINCE, sempre. Non è una scelta estetica: è la sola direzione
+ * fail-closed. Una scheda che dichiara insieme «consigliato» e l'avviso
+ * «sconsigliato» si contraddice, e delle due letture una promuove il giocatore
+ * e l'altra lo scarta — mostrare quella che promuove significherebbe cancellare
+ * a schermo l'unica prova che la scheda va riletta. La pastiglia dell'avviso
+ * resta comunque dov'è: le due scritte restano tutte e due sotto gli occhi.
+ */
+export function resolveListaEsperti(scheda: ExpertScheda): ListaEsperti | null {
+  if ((scheda.avvisi ?? []).includes("sconsigliato")) return "sconsigliato";
+  return scheda.lista ?? null;
+}
+
 /** `true` quando la scheda dice almeno una cosa — un segnale o una riga di prosa. */
 export function schedaHasContent(scheda: ExpertScheda): boolean {
   return (
     scheda.titolarita !== undefined ||
     scheda.rigori !== undefined ||
     scheda.gerarchia !== undefined ||
+    // Una scheda che porta SOLO la lista editoriale dice qualcosa: è la quarta
+    // icona del riquadro, e senza questa riga verrebbe classificata «aperta ma
+    // vuota» e l'icona sparirebbe insieme al resto del pannello.
+    scheda.lista !== undefined ||
+    (scheda.ballottaggio ?? []).length > 0 ||
     (scheda.piazzati ?? []).length > 0 ||
     (scheda.avvisi ?? []).length > 0 ||
     (scheda.nota ?? "").trim() !== "" ||
@@ -678,10 +819,18 @@ export function resolveExpertInsight(
     ...link,
     titolarita: scheda.titolarita ?? null,
     percentuale: scheda.titolarita === undefined ? null : scheda.percentuale ?? null,
+    // GLI ALTRI IN BALLOTTAGGIO SOPRAVVIVONO SOLO A UN BALLOTTAGGIO — stessa
+    // regola di `percentuale` una riga più sopra, e per lo stesso motivo: un
+    // elenco di rivali su un giocatore che la scheda dà titolare (o su cui non
+    // dichiara niente) non è un ballottaggio, è un elenco senza soggetto. Il
+    // riquadro non ne sceglie una metà: l'icona resta spenta e l'elenco non
+    // arriva a schermo.
+    ballottaggio: scheda.titolarita === "ballottaggio" ? scheda.ballottaggio ?? [] : [],
     gerarchia: scheda.gerarchia ?? null,
     rigori: scheda.rigori ?? null,
     piazzati: scheda.piazzati ?? [],
     avvisi: scheda.avvisi ?? [],
+    lista: resolveListaEsperti(scheda),
     nota: (scheda.nota ?? "").trim(),
     aggiornata: scheda.aggiornata ?? null,
     fonte: scheda.fonte ?? null,

@@ -4,6 +4,8 @@ import {
   EXPERT_INSIGHT_QUALITY_LABELS,
   EXPERT_SCHEDA_SCHEMA_VERSION,
   EXPERT_SCHEDE_ABSENT,
+  LISTA_ESPERTI_VALUES,
+  SCHEDA_BALLOTTAGGIO_MAX,
   SCHEDA_NOTA_MAX,
   expertSchedaStore,
   findSchedaCandidates,
@@ -12,6 +14,7 @@ import {
   isValidIsoDate,
   parseExpertSchedaDeposit,
   resolveExpertInsight,
+  resolveListaEsperti,
   schedaHasContent,
   unknownExpertInsight,
   type ExpertInsightAvailability,
@@ -184,10 +187,16 @@ describe("i cinque stati di disponibilità", () => {
       matchedPlayer: PLAYER,
       titolarita: "ballottaggio",
       percentuale: 60,
+      // La fixture non dichiara con CHI: l'elenco degli altri è vuoto, non
+      // assente e non inventato.
+      ballottaggio: [],
       gerarchia: 2,
       rigori: "designato",
       piazzati: ["punizioni", "angoli"],
       avvisi: ["mercato"],
+      // `mercato` non è una delle tre liste editoriali: nessuna lista, quindi
+      // nessuna quarta icona.
+      lista: null,
       nota: "Rinnovo non firmato: se parte a fine mercato la scheda cambia.",
       aggiornata: "2026-08-30",
       fonte: "scheda",
@@ -273,6 +282,138 @@ describe("i cinque stati di disponibilità", () => {
         expect(patterns.some((p) => p.test(normalized))).toBe(false);
       }
     }
+  });
+});
+
+// ── I DUE CAMPI DELLE ICONE: gli altri in ballottaggio e la lista editoriale ──
+//
+// Sono i due dati che il riquadro non aveva e che le icone accanto al radar
+// mostrano (src/ui/schedaIcone.ts). Qui si prova il CONTRATTO: che cosa il
+// deposito accetta, che cosa rifiuta, e che cosa la vista lascia passare.
+
+describe("gli altri in ballottaggio — il contratto", () => {
+  const conAltri = (ballottaggio: unknown, titolarita: unknown = "ballottaggio") =>
+    parseExpertSchedaDeposit(deposit([{ player: PLAYER, club: CLUB, titolarita, ballottaggio }]));
+
+  it("accetta un elenco di soggetti con e senza quota", () => {
+    expect(conAltri([{ surface: "Bruna Placeholder", sharePercent: 40 }]).ok).toBe(true);
+    expect(conAltri([{ surface: "Bruna Placeholder" }]).ok).toBe(true);
+    expect(conAltri([]).ok).toBe(true);
+  });
+
+  it("rifiuta un soggetto senza nome, con quota fuori scala o non intera", () => {
+    expect(conAltri([{ surface: "" }]).ok).toBe(false);
+    expect(conAltri([{ surface: "Bruna Placeholder", sharePercent: 101 }]).ok).toBe(false);
+    expect(conAltri([{ surface: "Bruna Placeholder", sharePercent: -1 }]).ok).toBe(false);
+    expect(conAltri([{ surface: "Bruna Placeholder", sharePercent: 40.5 }]).ok).toBe(false);
+  });
+
+  // Lo `.strict()` vale anche DENTRO l'elenco: è il punto cieco classico di
+  // uno schema rigido solo al primo livello.
+  it("rifiuta una chiave in più dentro un soggetto, direttiva o no", () => {
+    expect(conAltri([{ surface: "Bruna Placeholder", prezzo: 12 }]).ok).toBe(false);
+    expect(conAltri([{ surface: "Bruna Placeholder", note: "x" }]).ok).toBe(false);
+  });
+
+  it("rifiuta un elenco oltre il tetto dichiarato invece di troncarlo", () => {
+    const soggetti = Array.from({ length: SCHEDA_BALLOTTAGGIO_MAX }, (_, i) => ({
+      surface: `Segnaposto ${i + 1}`,
+    }));
+    expect(conAltri(soggetti).ok).toBe(true);
+    expect(conAltri([...soggetti, { surface: "Uno di troppo" }]).ok).toBe(false);
+  });
+
+  it("la vista li porta solo insieme a una titolarità «ballottaggio»", () => {
+    const altri = [{ surface: "Bruna Placeholder", sharePercent: 40 }];
+    const dentro = resolveExpertInsight(
+      storeOf([{ player: PLAYER, club: CLUB, titolarita: "ballottaggio", ballottaggio: altri }]),
+      TARGET,
+    );
+    expect(dentro.ballottaggio).toEqual(altri);
+    for (const titolarita of ["titolare", "riserva"] as const) {
+      const fuori = resolveExpertInsight(
+        storeOf([{ player: PLAYER, club: CLUB, titolarita, ballottaggio: altri }]),
+        TARGET,
+      );
+      expect(fuori.ballottaggio, `titolarità ${titolarita}`).toEqual([]);
+    }
+  });
+
+  it("una scheda che porta SOLO gli altri in ballottaggio non è una scheda vuota", () => {
+    expect(
+      schedaHasContent({
+        player: PLAYER,
+        club: CLUB,
+        ballottaggio: [{ surface: "Bruna Placeholder" }],
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("la lista editoriale — il contratto", () => {
+  it("accetta le tre liste e rifiuta qualunque altra parola", () => {
+    for (const lista of LISTA_ESPERTI_VALUES) {
+      expect(
+        parseExpertSchedaDeposit(deposit([{ player: PLAYER, club: CLUB, lista }])).ok,
+        lista,
+      ).toBe(true);
+    }
+    expect(
+      parseExpertSchedaDeposit(deposit([{ player: PLAYER, club: CLUB, lista: "da_prendere" }])).ok,
+    ).toBe(false);
+  });
+
+  it("arriva alla vista come sta scritta", () => {
+    for (const lista of LISTA_ESPERTI_VALUES) {
+      const view = resolveExpertInsight(storeOf([{ player: PLAYER, club: CLUB, lista }]), TARGET);
+      expect(view.lista, lista).toBe(lista);
+    }
+  });
+
+  it("nessuna lista dichiarata: la vista dice `null`, non una lista di comodo", () => {
+    expect(resolveExpertInsight(storeOf([FULL]), TARGET).lista).toBeNull();
+    for (const stato of EXPERT_INSIGHT_AVAILABILITIES.filter((a) => a !== "available")) {
+      const view = unknownExpertInsight(stato as Exclude<ExpertInsightAvailability, "available">);
+      expect(view.lista, stato).toBeNull();
+      expect(view.ballottaggio, stato).toEqual([]);
+    }
+  });
+
+  // L'avviso `sconsigliato` è la sola delle tre liste che il deposito produce
+  // oggi: le due strade portano allo stesso fatto e non restano due verità.
+  it("l'avviso «sconsigliato» vale come lista, anche senza il campo", () => {
+    expect(resolveListaEsperti({ player: PLAYER, club: CLUB, avvisi: ["sconsigliato"] })).toBe(
+      "sconsigliato",
+    );
+    expect(resolveListaEsperti({ player: PLAYER, club: CLUB, avvisi: ["mercato"] })).toBeNull();
+  });
+
+  it("scheda che si contraddice: vince l'avviso, non la promozione", () => {
+    expect(
+      resolveListaEsperti({
+        player: PLAYER,
+        club: CLUB,
+        lista: "consigliato",
+        avvisi: ["sconsigliato"],
+      }),
+    ).toBe("sconsigliato");
+    expect(
+      resolveListaEsperti({
+        player: PLAYER,
+        club: CLUB,
+        lista: "possibile_sorpresa",
+        avvisi: ["sconsigliato"],
+      }),
+    ).toBe("sconsigliato");
+  });
+
+  it("una scheda che porta SOLO la lista non è una scheda vuota", () => {
+    expect(schedaHasContent({ player: PLAYER, club: CLUB, lista: "consigliato" })).toBe(true);
+    const view = resolveExpertInsight(
+      storeOf([{ player: PLAYER, club: CLUB, lista: "consigliato" }]),
+      TARGET,
+    );
+    expect(view.availability).toBe("available");
   });
 });
 

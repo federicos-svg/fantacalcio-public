@@ -24,6 +24,7 @@ import {
 } from "./pagellaEsperti.js";
 import {
   AVVISO_VALUES,
+  LISTA_ESPERTI_VALUES,
   PIAZZATI_VALUES,
   RIGORI_VALUES,
   TITOLARITA_VALUES,
@@ -117,12 +118,18 @@ describe("collisione — la titolarità VOTO non può somigliare alla titolarit�
     "rigori",
     "piazzati",
     "avvisi",
+    // I due campi che le icone accanto al radar hanno aggiunto al contratto:
+    // entrano qui perché la guardia copra il vocabolario INTERO e non la
+    // fotografia che aveva il giorno in cui è stata scritta.
+    "ballottaggio",
+    "lista",
     TITOLARITA_HEAD,
     ...TITOLARITA_VALUES,
     ...Object.values(TITOLARITA_LABELS),
     ...RIGORI_VALUES,
     ...PIAZZATI_VALUES,
     ...AVVISO_VALUES,
+    ...LISTA_ESPERTI_VALUES,
   ];
 
   it("nessun id di asse coincide con un campo o un valore categorico della scheda", () => {

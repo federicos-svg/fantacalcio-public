@@ -229,8 +229,18 @@ export const PAGELLA_EMPTY_TEXT = `Nessuno dei cinque voti su ${PAGELLA_VOTO_MAX
  * Chi chiama passa la vista solo negli stati in cui una scheda esiste davvero:
  * negli altri quattro il riquadro ha già la propria frase, e un secondo
  * «non lo so» sotto il primo non aggiunge niente e costa due righe.
+ *
+ * `iconeHtml` è la STRISCIA DELLE ICONE della scheda (src/ui/schedaIcone.ts),
+ * che questo modulo riceve già costruita e non sa costruire: le icone leggono
+ * la scheda intera — rigori, piazzati, titolarità, liste — mentre qui dentro
+ * arriva la sola pagella, e passare l'una dentro l'altra avrebbe legato il
+ * radar a un contratto che non è il suo. Sta nella COLONNA DEL DISEGNO, sotto
+ * il radar quando c'è un radar e al suo posto quando non c'è: è la sola parte
+ * di questo blocco che ha qualcosa da dire anche quando i cinque voti non
+ * esistono, cioè oggi, su ogni giocatore. Il perché di quella colonna, con le
+ * misure, sta nell'intestazione di schedaIcone.ts.
  */
-export function pagellaBlockHtml(view: PagellaView): string {
+export function pagellaBlockHtml(view: PagellaView, iconeHtml = ""): string {
   const head = `<div class="pagella__head">
     <span class="pagella__title">${escHtml(PAGELLA_TITLE)}</span>
     <span class="pagella__scale">${escHtml(PAGELLA_SCALE_CAPTION)}</span>
@@ -243,10 +253,27 @@ export function pagellaBlockHtml(view: PagellaView): string {
       : `<p class="pagella__mismatch" id="player-insight-pagella-mismatch">${escHtml(mismatch)}</p>`;
 
   if (view.votiPresenti === 0) {
+    // Senza icone il blocco resta esattamente com'era: una frase a tutta
+    // larghezza. La colonna esiste solo quando c'è qualcosa da metterci —
+    // una colonna vuota stringerebbe la frase per niente.
+    const corpo =
+      iconeHtml === ""
+        ? `<p class="pagella__empty" id="player-insight-pagella-empty">${escHtml(
+            PAGELLA_EMPTY_TEXT,
+          )}</p>
+      ${mismatchHtml}`
+        : `<div class="pagella__body">
+        <div class="pagella__figure">${iconeHtml}</div>
+        <div class="pagella__side">
+          <p class="pagella__empty" id="player-insight-pagella-empty">${escHtml(
+            PAGELLA_EMPTY_TEXT,
+          )}</p>
+          ${mismatchHtml}
+        </div>
+      </div>`;
     return `<section class="pagella pagella--empty" id="player-insight-pagella">
       ${head}
-      <p class="pagella__empty" id="player-insight-pagella-empty">${escHtml(PAGELLA_EMPTY_TEXT)}</p>
-      ${mismatchHtml}
+      ${corpo}
     </section>`;
   }
 
@@ -255,7 +282,7 @@ export function pagellaBlockHtml(view: PagellaView): string {
   return `<section class="pagella" id="player-insight-pagella">
     ${head}
     <div class="pagella__body">
-      ${pagellaRadarSvgHtml(view)}
+      <div class="pagella__figure">${pagellaRadarSvgHtml(view)}${iconeHtml}</div>
       <div class="pagella__side">
         <ol class="pagella__assi" id="player-insight-pagella-assi">${rows}</ol>
         <p class="pagella__totale pagella__totale--${view.verificaTotale}" id="player-insight-pagella-totale">${escHtml(
