@@ -57,7 +57,10 @@ export const VALUE_SLOT_LABELS: Readonly<Record<ValueSlotId, string>> = {
 const VALUE_SLOT_SOURCE: Readonly<Record<ValueSlotId, string>> = {
   "indice-assoluto": "dal listone, prima dell'asta",
   "indice-relativo": "si muove durante la serata",
-  "valore-assoluto": "il valore che hai dichiarato",
+  // Sovrascritta a runtime con la catena vera (budget → target → slot →
+  // fascia), così la riga dice DA DOVE viene il numero e non una promessa
+  // generica: vedi `valueSlotWhyText`.
+  "valore-assoluto": "dal regolamento e dai tuoi target di ruolo",
   // Sovrascritta a runtime con l'etichetta che il motore impone
   // (`DECLARED_VALUE_PROVENANCE`), così la parola non può divergere dalla
   // costante: vedi `valueSlotWhyText`.
@@ -76,6 +79,24 @@ export const VALUE_MISSING_TEXT: Readonly<Record<ValueMissingReason, string>> = 
   "indice-relativo-non-calcolato": "formula non decisa: non si calcola",
   "ingredienti-dichiarati-assenti": "manca una tua dichiarazione",
   "motore-senza-numeri": "il motore non emette numeri qui",
+  // I motivi del valore assoluto derivato. Ognuno NOMINA LA COSA CHE MANCA:
+  // un «non disponibile» generico costringerebbe chi legge a indovinare se
+  // aspettare un dato, dichiarare un target o non aspettare niente.
+  // `ruolo-senza-target` È IL RAMO CHE SI VEDE OGGI SEMPRE — finché Pico non
+  // compila il piano rosa — quindi è anche il solo che paga il vincolo di
+  // altezza del riquadro: sta SOPRA il gesto principale, e
+  // e2e/asta-gesto-principale.spec.ts tiene «ASSEGNA A» entro 560px dal bordo.
+  // Una frase più lunga della più lunga già presente manderebbe la cella a due
+  // righe e il gesto sotto la piega. Corta e precisa, quindi: nomina comunque
+  // LA COSA CHE MANCA (il target, non «un dato»).
+  "ruolo-senza-target": "manca il tuo target di ruolo",
+  "target-non-valido": "il tuo target di ruolo non è un numero usabile",
+  "target-oltre-il-budget": "i tuoi target superano i 500 crediti",
+  "fascia-assente": "non ha una fascia: l'indice non lo ordina",
+  "oltre-gli-slot-del-ruolo": "oltre l'ultima fascia: nessuno slot è suo",
+  "gamba-concorrenza-assente": "manca la concorrenza, a cui hai dato peso",
+  "gamba-coppe-assente": "manca il dato coppe, a cui hai dato peso",
+  "gamba-pagella-assente": "manca la pagella completa, a cui hai dato peso",
 };
 
 /** Il motivo del motore, quando è lui a non emettere numeri. */
@@ -108,6 +129,13 @@ export const VALUE_BOX_CAVEAT =
  * La riga che dice quali dichiarazioni mancano, o stringa vuota quando non ne
  * manca nessuna. Nomina gli ingredienti uno per uno: «manca un dato» senza dire
  * quale è la stessa cella vuota travestita da frase.
+ *
+ * «IL VALORE RELATIVO» E NON PIÙ «I DUE VALORI IN CREDITI»: dalla decisione di
+ * Pico del 2026-08-24 il valore ASSOLUTO non passa più dal listino per
+ * giocatore né dal profilo di rischio — è derivato dal regolamento e dai target
+ * di ruolo, e tace per un motivo suo, scritto nella sua cella. Lasciare qui la
+ * vecchia frase significherebbe attribuire a queste due dichiarazioni un `n/d`
+ * che non è più il loro.
  */
 export function missingDeclaredInputsText(reading: ValueBoxReading): string {
   if (reading.missingDeclaredInputs.length === 0) return "";
@@ -116,7 +144,7 @@ export function missingDeclaredInputsText(reading: ValueBoxReading): string {
     names.length === 1
       ? names[0]!
       : `${names.slice(0, -1).join(", ")} e ${names[names.length - 1]!}`;
-  return `I due valori in crediti restano n/d finché ${list} non entrano nell'app.`;
+  return `Il valore relativo resta n/d finché ${list} non entrano nell'app.`;
 }
 
 /**
@@ -140,10 +168,54 @@ export function valueBoxNoteText(reading: ValueBoxReading): string {
     .join(" ");
 }
 
+/**
+ * IL NUMERO, RESO. Interi come interi, non interi con UN decimale.
+ *
+ * È una regola di RESA e non un arrotondamento del numero: il valore esatto
+ * resta quello che il motore ha prodotto (`AbsoluteValueChain.total`), che non
+ * viene toccato, clampato né arrotondato in nessun ramo. La quota di uno slot è
+ * una divisione — 200 crediti su 9 difensori fanno 22,2222… — e stampare
+ * diciassette cifre in un riquadro che si legge in due secondi durante un'asta
+ * non è più onesto: è solo illeggibile. Un decimale è un decimo di credito,
+ * cioè sotto la granularità di qualunque offerta al tavolo.
+ *
+ * La virgola e non il punto: è la scrittura italiana dei decimali, e il
+ * riquadro parla italiano. Nessun `Intl`, nessuna locale del runtime — il
+ * determinismo del progetto vale anche qui.
+ */
+export function valueNumberText(value: number): string {
+  if (Number.isInteger(value)) return String(value);
+  return value.toFixed(1).replace(".", ",");
+}
+
 /** Il testo della cella: il numero con la sua unità, oppure `n/d`. */
 export function valueSlotText(slot: ValueSlot): string {
   if (slot.kind === "assente") return VALUE_UNKNOWN;
-  return slot.unit === "crediti" ? `${slot.value} cr` : String(slot.value);
+  const text = valueNumberText(slot.value);
+  return slot.unit === "crediti" ? `${text} cr` : text;
+}
+
+/**
+ * LA CATENA DEL VALORE ASSOLUTO IN UNA RIGA, coi numeri veri e non con la
+ * formula in astratto: «250 cr sul ruolo / 9 slot · fascia 3».
+ *
+ * Il budget del regolamento non compare in questa riga e non è una
+ * dimenticanza: il target di ruolo È già la sua ripartizione, e ripetere «su
+ * 500» accanto a un numero che quei 500 li ha già consumati aggiungerebbe una
+ * cifra senza aggiungere un fatto. Il tetto resta nella catena esposta
+ * (`AbsoluteValueChain.budget`), dove un revisore lo trova.
+ *
+ * QUANDO IL NUMERO STA SOTTO IL CREDITO MINIMO LO DICE, e non lo corregge: il
+ * motore non clampa (sarebbe una scelta), quindi la sola cosa onesta che resta
+ * a chi mostra è nominarlo.
+ */
+export function absoluteChainText(reading: ValueBoxReading): string {
+  const chain = reading.absoluteChain;
+  if (chain === null) return "";
+  const head =
+    `${valueNumberText(chain.roleTarget)} cr sul ruolo / ${chain.roleSlots} slot` +
+    ` · fascia ${chain.tier}`;
+  return reading.absoluteBelowCostFloor ? `${head} — sotto il credito minimo` : head;
 }
 
 /** La riga sotto il numero: la provenienza se c'è un numero, il motivo se no. */
@@ -157,6 +229,12 @@ export function valueSlotWhyText(
     // presa dalla lettura e non riscritta qui: `DECLARED_VALUE_PROVENANCE`.
     if (id === "valore-relativo" && reading.creditsProvenance !== null) {
       return `${reading.creditsProvenance}, adesso`;
+    }
+    // LA CATENA, IN UNA RIGA. Non è decorazione: un numero derivato che non sa
+    // dire da dove viene si legge come un numero inventato, e questa cella è la
+    // sola superficie su cui la derivazione arriva sotto gli occhi di Pico.
+    if (id === "valore-assoluto" && reading.absoluteChain !== null) {
+      return absoluteChainText(reading);
     }
     return VALUE_SLOT_SOURCE[id];
   }
