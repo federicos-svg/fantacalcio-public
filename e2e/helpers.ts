@@ -4,6 +4,7 @@
 // because the duplication across those specs was real, not speculative.
 import { type BrowserContext, type Page, expect } from "@playwright/test";
 import { LISTONE_PAGE_SIZE } from "../src/ui/listone.js";
+import type { CallScreenState, CallScreenSweep } from "../src/ui/callScreenBudget.js";
 
 export const LISTONE_ASSET_PATH = "/data/listone_2025_26.json";
 export const LISTONE_REMOTE_PATH = "/api/listone";
@@ -762,4 +763,117 @@ export async function resolveTokenColors(
     }
     return out;
   }, tokens);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   #59 — LA SPAZZATA DEL BUDGET VERTICALE DELLA SCHERMATA DI CHIAMATA
+   ────────────────────────────────────────────────────────────────────────────
+   Il browser qui MISURA soltanto. Chi decide che cosa è un fallimento — e a
+   CHI attribuirlo — è la funzione pura `callScreenBudgetFindings()` in
+   src/ui/callScreenBudget.ts, che gira senza browser e si prova a secco.
+   Questa separazione è il motivo per cui il mastro non costa un giro di
+   Playwright per essere verificato.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Aspetta che la schermata di chiamata abbia SMESSO DI MUOVERSI, e non è una
+ * precauzione generica: è la chiusura di una corsa misurata.
+ *
+ * Ogni club del listone rende un `<img>` verso `/assets/clubs/<slug>.svg`
+ * (src/ui/serieA.ts). Questo repository pubblico non spedisce nessun logo,
+ * quindi ognuna di quelle immagini fa 404 e solo allora `onerror` la nasconde
+ * e accende la pastiglia testuale — che è PIÙ LARGA (min-width 28px contro i
+ * 18px dell'immagine). Fra il primo paint e l'ultimo 404 la cella del nome va
+ * a capo in modo diverso, e la stessa riga misura 92,5px oppure 96,75px a
+ * seconda di quando si guarda. Misurato: senza questa attesa la stessa scena
+ * dava due span diversi a due esecuzioni consecutive.
+ */
+export async function waitForCallScreenSettled(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () => Array.from(document.images).every((img) => img.complete),
+    undefined,
+    { timeout: 15_000 },
+  );
+  // Due frame: il primo lascia applicare gli `onerror`, il secondo lascia
+  // ricalcolare il layout che quelli hanno cambiato.
+  await page.evaluate(
+    async () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }),
+  );
+}
+
+/**
+ * Raccoglie i blocchi della schermata di chiamata PER FORMA — ogni figlio di
+ * `#call-screen-column`, qualunque cosa sia — e non da un elenco. È lo stesso
+ * idioma della spazzata di `measureAllText` qui sopra, ed è l'unico che regge
+ * il blocco che ancora non esiste: quello arriva come un figlio in più e viene
+ * misurato senza che nessuno debba ricordarsi di aggiungerlo da qualche parte.
+ *
+ * LA PIASTRELLATURA È ESATTA. Ogni blocco copre da dove finisce il precedente
+ * a dove finisce lui, ritagliato sullo span dichiarato (dal bordo superiore
+ * del campo di ricerca a quello dell'indicatore di pagina). Quindi la somma
+ * dei consumi È lo span, e i margini fra due blocchi non spariscono nel nulla:
+ * li paga il blocco sotto, che è quello che li ha chiesti.
+ */
+export async function sweepCallScreen(
+  page: Page,
+  state: CallScreenState,
+): Promise<CallScreenSweep> {
+  return page.evaluate((st) => {
+    const docTop = (el: Element): number => el.getBoundingClientRect().top + window.scrollY;
+    const docBottom = (el: Element): number => el.getBoundingClientRect().bottom + window.scrollY;
+
+    const column = document.getElementById("call-screen-column");
+    if (column === null) throw new Error("mastro: #call-screen-column non è a schermo");
+
+    // Deliberatamente NON un throw quando il campo di ricerca manca: una
+    // schermata svuotata deve arrivare alla spazzata e rompere l'ANTI-VACUITÀ
+    // con il suo nome, non morire prima con un errore d'infrastruttura che
+    // somiglia a un problema del test. Che il campo debba stare sopra la
+    // piega lo prova già e2e/call-screen-order.spec.ts.
+    const search = document.getElementById("search-player");
+    const indicator = Array.from(document.querySelectorAll("span")).find((s) =>
+      /^Pagina \d+ di \d+$/.test(s.textContent ?? ""),
+    );
+
+    const spanStart = search === null ? docTop(column) : docTop(search);
+    // Senza paginazione (listone non caricabile) lo span finisce dove finisce
+    // la colonna: non c'è un controllo di pagina da raggiungere.
+    const spanEnd = indicator === undefined ? docBottom(column) : docTop(indicator);
+
+    const children = Array.from(column.children);
+    const blocks = [];
+    let cursor = docTop(column);
+    for (const el of children) {
+      const bottom = docBottom(el);
+      const cls = typeof el.className === "string" ? el.className.trim() : "";
+      blocks.push({
+        domId: el.id,
+        description: `${el.tagName.toLowerCase()}${cls === "" ? "" : `.${cls.split(/\s+/).join(".")}`}`,
+        consumptionPx: Math.max(0, Math.min(spanEnd, bottom) - Math.max(spanStart, cursor)),
+      });
+      cursor = bottom;
+    }
+
+    const rows = Array.from(document.querySelectorAll(".listone-row"));
+    const listoneBlock = document.getElementById("listone-block");
+    let listone = null;
+    if (rows.length > 0 && listoneBlock !== null) {
+      const index = children.indexOf(listoneBlock);
+      const listoneStart = index > 0 ? docBottom(children[index - 1]!) : docTop(listoneBlock);
+      const last = rows[rows.length - 1]!;
+      listone = {
+        rowCount: rows.length,
+        // Il MASSIMO, non la prima: una riga sola che va a capo perché il suo
+        // club è più lungo degli altri deve bastare a rompere la forma.
+        rowHeightPx: Math.max(...rows.map((r) => r.getBoundingClientRect().height)),
+        headPx: docTop(rows[0]!) - listoneStart,
+        tailPx: spanEnd - docBottom(last),
+      };
+    }
+
+    return { state: st, spanPx: spanEnd - spanStart, blocks, listone };
+  }, state);
 }

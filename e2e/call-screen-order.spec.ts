@@ -1,7 +1,17 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { ListonePlayer } from "../src/ui/listone.js";
 import { LISTONE_PAGE_SIZE } from "../src/ui/listone.js";
-import { installSyntheticNetworkGuard, openTableDetail } from "./helpers.js";
+import {
+  CALL_SCREEN_BUDGET_VIEWPORT,
+  callScreenBudgetAttribution,
+  callScreenVerticalBudgetPx,
+} from "../src/ui/callScreenBudget.js";
+import {
+  installSyntheticNetworkGuard,
+  openTableDetail,
+  sweepCallScreen,
+  waitForCallScreenSettled,
+} from "./helpers.js";
 
 // #333 — L'ORDINE DELLA SCHERMATA DI RICERCA È UNA DECISIONE, E QUESTA SPEC LA
 // TIENE FERMA.
@@ -41,7 +51,11 @@ import { installSyntheticNetworkGuard, openTableDetail } from "./helpers.js";
 // cosa.
 
 const VIEWPORTS = [
-  { width: 390, height: 844 },
+  // #59 — la stessa risoluzione, in un posto solo: il telefono su cui il
+  // budget verticale è dichiarato vive nel libro mastro
+  // (src/ui/callScreenBudget.ts) e questa spec lo IMPORTA invece di
+  // riscriverlo. Valore identico a prima, nessuna costante duplicata.
+  CALL_SCREEN_BUDGET_VIEWPORT,
   { width: 1280, height: 720 },
   { width: 1440, height: 900 },
   { width: 1920, height: 1080 },
@@ -198,12 +212,36 @@ test("con 532 righe la paginazione è un controllo raggiungibile, non la sesta s
       return el.getBoundingClientRect().top + window.scrollY;
     }, `Pagina 1 di ${expectedPages}`);
 
+    // #59 — IL TOTALE DICHIARATO NON È PIÙ UN NUMERO SOLO DI QUESTA SPEC.
+    // `callScreenVerticalBudgetPx` è l'ESTRAZIONE del numero che il predicato
+    // qui sotto calcola, non una seconda copia: questa riga è ciò che rende
+    // impossibile ai due divergere. Il predicato resta quello che era.
+    expect(
+      callScreenVerticalBudgetPx(viewport.height),
+      `${viewport.width}px: il totale del mastro non è più quello della guardia`,
+    ).toBe(viewport.height * 2);
+
+    // #59 — E ADESSO LA GUARDIA SA DIRE A CHI. Prima di asserire si chiama la
+    // spazzata per blocco e si costruisce il messaggio che a questa guardia è
+    // sempre mancato: fin qui sapeva dire «troppo», mai «di chi». Nessuna
+    // asserzione tolta, nessuna ammorbidita, nessun predicato toccato — solo
+    // il messaggio. L'attribuzione esiste alla risoluzione su cui il mastro è
+    // stato misurato; altrove si dice che non c'è, invece di inventarla.
+    await waitForCallScreenSettled(page);
+    const attribution =
+      viewport.width === CALL_SCREEN_BUDGET_VIEWPORT.width &&
+      viewport.height === CALL_SCREEN_BUDGET_VIEWPORT.height
+        ? callScreenBudgetAttribution(await sweepCallScreen(page, "ricerca"), viewport.height)
+        : `lo span è ${Math.round(indicatorTop - top)}px su ${callScreenVerticalBudgetPx(viewport.height)}px — ` +
+          `il mastro per blocco (src/ui/callScreenBudget.ts) è misurato a ` +
+          `${CALL_SCREEN_BUDGET_VIEWPORT.width}×${CALL_SCREEN_BUDGET_VIEWPORT.height}: qui nessuna attribuzione`;
+
     // Attaccata alla ricerca: la tabella che la separa dal campo è al massimo
     // una pagina di LISTONE_PAGE_SIZE righe, quindi il controllo che serve a
     // ogni ricerca sta entro DUE schermate — prima stava alla quinta a 390px.
     expect(
       indicatorTop - top,
-      `${viewport.width}px: la paginazione è a ${Math.round(indicatorTop - top)}px dal campo di ricerca`,
+      `${viewport.width}px: la paginazione è a ${Math.round(indicatorTop - top)}px dal campo di ricerca — ${attribution}`,
     ).toBeLessThan(viewport.height * 2);
   }
 
