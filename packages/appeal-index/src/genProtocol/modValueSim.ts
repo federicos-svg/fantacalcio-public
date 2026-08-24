@@ -326,9 +326,14 @@ export function simulateDeltaMC(
  * finta.
  *
  * `p(v, no-bonus)` viene dalla congiunta a 18 bin, dove `flag_bonus` e'
- * `Gf>0 ∨ Ass>0 ∨ Rs>0` (§A.3): l'insieme «senza bonus» coincide esattamente
- * con l'eleggibilita' di §21 dopo la correzione del 2026-08-21 (voto
- * sufficiente E nessun gol/assist E nessun rigore sbagliato).
+ * `Gf>0 ∨ Rf>0 ∨ Ass>0 ∨ Rs>0` (§A.3, allineato il 2026-08-24): l'insieme
+ * «senza bonus» coincide esattamente con l'eleggibilita' di §21 dopo la
+ * correzione del 2026-08-21 (voto sufficiente E nessun gol/assist E nessun
+ * rigore sbagliato).
+ *
+ * `Rf` e' entrato nel predicato il 2026-08-24: senza di lui un attaccante che
+ * segnava solo su rigore finiva fra i «senza bonus» e questo ΔMA lo contava
+ * come eleggibile, gonfiando il valore del modificatore proprio sui rigoristi.
  */
 export function computeDeltaMA(subject: ModValueSubject, options: ModValueOptions = {}): ModValueResult {
   if (subject.role !== "A") throw new Error(`computeDeltaMA: ΔMA e' definito per A, non per '${subject.role}'`);

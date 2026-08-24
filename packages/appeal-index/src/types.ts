@@ -32,7 +32,26 @@ export interface PlayerSeasonAggregate {
   readonly mediaVoto: number | null; // mean voto_base over presenze rows
   readonly fantamedia: number | null; // mean per-presence fantavoto (fantavoto.ts)
   readonly volatilitaVoto: number | null; // stdDev of voto_base over presenze rows (null if presenze < 2)
+  /**
+   * Gol fatti, TUTTI: `Gf + Rf` (su azione + su rigore). Dal 2026-08-24
+   * (ratificato da Pico) «gol fatti» e' il totale, perche' il modo in cui un
+   * gol e' stato segnato non ne toglie nessuno. Prima contava il solo `Gf`, su
+   * una premessa falsificata dalla misura di campo privata del 2026-08-24.
+   */
   readonly golFatti: number;
+  /**
+   * La sola componente SU AZIONE (`Gf`), tenuta separata di proposito.
+   *
+   * Non e' ridondanza: segnare su rigore e segnare su azione sono abilita'
+   * diverse, con persistenza diversa da una stagione all'altra, e chi tira i
+   * rigori dipende da una decisione di squadra che puo' cambiare da un anno
+   * all'altro. Un modello che vede solo il totale non puo' distinguere il
+   * bomber dal rigorista designato; uno che vede entrambe le componenti si'.
+   * Vale l'identita' `golFatti === golSuAzione + rigoriSegnati`.
+   */
+  readonly golSuAzione: number;
+  /** La sola componente su rigore (`Rf`) — si veda `golSuAzione`. */
+  readonly rigoriSegnati: number;
   readonly assist: number;
   readonly ammonizioni: number;
   readonly espulsioni: number;

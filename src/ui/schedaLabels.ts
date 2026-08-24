@@ -14,7 +14,7 @@
 // ammessi — vive nel contratto (src/expertScheda.ts, copia fedele di
 // packages/gruppo-esperti/src/signals.ts, privato).
 
-import type { Avviso, Piazzati, Rigori, Titolarita } from "../expertScheda.js";
+import type { Avviso, ListaEsperti, Piazzati, Rigori, Titolarita } from "../expertScheda.js";
 
 /**
  * L'INTESTAZIONE della pastiglia categorica, come una COSTANTE e non come un
@@ -51,4 +51,22 @@ export const AVVISO_LABELS: Readonly<Record<Avviso, string>> = {
   rischio_fisico: "rischio fisico",
   provvisorio: "provvisorio",
   mercato: "mercato",
+};
+
+/**
+ * LE TRE LISTE EDITORIALI, in parole.
+ *
+ * Stavano in src/ui/schedaIcone.ts, cioè sotto la quarta icona del riquadro.
+ * Sono scese qui per la ragione per cui questo file esiste: adesso le legge
+ * anche il MODULO che compila le schede (src/schedaCompiler.ts), e quello è un
+ * layer puro — non può dipendere da schedaIcone.ts, che disegna HTML e importa
+ * `escHtml`. Le due strade alternative erano una seconda copia del dizionario
+ * (che diverge in silenzio) o del DOM dentro un layer che non ne ha: nessuna
+ * delle due. `schedaIcone.ts` le RIESPORTA, quindi ogni import esistente resta
+ * dov'era.
+ */
+export const LISTA_ESPERTI_LABELS: Readonly<Record<ListaEsperti, string>> = {
+  consigliato: "consigliato",
+  possibile_sorpresa: "possibile sorpresa",
+  sconsigliato: "sconsigliato",
 };

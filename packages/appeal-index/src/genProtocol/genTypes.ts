@@ -11,10 +11,11 @@
 //
 // Nessuna tariffa e nessun calcolo vive qui: il fantavoto di una riga
 // giornaliera si ottiene ESCLUSIVAMENTE da `computeFantavoto()` di
-// `../fantavoto.ts` (versione `appeal_index_offline_v2_gs_keeper`, malus `Gs`
-// al solo portiere). Non e' una preferenza di stile: una seconda tariffa in
-// questo albero renderebbe i target storici incoerenti con se stessi, che e'
-// il difetto che la correzione del 2026-08-23 ha appena finito di riparare.
+// `../fantavoto.ts` (versione `appeal_index_offline_v3_rf_penalty`, malus `Gs`
+// al solo portiere, rigore segnato `Rf` = +3). Non e' una preferenza di stile:
+// una seconda tariffa in questo albero renderebbe i target storici incoerenti
+// con se stessi, che e' il difetto che le correzioni del 2026-08-23 (`Gs`) e
+// del 2026-08-24 (`Rf`) hanno appena finito di riparare.
 //
 // Nessun campo di questo modulo nomina un fornitore di statistiche: le
 // statistiche di stagione entrano da `seasonStats`, una mappa nome->numero
@@ -61,7 +62,16 @@ export interface MatchdayVote {
   readonly Rp: number;
   /** Rigori sbagliati (§A.1); entra anche nel `flag_bonus` di T-D (§A.3). */
   readonly Rs: number;
-  /** Rigori segnati — nessun termine proprio nel fantavoto, sono gia' dentro `Gf` (§A.1, guardia P0.5). */
+  /**
+   * Rigori SEGNATI (§A.1) — termine proprio del fantavoto, +3 come ogni gol,
+   * su qualunque ruolo.
+   *
+   * Fino al 2026-08-23 questo campo era documentato come «gia' dentro `Gf`» e
+   * la tariffa lo ignorava. La misura di campo privata del 2026-08-24 lo ha
+   * falsificato: `Gf` (gol su azione), `Rf` (rigori segnati) e `Rs` (rigori
+   * sbagliati) sono tre colonne DISGIUNTE, e i totali stagionali noti si
+   * riproducono solo con `Gf + Rf`. Chi somma gol qui somma `Gf + Rf`.
+   */
   readonly Rf: number;
   /** Autogol (§A.1). */
   readonly Au: number;
@@ -92,8 +102,8 @@ export function isValidPresence(row: MatchdayVote): boolean {
  * `modValueSim.ts` e i mondi sintetici, e tre copie della stessa conversione
  * sarebbero tre occasioni di divergere. NON e' una seconda tariffa: e'
  * l'adattatore che presenta la riga a `computeFantavoto()` — versione
- * `appeal_index_offline_v2_gs_keeper`, malus `Gs` al solo portiere — nella
- * forma che quella funzione pretende.
+ * `appeal_index_offline_v3_rf_penalty`, malus `Gs` al solo portiere, rigore
+ * segnato `Rf` = +3 su ogni ruolo — nella forma che quella funzione pretende.
  *
  * I campi che la tariffa non legge (squadra, nome, id) sono riempiti con
  * segnaposto che non nominano nessuno: qui non passano nomi reali, nemmeno
