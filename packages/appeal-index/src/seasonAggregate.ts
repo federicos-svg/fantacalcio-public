@@ -41,6 +41,8 @@ interface Bucket {
   presenceVoti: number[];
   presenceFantavoti: number[];
   golFatti: number;
+  golSuAzione: number;
+  rigoriSegnati: number;
   assist: number;
   ammonizioni: number;
   espulsioni: number;
@@ -82,6 +84,8 @@ export function buildPlayerSeasonAggregates(
         presenceVoti: [],
         presenceFantavoti: [],
         golFatti: 0,
+        golSuAzione: 0,
+        rigoriSegnati: 0,
         assist: 0,
         ammonizioni: 0,
         espulsioni: 0,
@@ -95,7 +99,12 @@ export function buildPlayerSeasonAggregates(
     b.roles.push(r.role);
     b.teams.push(r.team);
     b.matchdaysObserved += 1;
-    b.golFatti += r.Gf ?? 0;
+    // «Gol fatti» = TUTTI i gol, `Gf + Rf` (allineato il 2026-08-24, ratificato
+    // da Pico). Le due componenti restano leggibili a parte perche' predicono
+    // cose diverse — si veda `golSuAzione` in types.ts.
+    b.golSuAzione += r.Gf ?? 0;
+    b.rigoriSegnati += r.Rf ?? 0;
+    b.golFatti += (r.Gf ?? 0) + (r.Rf ?? 0);
     b.assist += r.Ass ?? 0;
     b.ammonizioni += r.Amm ?? 0;
     b.espulsioni += r.Esp ?? 0;
@@ -134,6 +143,8 @@ export function buildPlayerSeasonAggregates(
       fantamedia: presenze > 0 ? mean(b.presenceFantavoti) : null,
       volatilitaVoto: presenze >= 2 ? stdDev(b.presenceVoti) : null,
       golFatti: b.golFatti,
+      golSuAzione: b.golSuAzione,
+      rigoriSegnati: b.rigoriSegnati,
       assist: b.assist,
       ammonizioni: b.ammonizioni,
       espulsioni: b.espulsioni,

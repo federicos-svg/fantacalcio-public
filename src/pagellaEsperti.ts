@@ -206,6 +206,39 @@ export interface PagellaScheda {
 
 const votoSchema = z.number().int().min(PAGELLA_VOTO_MIN).max(PAGELLA_VOTO_MAX);
 
+const votiSchema = z
+  .object({
+    pagella_titolarita: votoSchema.optional(),
+    pagella_media_voto: votoSchema.optional(),
+    pagella_salute: votoSchema.optional(),
+    pagella_porta_inviolata: votoSchema.optional(),
+    pagella_bonus: votoSchema.optional(),
+    pagella_consiglio: votoSchema.optional(),
+  })
+  .strict();
+
+const pagellaObjectSchema = z
+  .object({
+    voti: votiSchema,
+    totaleFonte: z.number().int().min(0).max(PAGELLA_TOTALE_MAX).optional(),
+  })
+  .strict();
+
+/**
+ * Le chiavi della pagella e i suoi assi, LETTI DALLO SCHEMA — la metà
+ * annidata di `EXPERT_SCHEDA_SCHEMA_KEYS` (src/expertScheda.ts), e per la
+ * stessa ragione: la guardia strutturale del compilatore deve poter chiedere
+ * allo schema che cosa ammette, invece di fidarsi di un elenco scritto a mano
+ * accanto. Uno schema `.strict()` rigido solo al primo livello lascerebbe
+ * crescere `voti` senza che nessuno se ne accorga, che è il punto cieco che
+ * questo modulo ha già chiuso per la validazione e qui chiude per la
+ * compilazione.
+ */
+export const PAGELLA_SCHEMA_KEYS: readonly string[] = Object.keys(pagellaObjectSchema.shape);
+export const PAGELLA_VOTI_SCHEMA_KEYS: readonly PagellaAsse[] = Object.keys(
+  votiSchema.shape,
+) as readonly PagellaAsse[];
+
 /**
  * Lo schema. `.strict()` su entrambi i livelli — una chiave in più è un errore
  * di validazione, non un campo che passa in silenzio — e un `superRefine` che
@@ -217,21 +250,7 @@ const votoSchema = z.number().int().min(PAGELLA_VOTO_MIN).max(PAGELLA_VOTO_MAX);
  * respinto con un messaggio, che sei voti su cinque assi mostrati come se
  * fossero una pagella.
  */
-export const pagellaSchema = z
-  .object({
-    voti: z
-      .object({
-        pagella_titolarita: votoSchema.optional(),
-        pagella_media_voto: votoSchema.optional(),
-        pagella_salute: votoSchema.optional(),
-        pagella_porta_inviolata: votoSchema.optional(),
-        pagella_bonus: votoSchema.optional(),
-        pagella_consiglio: votoSchema.optional(),
-      })
-      .strict(),
-    totaleFonte: z.number().int().min(0).max(PAGELLA_TOTALE_MAX).optional(),
-  })
-  .strict()
+export const pagellaSchema = pagellaObjectSchema
   .superRefine((value, ctx) => {
     if (
       value.voti.pagella_porta_inviolata !== undefined &&

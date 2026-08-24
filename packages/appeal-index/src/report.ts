@@ -78,7 +78,7 @@ export interface AppealIndexReport {
 
 const COMMON_LIMITS: readonly string[] = [
   "Il join cross-stagione usa una playerKey locale a questo package, non canonical_player_id: non promuove alcuna identità.",
-  "fantavoto calcolato con una tariffa semplificata (FANTAVOTO_RULE_VERSION), esclude Gs (modificatore difesa, Batch 4) e Rf (semantica non confermata nel repo).",
+  "fantavoto calcolato con la tariffa dichiarata in FANTAVOTO_RULE_VERSION: include il malus Gs (solo portiere) e i rigori segnati Rf (+3, ogni ruolo). Resta una tariffa dei soli eventi individuali di §12: nessun modificatore di squadra (difesa, attacco) entra in questo numero.",
   "Il dataset esclude per costruzione i giocatori che escono dal pannello l'anno successivo (retrocessione, fine carriera, trasferimento fuori dai dati tracciati): il modello predice prestazione condizionata alla permanenza, non probabilità di permanenza.",
   "Feature di ruolo usano il ruolo osservato nell'ultima stagione storica come proxy del ruolo dichiarato pre-asta: una semplificazione, non lo stesso segnale di un listone stagionale reale (che qui non esiste per le stagioni storiche).",
   "Con poche stagioni disponibili le baseline (specialmente lo shrinkage verso la media di ruolo) sono un avversario molto difficile da battere in modo stabile — un esito 'baseline vince' è un risultato onesto, non un fallimento della pipeline.",
