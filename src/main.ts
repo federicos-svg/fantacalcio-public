@@ -144,7 +144,10 @@ import {
   type RecoveryBlockedProps,
   renderInterestFlagRow,
   renderLateAnswerBlock,
+  renderValueBoxBlock,
+  type ValueBoxProps,
 } from "./ui/views.js";
+import { DECLARED_INPUTS_WITHOUT_SOURCE, valueBoxReading } from "./valueBox.js";
 import {
   INTEREST_FLAG_NOT_PERSISTED_NOTICE,
   enqueueInterestFlag,
@@ -1700,6 +1703,43 @@ function tierBandProps(aState: AuctionState): TierBandProps {
       selfId: SELF_ID,
     }),
     role: selected === null ? "" : selected.role,
+  };
+}
+
+/**
+ * Ingressi del RIQUADRO DEL VALORE (views.ts `renderValueBoxBlock`): i quattro
+ * numeri di `docs/DECISIONS.md` §"Il riquadro del valore porta quattro numeri",
+ * per il giocatore chiamato adesso.
+ *
+ * Tutto il lavoro sta in `valueBoxReading` (src/valueBox.ts), che è puro e
+ * testato senza DOM: qui si passano soltanto i pezzi di stato che quella
+ * funzione non può conoscere. `listonePlayerKey` è la STESSA chiave con cui
+ * l'event log registra un acquisto, come per `tierBandProps`.
+ *
+ * `call: null`, E PERCHÉ NON È UNA SCORCIATOIA. La schermata CHIAMATA del
+ * motore (`callScreen()`, packages/engine/src/callScreen.ts) è scritta,
+ * esportata e provata, ma pretende DUE dichiarazioni di Pico che il core
+ * pubblico non ha ancora un posto dove raccogliere: il listino dei valori per
+ * giocatore (`DeclaredValueBook`) e il profilo di rischio (`ValueProfile`, che
+ * sceglie l'α preregistrato di §4.2). Nessuna delle due ha una sorgente in
+ * `src/`. Fabbricarne una qui — un valore dedotto dalla quotazione, un profilo
+ * «medio» di default — sarebbe inventare esattamente l'ingrediente 2 della
+ * regola dei tre ingredienti (§D9), cioè far dire all'app che Pico ha
+ * dichiarato qualcosa che non ha dichiarato. Il riquadro dice invece `n/d` e
+ * dice quale dichiarazione manca; il giorno in cui quelle due entrano nell'app,
+ * questa funzione passa un `CallScreen` vero e i due slot in crediti si
+ * accendono senza toccare né la lettura né la vista.
+ */
+function valueBoxProps(): ValueBoxProps {
+  const selected = state.call.selectedPlayer;
+  return {
+    reading: valueBoxReading({
+      called:
+        selected === null ? null : { playerId: listonePlayerKey(selected), role: selected.role },
+      appealIndex: selected?.appealIndex,
+      call: null,
+      missingDeclaredInputs: DECLARED_INPUTS_WITHOUT_SOURCE,
+    }),
   };
 }
 
@@ -5388,6 +5428,24 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   topRow.appendChild(playerInfo);
   topRow.appendChild(maxSafeWrap);
   card.appendChild(topRow);
+
+  // RIQUADRO DEL VALORE — i quattro numeri, dentro la scheda del chiamato e
+  // SUBITO sotto la riga d'identità e il prezzo.
+  //
+  // PERCHÉ QUI E NON ALTROVE. `docs/DECISIONS.md` §«Scarsità solo dal tavolo»
+  // vale solo per la scarsità, non per il valore mostrato» e §"Estensione della
+  // deroga display-only dell'indice" nominano entrambe lo stesso posto — «il
+  // riquadro del valore della scheda del giocatore chiamato» —, ed è anche
+  // l'unico punto dell'app in cui la domanda «quanto vale» viene fatta con
+  // qualcuno che sta urlando un prezzo. L'ordine di lettura della scheda
+  // diventa: chi è chiamato e quanto costa adesso → quanto vale → come sta il
+  // mercato di quel ruolo → il gesto che registra l'acquisto.
+  //
+  // STA SOPRA IL GESTO, quindi il suo costo in altezza è un vincolo e non un
+  // dettaglio: e2e/asta-gesto-principale.spec.ts asserisce che «ASSEGNA A»
+  // resti entro 560px dal bordo del documento, ed è la ragione per cui le
+  // quattro celle stanno su una riga sola (src/styles/asta.css).
+  card.appendChild(renderValueBoxBlock(valueBoxProps()));
 
   // MOMENTO DELL'ASTA — ridotto al ruolo chiamato, dentro la scheda (#331
   // punto 2). Le altre tre celle di ruolo, il censimento MERCATO e la nota
