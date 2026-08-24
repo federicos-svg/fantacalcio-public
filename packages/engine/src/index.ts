@@ -40,3 +40,9 @@ export * from "./identityName.js";
 // packages/engine/src/tiers.ts §"Il contratto di iniezione" e
 // docs/DECISIONS.md §"Eccezioni operative scritte" (2026-08-16).
 export * from "./tiers.js";
+// Valore assoluto in crediti — la scala DERIVATA dal regolamento (budget
+// ripartito dai target dichiarati di Pico, diviso per gli slot del ruolo,
+// collocato dalla fascia) più le tre gambe che la spostano, oggi tutte a peso
+// zero. Vedi packages/engine/src/absoluteValue.ts §"La catena della
+// derivazione" (decisione di Pico, 2026-08-24).
+export * from "./absoluteValue.js";

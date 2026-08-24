@@ -23,9 +23,19 @@ import {
   stateOf,
 } from "../packages/engine/tests/layer2Fixtures.js";
 import { plan, value, valueBookOf } from "../packages/engine/tests/layer3Fixtures.js";
+import {
+  APPEAL_ORDER_TIE_BREAK,
+  tierBook,
+  type TierBook,
+} from "../packages/engine/src/tiers.js";
+import {
+  NO_LEG_INPUTS,
+  type AbsoluteValueInput,
+} from "../packages/engine/src/absoluteValue.js";
 import type { ListoneAppealIndex } from "./ui/listone.js";
 import {
   DECLARED_INPUTS_WITHOUT_SOURCE,
+  SLOT_4_SOURCE_MOVED,
   VALUE_SLOT_ORDER,
   valueBoxReading,
   type ValueBoxReading,
@@ -33,10 +43,12 @@ import {
 import {
   VALUE_UNKNOWN,
   valueBoxHtml,
+  missingDeclaredInputsText,
   valueBoxNoteText,
   valueBoxSpoken,
   valueSlotText,
   valueSlotWhyText,
+  RELATIVE_PRICE_BOUND_TEXT,
 } from "./ui/valueBox.js";
 
 // IL RIQUADRO DEL VALORE PORTA DAVVERO QUATTRO NUMERI, E OGNUNO DEI QUATTRO SA
@@ -144,11 +156,56 @@ function engineCallWith(
  */
 const DRAINED_LOG = buildLog([...fillRole(SELF, "D", 9, 25), ...fillRole(SELF, "C", 9, 25)]);
 
-/**
- * IL TAVOLO che l'app passa al riquadro: lo stato d'asta vero (dal reducer) e
- * la mia identità. Alimenta il solo SLOT 4, e non dipende da nessuna
- * dichiarazione di Pico — è la ragione per cui quello slot si accende oggi.
- */
+// ── GLI INGRESSI DEL VALORE ASSOLUTO ────────────────────────────────────────
+// Dalla decisione di Pico del 2026-08-24 lo slot 3 non è più una dichiarazione
+// giocatore per giocatore: è la scala del regolamento (budget → target di ruolo
+// → slot del ruolo → fascia) più tre gambe a peso zero. Qui si costruiscono i
+// suoi ingressi con le stesse fixture sintetiche del resto del file.
+
+/** Il libro delle fasce del motore vero, su un ordine sintetico di soli `a_*`. */
+const TIER_BOOK: TierBook = tierBook(
+  {
+    provenance: {
+      source: "listone sintetico di test",
+      recipe: RECIPE,
+      tieBreak: APPEAL_ORDER_TIE_BREAK,
+    },
+    roles: [
+      {
+        role: "A",
+        playerIds: ["a_uno", "a_due", "a_tre", "a_non_valutato", "a_zero", "a_muto"],
+      },
+    ],
+  },
+  { teamsCount: 8 },
+);
+
+/** Gli stessi target del piano dichiarato del file: A = 210 su 7 slot = 30 cr. */
+const ABSOLUTE_TARGETS = { P: 20, D: 80, C: 140, A: 210 } as const;
+
+/** Base attesa per un attaccante in fascia: `210 / ROSTER_REQUIREMENTS.A`. */
+const BASE_A = 210 / 7;
+
+const ABSOLUTE: Omit<AbsoluteValueInput, "called"> = {
+  roleTargets: ABSOLUTE_TARGETS,
+  book: TIER_BOOK,
+  legs: NO_LEG_INPUTS,
+};
+
+/** Nessun target dichiarato: è lo stato dell'app finché Pico non compila il piano. */
+const ABSOLUTE_UNDECLARED: Omit<AbsoluteValueInput, "called"> = {
+  roleTargets: {},
+  book: TIER_BOOK,
+  legs: NO_LEG_INPUTS,
+};
+
+// ── GLI INGRESSI DEL PREZZO RELATIVO ────────────────────────────────────────
+// Lo slot 4 non ha ingressi dichiarati: ha il TAVOLO. È il contrario esatto di
+// `ABSOLUTE` qui sopra — quello non può contenere uno stato d'asta, questo non
+// contiene altro — e le due costanti stanno vicine perché la differenza si
+// veda leggendo.
+
+/** Lo stato d'asta vero (dal reducer) e la mia identità: gli ingressi dello slot 4. */
 function tableOf(log = buildLog([])): { state: AuctionState; selfId: string } {
   return { state: stateOf(log), selfId: SELF };
 }
@@ -158,7 +215,9 @@ function tableOf(log = buildLog([])): { state: AuctionState; selfId: string } {
  * che dedotto: otto squadre identiche a 500 crediti hanno tutte lo stesso max
  * bid vero (500 − 27 slot obbligatori residui = 473), quindi il secondo chiede
  * 474 e il tetto del più ricco lo riporta a 473. È la regola letta fino in
- * fondo — quando tutti possono tutto, vincere costa tutto — non un difetto.
+ * fondo — quando tutti possono tutto, vincere costa tutto — non un difetto, ed
+ * è il caso in cui la riga sotto il numero dice «tetto del tavolo» invece di
+ * «secondo max bid»: il numero non è ancora un prezzo di mercato.
  */
 const FRESH_TABLE_PRICE = 473;
 
@@ -168,6 +227,7 @@ function readingWithEngine(playerId: string, appealIndex?: ListoneAppealIndex): 
     appealIndex,
     call: engineCall(playerId),
     missingDeclaredInputs: [],
+    absolute: ABSOLUTE,
     table: tableOf(),
   });
 }
@@ -178,7 +238,11 @@ function readingAsShipped(appealIndex?: ListoneAppealIndex): ValueBoxReading {
     called: { playerId: "a_uno", role: "A" },
     appealIndex,
     call: null,
-    missingDeclaredInputs: DECLARED_INPUTS_WITHOUT_SOURCE,
+    // Vuota, come la passa `src/main.ts`: nessuna cella dipende più da una
+    // dichiarazione di Pico. `DECLARED_INPUTS_WITHOUT_SOURCE` resta importata e
+    // provata qui sotto, dove il fatto che descrive è ancora vero.
+    missingDeclaredInputs: [],
+    absolute: ABSOLUTE_UNDECLARED,
     table: tableOf(),
   });
 }
@@ -195,7 +259,7 @@ describe("riquadro del valore — i quattro numeri", () => {
     expect(Object.keys(reading.slots).sort()).toEqual([...VALUE_SLOT_ORDER].sort());
   });
 
-  it("i due numeri in crediti escono da DUE catene diverse: il valore dichiarato e il prezzo relativo", () => {
+  it("il valore relativo è il prezzo del tavolo, NON più fairToMeMaxEffective", () => {
     const call = engineCall("a_uno");
     expect(call.numbers).not.toBeNull();
     const table = tableOf();
@@ -204,16 +268,12 @@ describe("riquadro del valore — i quattro numeri", () => {
       appealIndex: index(72),
       call,
       missingDeclaredInputs: [],
+      absolute: ABSOLUTE,
       table,
     });
 
-    expect(reading.slots["valore-assoluto"]).toEqual({
-      kind: "numero",
-      value: call.declaredValue,
-      unit: "crediti",
-    });
-    // LO SLOT 4 È IL PREZZO RELATIVO, e non un parente della catena §4.2: è
-    // esattamente ciò che `relativePriceReading()` risponde su QUESTO tavolo.
+    // È esattamente ciò che `relativePriceReading()` risponde su QUESTO tavolo,
+    // non un suo parente arrotondato e non un numero riscritto qui.
     const price = relativePriceReading({ state: table.state, role: "A", selfId: SELF });
     expect(price.kind).toBe("prezzo");
     expect(reading.slots["valore-relativo"]).toEqual({
@@ -228,9 +288,9 @@ describe("riquadro del valore — i quattro numeri", () => {
     });
 
     // E NON È `fairToMeMaxEffective`: qui i due numeri esistono tutti e due e
-    // non si somigliano — 60 la catena dei valori dichiarati, 473 il tavolo.
-    // È la riga che diventa rossa se qualcuno riattacca lo slot alla catena
-    // vecchia, che è esattamente il difetto che questa corsia ha chiuso.
+    // non si somigliano — 60 la catena dei valori dichiarati, 473 il tavolo. È
+    // la riga che diventa rossa se qualcuno riattacca lo slot alla catena
+    // vecchia, cioè il difetto che questa corsia ha chiuso.
     expect(call.numbers!.fairToMeMaxEffective).toBe(60);
     expect(reading.slots["valore-relativo"]).not.toEqual({
       kind: "numero",
@@ -238,10 +298,60 @@ describe("riquadro del valore — i quattro numeri", () => {
       unit: "crediti",
     });
 
-    // La provenienza imposta dal motore qualifica il numero costruito sui
-    // valori dichiarati — cioè il SOLO valore assoluto. Il prezzo relativo da
-    // quei valori non passa, e portarla anche lì sarebbe una frase falsa.
-    expect(reading.creditsProvenance).toBe("derivato dai tuoi valori");
+    // IL VINCOLO CHE HA FISSATO IL NUMERO viaggia col numero: a tavolo fresco è
+    // il tetto strutturale, non la scala dei rivali.
+    expect(reading.relativePriceBound).toBe("tetto-del-piu-ricco");
+  });
+
+  it("il valore assoluto è la scala del regolamento, NON più il valore dichiarato di Pico", () => {
+    const call = engineCall("a_uno");
+    // Il valore che Pico ha dichiarato per `a_uno` è 60; la base derivata è
+    // 210/7 = 30. Se il riquadro leggesse ancora `declaredValue` mostrerebbe
+    // 60, ed è esattamente la differenza che questo test tiene ferma.
+    expect(call.declaredValue).toBe(60);
+    const reading = valueBoxReading({
+      called: { playerId: "a_uno", role: "A" },
+      appealIndex: index(72),
+      call,
+      missingDeclaredInputs: [],
+      absolute: ABSOLUTE,
+      table: tableOf(),
+    });
+    expect(reading.slots["valore-assoluto"]).toEqual({
+      kind: "numero",
+      value: BASE_A,
+      unit: "crediti",
+    });
+    expect(reading.slots["valore-assoluto"]).not.toEqual({
+      kind: "numero",
+      value: call.declaredValue,
+      unit: "crediti",
+    });
+    // La catena arriva fino a chi mostra: budget, target, slot, fascia.
+    expect(reading.absoluteChain).not.toBeNull();
+    expect(reading.absoluteChain).toMatchObject({
+      role: "A",
+      budget: 500,
+      roleTarget: 210,
+      roleSlots: 7,
+      perSlot: BASE_A,
+      tier: 1,
+      base: BASE_A,
+      total: BASE_A,
+    });
+    expect(valueBoxHtml(reading)).toContain("210 cr sul ruolo / 7 slot");
+  });
+
+  it("il debito dello slot 4 è SALDATO, e la costante che lo dichiarava è sostituita, non affiancata", () => {
+    // `#46` aveva scritto `SLOT_4_SUPERSEDED` per dire «agganciato alla catena
+    // vecchia, riparazione in una PR dedicata». Questa è quella PR: la costante
+    // nuova dice che cosa ha sostituito che cosa, e che niente è stato rimosso.
+    // Tenerle entrambe farebbe dire al file «non riparato» e «riparato» insieme.
+    expect(SLOT_4_SOURCE_MOVED).toContain("relativePriceReading()");
+    expect(SLOT_4_SOURCE_MOVED).toContain("fairToMeMaxEffective");
+    expect(SLOT_4_SOURCE_MOVED).toContain("2026-08-24");
+    expect(SLOT_4_SOURCE_MOVED).toContain("SLOT_4_SUPERSEDED");
+    expect(SLOT_4_SOURCE_MOVED).toContain("marcato, non rimosso");
   });
 
   it("l'indice assoluto è il punteggio servito, con qualità e ricetta portate dal dato", () => {
@@ -262,43 +372,18 @@ describe("riquadro del valore — i quattro numeri", () => {
 
   it("il valore relativo si muove con la serata, il valore assoluto no", () => {
     // Stesso giocatore, stesso valore dichiarato: cambia solo ciò che il tavolo
-    // ha fatto. Due acquisti veri passati dal reducer tolgono capienza a due
-    // rivali, e il prezzo di vincere cambia — mentre la fotografia che Pico ha
-    // dichiarato resta identica. È la coppia di proprietà che il record del
-    // 2026-08-24 chiede allo slot 4: «relativo al momento dell'asta».
-    // Sei rivali su sette comprano un attaccante da 200: la loro capienza
-    // scende da 473 a 274, e con essa il SECONDO della scala. Il settimo resta
-    // fresco, quindi il tetto del più ricco non si muove — proprio come
-    // nell'esempio di Pico.
-    const laterLog = buildLog(
-      TEAMS.slice(1, 7).flatMap((team) => fillRole(team, "A", 1, 200)),
+    // ha fatto. Comprare le alternative del ruolo toglie il piano B e con esso
+    // il costo opportunità, quindi il tetto derivato si muove.
+    const fresh = engineCall("a_uno", buildLog([]), "prudente");
+    const afterMarket = engineCall(
+      "a_uno",
+      buildLog([buy("a_due", "A", TEAMS[1]!, 20), buy("a_tre", "A", TEAMS[2]!, 8)]),
+      "prudente",
     );
-    const fresh = valueBoxReading({
-      called: { playerId: "a_uno", role: "A" },
-      appealIndex: index(72),
-      call: engineCall("a_uno"),
-      missingDeclaredInputs: [],
-      table: tableOf(),
-    });
-    const later = valueBoxReading({
-      called: { playerId: "a_uno", role: "A" },
-      appealIndex: index(72),
-      call: engineCall("a_uno", laterLog),
-      missingDeclaredInputs: [],
-      table: tableOf(laterLog),
-    });
-
-    expect(later.slots["valore-assoluto"]).toEqual(fresh.slots["valore-assoluto"]);
-    expect(fresh.slots["valore-relativo"]).toEqual({
-      kind: "numero",
-      value: FRESH_TABLE_PRICE,
-      unit: "crediti",
-    });
-    expect(later.slots["valore-relativo"]).toEqual({
-      kind: "numero",
-      value: 275, // 274 del secondo, più uno
-      unit: "crediti",
-    });
+    expect(fresh.declaredValue).toBe(afterMarket.declaredValue);
+    expect(fresh.numbers!.fairToMeMaxEffective).not.toBe(
+      afterMarket.numbers!.fairToMeMaxEffective,
+    );
   });
 
   // MISURA SCOMODA, REGISTRATA PERCHÉ NON RESTI IMPLICITA. Con l'α
@@ -308,13 +393,7 @@ describe("riquadro del valore — i quattro numeri", () => {
   // Non è un difetto di questo riquadro né una libertà che si prende: è la
   // catena del motore letta fino in fondo, e chi guarda due numeri uguali ha
   // diritto di sapere perché lo sono.
-  // AGGIORNATA, NON TOLTA. Questa misura resta vera e resta registrata, ma da
-  // questa corsia in poi descrive la CATENA FTM del motore e non più lo slot 4
-  // del riquadro, che legge `relativePriceReading()`. Si tiene perché la
-  // regola del progetto è che un'asserzione si aggiorna o si inverte, mai si
-  // toglie: il giorno in cui qualcuno riattaccasse il riquadro a quella catena
-  // ritroverebbe qui, scritto, che cosa comporta.
-  it("catena FTM (non più a schermo): con α = 1,00 il tetto coincide col valore dichiarato finché non morde max_safe", () => {
+  it("con α = 1,00 il relativo coincide con l'assoluto finché non morde max_safe", () => {
     const call = engineCall("a_uno", buildLog([]), "media");
     expect(call.numbers!.alpha).toBe(1);
     expect(call.numbers!.fairToMeMaxRaw).toBe(call.declaredValue);
@@ -325,49 +404,7 @@ describe("riquadro del valore — i quattro numeri", () => {
     expect(tight.numbers!.fairToMeMaxEffective).toBe(tight.numbers!.maxSafe);
   });
 
-  it("IL TETTO DEL TAVOLO vale anche per lo slot 4, e adesso è scritto nella formula", () => {
-    // Il record impone che il valore relativo non superi «quanto il tavolo può
-    // pagarlo adesso», cioè il MASSIMO dei max bid veri — un giocatore lo compra
-    // una squadra sola, quindi la somma non è la capacità. Con la sorgente
-    // nuova quel tetto non è più una conseguenza della catena: è uno degli
-    // argomenti del minimo, insieme al mio `max_safe`.
-    const logs: readonly (readonly [string, ReturnType<typeof buildLog>])[] = [
-      ["tavolo fresco", buildLog([])],
-      ["mercato avviato", buildLog([buy("a_due", "A", TEAMS[1]!, 200)])],
-      [
-        "tavolo consumato",
-        buildLog([
-          buy("a_due", "A", TEAMS[1]!, 200),
-          buy("a_tre", "A", TEAMS[2]!, 180),
-          buy("c_uno", "C", TEAMS[3]!, 250),
-        ]),
-      ],
-    ];
-    for (const [label, log] of logs) {
-      const state = stateOf(log);
-      const slot = valueBoxReading({
-        called: { playerId: "a_uno", role: "A" },
-        appealIndex: index(72),
-        call: null,
-        missingDeclaredInputs: DECLARED_INPUTS_WITHOUT_SOURCE,
-        table: { state, selfId: SELF },
-      }).slots["valore-relativo"];
-      if (slot.kind !== "numero") continue;
-      const tableCapacity = Math.max(
-        ...Object.values(state.teams).map((team) => {
-          const safe = maxSafe(team, "A");
-          return safe.biddable ? safe.maxSafe : 0;
-        }),
-      );
-      expect(slot.value, label).toBeLessThanOrEqual(tableCapacity);
-      // E non supera mai il MIO tetto hard-safe, interrogato e non riderivato.
-      expect(slot.value, label).toBeLessThanOrEqual(maxSafe(state.teams[SELF]!, "A").maxSafe);
-    }
-  });
-
-  // AGGIORNATA, NON TOLTA — vedi la nota sopra: la misura resta vera della
-  // catena FTM, che però non alimenta più il riquadro.
-  it("catena FTM (non più a schermo): fairToMeMaxEffective resta sotto il massimo dei max bid veri", () => {
+  it("IL TETTO DEL TAVOLO è rispettato per costruzione: il valore relativo non supera il massimo dei max bid veri", () => {
     const scenarios: readonly (readonly [string, ReturnType<typeof buildLog>])[] = [
       ["tavolo fresco", buildLog([])],
       ["mercato avviato", buildLog([buy("a_due", "A", TEAMS[1]!, 20)])],
@@ -410,13 +447,16 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       appealIndex: undefined,
       call: null,
       missingDeclaredInputs: DECLARED_INPUTS_WITHOUT_SOURCE,
+      absolute: ABSOLUTE,
       table: tableOf(),
     });
     for (const id of VALUE_SLOT_ORDER) {
       expect(reading.slots[id]).toEqual({ kind: "assente", reason: "nessun-chiamato" });
       expect(valueSlotText(reading.slots[id])).toBe(VALUE_UNKNOWN);
     }
-    expect(reading.creditsProvenance).toBeNull();
+    // Nessun vincolo del prezzo relativo senza il suo numero: un vincolo che
+    // non lega niente sarebbe una frase su un numero che non c'è.
+    expect(reading.relativePriceBound).toBeNull();
   });
 
   it("listone senza indice: n/d col motivo, mai uno zero e mai un punto medio", () => {
@@ -449,23 +489,21 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       appealIndex: index(50),
       call,
       missingDeclaredInputs: [],
+      absolute: ABSOLUTE,
       table: tableOf(),
     });
-    expect(reading.slots["valore-assoluto"]).toEqual({
-      kind: "assente",
-      reason: "motore-senza-numeri",
-    });
+    // IL VERDETTO DEL MOTORE RESTA RIPORTATO — è un fatto sul chiamato — ma non
+    // spegne più nessuna cella: lo slot 4 non dipende dal listino delle ancore,
+    // perché quanto costa vincere è un fatto sul TAVOLO. Prima di questa corsia
+    // si spegneva insieme all'altro, e si spegneva per un motivo che non era il
+    // suo.
     expect(reading.engineReason).toBe("anchor-missing");
-    expect(valueBoxHtml(reading)).toContain("nessuna quotazione per lui");
-    // E LO SLOT 4 RESTA ACCESO, perché il suo numero non dipende dal listino
-    // delle ancore: quanto costa vincere è un fatto sul TAVOLO. Prima di questa
-    // corsia si spegneva insieme all'altro, e si spegneva per un motivo che non
-    // era il suo.
     expect(reading.slots["valore-relativo"]).toEqual({
       kind: "numero",
       value: FRESH_TABLE_PRICE,
       unit: "crediti",
     });
+    expect(valueBoxHtml(reading)).not.toContain("nessuna quotazione per lui");
   });
 
   // ── «NON DICHIARATO» E «DICHIARATO ZERO» ───────────────────────────────────
@@ -502,32 +540,37 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       appealIndex: index(64),
       call,
       missingDeclaredInputs: [],
+      absolute: ABSOLUTE,
       table: tableOf(),
     });
 
-    expect(reading.slots["valore-assoluto"]).toEqual({
-      kind: "assente",
-      reason: "motore-senza-numeri",
-    });
-    // Il prezzo relativo, invece, c'è: non aspetta una dichiarazione di Pico.
+    // NESSUNO DEI DUE SLOT IN CREDITI NE RISENTE PIÙ, ed è la conseguenza
+    // congiunta delle due corsie del 2026-08-24. Il verdetto del motore resta
+    // riportato — è un fatto sul chiamato — ma non spegne più nessuna cella.
+    expect(reading.engineReason).toBe("declared-value-missing");
     expect(reading.slots["valore-relativo"]).toEqual({
       kind: "numero",
       value: FRESH_TABLE_PRICE,
       unit: "crediti",
     });
-    expect(reading.engineReason).toBe("declared-value-missing");
-
-    // A schermo: `n/d`, col perché del motore e non con una frase generica.
-    expect(valueSlotText(reading.slots["valore-assoluto"])).toBe(VALUE_UNKNOWN);
     const html = valueBoxHtml(reading);
-    expect(html).toContain("non hai dichiarato un valore per lui");
-    // E NESSUNO ZERO: un'assenza non si arrotonda al numero più vicino a nulla.
-    expect(html).not.toContain(">0 cr<");
-    // La provenienza non compare: qualificherebbe un numero che non c'è.
-    expect(reading.creditsProvenance).toBeNull();
+    // E la frase del motore non arriva a schermo, perché nessuno slot esce più
+    // con `motore-senza-numeri`: sarebbe la spiegazione di una cella spenta che
+    // spenta non è.
+    expect(html).not.toContain("non hai dichiarato un valore per lui");
+
+    // E LO SLOT 3 NON NE RISENTE, che è il senso della decisione del
+    // 2026-08-24: il valore assoluto non attraversa più il listino di Pico,
+    // quindi un giocatore mai valutato ha lo stesso identico valore assoluto
+    // di uno valutato.
+    expect(reading.slots["valore-assoluto"]).toEqual({
+      kind: "numero",
+      value: BASE_A,
+      unit: "crediti",
+    });
   });
 
-  it("DICHIARATO ZERO: 0 è una dichiarazione — a schermo è «0 cr», mai n/d", () => {
+  it("DICHIARATO ZERO: 0 resta una dichiarazione, e non collassa su «non dichiarato»", () => {
     const call = engineCallWith("a_zero", BOOK_CON_ZERO, VALUES_CON_ZERO);
     // Il motore NON lo tratta come una mancanza: lo zero attraversa la guardia
     // su `declaredValue === null` e arriva fino in fondo alla catena.
@@ -539,9 +582,63 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       appealIndex: index(64),
       call,
       missingDeclaredInputs: [],
+      absolute: ABSOLUTE,
       table: tableOf(),
     });
 
+    // IL CONFRONTO, che è il punto: le due scene restano DUE, e il riquadro le
+    // racconta con due motivi diversi. Un `!declaredValue` al posto di
+    // `=== null` le farebbe collassare in una sola, e questa riga lo impedisce.
+    const nonDichiarato = valueBoxReading({
+      called: { playerId: "a_non_valutato", role: "A" },
+      appealIndex: index(64),
+      call: engineCallWith("a_non_valutato", BOOK_CON_NON_VALUTATO, VALUES),
+      missingDeclaredInputs: [],
+      absolute: ABSOLUTE,
+      table: tableOf(),
+    });
+    expect(reading.engineReason).not.toBe(nonDichiarato.engineReason);
+    expect(nonDichiarato.engineReason).toBe("declared-value-missing");
+  });
+
+  // ── «RUOLO NON DICHIARATO» E «RUOLO DICHIARATO ZERO» ───────────────────────
+  // La stessa distinzione, trasferita dov'è finita la dichiarazione di Pico:
+  // dai valori per giocatore ai TARGET DI RUOLO. `src/rolePlan.ts` tiene i due
+  // silenzi separati apposta («sul portiere NON HO ANCORA DECISO» contro «sul
+  // portiere HO DECISO ZERO»), e il riquadro non può fonderli.
+
+  it("RUOLO SENZA TARGET: n/d col motivo che nomina il target, e NESSUNA ripartizione di ripiego", () => {
+    const reading = valueBoxReading({
+      called: { playerId: "a_uno", role: "A" },
+      appealIndex: index(72),
+      call: engineCall("a_uno"),
+      missingDeclaredInputs: [],
+      absolute: ABSOLUTE_UNDECLARED,
+      table: tableOf(),
+    });
+    expect(reading.slots["valore-assoluto"]).toEqual({
+      kind: "assente",
+      reason: "ruolo-senza-target",
+    });
+    expect(reading.absoluteChain).toBeNull();
+    const html = valueBoxHtml(reading);
+    expect(html).toContain("manca il tuo target di ruolo");
+    // Nessun numero al posto del buco: né una media dei ruoli dichiarati, né
+    // 500/28, né uno zero. Una ripartizione inventata è il peso nascosto che
+    // §D9 vieta, e sarebbe indistinguibile a schermo da una dichiarazione vera.
+    expect(valueSlotText(reading.slots["valore-assoluto"])).toBe(VALUE_UNKNOWN);
+    expect(html).not.toContain(">0 cr<");
+  });
+
+  it("RUOLO DICHIARATO ZERO: 0 è un piano, e a schermo è «0 cr» — mai n/d", () => {
+    const reading = valueBoxReading({
+      called: { playerId: "a_uno", role: "A" },
+      appealIndex: index(72),
+      call: engineCall("a_uno"),
+      missingDeclaredInputs: [],
+      absolute: { ...ABSOLUTE, roleTargets: { ...ABSOLUTE_TARGETS, A: 0 } },
+      table: tableOf(),
+    });
     expect(reading.slots["valore-assoluto"]).toEqual({
       kind: "numero",
       value: 0,
@@ -549,57 +646,50 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
     });
     expect(valueSlotText(reading.slots["valore-assoluto"])).toBe("0 cr");
     expect(valueBoxHtml(reading)).toContain(">0 cr<");
-    // Uno zero DICHIARATO porta la provenienza, perché è un numero costruito
-    // sui valori di Pico come qualunque altro.
-    expect(reading.creditsProvenance).toBe("derivato dai tuoi valori");
-
-    // IL CONFRONTO, che è il punto: la stessa cella, le due scene, due esiti
-    // che non si somigliano. Un `!declaredValue` al posto di `=== null` le
-    // farebbe collassare in una sola, e questa riga è ciò che lo impedisce.
-    const nonDichiarato = valueBoxReading({
-      called: { playerId: "a_non_valutato", role: "A" },
-      appealIndex: index(64),
-      call: engineCallWith("a_non_valutato", BOOK_CON_NON_VALUTATO, VALUES),
-      missingDeclaredInputs: [],
-      table: tableOf(),
-    });
-    expect(reading.slots["valore-assoluto"]).not.toEqual(
-      nonDichiarato.slots["valore-assoluto"],
-    );
+    // SOTTO IL CREDITO MINIMO, e lo DICE invece di aggiustarlo: nessun clamp
+    // al pavimento, che sarebbe una scelta silenziosa.
+    expect(reading.absoluteBelowCostFloor).toBe(true);
+    expect(valueBoxHtml(reading)).toContain("sotto il credito minimo");
   });
 
-  it("l'app di oggi non ha le dichiarazioni di Pico: lo dice, e dice quali mancano — ma non spegne il prezzo relativo", () => {
+  it("l'app di oggi: lo slot 3 tace per il SUO motivo, lo slot 4 porta un numero", () => {
     const reading = readingAsShipped(index(72));
+    // Lo slot 3 tace per il target di ruolo che manca — non per una
+    // dichiarazione generica —, e lo slot 4 non tace affatto: i due `n/d` di
+    // prima non erano lo stesso `n/d`, e adesso uno dei due non c'è più.
     expect(reading.slots["valore-assoluto"]).toEqual({
       kind: "assente",
-      reason: "ingredienti-dichiarati-assenti",
+      reason: "ruolo-senza-target",
     });
-    // LO SLOT 4 SI ACCENDE OGGI. È la differenza che questa corsia introduce:
-    // prima i due numeri in crediti tacevano insieme e per lo stesso motivo;
-    // adesso il prezzo relativo si calcola sui soli vincoli duri del tavolo, e
-    // nessuna dichiarazione mancante lo riguarda.
     expect(reading.slots["valore-relativo"]).toEqual({
       kind: "numero",
       value: FRESH_TABLE_PRICE,
       unit: "crediti",
     });
-    const note = valueBoxNoteText(reading);
-    expect(note).toContain("i tuoi valori per giocatore");
-    expect(note).toContain("il tuo profilo di rischio");
-    // E la frase dice UNA cella, non due: prometterne due significherebbe dire
-    // che il prezzo relativo è spento per una ragione che non è la sua.
-    expect(note).toContain("Il valore assoluto resta n/d");
-    expect(note).not.toContain("I due valori in crediti");
     const html = valueBoxHtml(reading);
+    expect(html).toContain("manca il tuo target di ruolo");
     // L'indice assoluto, che una sorgente ce l'ha, resta un numero vero.
     expect(html).toContain(">72<");
-    // La provenienza dei valori dichiarati non compare: non c'è, a schermo,
-    // nessun numero costruito su quei valori da qualificare.
-    expect(reading.creditsProvenance).toBeNull();
+    // NESSUNA ETICHETTA DI PROVENIENZA DEI VALORI DICHIARATI, in nessuno stato:
+    // è uscita dal riquadro insieme all'ultimo numero che poteva qualificare.
+    expect(html).not.toContain("derivato dai tuoi valori");
+    expect(valueBoxNoteText(reading)).not.toContain("derivato dai tuoi valori");
+  });
+
+  it("la nota in testata non promette più una cella spenta da una dichiarazione", () => {
+    // L'app passa una lista vuota (src/main.ts): nessuno dei quattro numeri
+    // aspetta una dichiarazione di Pico, quindi la frase non ha più un
+    // soggetto. La funzione che la costruisce resta, e resta provata qui sotto
+    // per il giorno in cui una cella tornerà a dipenderne.
+    const shipped = readingAsShipped(index(72));
+    expect(shipped.missingDeclaredInputs).toEqual([]);
+    expect(missingDeclaredInputsText(shipped)).toBe("");
+    expect(valueBoxNoteText(shipped)).not.toContain("i tuoi valori per giocatore");
+    expect(valueBoxNoteText(shipped)).not.toContain("il tuo profilo di rischio");
   });
 });
 
-describe("riquadro del valore — lo SLOT 4 è il prezzo relativo, e le sue assenze sono sue", () => {
+describe("riquadro del valore — lo SLOT 4 è il prezzo del tavolo, e le sue assenze sono sue", () => {
   // Le cinque scene in cui «quanto costa vincere» non esiste, ognuna col
   // proprio motivo e nessuna con un numero di ripiego. Sono le stesse cinque
   // che `relativeValue.ts` dichiara: qui si prova che il riquadro le TRADUCE
@@ -610,7 +700,8 @@ describe("riquadro del valore — lo SLOT 4 è il prezzo relativo, e le sue asse
       called: { playerId: "a_uno", role: "A" },
       appealIndex: index(72),
       call: null,
-      missingDeclaredInputs: DECLARED_INPUTS_WITHOUT_SOURCE,
+      missingDeclaredInputs: [],
+      absolute: ABSOLUTE,
       table: { state: stateOf(log), selfId },
     });
   }
@@ -621,14 +712,14 @@ describe("riquadro del valore — lo SLOT 4 è il prezzo relativo, e le sue asse
       kind: "assente",
       reason: "ruolo-pieno-per-me",
     });
+    expect(reading.relativePriceBound).toBeNull();
     expect(valueBoxHtml(reading)).toContain("il tuo ruolo è pieno");
   });
 
   it("IL MIO BUDGET BLOCCATO dalla riserva dura: nessuna offerta valida, nessun prezzo", () => {
-    const reading = slot4(buildLog(fillRole(SELF, "D", 9, 54)));
-    expect(maxSafe(stateOf(buildLog(fillRole(SELF, "D", 9, 54))).teams[SELF]!, "A").biddable).toBe(
-      false,
-    );
+    const log = buildLog(fillRole(SELF, "D", 9, 54));
+    expect(maxSafe(stateOf(log).teams[SELF]!, "A").biddable).toBe(false);
+    const reading = slot4(log);
     expect(reading.slots["valore-relativo"]).toEqual({
       kind: "assente",
       reason: "non-posso-offrire",
@@ -665,39 +756,100 @@ describe("riquadro del valore — lo SLOT 4 è il prezzo relativo, e le sue asse
     expect(valueBoxHtml(reading)).toContain("non è a questo tavolo");
   });
 
-  it("quando il numero c'è, la riga sotto nomina l'ingrediente e non lo qualifica", () => {
-    const reading = readingAsShipped(index(72));
+  // ── LE TRE RIGHE DEL PERCHÉ ────────────────────────────────────────────────
+  // Il numero da solo confonde due cose che il motore tiene separate: un prezzo
+  // che il mercato sta formando e un tetto strutturale. La distinzione esisteva
+  // già in `RelativePriceChain.boundBy` e non arrivava a schermo; queste tre
+  // misure sono ciò che la tiene lì. Nessuna formula nuova, nessun peso.
+
+  it("TETTO DEL TAVOLO: a tavolo fresco la riga NON dice «il secondo max bid»", () => {
+    // È la scena dei primi minuti, ed è la ragione per cui la distinzione
+    // serve: con otto squadre identiche il numero è 473 per QUALUNQUE giocatore
+    // di QUALUNQUE ruolo, quindi non misura il giocatore — misura il tavolo.
+    const reading = slot4(buildLog([]));
+    expect(reading.slots["valore-relativo"]).toEqual({
+      kind: "numero",
+      value: FRESH_TABLE_PRICE,
+      unit: "crediti",
+    });
+    expect(reading.relativePriceBound).toBe("tetto-del-piu-ricco");
+    expect(valueSlotWhyText("valore-relativo", reading.slots["valore-relativo"], reading)).toBe(
+      "il tetto del tavolo: nessuno arriva più in alto",
+    );
+
+    // LA PROVA CHE IL NUMERO NON DISTINGUE, e la riga sì: gli altri tre ruoli
+    // danno lo stesso identico numero, e la stessa identica riga.
+    for (const role of ["P", "D", "C"] as const) {
+      const other = valueBoxReading({
+        called: { playerId: "x_uno", role },
+        appealIndex: index(72),
+        call: null,
+        missingDeclaredInputs: [],
+        absolute: ABSOLUTE,
+        table: tableOf(),
+      });
+      expect(other.slots["valore-relativo"], role).toEqual({
+        kind: "numero",
+        value: FRESH_TABLE_PRICE,
+        unit: "crediti",
+      });
+      expect(other.relativePriceBound, role).toBe("tetto-del-piu-ricco");
+    }
+  });
+
+  it("SCALA DEI RIVALI: quando il mercato differenzia, la riga lo dice", () => {
+    // Sei rivali su sette hanno speso: il secondo è a 274 e «secondo + 1» sta
+    // sotto il tetto del più ricco, quindi il numero è un prezzo vero.
+    const log = buildLog(TEAMS.slice(1, 7).flatMap((team) => fillRole(team, "A", 1, 200)));
+    const reading = slot4(log);
+    expect(reading.slots["valore-relativo"]).toEqual({
+      kind: "numero",
+      value: 275,
+      unit: "crediti",
+    });
+    expect(reading.relativePriceBound).toBe("scala-dei-rivali");
     expect(valueSlotWhyText("valore-relativo", reading.slots["valore-relativo"], reading)).toBe(
       "il secondo max bid al tavolo, +1",
     );
-    // E NON porta più la provenienza dei valori dichiarati: quel numero da
-    // quei valori non passa.
-    expect(
-      valueSlotWhyText("valore-relativo", reading.slots["valore-relativo"], reading),
-    ).not.toContain("derivato dai tuoi valori");
+  });
+
+  it("TETTO MAX_SAFE: la riga dice che il tetto è il MIO, non quello del tavolo", () => {
+    // Il terzo caso non è un doppione del secondo: accorparli direbbe a chi
+    // legge che nessuno può salire, mentre è lui a non poter salire.
+    const reading = slot4(DRAINED_LOG);
+    expect(reading.relativePriceBound).toBe("tetto-max-safe");
+    expect(valueSlotWhyText("valore-relativo", reading.slots["valore-relativo"], reading)).toBe(
+      "il tuo max bid: il tavolo chiede di più",
+    );
+    // Le tre frasi sono tre, e nessuna coppia collassa.
+    expect(new Set(Object.values(RELATIVE_PRICE_BOUND_TEXT)).size).toBe(3);
+  });
+
+  it("il numero si muove quando deve: stesso giocatore, tavolo diverso, prezzo diverso", () => {
+    const fresh = slot4(buildLog([]));
+    const later = slot4(
+      buildLog(TEAMS.slice(1, 7).flatMap((team) => fillRole(team, "A", 1, 200))),
+    );
+    expect(fresh.slots["valore-assoluto"]).toEqual(later.slots["valore-assoluto"]);
+    expect(later.slots["valore-relativo"]).not.toEqual(fresh.slots["valore-relativo"]);
   });
 
   it("lo slot 4 non dipende dalla schermata CHIAMATA: stesso tavolo, stesso numero", () => {
-    // `call` alimenta il solo valore assoluto. Passarne uno vero o `null` non
-    // può spostare il prezzo relativo di un credito — ed è la riga che diventa
+    // `call` non alimenta più nessuna cella. Passarne uno vero o `null` non può
+    // spostare il prezzo relativo di un credito — ed è la riga che diventa
     // rossa se qualcuno lo riattacca a quella catena.
     const table = tableOf();
-    const senzaCall = valueBoxReading({
-      called: { playerId: "a_uno", role: "A" },
+    const common = {
+      called: { playerId: "a_uno", role: "A" as const },
       appealIndex: index(72),
-      call: null,
-      missingDeclaredInputs: DECLARED_INPUTS_WITHOUT_SOURCE,
-      table,
-    });
-    const conCall = valueBoxReading({
-      called: { playerId: "a_uno", role: "A" },
-      appealIndex: index(72),
-      call: engineCall("a_uno"),
       missingDeclaredInputs: [],
+      absolute: ABSOLUTE,
       table,
-    });
+    };
+    const senzaCall = valueBoxReading({ ...common, call: null });
+    const conCall = valueBoxReading({ ...common, call: engineCall("a_uno") });
     expect(conCall.slots["valore-relativo"]).toEqual(senzaCall.slots["valore-relativo"]);
-    expect(conCall.slots["valore-assoluto"]).not.toEqual(senzaCall.slots["valore-assoluto"]);
+    expect(conCall.slots["valore-assoluto"]).toEqual(senzaCall.slots["valore-assoluto"]);
   });
 });
 
@@ -715,6 +867,7 @@ describe("riquadro del valore — la resa non accende nient'altro", () => {
         appealIndex: undefined,
         call: null,
         missingDeclaredInputs: [],
+        absolute: ABSOLUTE,
         table: tableOf(),
       }),
     ];
@@ -742,22 +895,24 @@ describe("riquadro del valore — la resa non accende nient'altro", () => {
       appealIndex: index(72),
       call,
       missingDeclaredInputs: [],
+      absolute: ABSOLUTE,
       // Lo stesso momento della catena qui sopra: il riquadro non mostra due
       // fotografie diverse dello stesso tavolo.
       table: tableOf(DRAINED_LOG),
     });
-    // Su questo tavolo il prezzo relativo vale 41 — e vale 41 perché è il mio
+    // Su questo tavolo il prezzo relativo vale 41 — e vale 41 perché è il MIO
     // `max_safe` a mordere, la stessa ragione per cui `fairToMeMaxEffective`
     // vale 41. Due strade diverse che finiscono sullo stesso tetto hard-safe:
-    // la coincidenza è del tetto, non delle formule, e il test qui sopra («due
-    // catene diverse») la separa dove i due numeri divergono davvero.
+    // la coincidenza è del tetto, non delle formule, e il test «il valore
+    // relativo è il prezzo del tavolo» le separa dove divergono davvero.
     expect(maxSafe(stateOf(DRAINED_LOG).teams[SELF]!, "A").maxSafe).toBe(41);
+    expect(effective).toBe(41);
     expect(reading.slots["valore-relativo"]).toEqual({
       kind: "numero",
       value: 41,
       unit: "crediti",
     });
-    expect(effective).toBe(41);
+    expect(reading.relativePriceBound).toBe("tetto-max-safe");
     const numbers = VALUE_SLOT_ORDER.map((id) => reading.slots[id]).flatMap((slot) =>
       slot.kind === "numero" ? [slot.value] : [],
     );
@@ -765,13 +920,15 @@ describe("riquadro del valore — la resa non accende nient'altro", () => {
     expect(valueBoxHtml(reading)).not.toContain(`>${raw}<`);
   });
 
-  it("valori precisi, mai intervalli: ogni numero è uno scalare intero di crediti o un indice", () => {
+  it("valori precisi, mai intervalli: ogni numero è uno scalare, mai una coppia di estremi", () => {
     const reading = readingWithEngine("a_uno", index(72));
     for (const id of VALUE_SLOT_ORDER) {
       const slot = reading.slots[id];
       if (slot.kind !== "numero") continue;
       expect(Number.isFinite(slot.value)).toBe(true);
-      expect(valueSlotText(slot)).toMatch(/^-?\d+(\.\d+)?( cr)?$/);
+      // Uno scalare secco, con la virgola italiana quando la quota di uno slot
+      // non è intera (210/7 lo è, 200/9 no). Mai «fra 55 e 70».
+      expect(valueSlotText(slot)).toMatch(/^-?\d+(,\d)?( cr)?$/);
     }
   });
 });

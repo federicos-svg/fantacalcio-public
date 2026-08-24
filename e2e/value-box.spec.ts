@@ -43,13 +43,12 @@ import {
 // primo secondo dell'asta.
 //
 // COSA QUESTA SPEC NON PUÒ PROVARE, e va detto invece che nascosto: il VALORE
-// ASSOLUTO ha bisogno di due dichiarazioni di Pico — i valori per giocatore e
-// il profilo di rischio — che il core pubblico non ha ancora un posto dove
-// raccogliere. Nel giro vero quella cella dice quindi `n/d` e dice quale
-// dichiarazione manca; che porti il numero giusto quando la dichiarazione c'è è
-// misurato in src/valueBox.test.ts sulla catena vera del motore. Le due misure
-// insieme coprono i quattro numeri; nessuna delle due, da sola, mente
-// sull'altra.
+// ASSOLUTO ha bisogno dei TARGET DI RUOLO che Pico dichiara nel piano rosa, e
+// in un giro appena avviato quel piano è vuoto. Nel giro vero quella cella dice
+// quindi `n/d` e nomina il target che manca; che porti il numero giusto quando
+// il target c'è è misurato in src/valueBox.test.ts sulla catena vera del
+// motore. Le due misure insieme coprono i quattro numeri; nessuna delle due, da
+// sola, mente sull'altra.
 //
 // Tutte le righe sono sintetiche — nomi, club, punteggi e ricetta — e il
 // network guard aborta qualunque altra richiesta.
@@ -199,20 +198,43 @@ test("il riquadro del valore rende quattro celle dentro la scheda del chiamato",
   await expect(page.locator("#value-box-why-indice-relativo")).toContainText(
     "formula non decisa",
   );
+  // I DUE SLOT IN CREDITI NON SI SOMIGLIANO PIÙ, ed è la differenza congiunta
+  // delle due decisioni di Pico del 2026-08-24: il valore ASSOLUTO è derivato
+  // dal regolamento e dai target di ruolo (che l'app raccoglie nel piano rosa, e
+  // che in questo giro non sono dichiarati, quindi dice `n/d` e nomina il
+  // target); il valore RELATIVO è il prezzo del tavolo, che non aspetta nessuna
+  // dichiarazione e porta quindi un numero dal primo secondo.
   await expect(page.locator("#value-box-number-valore-assoluto")).toHaveText(VALUE_UNKNOWN);
-  await expect(page.locator("#value-box-note")).toContainText("i tuoi valori per giocatore");
-  await expect(page.locator("#value-box-note")).toContainText("il tuo profilo di rischio");
-  // E la nota promette UNA cella, non due: il valore relativo non aspetta
-  // nessuna dichiarazione.
-  await expect(page.locator("#value-box-note")).toContainText("Il valore assoluto resta n/d");
-
-  // Il VALORE RELATIVO, invece, porta il numero del tavolo, con la riga che
-  // dice da dove viene — e senza l'etichetta dei valori dichiarati, che
-  // qualificherebbe un numero che da quei valori non passa.
-  await expect(page.locator("#value-box-number-valore-relativo")).toHaveText(FRESH_TABLE_PRICE);
-  await expect(page.locator("#value-box-why-valore-relativo")).toHaveText(
-    "il secondo max bid al tavolo, +1",
+  await expect(page.locator("#value-box-why-valore-assoluto")).toContainText(
+    "target di ruolo",
   );
+  await expect(page.locator("#value-box-number-valore-relativo")).toHaveText(FRESH_TABLE_PRICE);
+
+  // LA RIGA SOTTO IL NUMERO DICE QUALE VINCOLO L'HA FISSATO, e in questa scena
+  // è il TETTO DEL TAVOLO: le otto squadre sono identiche, quindi nessuna
+  // arriva a «secondo + 1» e il numero non è ancora un prezzo di mercato. Se
+  // dicesse «il secondo max bid al tavolo, +1» starebbe chiamando prezzo un
+  // tetto strutturale — la distinzione che `RelativePriceChain.boundBy` porta
+  // fin qui.
+  await expect(page.locator("#value-box-why-valore-relativo")).toHaveText(
+    "il tetto del tavolo: nessuno arriva più in alto",
+  );
+
+  // NESSUNA NOTA CHE PROMETTA UNA CELLA SPENTA: dopo le due corsie nessuno dei
+  // quattro numeri aspetta una dichiarazione di Pico, quindi la testata non
+  // nomina più né i valori per giocatore né il profilo di rischio. Il perché
+  // sta nella cella, che è dove serve.
+  await expect(page.locator("#value-box-note")).not.toContainText("i tuoi valori per giocatore");
+  await expect(page.locator("#value-box-note")).not.toContainText("il tuo profilo di rischio");
+  // E l'etichetta dei valori dichiarati è uscita dal riquadro: non c'è più un
+  // numero costruito su quei valori da qualificare.
+  await expect(page.locator("#value-box")).not.toContainText("derivato dai tuoi valori");
+
+  // Le due righe del perché restano DIVERSE: se collassassero, il riquadro
+  // direbbe la stessa cosa di due numeri che vengono da due motori.
+  const whyAbsolute = await page.locator("#value-box-why-valore-assoluto").innerText();
+  const whyRelative = await page.locator("#value-box-why-valore-relativo").innerText();
+  expect(whyAbsolute).not.toBe(whyRelative);
 });
 
 test("il riquadro non accende nessun altro output direttivo", async ({ page }) => {
