@@ -9,9 +9,12 @@
 //     operative, più i casi di bordo della scala che una griglia casuale non
 //     produce da sola.
 //
-//  2. NON REGRESSIONE. Una soglia larga, non un cronometro: serve a far
-//     diventare rosso un ritorno al comportamento quadratico, non a misurare
-//     la macchina. Vedi il commento sulla costante per il margine scelto.
+//  2. NON REGRESSIONE, CONTATA. Nessun cronometro: il ritorno al comportamento
+//     quadratico si vede contando le RIGHE DI LISTONE che il radar legge —
+//     `listone` righe se la scala del cliff si prepara una volta, `candidati ×
+//     listone` se si ricostruisce a ogni candidato. Un intero riproducibile,
+//     non una mediana di campioni presa su una macchina che fa anche altro.
+//     Il perché del cambio, con la data, è nel blocco in testa alla sezione 2.
 
 import { describe, it, expect } from "vitest";
 import {
@@ -21,9 +24,12 @@ import {
   cliffFactsOn,
   cliffLadder,
   competitorSet,
+  declaredValueBook,
   opportunityRadar,
   reduce,
   type AuctionEvent,
+  type OpportunityCandidate,
+  type OpportunityRadarInput,
   type PlayerAnchor,
 } from "../src/index.js";
 import {
@@ -33,8 +39,10 @@ import {
 import {
   PERF_GRID_ASSETS,
   PERF_GRID_DECLARED,
+  countedInput,
   perfScenario,
   type PerfPhase,
+  type RadarWorkCounters,
 } from "./perfScenario.js";
 import { TEAMS, anchor, buildLog, buy } from "./layer2Fixtures.js";
 
@@ -223,8 +231,69 @@ describe("cliffFacts — il segno dello zero non si perde", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. Non regressione
+// 2. Non regressione — SI CONTA, NON SI CRONOMETRA (2026-08-24)
 // ---------------------------------------------------------------------------
+
+/* ────────────────────────────────────────────────────────────────────────────
+   PERCHÉ QUESTA SEZIONE È CAMBIATA — 2026-08-24
+   ────────────────────────────────────────────────────────────────────────────
+   Qui vivevano due asserzioni a orologio di parete:
+
+     - `expect(median).toBeLessThan(20)` sul caso realistico più pesante;
+     - `expect(timeOf(large)).toBeLessThan(timeOf(small) * 2.5 + 1)`, cioè un
+       RAPPORTO fra due tempi di parete misurati sulla stessa macchina.
+
+   Nessuna delle due è stata tolta e nessuna è stata ammorbidita: entrambe
+   dicono adesso la stessa cosa nella valuta in cui è esatta, e la seconda è
+   INVERTITA — da «il tempo del caso grande non superi 2,5 volte quello del
+   piccolo» (un tetto che si può centrare per fortuna) a «il listone si
+   attraversa esattamente una volta, comunque cresca» più il controllo negativo
+   che pretende il contrario dalla versione precedente.
+
+   IL MOTIVO. La frase da provare — «il costo cresce con i candidati, non con
+   candidati × listone» — è un'affermazione sulla QUANTITÀ DI LAVORO SVOLTO.
+   Il cronometro la misurava per procura, e la procura salta appena la macchina
+   fa altro: un worker ha visto quel rapporto fallire UNA volta su nove giri
+   completi, su una macchina che nel frattempo compilava e serviva test e2e di
+   altri worktree, e ha avuto ragione a NON classificarlo — nove giri non
+   distinguono 1/9 da 0/9. Il difetto però non è la frequenza: è che la
+   grandezza misurata non era quella affermata. Un test così prima o poi viene
+   chiamato «flake» e riavviato finché non passa, ed è il meccanismo con cui un
+   difetto vero si nasconde.
+
+   La regola di casa esisteva già ed è scritta in due posti: `builds`/`hits` in
+   `src/tierOrdering.cache.test.ts`, e il blocco «SI CONTA, NON SI CRONOMETRA»
+   di `src/ui/listone.test.ts`, che ha sostituito lo stesso identico stampo di
+   asserzione con un contatore di invocazioni.
+
+   LA GRANDEZZA. `candidati × listone` non è una metafora: è letteralmente il
+   numero di RIGHE DEL LISTONE che il radar legge. La scala del cliff costa una
+   passata sul listone; costruirla una volta sola vuol dire `listone` righe
+   lette, costruirla per ogni candidato vuol dire `candidati × listone`. Il
+   contatore sta negli INGRESSI (`countedInput` in `perfScenario.ts`), non nel
+   motore: nessuna riga di `packages/engine/src/` è stata toccata.
+
+   IL CAMBIO È ANCHE UN GUADAGNO DI COPERTURA, misurato rompendo il motore in
+   due modi separati (2026-08-24, su questa macchina):
+
+     - ROTTURA A, scala del cliff ricostruita per candidato: contatori rossi
+       (161.400 righe lette invece di 600); il vecchio rapporto a orologio la
+       prendeva anche lui (37,6 ms contro un limite di 15,2);
+     - ROTTURA B, memoizzazione di `competitorSet` rimossa: contatori rossi
+       (269 valutazioni invece di 86); il vecchio file a orologio era VERDE,
+       37 test su 37. Un fattore costante non si vede in un rapporto fra due
+       tempi, e infatti non si vedeva.
+
+   COSA NON PROVANO PIÙ QUESTI TEST, e va detto: nessuna soglia assoluta di
+   tempo. Un rallentamento a parità di lavoro — dieci volte più lento dentro
+   `currentAnchor`, per dire — non diventa rosso qui. Non lo diventava nemmeno
+   prima in modo affidabile: il vecchio commento ammetteva che a 20 ms «anche
+   la versione precedente passa su una macchina scarica (misurato: 12,3 ms)»,
+   mentre la ROTTURA A qui sopra quel tetto l'ha superato. Cioè il verdetto
+   dipendeva dalla macchina, che è esattamente il difetto in esame. Il posto
+   dove quel numero assoluto si guarda davvero è il benchmark a mano,
+   `packages/engine/bench/opportunityRadar.bench.ts`.
+   ──────────────────────────────────────────────────────────────────────────── */
 
 /**
  * Il caso realistico più pesante: listone di Serie A per il classico (600
@@ -233,78 +302,196 @@ describe("cliffFacts — il segno dello zero non si perde", () => {
  */
 const WORST_REALISTIC = { assets: 600, declared: 600, phase: "early" as PerfPhase };
 
-/**
- * SOGLIA LARGA, DI PROPOSITO, e onesta su cosa prende.
- *
- * Misurato su questo caso, a seconda del carico del processo: 1-4 ms di
- * mediana dopo PERF-T008, 6-12 ms prima. Il tetto è a 20 ms perché un runner di
- * CI condiviso è lento, rumoroso e senza garanzie di CPU: una soglia stretta
- * sarebbe un test che lampeggia, e un test che lampeggia viene disattivato.
- *
- * Questo tetto NON è il rilevatore del quadratico, ed è giusto dirlo: a 20 ms
- * anche la versione precedente passa su una macchina scarica (misurato: 12,3
- * ms). È un massimale grossolano — prende le regressioni grosse e prende il
- * quadratico appena il runner è lento o il listone cresce. Il rilevatore
- * preciso è il test successivo, che guarda la FORMA della crescita invece del
- * valore assoluto, ed è rosso sulla versione precedente (misurato: 9,41 ms
- * contro un limite di 4,67).
- */
-const REGRESSION_BUDGET_MS = 20;
+/** Quante volte il radar ha attraversato il listone per intero. */
+function listonePasses(counters: RadarWorkCounters, listoneRows: number): number {
+  return counters.listoneRows / listoneRows;
+}
 
-describe("opportunityRadar — non regressione di performance", () => {
-  it(`resta sotto ${REGRESSION_BUDGET_MS} ms sul caso realistico più pesante`, () => {
+/** Quante volte è stato valutato l'insieme eleggibile: `state.teams` lo leggono
+ *  solo il radar (una volta) e `competitorSet` (una volta per chiamata). */
+function competitorEvaluations(counters: RadarWorkCounters): number {
+  return counters.teamsReads - 1;
+}
+
+/** Le chiavi `(ruolo, soglia)` distinte fra i candidati prodotti: è il numero
+ *  di valutazioni dell'insieme eleggibile che la memoizzazione deve produrre —
+ *  ricavato dall'OUTPUT, non riscritto a mano accanto al motore. */
+function distinctCompetitorKeys(out: readonly OpportunityCandidate[]): number {
+  return new Set(out.map((c) => `${c.role}|${c.anchor.correctedAnchor}`)).size;
+}
+
+describe("opportunityRadar — non regressione, contando il lavoro svolto", () => {
+  it("il caso di misura ha sostanza: candidati veri, non un ciclo vuoto", () => {
+    // Se un domani le condizioni d'ingresso cambiassero e il radar tornasse
+    // vuoto, ogni conteggio qui sotto sarebbe vero misurando il nulla.
     const { input } = perfScenario(
       WORST_REALISTIC.assets,
       WORST_REALISTIC.declared,
       WORST_REALISTIC.phase,
     );
-
-    // Il caso deve avere sostanza: se un domani le condizioni d'ingresso
-    // cambiassero e il radar tornasse vuoto, questo test passerebbe misurando
-    // il nulla. L'asserzione sul numero di candidati lo impedisce.
+    expect(input.book.all).toHaveLength(600);
     expect(opportunityRadar(input).length).toBeGreaterThan(150);
-
-    for (let i = 0; i < 5; i++) opportunityRadar(input); // warmup JIT
-
-    const samples: number[] = [];
-    for (let i = 0; i < 9; i++) {
-      const t0 = performance.now();
-      opportunityRadar(input);
-      samples.push(performance.now() - t0);
-    }
-    samples.sort((a, b) => a - b);
-    const median = samples[Math.floor(samples.length / 2)]!;
-
-    expect(median).toBeLessThan(REGRESSION_BUDGET_MS);
   });
 
-  it("il costo cresce con i candidati, non con candidati x listone", () => {
-    // QUESTO è il rilevatore del quadratico, e guarda la forma, non l'orologio:
-    // a parità di valori dichiarati si quadruplica il LISTONE e si controlla che
-    // il tempo non lo segua. Il numero di candidati resta confrontabile (76 vs
-    // 91), quindi a cambiare è quasi solo la lunghezza del listino.
-    //
-    // Rapporti misurati fra A=500 e A=2000: **1,01x dopo** PERF-T008, **4,94x
-    // prima**. Il tetto a 2,5x sta in mezzo con margine da entrambi i lati —
-    // 2,5 volte il rumore di CI sopra il comportamento attuale, e ben sotto il
-    // 4,94x di quello precedente, che è ciò che deve tornare rosso.
+  it("sul caso realistico più pesante il listone si attraversa UNA volta sola", () => {
+    const { input } = perfScenario(
+      WORST_REALISTIC.assets,
+      WORST_REALISTIC.declared,
+      WORST_REALISTIC.phase,
+    );
+    const counted = countedInput(input);
+    const out = opportunityRadar(counted.input);
+    const counters = counted.counters();
+
+    // 269 candidati su 600 righe. La versione precedente leggeva 161.400
+    // righe di listone (269 passate); questa ne legge 600, una passata.
+    expect(out.length).toBeGreaterThan(150);
+    expect(counters.listoneRows).toBe(input.book.all.length);
+    expect(listonePasses(counters, input.book.all.length)).toBe(1);
+
+    // ...e il ciclo esterno gira una volta per riga dichiarata, non di più:
+    // è la metà «cresce con i candidati» della frase, contata.
+    expect(counters.declaredRows).toBe(input.values.all.length);
+  });
+
+  it("il listone quadruplica, le passate restano UNA: il costo non è candidati × listone", () => {
+    // QUESTO è il rilevatore del quadratico, e adesso guarda il lavoro, non
+    // l'orologio: a parità di valori dichiarati si quadruplica il LISTONE e si
+    // conta quante volte lo si attraversa. Il numero di candidati resta
+    // confrontabile (76 vs 91), quindi a cambiare è quasi solo la lunghezza
+    // del listino.
     const small = perfScenario(500, 200, "early");
     const large = perfScenario(2000, 200, "early");
     expect(small.input.values.all.length).toBe(large.input.values.all.length);
 
-    const timeOf = (input: Parameters<typeof opportunityRadar>[0]): number => {
-      for (let i = 0; i < 5; i++) opportunityRadar(input);
-      const samples: number[] = [];
-      for (let i = 0; i < 9; i++) {
-        const t0 = performance.now();
-        opportunityRadar(input);
-        samples.push(performance.now() - t0);
-      }
-      samples.sort((a, b) => a - b);
-      return samples[Math.floor(samples.length / 2)]!;
+    const passesOf = (scenario: typeof small): number => {
+      const counted = countedInput(scenario.input);
+      opportunityRadar(counted.input);
+      return listonePasses(counted.counters(), scenario.input.book.all.length);
     };
 
-    // Il listone quadruplica; il tempo non deve seguirlo.
-    expect(timeOf(large.input)).toBeLessThan(timeOf(small.input) * 2.5 + 1);
+    // Una passata su 500 righe, una passata su 2000 righe. Un intero, non una
+    // mediana: nessun carico di macchina lo sposta.
+    expect(passesOf(small)).toBe(1);
+    expect(passesOf(large)).toBe(1);
+  });
+
+  it("i candidati più che raddoppiano, le passate restano UNA", () => {
+    // L'altra direzione, che l'asserzione a orologio non provava affatto: a
+    // listone fermo si moltiplicano i CANDIDATI (76 -> 178) e le passate sul
+    // listone non si muovono. È esattamente «il costo non cresce con
+    // candidati × listone», visto dal lato dei candidati.
+    const few = perfScenario(500, 200, "early");
+    const many = perfScenario(500, 500, "early");
+
+    const countedFew = countedInput(few.input);
+    const outFew = opportunityRadar(countedFew.input);
+    const countedMany = countedInput(many.input);
+    const outMany = opportunityRadar(countedMany.input);
+
+    expect(outMany.length).toBeGreaterThan(outFew.length * 2);
+    expect(countedFew.counters().listoneRows).toBe(500);
+    expect(countedMany.counters().listoneRows).toBe(500);
+  });
+
+  it("l'insieme eleggibile si valuta una volta per chiave distinta, non per candidato", () => {
+    const { input } = perfScenario(
+      WORST_REALISTIC.assets,
+      WORST_REALISTIC.declared,
+      WORST_REALISTIC.phase,
+    );
+    const counted = countedInput(input);
+    const out = opportunityRadar(counted.input);
+
+    const keys = distinctCompetitorKeys(out);
+    // Le chiavi distinte devono essere DAVVERO meno dei candidati, altrimenti
+    // l'uguaglianza qui sotto sarebbe vera anche senza memoizzazione.
+    expect(keys).toBeLessThan(out.length / 2);
+    expect(competitorEvaluations(counted.counters())).toBe(keys);
+  });
+
+  it("senza candidati la scala non si costruisce affatto: la pigrizia è contata", () => {
+    // 200 giri del ciclo esterno su id che il listone non conosce (il foglio
+    // valori più vecchio del listone), zero righe di listone lette. È la
+    // pigrizia dichiarata in opportunities.ts: «un radar che non produce
+    // candidati non la paga».
+    const { input } = perfScenario(500, 0);
+    const staleOnly: OpportunityRadarInput = {
+      ...input,
+      values: declaredValueBook(
+        Array.from({ length: 200 }, (_, i) => ({ playerId: `stale${i}`, declaredValue: 10 })),
+      ),
+    };
+    const counted = countedInput(staleOnly);
+
+    expect(opportunityRadar(counted.input)).toHaveLength(0);
+    expect(counted.counters()).toEqual({ listoneRows: 0, declaredRows: 200, teamsReads: 1 });
+  });
+});
+
+/**
+ * IL CONTROLLO NEGATIVO — la prova che il contatore MORDE.
+ *
+ * Un test di prestazione che non diventa rosso quando l'ottimizzazione sparisce
+ * non prova niente, ed è il difetto peggiore di tutti perché sembra una difesa.
+ * Qui la sparizione non va simulata: la versione PRE-ottimizzazione esiste già,
+ * congelata in `opportunityRadarReference.ts`, ed è la stessa che il blocco 1
+ * usa per provare l'identità dell'output. Lo stesso contatore, sullo stesso
+ * ingresso, la becca — e le asserzioni qui sotto sono l'esatto opposto di
+ * quelle del blocco sopra: se un domani qualcuno «ottimizzasse» il file di
+ * riferimento, o rendesse il contatore cieco, questo test diventerebbe rosso e
+ * l'altro perderebbe il suo strumento in silenzio.
+ */
+describe("il contatore morde: la versione precedente è quadratica e si vede", () => {
+  it("la copia congelata attraversa il listone una volta PER CANDIDATO", () => {
+    const { input } = perfScenario(
+      WORST_REALISTIC.assets,
+      WORST_REALISTIC.declared,
+      WORST_REALISTIC.phase,
+    );
+    const counted = countedInput(input);
+    const out = referenceOpportunityRadar(counted.input);
+    const counters = counted.counters();
+
+    // 269 candidati x 600 righe = 161.400 righe lette, contro le 600 della
+    // versione viva. Il rapporto è il quadratico, in numeri interi.
+    expect(listonePasses(counters, input.book.all.length)).toBe(out.length);
+    expect(counters.listoneRows).toBe(out.length * input.book.all.length);
+    expect(counters.listoneRows).toBeGreaterThan(100_000);
+
+    // ...e l'insieme eleggibile lo rivaluta per ogni candidato, non per chiave.
+    expect(competitorEvaluations(counters)).toBe(out.length);
+    expect(distinctCompetitorKeys(out)).toBeLessThan(out.length / 2);
+  });
+
+  it("e il quadratico cresce col listone, mentre la versione viva no", () => {
+    // La stessa coppia di scenari del rilevatore: quadruplicando il listone a
+    // candidati confrontabili, la versione precedente moltiplica le righe lette
+    // per ~4,8, quella viva resta a una passata. È il confronto che il rapporto
+    // fra due cronometri voleva fare, in interi riproducibili.
+    const small = perfScenario(500, 200, "early");
+    const large = perfScenario(2000, 200, "early");
+
+    const rowsRead = (
+      input: OpportunityRadarInput,
+      radar: (i: OpportunityRadarInput) => readonly OpportunityCandidate[],
+    ): number => {
+      const counted = countedInput(input);
+      radar(counted.input);
+      return counted.counters().listoneRows;
+    };
+
+    const refSmall = rowsRead(small.input, referenceOpportunityRadar);
+    const refLarge = rowsRead(large.input, referenceOpportunityRadar);
+    expect(refSmall).toBe(38_000); // 76 candidati x 500 righe
+    expect(refLarge).toBe(182_000); // 91 candidati x 2000 righe
+    expect(refLarge).toBeGreaterThan(refSmall * 4);
+
+    const liveSmall = rowsRead(small.input, opportunityRadar);
+    const liveLarge = rowsRead(large.input, opportunityRadar);
+    expect(liveSmall).toBe(500);
+    expect(liveLarge).toBe(2_000);
+    // Il termine `candidati ×` è sparito: quello che resta è il listone e basta.
+    expect(liveLarge).toBe(large.input.book.all.length);
   });
 });
