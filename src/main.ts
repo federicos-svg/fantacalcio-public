@@ -207,9 +207,6 @@ import {
   listoneColumns,
   listoneExpertSignalsNote,
   poolHasAppealIndex,
-  emptyRowSignals,
-  type ListoneRowSignals,
-  type ListoneRowSignalsLookup,
 } from "./ui/listone.js";
 import {
   loadListoneColumnPrefs,
@@ -238,7 +235,6 @@ import {
   resolveExpertInsight,
   type ExpertSchedaStore,
   type SchedaTarget,
-  expertSchedeHavePagella,
 } from "./expertScheda.js";
 import {
   PAGELLA_ASSI_COMUNI,
@@ -249,7 +245,6 @@ import {
   PAGELLA_VOTO_MIN,
   pagellaAsseDelRuolo,
   type PagellaAsse,
-  type PagellaView,
 } from "./pagellaEsperti.js";
 import {
   AVVISO_LABELS,
@@ -266,6 +261,11 @@ import {
   withSchedaLink,
   type SchedaLinks,
 } from "./schedaLinks.js";
+import {
+  listoneExpertPagellaViews,
+  listoneRowSignalsLookup,
+  type ListoneSignalsInput,
+} from "./listoneRowSignals.js";
 import {
   EMPTY_SCHEDA_BALLOTTAGGIO_ROW,
   EMPTY_SCHEDA_FORM,
@@ -1898,66 +1898,25 @@ function playerInsightProps(): PlayerInsightProps {
  * listone. È la stessa risoluzione del riquadro INSIGHT GIOCATORE, quindi le
  * due superfici non possono dire due cose diverse sullo stesso giocatore.
  *
- * MEMOIZZATO PER RENDER, e non per comodità: `resolveExpertInsight` confronta
- * i token del nome contro l'indice delle schede, e ordinare la tabella per una
- * di queste colonne lo chiederebbe per OGNI riga del pool (un listone vero ne
- * ha ~530). Una cache costruita all'inizio del render e buttata alla fine
- * garantisce una risoluzione per riga distinta, mai una per confronto.
+ * IL CALCOLO NON VIVE PIÙ QUI: sta in src/listoneRowSignals.ts, memoizzato
+ * ATTRAVERSO i render invece che dentro uno solo. La versione che stava in
+ * questo file costruiva una `Map` all'inizio del giro e la buttava alla fine —
+ * dichiarato nel suo stesso commento — quindi `render()`, che gira a ogni
+ * tasto della ricerca, ripagava tutto da capo. Misurato sul banco a 532 righe
+ * (src/tierOrdering.perfScenario.ts): 4,5-6,4 ms per tasto con le pagelle nel
+ * deposito e 4,4-4,6 ms per tasto OGGI con la tabella ordinata per una colonna
+ * di segnale — quel secondo caso non è dietro `expertSchedeHavePagella` e non
+ * era mai stato misurato. Qui resta solo la lettura dello stato.
  *
  * I CINQUE VOTI SONO SEMPRE VUOTI, OGGI, E LA COLONNA LO DICE (`n/d`).
  * L'estrazione dei voti dalle schede vive fuori da questo ramo e non è ancora
- * atterrata: quando lo farà, QUESTO è l'unico punto da cambiare — i voti
- * arriveranno dentro la vista della scheda e si copiano qui dentro `voti`.
+ * atterrata: quando lo farà, i voti arriveranno dentro la vista della scheda e
+ * `resolveRowSignals` li porterà in tabella senza che questo file cambi.
  * Fino ad allora non si inventa niente: nessuno zero, nessuna media, nessun
  * valore di riempimento. Un voto che nessuno ha scritto non è un voto basso.
  */
-/**
- * Le pagelle risolte da CONTARE nella nota sotto la tabella — e l'elenco vuoto
- * finché non c'è niente da contare.
- *
- * La passata sul pool intero esiste perché i due numeri di #33 («quante
- * divergono dal totale della fonte», «quante portano l'asse di un altro
- * ruolo») valgono solo se sono sul pool e non sulla pagina a schermo. Ma con
- * il deposito senza pagelle — cioè oggi, sempre — la passata conterebbe zero
- * su ~500 righe a ogni render: la guardia la salta del tutto.
- */
-function listoneExpertPagellaViews(signals: ListoneRowSignalsLookup): readonly PagellaView[] {
-  if (!expertSchedeHavePagella(state.expertSchede)) return [];
-  return state.pool.map((p) => signals(p).pagella);
-}
-
-function listoneRowSignalsLookup(): ListoneRowSignalsLookup {
-  const cache = new Map<string, ListoneRowSignals>();
-  return (p) => {
-    const key = listonePlayerKey(p);
-    const cached = cache.get(key);
-    if (cached !== undefined) return cached;
-    // IL RUOLO ENTRA NEL TARGET: serve a una cosa sola, sapere QUALE sia il
-    // quarto asse della pagella per questa riga — e ad accorgersi quando la
-    // scheda ne porta uno di un altro ruolo (`asseIncoerente`, poi «n.a.»
-    // nella cella). Non entra in `listonePlayerKey` né in `schedaLinkRowKey`:
-    // l'identità di una riga resta nome + squadra.
-    const target: SchedaTarget = { name: p.name, club: p.club, role: p.role };
-    const chosen = state.schedaLinks.get(schedaLinkRowKey(target)) ?? null;
-    const view = resolveExpertInsight(state.expertSchede, target, chosen);
-    const signals: ListoneRowSignals =
-      view.rigori === null && view.piazzati.length === 0 && view.pagella.votiPresenti === 0
-        ? emptyRowSignals(p.role)
-        : {
-            // Le parole sono quelle del vocabolario chiuso delle schede, non
-            // riscritte qui: `ui/listone.ts` riceve etichette, non enum, e non
-            // ha nessun modo di inventarne una che il vocabolario non abbia.
-            rigori: view.rigori === null ? null : RIGORI_LABELS[view.rigori],
-            piazzati: view.piazzati.map((kind) => PIAZZATI_LABELS[kind]),
-            // GIÀ RISOLTA, e dalla STESSA vista che alimenta il radar del
-            // riquadro d'asta: una sorgente sola per gli stessi cinque numeri
-            // (decisione del committente, 2026-08-24). Tabella e radar non
-            // possono più divergere su uno stesso giocatore.
-            pagella: view.pagella,
-          };
-    cache.set(key, signals);
-    return signals;
-  };
+function listoneSignalsInput(): ListoneSignalsInput {
+  return { pool: state.pool, schede: state.expertSchede, links: state.schedaLinks };
 }
 
 /**
@@ -5531,9 +5490,12 @@ function renderMomentoChiamata(
     { text: state.call.playerName, role: state.call.role, club: state.call.club, status: state.poolStatusFilter },
     assignedKeys,
   );
-  // Un lookup solo per tutto il render: la sua memo copre sia le righe a
-  // schermo sia (quando ci sarà da contare) la passata della nota.
-  const rowSignals = listoneRowSignalsLookup();
+  // Un lookup solo per tutto il render, e la sua memo NON muore con il render:
+  // vive in src/listoneRowSignals.ts, indicizzata sull'identità di (pool,
+  // deposito, risposte di Pico). Copre sia le righe a schermo sia la passata
+  // della nota, e un tasto nella ricerca non ne rifà nessuna.
+  const signalsInput = listoneSignalsInput();
+  const rowSignals = listoneRowSignalsLookup(signalsInput);
   listoneWrap.appendChild(
     renderListoneSvincolati(
       {
@@ -5546,7 +5508,7 @@ function renderMomentoChiamata(
         appealIndexNote: listoneAppealIndexNote(state.pool),
         // I conteggi di #33 girano solo quando c'è qualcosa da contare: la
         // nota lo dice, e oggi dice che i voti non sono ancora estratti.
-        expertSignalsNote: listoneExpertSignalsNote(listoneExpertPagellaViews(rowSignals)),
+        expertSignalsNote: listoneExpertSignalsNote(listoneExpertPagellaViews(signalsInput)),
         sort: state.poolSort,
         visibleColumnKeys: listoneVisibleColumnKeys(),
         rowSignals,

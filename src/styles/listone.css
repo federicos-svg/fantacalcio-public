@@ -76,6 +76,29 @@
      leggersi come la sua qualificazione. */
   white-space: nowrap;
 }
+/* L'ASSE PER ESTESO, per chi naviga a voce: è il CONTENUTO del marcatore, non
+   un `title` e non un attributo — quindi entra nel nome accessibile della
+   cella e si sente senza che nessuna nuvoletta debba comparire. Stesso idioma
+   (e stesse dichiarazioni) di `.scheda-icona__sr` in asta.css.
+
+   PERCHÉ NON UN `tabindex`. La strada ovvia per rendere raggiungibile un
+   `title` è dare il fuoco all'elemento: su 532 righe sarebbero fino a 532
+   fermate in più in una tabella che si attraversa già a fatica. Il testo qui
+   sotto dice la stessa cosa meglio e non aggiunge nemmeno una fermata.
+
+   `position: absolute` SENZA offset: l'elemento resta alla propria posizione
+   statica, quindi non può spingere la pagina né aprire uno scorrimento
+   orizzontale a 390px. Resta nel flusso della misura di contrasto — porta il
+   colore del marcatore, che è quello della rampa — e per questo è misurato
+   dalla spazzata di e2e/text-contrast-aa.spec.ts come tutto il resto. */
+.listone-axis-tag__sr {
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
 /* L'etichetta che ogni casella si porta dietro (data-label) NON si disegna
    nella resa larga: là il nome della colonna sta nell'intestazione, una volta
    sola. Compare sotto i 900px, dove l'intestazione a undici colonne non
