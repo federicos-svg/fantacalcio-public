@@ -179,10 +179,23 @@ test("il riquadro del valore rende quattro celle dentro la scheda del chiamato",
   await expect(page.locator("#value-box-why-indice-relativo")).toContainText(
     "formula non decisa",
   );
+  // I DUE `n/d` IN CREDITI NON SONO PIÙ LO STESSO `n/d`, ed è la differenza che
+  // la decisione di Pico del 2026-08-24 ha introdotto: il valore ASSOLUTO è
+  // derivato dal regolamento e dai target di ruolo (che l'app raccoglie già nel
+  // piano rosa, e che in questo giro non sono dichiarati), il valore RELATIVO
+  // continua a dipendere dalle due dichiarazioni che una sorgente non ce l'hanno.
   await expect(page.locator("#value-box-number-valore-assoluto")).toHaveText(VALUE_UNKNOWN);
+  await expect(page.locator("#value-box-why-valore-assoluto")).toContainText(
+    "target di ruolo",
+  );
   await expect(page.locator("#value-box-number-valore-relativo")).toHaveText(VALUE_UNKNOWN);
   await expect(page.locator("#value-box-note")).toContainText("i tuoi valori per giocatore");
   await expect(page.locator("#value-box-note")).toContainText("il tuo profilo di rischio");
+  // E le due righe del perché sono DIVERSE: se collassassero, il riquadro
+  // direbbe che il valore assoluto aspetta una dichiarazione che non aspetta.
+  const whyAbsolute = await page.locator("#value-box-why-valore-assoluto").innerText();
+  const whyRelative = await page.locator("#value-box-why-valore-relativo").innerText();
+  expect(whyAbsolute).not.toBe(whyRelative);
 });
 
 test("il riquadro non accende nessun altro output direttivo", async ({ page }) => {
