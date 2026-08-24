@@ -5870,8 +5870,19 @@ function renderMomentoChiamata(
   scarcity: Readonly<Record<Role, RoleScarcity>>,
 ): HTMLElement {
   const wrap = document.createElement("div");
+  // LA COLONNA DELLA CHIAMATA HA UN NOME PERCHÉ IL BUDGET VERTICALE HA
+  // UN LIBRO MASTRO. `e2e/call-screen-budget.spec.ts` raccoglie i blocchi di
+  // questa schermata PER FORMA (ogni figlio di questo contenitore, qualunque
+  // cosa sia) e non da un elenco: è l'unico modo che regge il blocco che
+  // ancora non esiste — arriva come un figlio in più e viene misurato senza
+  // che nessuno debba ricordarsi di dichiararlo. Gli id qui sotto sono le
+  // ancore con cui ogni blocco si riconosce nella sua riga del mastro
+  // (`src/ui/callScreenBudget.ts`): senza id un blocco non è attribuibile, e
+  // il mastro lo boccia invece di lasciar pagare il conto all'ultimo arrivato.
+  wrap.id = "call-screen-column";
 
   const eyebrow = document.createElement("div");
+  eyebrow.id = "call-screen-eyebrow";
   eyebrow.className = "panel-title";
   eyebrow.style.marginBottom = "14px";
   eyebrow.textContent = "RICERCA GIOCATORE";
@@ -5879,6 +5890,7 @@ function renderMomentoChiamata(
 
   // Search row
   const row = document.createElement("div");
+  row.id = "call-search-row";
   row.className = "form-row";
 
   // Player name input
@@ -6023,6 +6035,7 @@ function renderMomentoChiamata(
   wrap.appendChild(row);
 
   const hint = document.createElement("div");
+  hint.id = "call-search-hint";
   hint.className = "hint-text";
   hint.style.marginTop = "8px";
   const roleError = state.call.selectedPlayer
