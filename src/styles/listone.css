@@ -328,6 +328,32 @@
   font-size: 11px;
   color: var(--text-accent);
 }
+/* LE TRE PASTIGLIE BLINDATE (2026-08-24). Nome, ruolo e squadra non si
+   spengono: qui si vede che non si premono — bordo tratteggiato invece che
+   pieno, cursore che non promette un clic — ma il testo NON si sbiadisce.
+   Uno stato che si dichiara abbassando il contrasto lo dichiara solo a chi
+   già lo vede bene: la ragione la portano la parola «sempre» qui sotto,
+   `aria-disabled` e la riga di spiegazione del pannello. */
+.listone-columns__toggle--locked {
+  border-style: dashed;
+  cursor: default;
+}
+.listone-columns__toggle--locked:hover {
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+.listone-columns__lock {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-sec);
+}
+.listone-columns__locked-note {
+  flex: 1 0 100%;
+  font-size: 11px;
+  color: var(--text-sec);
+}
 .listone-columns__warn {
   flex: 1 0 100%;
   font-size: 11px;

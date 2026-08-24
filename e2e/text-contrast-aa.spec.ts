@@ -285,6 +285,8 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
     ".listone-columns__toggle", // --text-sec, l'interruttore spento
     ".listone-columns__toggle[aria-pressed='true']", // --text-primary, acceso
     ".listone-columns__mark", // --text-accent, il segno di spunta
+    ".listone-columns__lock", // --text-sec, «sempre» sulle tre blindate
+    "#listone-columns-identity-note", // --text-sec, la riga che dice perché
     "#listone-expert-signals-note", // --text-dim, la riga che dichiara i n/d
   ]) {
     expect(await textContrast(page, sel), `chiamata: ${sel}`).toBeGreaterThanOrEqual(

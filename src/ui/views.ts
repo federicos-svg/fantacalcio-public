@@ -292,6 +292,14 @@ export function renderListoneSvincolati(
   const table = document.createElement("div");
   table.className = "listone-table";
 
+  // ZERO COLONNE — dal 2026-08-24 è un ramo che il pannello non sa più
+  // raggiungere: le tre colonne d'identità sono `locked` e `visibleColumnKeys`
+  // le tiene nell'elenco qualunque cosa dica l'archivio, quindi `columns` non
+  // può ridursi a niente. Resta scritto lo stesso, e con la sua frase: una
+  // tabella vuota che non dice perché è muta è il difetto, non il ramo che lo
+  // racconta. Toglierlo significherebbe scommettere che nessuna colonna
+  // condizionale futura possa mai svuotare l'elenco — e questa schermata gira
+  // durante un'asta dal vivo.
   if (visibleColumns.length === 0) {
     const noCols = document.createElement("div");
     noCols.style.cssText = `font-size:13px;color:${C.textDim};padding:14px 12px;`;
@@ -528,6 +536,16 @@ function renderListoneTableHead(
  *  che lo apre lo nomini in `aria-controls` senza una seconda stringa. */
 export const LISTONE_COLUMN_PANEL_ID = "listone-column-panel";
 
+/** L'id della riga che spiega perché tre interruttori non si premono. Vive
+ *  qui perché ogni pastiglia blindata lo nomini in `aria-describedby`: chi non
+ *  vede il grigio deve poter SENTIRE la ragione, non solo il divieto. */
+export const LISTONE_IDENTITY_LOCK_NOTE_ID = "listone-columns-identity-note";
+
+/** La frase, scritta una volta sola: la dice la riga sotto le pastiglie e la
+ *  ripete il `title` di ognuna delle tre. */
+export const LISTONE_IDENTITY_LOCK_REASON =
+  "Nome, ruolo e squadra restano sempre visibili: senza di loro la riga non dice più di chi parla.";
+
 /**
  * IL PANNELLO «COLONNE VISIBILI» — un interruttore per colonna.
  *
@@ -546,6 +564,22 @@ export const LISTONE_COLUMN_PANEL_ID = "listone-column-panel";
  * riaccendibile da qui. È la scelta di Pico del 2026-08-24 — «Nascondile, ma
  * lasciale attivabili» — e la memoria di ciò che ha premuto vive in
  * src/listoneColumnPrefs.ts, non in questa funzione.
+ *
+ * TRE PASTIGLIE NON SI PREMONO (2026-08-24, varco chiuso dopo la review di
+ * PR #41). Nome, ruolo e squadra arrivano qui con `locked: true` e questo
+ * ciclo non attacca loro nessun gestore del clic: non c'è niente da premere,
+ * quindi non c'è niente da scrivere nell'archivio. Restano però NELL'ELENCO,
+ * e con tre precisazioni deliberate:
+ *
+ *  - `aria-disabled="true"` invece dell'attributo `disabled`: un bottone
+ *    `disabled` esce dall'ordine di tabulazione, e chi naviga da tastiera non
+ *    lo incontrerebbe mai — il divieto sparirebbe proprio a chi ha più
+ *    bisogno che sia detto;
+ *  - la parola «sempre» è TESTO dentro la pastiglia, non un colore: la
+ *    differenza fra «spegnibile» e «blindata» non può essere solo cromatica,
+ *    per la stessa ragione per cui il segno di spunta è un carattere;
+ *  - `aria-describedby` porta alla riga che dice PERCHÉ. Un bottone che non fa
+ *    niente e non spiega è peggio di un bottone assente.
  */
 function renderListoneColumnSelector(
   columns: readonly ListoneColumn[],
@@ -564,14 +598,15 @@ function renderListoneColumnSelector(
   label.textContent = "Colonne:";
   wrap.appendChild(label);
 
+  let anyLocked = false;
   for (const col of columns) {
+    const locked = col.locked === true;
     const on = visibleColumnKeys.includes(col.key);
     const chip = document.createElement("button");
     chip.type = "button";
     chip.id = `listone-column-toggle-${col.key}`;
-    chip.className = "listone-columns__toggle";
+    chip.className = `listone-columns__toggle${locked ? " listone-columns__toggle--locked" : ""}`;
     chip.setAttribute("aria-pressed", String(on));
-    chip.title = listoneColumnTooltip(col);
     // Il segno di spunta è TESTO, non un colore: la differenza fra accesa e
     // spenta non può essere solo cromatica.
     const mark = document.createElement("span");
@@ -580,8 +615,31 @@ function renderListoneColumnSelector(
     mark.textContent = on ? "✓" : "＋";
     chip.appendChild(mark);
     chip.appendChild(document.createTextNode(col.label));
-    chip.addEventListener("click", () => onToggleColumn(col.key));
+    if (locked) {
+      anyLocked = true;
+      chip.setAttribute("aria-disabled", "true");
+      chip.setAttribute("aria-describedby", LISTONE_IDENTITY_LOCK_NOTE_ID);
+      chip.title = `${listoneColumnTooltip(col)} — ${LISTONE_IDENTITY_LOCK_REASON}`;
+      const lock = document.createElement("span");
+      lock.className = "listone-columns__lock";
+      lock.textContent = "sempre";
+      chip.appendChild(lock);
+      // NESSUN gestore del clic: non c'è un controllo da aggirare, non c'è un
+      // ramo da sbagliare. Premerla non scrive niente perché non succede
+      // niente.
+    } else {
+      chip.title = listoneColumnTooltip(col);
+      chip.addEventListener("click", () => onToggleColumn(col.key));
+    }
     wrap.appendChild(chip);
+  }
+
+  if (anyLocked) {
+    const why = document.createElement("div");
+    why.id = LISTONE_IDENTITY_LOCK_NOTE_ID;
+    why.className = "listone-columns__locked-note";
+    why.textContent = LISTONE_IDENTITY_LOCK_REASON;
+    wrap.appendChild(why);
   }
 
   if (!columnPrefsPersisted) {

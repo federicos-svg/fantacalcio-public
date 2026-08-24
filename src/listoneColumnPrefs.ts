@@ -115,12 +115,23 @@ export function saveListoneColumnPrefs(storage: StorageLike, prefs: ListoneColum
   }
 }
 
-/** Se questa colonna si vede, dati il default e le deviazioni salvate. */
+/**
+ * Se questa colonna si vede, dati il default e le deviazioni salvate.
+ *
+ * `locked` È LA PRIMA RIGA E NON UN CASO PARTICOLARE (2026-08-24, varco chiuso
+ * dopo la review di PR #41): una colonna blindata si vede E BASTA, qualunque
+ * cosa dica l'archivio. Non è una gentilezza verso l'interfaccia — è la
+ * garanzia che nemmeno un `localStorage` scritto a mano, o rimasto da prima
+ * della blindatura con `hidden: ["name"]` dentro, possa far uscire dalla
+ * tabella la colonna che dice DI CHI PARLA la riga.
+ */
 export function isColumnVisible(
   key: string,
   defaultKeys: readonly string[],
   prefs: ListoneColumnPrefs,
+  locked = false,
 ): boolean {
+  if (locked) return true;
   return defaultKeys.includes(key) ? !prefs.hidden.includes(key) : prefs.shown.includes(key);
 }
 
@@ -129,6 +140,12 @@ export function isColumnVisible(
  * stato assoluto — ed è ciò che rende impossibile lasciare una chiave nei due
  * elenchi insieme: spegnere una colonna di default la mette fra le `hidden` e
  * la toglie dalle `shown`, e viceversa.
+ *
+ * `locked` non ha nemmeno bisogno di essere gestito qui perché non ci arriva
+ * mai: il pannello non attacca un gestore del clic a una colonna blindata e
+ * `toggleListoneColumn` (src/main.ts) rifiuta la chiave prima di chiamare
+ * questa funzione. Se ci arrivasse comunque, la deviazione scritta resterebbe
+ * senza effetto: `isColumnVisible` mostra una colonna blindata comunque.
  */
 export function toggleColumnPref(
   prefs: ListoneColumnPrefs,
@@ -151,11 +168,18 @@ export function toggleColumnPref(
  * Pico, deciso in src/ui/listone.ts. Le deviazioni dicono CHI si vede; non
  * hanno voce su DOVE, così una colonna riaccesa torna al suo posto invece di
  * comparire in coda nell'ordine in cui è stata premuta.
+ *
+ * E NON HANNO VOCE SULLE COLONNE BLINDATE: una colonna che si porta dietro
+ * `locked: true` è nell'elenco comunque. La bandiera arriva qui col dato, non
+ * come parametro a parte, apposta — un parametro si può dimenticare di
+ * passare, un campo dell'oggetto no.
  */
 export function visibleColumnKeys(
-  columns: readonly { readonly key: string }[],
+  columns: readonly { readonly key: string; readonly locked?: boolean }[],
   defaultKeys: readonly string[],
   prefs: ListoneColumnPrefs,
 ): string[] {
-  return columns.map((c) => c.key).filter((key) => isColumnVisible(key, defaultKeys, prefs));
+  return columns
+    .filter((c) => isColumnVisible(c.key, defaultKeys, prefs, c.locked === true))
+    .map((c) => c.key);
 }

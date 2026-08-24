@@ -22,6 +22,7 @@ import {
   DEFAULT_VISIBLE_COLUMN_KEYS,
   LISTONE_FALLBACK_NOTE,
   LISTONE_GATED_EXTRA_KEYS,
+  LISTONE_IDENTITY_COLUMN_KEYS,
   listoneSourceNote,
   formatListoneUpdatedAt,
   isGatedListoneExtraKey,
@@ -42,6 +43,10 @@ import {
   type ListonePlayer,
   type ListoneRowSignalsLookup,
 } from "./listone.js";
+import {
+  visibleColumnKeys,
+  type ListoneColumnPrefs,
+} from "../listoneColumnPrefs.js";
 
 // Synthetic fixtures only — no real player/club names, per project no-go
 // (no proprietary data anywhere in the repo, including tests).
@@ -378,6 +383,75 @@ describe("DEFAULT_VISIBLE_COLUMN_KEYS", () => {
     expect(defaultVisibleColumnKeys([VALID_PLAYER])).toEqual(
       DEFAULT_VISIBLE_COLUMN_KEYS.filter((k) => k !== APPEAL_INDEX_COLUMN_KEY),
     );
+  });
+});
+
+describe("le tre colonne d'identità sono BLINDATE", () => {
+  // IL VARCO CHE QUESTA SUITE NON COPRIVA, trovato eseguendo l'app durante la
+  // review di PR #41 (2026-08-24): il pannello «Colonne visibili» generava un
+  // interruttore per OGNI colonna, identità comprese, e premendo «Nome» la
+  // riga restava «P CLU ClubUno n/d …» — senza il nome del giocatore.
+  //
+  // L'invariante era scritta in un commento, e un commento non fallisce.
+  // Adesso vive nel dato (`locked`) e in queste asserzioni.
+  const withExtras = parseListonePool([{ ...VALID_PLAYER, fvm: 12, zeta: "x" }])!;
+
+  it("names exactly nome, ruolo e squadra — the first three of Pico's list", () => {
+    expect(LISTONE_IDENTITY_COLUMN_KEYS).toEqual(["name", "role", "club"]);
+    // DERIVATE, non riscritte a mano: sono anche le prime tre dell'elenco di
+    // default e le prime tre delle colonne del listone. Due elenchi che
+    // devono restare uguali divergono in silenzio — questo non può.
+    expect(DEFAULT_VISIBLE_COLUMN_KEYS.slice(0, 3)).toEqual([...LISTONE_IDENTITY_COLUMN_KEYS]);
+    expect(listoneColumns([]).slice(0, 3).map((c) => c.key)).toEqual([
+      ...LISTONE_IDENTITY_COLUMN_KEYS,
+    ]);
+  });
+
+  it("marks those three columns `locked`, and NO other column, whatever the pool", () => {
+    const poolWithIndex = parseListonePool([withIndex("Test Uno", 72.5)])!;
+    for (const columns of [listoneColumns([]), listoneColumns(withExtras), listoneColumns(poolWithIndex)]) {
+      expect(columns.filter((c) => c.locked === true).map((c) => c.key)).toEqual([
+        ...LISTONE_IDENTITY_COLUMN_KEYS,
+      ]);
+    }
+  });
+
+  it("does not lock every `core` column — the listino quotation stays switchable", () => {
+    // `core` e `locked` dicono due cose diverse. La quotazione è core
+    // (validata, tipizzata, di questo file) ed È spegnibile: una riga senza
+    // quotazione dice ancora di chi parla. Confonderle bloccherebbe una
+    // colonna che Pico ha chiesto esplicitamente di poter spegnere.
+    const quotation = listoneColumns([]).find((c) => c.key === "quotation")!;
+    expect(quotation.core).toBe(true);
+    expect(quotation.locked).not.toBe(true);
+  });
+
+  it("keeps the identity columns visible against the very archive PR #41 could write", () => {
+    const columns = listoneColumns([]);
+    const defaults = defaultVisibleColumnKeys([]);
+    // `{"schemaVersion":1,"hidden":["name"],"shown":[]}` — letto dal
+    // localStorage vero, dopo un clic su «Nome» nel pannello di allora.
+    const legacy: ListoneColumnPrefs = { hidden: ["name"], shown: [] };
+    expect(visibleColumnKeys(columns, defaults, legacy)[0]).toBe("name");
+  });
+
+  it("cannot be emptied: the three survive an archive that hides every column", () => {
+    const columns = listoneColumns([]);
+    const defaults = defaultVisibleColumnKeys([]);
+    const everythingOff: ListoneColumnPrefs = { hidden: columns.map((c) => c.key), shown: [] };
+    expect(visibleColumnKeys(columns, defaults, everythingOff)).toEqual([
+      ...LISTONE_IDENTITY_COLUMN_KEYS,
+    ]);
+  });
+
+  it("leaves the other columns exactly as switchable as before", () => {
+    const columns = listoneColumns(withExtras);
+    const defaults = defaultVisibleColumnKeys(withExtras);
+    const prefs: ListoneColumnPrefs = { hidden: [PIAZZATI_COLUMN_KEY], shown: ["quotation", "fvm"] };
+    const visible = visibleColumnKeys(columns, defaults, prefs);
+    expect(visible).not.toContain(PIAZZATI_COLUMN_KEY);
+    expect(visible).toContain("quotation");
+    expect(visible).toContain("fvm");
   });
 });
 

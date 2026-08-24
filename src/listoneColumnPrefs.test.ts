@@ -15,10 +15,13 @@ import {
 /** Le undici di Pico, in miniatura: quel che serve qui è che ci sia un
  *  default e qualcosa fuori dal default, non l'elenco vero. */
 const DEFAULTS = ["name", "role", "club", "pagella_salute"] as const;
+/** Le tre d'identità arrivano BLINDATE, come nell'app: `locked: true` è il
+ *  campo con cui src/ui/listone.ts marca nome, ruolo e squadra (2026-08-24).
+ *  Senza di esso questa miniatura descriverebbe un listone che non esiste. */
 const ALL_COLUMNS = [
-  { key: "name" },
-  { key: "role" },
-  { key: "club" },
+  { key: "name", locked: true },
+  { key: "role", locked: true },
+  { key: "club", locked: true },
   { key: "pagella_salute" },
   { key: "quotation" },
   { key: "fvm" },
@@ -191,8 +194,60 @@ describe("visibleColumnKeys — le deviazioni dicono CHI, mai DOVE", () => {
     expect(visibleColumnKeys(withoutFvm, DEFAULTS, prefs)).toEqual([...DEFAULTS]);
   });
 
-  it("can end up with nothing visible — and says so instead of guessing a fallback", () => {
+  // INVERTITA IL 2026-08-24 (varco chiuso dopo la review di PR #41).
+  //
+  // DICEVA: «can end up with nothing visible — and says so instead of guessing
+  // a fallback», e asseriva `toEqual([])`. Era vero e deliberato finché
+  // NESSUNA colonna era blindata: si potevano spegnere tutte, tabella vuota e
+  // una frase a schermo a spiegarlo.
+  //
+  // NON LO È PIÙ, e non per un controllo aggiunto sopra: nome, ruolo e squadra
+  // portano `locked: true` nel modello delle colonne, e una colonna blindata
+  // non è una preferenza. Lo svuotamento totale non è «vietato», è
+  // IRRAPPRESENTABILE — nemmeno partendo da un archivio che dichiara spente
+  // tutte e quattro le colonne di default, come questo.
+  //
+  // L'asserzione non è stata tolta né ammorbidita: dice l'esito nuovo dello
+  // STESSO archivio di prima.
+  it("cannot end up with nothing visible: the locked identity columns survive any archive", () => {
     const prefs: ListoneColumnPrefs = { hidden: [...DEFAULTS], shown: [] };
-    expect(visibleColumnKeys(ALL_COLUMNS, DEFAULTS, prefs)).toEqual([]);
+    expect(visibleColumnKeys(ALL_COLUMNS, DEFAULTS, prefs)).toEqual(["name", "role", "club"]);
+  });
+
+  it("keeps a locked column visible even when the archive says it was turned off", () => {
+    // L'archivio scritto a mano, o rimasto da prima della blindatura: è
+    // esattamente ciò che il pannello di PR #41 salvava premendo «Nome».
+    const legacy: ListoneColumnPrefs = { hidden: ["name"], shown: [] };
+    expect(visibleColumnKeys(ALL_COLUMNS, DEFAULTS, legacy)).toContain("name");
+    // E resta AL SUO POSTO: la blindatura decide CHI, non DOVE, come le
+    // deviazioni.
+    expect(visibleColumnKeys(ALL_COLUMNS, DEFAULTS, legacy)[0]).toBe("name");
+  });
+
+  it("leaves every unlocked column exactly as switchable as before", () => {
+    // La blindatura è delle tre, e di nessun'altra: la Salute è di default e
+    // si spegne, la quotazione è fuori default e si accende.
+    const prefs: ListoneColumnPrefs = { hidden: ["pagella_salute"], shown: ["quotation"] };
+    expect(visibleColumnKeys(ALL_COLUMNS, DEFAULTS, prefs)).toEqual([
+      "name",
+      "role",
+      "club",
+      "quotation",
+    ]);
+  });
+});
+
+describe("isColumnVisible — una colonna blindata si vede e basta", () => {
+  it("returns true for a locked key whatever the archive says", () => {
+    const hiddenEverywhere: ListoneColumnPrefs = { hidden: ["name"], shown: [] };
+    expect(isColumnVisible("name", DEFAULTS, hiddenEverywhere)).toBe(false);
+    expect(isColumnVisible("name", DEFAULTS, hiddenEverywhere, true)).toBe(true);
+  });
+
+  it("returns true for a locked key even when it is not in the default set at all", () => {
+    // Blindata batte «fuori default»: non è una scorciatoia per il default, è
+    // un'altra regola.
+    expect(isColumnVisible("name", ["fvm"], EMPTY_LISTONE_COLUMN_PREFS, true)).toBe(true);
+    expect(isColumnVisible("name", ["fvm"], EMPTY_LISTONE_COLUMN_PREFS)).toBe(false);
   });
 });

@@ -67,6 +67,20 @@ export interface ListoneColumn {
   readonly label: string;
   readonly kind: ColumnKind;
   readonly core: boolean;
+  /**
+   * BLINDATA: nessuna preferenza la spegne, mai. Vale oggi per le sole tre
+   * colonne d'identità (nome, ruolo, squadra) ed è il modo in cui il divieto
+   * VIAGGIA COL DATO invece di restare un commento: la bandiera arriva ovunque
+   * arrivi la colonna, quindi chi calcola le colonne visibili non può
+   * dimenticarsene (`visibleColumnKeys`, src/listoneColumnPrefs.ts).
+   *
+   * Assente = falso, ed è il default giusto: una colonna nuova nasce
+   * spegnibile, e una colonna spegnibile non può far sparire l'identità di una
+   * riga. Aggiunta il 2026-08-24 dopo la review di PR #41, che eseguendo
+   * l'app ha spento «Nome» dal pannello e ha visto la riga ridursi a
+   * `P CLU ClubUno n/d …` senza il nome del giocatore.
+   */
+  readonly locked?: boolean;
 }
 
 export interface ListoneSort {
@@ -81,10 +95,27 @@ const CORE_COLUMNS: readonly ListoneColumn[] = [
   { key: "quotation", label: "Quotazione", kind: "number", core: true },
 ];
 
-/** Le tre colonne d'identità: nome, ruolo, squadra. Sono le prime tre della
- *  lista di Pico (2026-08-24) e le uniche che nessuna vista può spegnere
- *  senza che la riga smetta di dire di chi parla. */
-const IDENTITY_COLUMNS: readonly ListoneColumn[] = CORE_COLUMNS.slice(0, 3);
+/**
+ * Le tre colonne d'identità: nome, ruolo, squadra. Sono le prime tre della
+ * lista di Pico (2026-08-24) e le uniche che nessuna vista può spegnere senza
+ * che la riga smetta di dire di chi parla.
+ *
+ * DAL 2026-08-24 QUESTA FRASE NON È PIÙ SOLO UN COMMENTO: `locked: true` la
+ * rende vera per costruzione. Prima lo era solo per buona volontà, e infatti
+ * non lo era — il pannello «Colonne visibili» generava un interruttore anche
+ * per queste tre e spegnerlo funzionava.
+ */
+const IDENTITY_COLUMNS: readonly ListoneColumn[] = CORE_COLUMNS.slice(0, 3).map((c) => ({
+  ...c,
+  locked: true,
+}));
+
+/**
+ * Le chiavi delle tre colonne blindate — DERIVATE, mai riscritte a mano: due
+ * elenchi che devono restare uguali sono un difetto in attesa del giorno in
+ * cui qualcuno ne aggiorna uno solo.
+ */
+export const LISTONE_IDENTITY_COLUMN_KEYS: readonly string[] = IDENTITY_COLUMNS.map((c) => c.key);
 
 /** La quotazione di listino. Resta una colonna del pool a tutti gli effetti —
  *  validata, ordinabile, riaccendibile — ma dal 2026-08-24 NON è più visibile

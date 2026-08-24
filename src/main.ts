@@ -1276,6 +1276,14 @@ function listoneVisibleColumnKeys(): string[] {
 }
 
 function toggleListoneColumn(key: string): void {
+  // IL SECONDO GIRO DI CHIAVE (2026-08-24). Il pannello non attacca nemmeno il
+  // gestore del clic alle tre colonne blindate, quindi da lì questa riga non
+  // scatta mai. Sta qui perché una chiamata che arrivasse da un'altra strada
+  // non deve poter SCRIVERE nell'archivio una preferenza che poi nessuno
+  // onora: `visibleColumnKeys` mostrerebbe la colonna comunque, e resterebbe
+  // in `localStorage` una riga che dice il falso. La bandiera è quella della
+  // colonna, non un secondo elenco di chiavi tenuto a mano.
+  if (listoneColumns(state.pool).find((c) => c.key === key)?.locked === true) return;
   state.poolColumnPrefs = toggleColumnPref(
     state.poolColumnPrefs,
     key,
