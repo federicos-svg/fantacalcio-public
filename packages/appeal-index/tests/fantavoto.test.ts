@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { computeFantavoto, FANTAVOTO_TARIFF, GS_MALUS_PER_GOAL_CONCEDED } from "../src/fantavoto.js";
-import type { VoteRecordCandidate } from "../src/types.js";
+import {
+  computeFantavoto,
+  FANTAVOTO_RULE_VERSION,
+  FANTAVOTO_TARIFF,
+  GS_MALUS_PER_GOAL_CONCEDED,
+} from "../src/fantavoto.js";
+import type { Role, VoteRecordCandidate } from "../src/types.js";
 
 function record(overrides: Partial<VoteRecordCandidate> = {}): VoteRecordCandidate {
   return {
@@ -43,8 +48,8 @@ describe("computeFantavoto", () => {
   // la tariffa che escludeva i gol subiti, ed e' falso da quando Pico ha
   // chiuso la platea del malus (LEAGUE_RULES.md §12, DECISIONS.md §D9 punto 6,
   // domanda aperta «da chiudere prima del rerun»). `Gs` ora conta, per il solo
-  // portiere. `Rf` resta ignorato, e la sua ragione non e' cambiata: un rigore
-  // segnato e' gia' dentro `Gf`.
+  // portiere. La meta' `Rf` di quella vecchia asserzione e' caduta a sua volta
+  // il 2026-08-24 — si veda il blocco `Rf` piu' sotto.
   it("Gs conta per il PORTIERE: -1 per gol subito", () => {
     // NUMERI LETTERALI, NON LA COSTANTE. Scritto prima con
     // `6 + 3 * GS_MALUS_PER_GOAL_CONCEDED`, e una mutazione l'ha smascherato:
@@ -60,8 +65,62 @@ describe("computeFantavoto", () => {
     expect(GS_MALUS_PER_GOAL_CONCEDED).toBe(-1);
   });
 
-  it("Rf resta ignorato — un rigore segnato e' gia' dentro Gf", () => {
-    expect(computeFantavoto(record({ Gf: 1, Rf: 2 }))).toBe(computeFantavoto(record({ Gf: 1 })));
+  // ASSERZIONE INVERTITA il 2026-08-24. Il test diceva «Rf resta ignorato — un
+  // rigore segnato e' gia' dentro Gf», e sorvegliava fedelmente una premessa
+  // FALSA: la misura di campo privata del 2026-08-24 ha stabilito che `Gf`
+  // (gol su azione), `Rf` (rigori segnati) e `Rs` (rigori sbagliati) sono tre
+  // colonne disgiunte, e che i totali stagionali noti si riproducono solo con
+  // `Gf + Rf`. Un test verde su una premessa falsa non e' una rete di
+  // sicurezza: e' la falsita' resa permanente. Qui sotto i numeri sono
+  // LETTERALI e vengono dal regolamento (LEAGUE_RULES.md §12: il gol vale +3,
+  // e §12 non prezza il modo in cui e' stato segnato), non dalla costante che
+  // devono sorvegliare — stessa lezione gia' imparata sul malus `Gs`.
+  it("Rf conta: un rigore segnato vale +3 come ogni gol", () => {
+    // 6 + 3 = 9.
+    expect(computeFantavoto(record({ Rf: 1 }))).toBeCloseTo(9);
+    // Due rigori segnati: 6 + 6 = 12.
+    expect(computeFantavoto(record({ Rf: 2 }))).toBeCloseTo(12);
+  });
+
+  it("Gf e Rf sono disgiunti e si sommano, non si annidano", () => {
+    // Il cuore della correzione: un gol su azione PIU' un rigore segnato sono
+    // due gol, 6 + 3 + 3 = 12. Contro la vecchia premessa questo valeva 9.
+    expect(computeFantavoto(record({ Gf: 1, Rf: 1 }))).toBeCloseTo(12);
+    // E `Rf` non e' piu' assorbito da `Gf`: aggiungerlo cambia il risultato.
+    expect(computeFantavoto(record({ Gf: 1, Rf: 2 }))).not.toBe(computeFantavoto(record({ Gf: 1 })));
+  });
+
+  it("segnare e sbagliare un rigore nella stessa giornata si annulla: +3 -3 = 0", () => {
+    // Il netto sui rigori e' zero, quindi resta il solo voto base.
+    expect(computeFantavoto(record({ Rf: 1, Rs: 1 }))).toBeCloseTo(6);
+    // Due segnati e uno sbagliato: 6 + 6 - 3 = 9.
+    expect(computeFantavoto(record({ Rf: 2, Rs: 1 }))).toBeCloseTo(9);
+  });
+
+  it("Rf vale su QUALUNQUE ruolo — un rigorista puo' essere anche un difensore", () => {
+    // Nessuna guardia di ruolo, al contrario di `Gs`: un difensore o un
+    // centrocampista che batte i rigori e' un fatto ordinario del gioco, non
+    // il sintomo di una colonna con semantica inattesa.
+    for (const role of ["P", "D", "C", "A"] as const satisfies readonly Role[]) {
+      expect(computeFantavoto(record({ role, Rf: 1 }))).toBeCloseTo(9);
+    }
+  });
+
+  it("la correzione Rf non tocca nient'altro nella tariffa", () => {
+    // Valori LETTERALI dal regolamento (LEAGUE_RULES.md §12): se un giorno
+    // qualcuno cambia una voce, questo test lo dice invece di adeguarsi.
+    expect(FANTAVOTO_TARIFF).toEqual({ Gf: 3, Rf: 3, Ass: 1, Rp: 3, Rs: -3, Au: -2, Amm: -0.5, Esp: -1 });
+    // E il malus gol subito resta del solo portiere, come chiuso il 2026-08-23.
+    expect(computeFantavoto(record({ role: "P", Gs: 1, Rf: 1 }))).toBeCloseTo(8);
+    expect(() => computeFantavoto(record({ role: "A", Gs: 1, Rf: 1 }))).toThrow(/malus gol subito/);
+  });
+
+  it("la versione di tariffa dichiara il bump di Rf", () => {
+    // La costante non e' cosmetica: gli artefatti prodotti con la versione
+    // precedente si RIGENERANO, non si correggono, e senza un nome nuovo non
+    // sarebbero distinguibili da quelli prodotti con questa.
+    expect(FANTAVOTO_RULE_VERSION).toBe("appeal_index_offline_v3_rf_penalty");
+    expect(FANTAVOTO_RULE_VERSION).not.toBe("appeal_index_offline_v2_gs_keeper");
   });
 
   it("un gol subito su una riga NON di portiere ferma il calcolo, non lo aggiusta", () => {

@@ -18,6 +18,25 @@
 //   shell-asset  cache-first. Filenames under /assets/ are content-hashed by
 //                the build, so a given URL's bytes never change; a new build
 //                produces new URLs AND a new cache name.
+//   absent-asset a same-origin /assets/** URL this build does NOT own:
+//                answered locally with a 404, never fetched. The precache list
+//                is the COMPLETE inventory of this build's /assets/** URLs —
+//                scripts/build-service-worker.mjs enumerates every file under
+//                dist/ and buildIntegrityPolicy precaches all of them — so a
+//                path under that prefix that is missing from the list is proof
+//                the artifact does not contain it, not a hint. Asking the
+//                network for it can only produce a 404, the SPA fallback's
+//                index.html dressed up as an image, or, offline, a failed
+//                request; and the callers of these URLs already degrade on the
+//                image's own `onerror` (club logos, src/ui/serieA.ts). This is
+//                the rule that makes a cold start's club badges independent of
+//                the race BUNDLE-01 lost until now: the precache install and
+//                the page's first render run concurrently, so whether a club
+//                logo happened to be written into Cache Storage during an
+//                earlier online visit depended on which of the two got there
+//                first. Measured on the failing spec (offline-cold-start,
+//                "boots from cache with the context offline"): 19 failures out
+//                of 20 under CPU pressure before this rule, 0 after it.
 //   data-asset   network-first, cache fallback, and the cache is refreshed on
 //                every success — the listone must be the freshest one that is
 //                actually reachable, and the last good copy must survive going
@@ -31,7 +50,13 @@
 //                paths. The service worker does not answer what it was not
 //                built to answer.
 
-export type SwRouteKind = "navigation" | "shell-asset" | "data-asset" | "network-only" | "passthrough";
+export type SwRouteKind =
+  | "navigation"
+  | "shell-asset"
+  | "absent-asset"
+  | "data-asset"
+  | "network-only"
+  | "passthrough";
 
 export interface SwRequestFacts {
   /** HTTP method, uppercase. */
@@ -100,11 +125,15 @@ export function classifySwRequest(facts: SwRequestFacts): SwRouteKind {
   // from a cold start.
   if (facts.mode === "navigate") return "navigation";
   if (pathname.startsWith(DATA_ASSET_PREFIX)) return "data-asset";
-  if (pathname.startsWith(SHELL_ASSET_PREFIX)) return "shell-asset";
-  // Anything else that was explicitly precached (index.html, the integrity
-  // policy, the root) is served as shell too — being in the precache list IS
-  // the declaration that this build owns that URL.
+  // Precache membership is checked BEFORE the /assets/ prefix, not after,
+  // because it is the stronger fact: being in the precache list IS the
+  // declaration that this build owns that URL — index.html, the integrity
+  // policy and the root reach the shell strategy through this line too.
   if (facts.precachedPaths.has(pathname)) return "shell-asset";
+  // Under the shell prefix but absent from the inventory: this build does not
+  // have the file, so there is nothing the network could usefully add. See the
+  // `absent-asset` paragraph in the header.
+  if (pathname.startsWith(SHELL_ASSET_PREFIX)) return "absent-asset";
   return "passthrough";
 }
 

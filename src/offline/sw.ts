@@ -212,6 +212,31 @@ async function handleNavigation(request: Request): Promise<Response> {
   });
 }
 
+/**
+ * The answer to a request for an asset THIS BUILD DOES NOT CONTAIN.
+ *
+ * Local, immediate, and never a network fetch — `classifySwRequest` reaches
+ * this only for a same-origin `/assets/**` path that is absent from the
+ * precache list, and that list is the complete inventory of the built artifact
+ * (see the `absent-asset` paragraph in swPolicy.ts). The network cannot improve
+ * on that verdict; offline it cannot even give one.
+ *
+ * 404 and not a synthetic placeholder image: the callers of these URLs are the
+ * club badges (src/ui/serieA.ts), which already fall back to their text badge
+ * on the image's own `onerror`. A status the browser reports as a load failure
+ * is therefore the signal they were written for — and here it arrives in
+ * microseconds instead of after a round trip that, on a network that accepts
+ * the connection and never answers, costs SHELL_ASSET_NETWORK_TIMEOUT_MS per
+ * logo on the one day nobody can wait.
+ */
+function absentAssetResponse(): Response {
+  return new Response("", {
+    status: 404,
+    statusText: "Not Found",
+    headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+  });
+}
+
 async function handleShellAsset(request: Request): Promise<Response> {
   const cached = await matchInCache(request);
   if (cached) return cached;
@@ -286,6 +311,10 @@ sw.addEventListener("fetch", (event) => {
   }
   if (kind === "data-asset") {
     event.respondWith(handleDataAsset(request));
+    return;
+  }
+  if (kind === "absent-asset") {
+    event.respondWith(absentAssetResponse());
     return;
   }
   event.respondWith(handleShellAsset(request));

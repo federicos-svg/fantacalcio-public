@@ -491,6 +491,12 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
     "#schede-identity-note", // perché nome e squadra non si scrivono
     "#schede-nota-counter", // il contatore della nota, --text-dim
     ".schede-check", // le etichette delle checkbox del vocabolario
+    // I due blocchi arrivati coi tre campi che il contratto ammetteva e che
+    // nessuno poteva scrivere: la loro prosa è --text-dim su .schede-group,
+    // cioè una superficie che prima non esisteva.
+    "#schede-ballottaggio-hint", // perché i nomi arrivano al riquadro solo col ballottaggio
+    "#schede-pagella-hint", // «un voto vuoto resta n/d, non diventa zero»
+    "#schede-pagella-verifica", // somma ricalcolata contro totale dichiarato
   ]) {
     expect(await textContrast(page, sel), `schede: ${sel}`).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
   }

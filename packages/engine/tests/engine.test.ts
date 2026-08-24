@@ -183,14 +183,40 @@ describe("role scarcity & opponent Tier-1", () => {
 // review — che è esattamente ciò che la guardia deve costare.
 // ---------------------------------------------------------------------------
 describe("12. scope guard — solo i simboli di valore autorizzati da §D9", () => {
-  /** Autorizzati da §D9 perimetro 1 + matrice UI §3 (declaredValues.ts, #233). */
-  const DECLARED_VALUE_ALLOWLIST: readonly string[] = [
-    "DECLARED_VALUE_PROVENANCE",
-    "VALUE_PROFILES",
-    "declaredValueBook",
-    "declaredValueOf",
-    "validateDeclaredValues",
-  ];
+  /**
+   * Autorizzati da §D9 perimetro 1 + matrice UI §3, CON IL MODULO IN CUI OGNUNO
+   * DEVE NASCERE.
+   *
+   * Il modulo fa parte dell'autorizzazione e non è una nota: la guardia
+   * certifica l'IDENTITÀ del binding (vedi «Bypass 1» più sotto), e un nome
+   * autorizzato che arrivasse da un altro file sarebbe di nuovo un'etichetta al
+   * posto di un divieto. Due moduli autorizzati, e solo due:
+   *
+   *  - `declaredValues.ts` — i valori DICHIARATI di Owner (#233);
+   *  - `absoluteValue.ts` — il valore ASSOLUTO in crediti, decisione di Pico del
+   *    2026-08-24. Sta nella famiglia autorizzata e non in quella vietata, e la
+   *    differenza è verificabile riga per riga: gli ingredienti sono il BUDGET
+   *    DEL REGOLAMENTO (`INITIAL_BUDGET`), gli SLOT DEL REGOLAMENTO
+   *    (`ROSTER_REQUIREMENTS`), i TARGET DI RUOLO DICHIARATI da Pico e
+   *    un'ARITMETICA DICHIARATA su di essi — i tre ingredienti di §D9 e
+   *    nient'altro. Nessun modello, nessuna statistica, nessun prezzo di mercato
+   *    previsto, nessun peso scelto dal sistema: i tre `delta` delle gambe sono
+   *    numeri di Pico e valgono 0 finché non li dichiara.
+   *
+   * Il nome nudo `value` resta fuori, qui come altrove.
+   */
+  const DECLARED_VALUE_ALLOWLIST: Readonly<Record<string, string>> = {
+    DECLARED_VALUE_PROVENANCE: "declaredValues.js",
+    VALUE_PROFILES: "declaredValues.js",
+    declaredValueBook: "declaredValues.js",
+    declaredValueOf: "declaredValues.js",
+    validateDeclaredValues: "declaredValues.js",
+    ABSOLUTE_VALUE_DELTAS: "absoluteValue.js",
+    ABSOLUTE_VALUE_LEGS: "absoluteValue.js",
+    ABSOLUTE_VALUE_UNRATIFIED_CHOICES: "absoluteValue.js",
+    absoluteValueReading: "absoluteValue.js",
+  };
+  const ALLOWED_VALUE_NAMES = Object.keys(DECLARED_VALUE_ALLOWLIST);
 
   /** Sorgenti del motore, lette dal disco: la guardia non si fida del barrel. */
   const SRC_DIR = new URL("../src/", import.meta.url);
@@ -217,7 +243,7 @@ describe("12. scope guard — solo i simboli di valore autorizzati da §D9", () 
     const banned = ["value", "fairtome", "targetband", "stretchcap", "modifier", "spearman"];
     const offenders = Object.keys(mod).filter(
       (key) =>
-        !DECLARED_VALUE_ALLOWLIST.includes(key) &&
+        !ALLOWED_VALUE_NAMES.includes(key) &&
         banned.some((b) => key.toLowerCase().includes(b)),
     );
     expect(offenders).toEqual([]);
@@ -226,7 +252,7 @@ describe("12. scope guard — solo i simboli di valore autorizzati da §D9", () 
   it("l'allowlist non contiene voci morte: ogni nome è davvero esportato", async () => {
     const mod = await import("../src/index.js");
     const keys = Object.keys(mod);
-    for (const allowed of DECLARED_VALUE_ALLOWLIST) expect(keys).toContain(allowed);
+    for (const allowed of ALLOWED_VALUE_NAMES) expect(keys).toContain(allowed);
   });
 
   // -------------------------------------------------------------------------
@@ -238,18 +264,45 @@ describe("12. scope guard — solo i simboli di valore autorizzati da §D9", () 
   // un divieto sul nome in una licenza permanente su cinque nomi. Da qui in poi
   // l'allowlist certifica l'IDENTITÀ del binding, non l'etichetta.
   // -------------------------------------------------------------------------
-  it("i nomi in allowlist sono i binding di declaredValues.ts, non alias di altro", async () => {
+  it("i nomi in allowlist sono i binding del loro modulo autorizzato, non alias di altro", async () => {
     const mod = (await import("../src/index.js")) as Record<string, unknown>;
-    const declared = (await import("../src/declaredValues.js")) as Record<string, unknown>;
-    for (const allowed of DECLARED_VALUE_ALLOWLIST) {
-      expect(declared[allowed], `${allowed} deve nascere in declaredValues.ts`).toBeDefined();
+    const owners = new Map<string, Record<string, unknown>>([
+      ["declaredValues.js", (await import("../src/declaredValues.js")) as Record<string, unknown>],
+      ["absoluteValue.js", (await import("../src/absoluteValue.js")) as Record<string, unknown>],
+    ]);
+    for (const [allowed, owner] of Object.entries(DECLARED_VALUE_ALLOWLIST)) {
+      const source = owners.get(owner)!;
+      expect(source[allowed], `${allowed} deve nascere in ${owner}`).toBeDefined();
       // `Object.is` sul binding: un re-export con rinomina fallisce qui, perché
       // l'oggetto esportato non è più quello del modulo autorizzato.
       expect(
-        Object.is(mod[allowed], declared[allowed]),
-        `${allowed} nel barrel non è il binding di declaredValues.ts`,
+        Object.is(mod[allowed], source[allowed]),
+        `${allowed} nel barrel non è il binding di ${owner}`,
       ).toBe(true);
     }
+  });
+
+  it("absoluteValue.ts non cabla nessun peso: le sole costanti numeriche sono gli zeri dei delta", () => {
+    // Stessa sonda applicata a declaredValues.ts, sull'altro modulo
+    // autorizzato: chiusa la strada dell'alias, l'attacco si sposta DENTRO il
+    // file coperto dall'allowlist. Qui i soli letterali ammessi sono `0` (i tre
+    // delta spenti, la linea di base delle coppe, i confronti) e `1` (la
+    // presenza nelle coppe e l'aritmetica dell'ordinale del vocabolario). Un
+    // `0.6` o un `1.15` che comparissero qui sarebbero un peso scelto dal
+    // sistema, cioè esattamente ciò che §D9 vieta.
+    //
+    // Il `2` è il DIVISORE DEL PUNTO MEDIO di una lista — `(length - 1) / 2`,
+    // il centro del vocabolario della concorrenza. È la definizione di «metà»,
+    // non un coefficiente: cambia da solo se il vocabolario cambia lunghezza, e
+    // nessun valore diverso da 2 può comparire al suo posto senza smettere di
+    // essere un punto medio.
+    const ALLOWED_NUMERIC_LITERALS = new Set(["0", "1", "2"]);
+    const code = stripCommentsAndStrings(sourceOf("absoluteValue.ts"));
+    const literals = [...code.matchAll(/(?<![\w.$])\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi)].map(
+      (m) => m[0],
+    );
+    const unexpected = [...new Set(literals)].filter((n) => !ALLOWED_NUMERIC_LITERALS.has(n));
+    expect(unexpected).toEqual([]);
   });
 
   it("declaredValues.ts non contiene costanti numeriche oltre gli α preregistrati", () => {

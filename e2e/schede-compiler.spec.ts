@@ -39,10 +39,12 @@ import {
   textContrast,
 } from "./helpers.js";
 import {
+  SCHEDA_BALLOTTAGGIO_MAX,
   SCHEDA_NOTA_MAX,
   parseExpertSchedaDeposit,
   resolveExpertInsight,
 } from "../src/expertScheda.js";
+import { PAGELLA_TOTALE_MAX } from "../src/pagellaEsperti.js";
 
 const SCHEDA_DRAFTS_KEY = "fac_scheda_drafts";
 const TOTAL_ROWS = SYNTHETIC_LISTONE_POOL.length;
@@ -119,16 +121,37 @@ async function boot(page: Page): Promise<void> {
   await openSchede(page);
 }
 
-/** Compila il modulo già aperto con una scheda piena. */
+/**
+ * Compila il modulo già aperto con una scheda piena — PIENA DAVVERO, cioè con
+ * tutti e dodici i campi che il contratto ammette.
+ *
+ * Fino a ieri erano nove: `ballottaggio`, `lista` e `pagella` esistevano nel
+ * contratto e non avevano nessun controllo da toccare qui. Questa funzione è
+ * l'unico posto in cui la spec dichiara che cosa vuol dire «piena», ed è
+ * apposta: quando il contratto crescerà ancora, la guardia strutturale di
+ * src/schedaCompiler.test.ts diventerà rossa e questo sarà il posto in cui
+ * rimediare.
+ */
 async function fillFullScheda(page: Page): Promise<void> {
   await page.locator("#schede-titolarita").selectOption("ballottaggio");
   await page.locator("#schede-percentuale").fill("60");
+  // Con CHI se la gioca: si SCEGLIE da una riga del listone, come il giocatore.
+  await page.locator("#schede-ballottaggio-nome-0").selectOption(OTHER_PLAYER);
+  await page.locator("#schede-ballottaggio-quota-0").fill("40");
   await page.locator("#schede-gerarchia").fill("2");
   await page.locator("#schede-rigori").selectOption("designato");
+  await page.locator("#schede-lista").selectOption("consigliato");
   await page.locator("#schede-fonte").selectOption("scheda");
   await page.locator("#schede-aggiornata").fill("2026-08-30");
   await page.locator("#schede-piazzati-punizioni").check();
   await page.locator("#schede-avvisi-mercato").check();
+  // La pagella: il quarto asse è «Bonus» perché questa riga è di movimento.
+  await page.locator("#schede-pagella-titolarita").fill("9");
+  await page.locator("#schede-pagella-media-voto").fill("7");
+  await page.locator("#schede-pagella-salute").fill("9");
+  await page.locator("#schede-pagella-bonus").fill("6");
+  await page.locator("#schede-pagella-consiglio").fill("8");
+  await page.locator("#schede-pagella-totale").fill("39");
   await page.locator("#schede-nota").fill(NOTA);
 }
 
@@ -214,6 +237,31 @@ test("il giro completo: scelgo, compilo, salvo, ricarico, scarico — e il file 
   expect(view.nota).toBe(NOTA);
   expect(view.aggiornata).toBe("2026-08-30");
   expect(view.fonte).toBe("scheda");
+  // I TRE CAMPI CHE IL CONTRATTO AMMETTEVA E CHE NESSUNO POTEVA SCRIVERE.
+  // Non basta che finiscano nel file: devono ARRIVARE ALLA VISTA, che è la
+  // metà del giro in cui si perdevano prima ancora di esistere.
+  expect(view.ballottaggio).toEqual([{ surface: OTHER_PLAYER, sharePercent: 40 }]);
+  expect(view.lista).toBe("consigliato");
+  expect(view.pagella.completa).toBe(true);
+  expect(view.pagella.votiPresenti).toBe(5);
+  expect(view.pagella.totaleRicalcolato).toBe(39);
+  expect(view.pagella.totaleFonte).toBe(39);
+  expect(view.pagella.verificaTotale).toBe("coerente");
+  // Qui la riga viene passata SENZA ruolo, quindi il quarto asse è quello che
+  // la scheda dichiara: `asseAtteso` resta `null`, e non viene indovinato.
+  expect(view.pagella.asseAtteso).toBeNull();
+  expect(view.pagella.asseDichiarato).toBe("pagella_bonus");
+  expect(view.pagella.asseIncoerente).toBe(false);
+  // Con il ruolo della riga accanto — come lo passa l'app — l'asse atteso e
+  // quello scritto coincidono: la casella compilata è quella giusta.
+  const conRuolo = resolveExpertInsight(store, {
+    name: SCHEDA_PLAYER,
+    club: SCHEDA_CLUB,
+    role: "A",
+  });
+  expect(conRuolo.pagella.asseAtteso).toBe("pagella_bonus");
+  expect(conRuolo.pagella.asseIncoerente).toBe(false);
+  expect(conRuolo.pagella.assi[3]?.voto).toBe(6);
   // I tre fatti di onestà restano letterali anche su una scheda compilata qui.
   expect([view.validated, view.directive, view.contributesToIndex]).toEqual([false, false, false]);
 
@@ -506,3 +554,165 @@ test("un file che non va non tocca niente, e dice perché", async ({ page, conte
   expect(externalRequests).toEqual([]);
 });
 
+
+// ── I TRE CAMPI CHE NESSUNO POTEVA SCRIVERE ──────────────────────────────────
+//
+// `ballottaggio`, `lista` e `pagella` erano nel contratto del deposito e non
+// avevano nessun controllo in questa schermata: il campo che risponde a «quanti
+// si contendono quel posto», la quarta icona accanto al radar e i cinque voti
+// del radar stesso erano irraggiungibili per l'unica persona che può scriverli.
+// Le due spec qui sotto misurano la via d'ingresso da capo a fondo — si
+// compila, si salva, si scarica, si rilegge, il riquadro d'asta li mostra — e i
+// due rifiuti che il modulo oppone invece di perdere il lavoro in silenzio.
+
+test("i tre campi si compilano, si rileggono e tornano identici byte per byte", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
+  const pageErrors: string[] = [];
+  page.on("pageerror", (err) => pageErrors.push(err.message));
+  await boot(page);
+
+  await page.locator("#schede-player").selectOption({ label: TARGET_OPTION });
+
+  // La riga di verifica del totale esiste PRIMA di ogni voto, e non dice zero.
+  await expect(page.locator("#schede-pagella-verifica")).toContainText("Nessun voto scritto");
+  await expect(page.locator("#schede-pagella-verifica")).toContainText("n/d");
+
+  // Il quarto asse LO DECIDE IL RUOLO della riga: questa è di movimento, quindi
+  // «Bonus», e la casella dei portieri non esiste affatto.
+  await expect(page.locator("#schede-pagella-bonus")).toBeVisible();
+  await expect(page.locator("#schede-pagella-porta-inviolata")).toHaveCount(0);
+
+  await fillFullScheda(page);
+
+  // La verifica del totale è viva mentre si compila, e con cinque voti su
+  // cinque dice che i due numeri tornano.
+  await expect(page.locator("#schede-pagella-verifica")).toContainText("5 voti su 5");
+  await expect(page.locator("#schede-pagella-verifica")).toContainText("Tornano");
+
+  await page.locator("#schede-save").click();
+  await expect(page.locator("#schede-form")).toHaveCount(0);
+
+  // Il riassunto rilegge i tre campi senza riaprire la scheda.
+  await expect(page.locator("#schede-list")).toContainText(`con: ${OTHER_PLAYER} 40%`);
+  await expect(page.locator("#schede-list")).toContainText("lista: consigliato");
+  await expect(page.locator("#schede-list")).toContainText("pagella: 5/5 voti, somma 39/50");
+
+  // Riaperta, la scheda torna nel modulo com'era: nessun campo si perde per
+  // strada, che è l'intero punto della correzione a tre sere di distanza.
+  await page.locator(`#schede-edit-${TARGET_ROW_KEY}`).click();
+  await expect(page.locator("#schede-ballottaggio-nome-0")).toHaveValue(OTHER_PLAYER);
+  await expect(page.locator("#schede-ballottaggio-quota-0")).toHaveValue("40");
+  await expect(page.locator("#schede-lista")).toHaveValue("consigliato");
+  await expect(page.locator("#schede-pagella-bonus")).toHaveValue("6");
+  await expect(page.locator("#schede-pagella-totale")).toHaveValue("39");
+  await page.locator("#schede-close").click();
+
+  // ── IL GIRO SI CHIUDE ANCHE CON LA PAGELLA DENTRO ─────────────────────────
+  // L'ordine delle chiavi del compilatore deve essere quello dello schema, o
+  // scarico → reimporto → riscarico renderebbe un file diverso a parità di
+  // contenuto. Misurato: senza quella regola questo confronto è rosso.
+  const depositPath = fixturePath("tre-campi.json");
+  const firstText = await saveDeposit(page, depositPath);
+  await wipeBrowser(page);
+  await page.locator("#schede-import-file").setInputFiles(depositPath);
+  await page.locator("#schede-import-confirm").click();
+  await expect(page.locator("#schede-notice")).toContainText("Deposito ripreso");
+  const roundTripPath = fixturePath("tre-campi-round-trip.json");
+  expect(await saveDeposit(page, roundTripPath)).toBe(firstText);
+
+  // ── LA GEOMETRIA A 390px ──────────────────────────────────────────────────
+  // Il modulo ha guadagnato due blocchi di campi: a telefono deve restare una
+  // colonna sola, senza scorrimento laterale.
+  await page.locator("#schede-player").selectOption(TARGET_ROW_KEY);
+  await expect(page.locator("#schede-pagella")).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator("#schede-ballottaggio")).toBeVisible();
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+    "il modulo delle schede non deve far scorrere la pagina di lato a 390px",
+  ).toBe(true);
+
+  expect(pageErrors).toEqual([]);
+  expect(externalRequests).toEqual([]);
+});
+
+test("i due rifiuti dei campi nuovi si leggono, e il lavoro resta a schermo", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
+  await boot(page);
+
+  await page.locator("#schede-player").selectOption({ label: TARGET_OPTION });
+
+  // 1. GLI ALTRI DEL BALLOTTAGGIO SENZA LA TITOLARITÀ CHE LI MOSTRA.
+  //    Il riquadro d'asta li scarterebbe (`resolveExpertInsight`): scritti e mai
+  //    resi. Qui la perdita diventa una domanda.
+  await page.locator("#schede-titolarita").selectOption("titolare");
+  await page.locator("#schede-ballottaggio-nome-0").selectOption(OTHER_PLAYER);
+  await page.locator("#schede-save").click();
+  await expect(page.locator("#schede-error-ballottaggio")).toContainText("ballottaggio");
+  await expect(page.locator("#schede-progress-count")).toContainText(`0 su ${TOTAL_ROWS}`);
+  // Il nome scelto è ancora lì: il rifiuto non butta via il lavoro.
+  await expect(page.locator("#schede-ballottaggio-nome-0")).toHaveValue(OTHER_PLAYER);
+
+  // Corretta la titolarità, la stessa scheda passa — e il tetto del contratto
+  // è visibile nella legenda del blocco.
+  await expect(page.locator("#schede-ballottaggio legend")).toContainText(
+    String(SCHEDA_BALLOTTAGGIO_MAX),
+  );
+  await page.locator("#schede-titolarita").selectOption("ballottaggio");
+  await page.locator("#schede-save").click();
+  await expect(page.locator("#schede-progress-count")).toContainText(`1 su ${TOTAL_ROWS}`);
+
+  // 2. IL QUARTO ASSE DI UN ALTRO RUOLO, su una scheda ripresa da un deposito
+  //    scritto altrove: la casella compare in più, segnata, e si può togliere.
+  //    Nasconderla avrebbe lasciato un valore incorreggibile in un modulo che
+  //    si rifiuta di salvare.
+  const straneoPath = fixturePath("asse-di-un-altro-ruolo.json");
+  writeFileSync(
+    straneoPath,
+    JSON.stringify({
+      schemaVersion: 1,
+      schede: [
+        {
+          player: OTHER_PLAYER,
+          club: OTHER_CLUB,
+          titolarita: "titolare",
+          pagella: { voti: { pagella_titolarita: 9, pagella_bonus: 6 } },
+        },
+      ],
+    }),
+    "utf8",
+  );
+  await page.locator("#schede-import-file").setInputFiles(straneoPath);
+  await page.locator("#schede-import-confirm").click();
+  await expect(page.locator("#schede-notice")).toContainText("Deposito ripreso");
+
+  const otherRowKey = `${OTHER_PLAYER.toLowerCase().replace(/\s+/g, "-")}__${OTHER_CLUB.toLowerCase()}`;
+  await page.locator(`#schede-edit-${otherRowKey}`).click();
+  // Questa riga è un PORTIERE: l'asse atteso è «porta inviolata», e il «bonus»
+  // che la scheda porta compare marcato come asse di un altro ruolo.
+  await expect(page.locator("#schede-pagella-porta-inviolata")).toBeVisible();
+  await expect(page.locator("#schede-pagella-bonus")).toHaveValue("6");
+  await page.locator("#schede-save").click();
+  await expect(page.locator("#schede-error-pagella")).toContainText("Porta inviolata");
+  await expect(page.locator("#schede-pagella-bonus")).toHaveValue("6");
+
+  // Tolto il voto straniero, la scheda passa e il totale non viene fabbricato.
+  await page.locator("#schede-pagella-bonus").fill("");
+  await expect(page.locator("#schede-pagella-verifica")).toContainText("1 voto su 5");
+  await expect(page.locator("#schede-pagella-verifica")).not.toContainText(
+    `/${PAGELLA_TOTALE_MAX},`,
+  );
+  await page.locator("#schede-save").click();
+  await expect(page.locator("#schede-errors")).toHaveCount(0);
+  await expect(page.locator("#schede-progress-count")).toContainText(`2 su ${TOTAL_ROWS}`);
+
+  expect(externalRequests).toEqual([]);
+});

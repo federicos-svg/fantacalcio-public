@@ -303,6 +303,33 @@ export function isValidIsoDate(value: string): boolean {
   );
 }
 
+/**
+ * IL SOGGETTO DEL BALLOTTAGGIO, come schema con un nome.
+ *
+ * Era anonimo, dentro l'array. Ha un nome perché le sue chiavi devono poter
+ * essere LETTE — `SCHEDA_BALLOTTAGGIO_SCHEMA_KEYS` qui sotto — dalla guardia
+ * strutturale del compilatore: `.strict()` protegge questo oggetto da una
+ * chiave in più, ma nessuno proteggeva il MODULO da una chiave in meno. È lo
+ * stesso punto cieco di cui parla il commento sull'array, visto dall'altro
+ * lato: rigido in lettura, scoperto in scrittura.
+ */
+const ballottaggioSoggettoSchema = z
+  .object({
+    surface: z.string().trim().min(1).max(SCHEDA_NAME_MAX),
+    sharePercent: z
+      .number()
+      .int()
+      .min(SCHEDA_PERCENTUALE_MIN)
+      .max(SCHEDA_PERCENTUALE_MAX)
+      .optional(),
+  })
+  .strict();
+
+/** Le chiavi del soggetto del ballottaggio, lette DALLO SCHEMA. */
+export const SCHEDA_BALLOTTAGGIO_SCHEMA_KEYS: readonly string[] = Object.keys(
+  ballottaggioSoggettoSchema.shape,
+);
+
 const schedaSchema = z
   .object({
     player: z.string().trim().min(1).max(SCHEDA_NAME_MAX),
@@ -320,19 +347,7 @@ const schedaSchema = z
     // un oggetto annidato — che è il punto cieco classico di uno schema
     // rigido solo al primo livello.
     ballottaggio: z
-      .array(
-        z
-          .object({
-            surface: z.string().trim().min(1).max(SCHEDA_NAME_MAX),
-            sharePercent: z
-              .number()
-              .int()
-              .min(SCHEDA_PERCENTUALE_MIN)
-              .max(SCHEDA_PERCENTUALE_MAX)
-              .optional(),
-          })
-          .strict(),
-      )
+      .array(ballottaggioSoggettoSchema)
       .max(SCHEDA_BALLOTTAGGIO_MAX)
       .optional(),
     gerarchia: z.number().int().min(SCHEDA_GERARCHIA_MIN).max(SCHEDA_GERARCHIA_MAX).optional(),
@@ -346,6 +361,116 @@ const schedaSchema = z
     pagella: pagellaSchema.optional(),
   })
   .strict();
+
+/**
+ * LE CHIAVI CHE LO SCHEMA DELLA SCHEDA AMMETTE, lette DALLO SCHEMA e non
+ * riscritte a mano.
+ *
+ * Serve a una cosa sola, e la cosa è un difetto già successo tre volte: il
+ * contratto cresce — `ballottaggio`, `lista`, `pagella` sono arrivati così — e
+ * il modulo con cui Pico compila le schede (src/schedaCompiler.ts) resta
+ * indietro, senza che niente diventi rosso. Un campo che il contratto ammette e
+ * che nessuno può scrivere è lavoro impossibile, non un dettaglio.
+ *
+ * Da qui la guardia strutturale del compilatore legge l'elenco vero: una chiave
+ * nuova in `schedaSchema` compare in questo array lo stesso giorno, e la
+ * guardia resta rossa finché quella chiave non ha una via d'ingresso — un campo
+ * del modulo, oppure un'eccezione dichiarata col suo motivo.
+ *
+ * `Object.keys` sulla forma dello schema e non un elenco letterale: un elenco
+ * letterale sarebbe una seconda copia del contratto, e divergerebbe in silenzio
+ * esattamente come il modulo che questa guardia esiste per sorvegliare.
+ */
+export const EXPERT_SCHEDA_SCHEMA_KEYS: readonly string[] = Object.keys(schedaSchema.shape);
+
+// ── IL CENSIMENTO DEI LIVELLI ANNIDATI ───────────────────────────────────────
+//
+// PERCHÉ NON BASTAVA UN ELENCO SCRITTO A MANO. La guardia strutturale del
+// compilatore (src/schedaCompiler.ts) confronta le chiavi del contratto con i
+// campi del modulo, e per farlo ha bisogno di sapere QUALI sono i livelli. Il
+// primo livello lo dà `EXPERT_SCHEDA_SCHEMA_KEYS`; i livelli annidati erano
+// tre — il soggetto del `ballottaggio`, la `pagella` e i suoi `voti` — e per
+// due di essi la guardia esisteva, per il terzo no. Un campo dichiarato dentro
+// il soggetto del ballottaggio e non cablato nel modulo passava tutta la suite
+// senza che una sola prova diventasse rossa: MISURATO, non temuto.
+//
+// Chiudere il buco con una quarta costante scritta a mano avrebbe rimesso la
+// stessa trappola un livello più in là: il QUINTO livello annidato, il giorno
+// che arriverà, non sarebbe in nessun elenco. Quindi i livelli non si
+// elencano: si CONTANO, camminando dentro lo schema. La guardia pretende poi
+// che l'insieme trovato sia esattamente quello dichiarato — un livello nuovo è
+// rosso il giorno in cui nasce, senza che nessuno debba ricordarsene.
+//
+// FAIL-CLOSED ANCHE SE LA CAMMINATA SI ROMPE. Se un aggiornamento di zod
+// cambiasse la forma interna che questa funzione attraversa, il censimento
+// troverebbe MENO livelli di quelli dichiarati e la guardia diventerebbe rossa
+// lo stesso: non può restare verde per non aver guardato.
+
+/** Un nodo dello schema, ridotto a ciò che serve per attraversarlo. */
+type SchemaNode = { readonly _def?: Record<string, unknown> };
+
+/**
+ * Toglie gli involucri che non cambiano la FORMA del dato — `optional`,
+ * `nullable`, `default`, l'elemento di un array, il `refine`/`superRefine` —
+ * e rende il nodo che c'è sotto.
+ */
+function unwrapSchemaNode(node: unknown): unknown {
+  let current = node;
+  // Un tetto invece di un `while (true)`: uno schema ricorsivo non deve poter
+  // trasformare un censimento in un ciclo infinito al caricamento del modulo.
+  for (let depth = 0; depth < 16; depth += 1) {
+    const def = (current as SchemaNode | undefined)?._def;
+    if (def === undefined) return current;
+    switch (def.typeName) {
+      case "ZodOptional":
+      case "ZodNullable":
+      case "ZodDefault":
+        current = def.innerType;
+        break;
+      case "ZodArray":
+        current = def.type;
+        break;
+      case "ZodEffects":
+        current = def.schema;
+        break;
+      default:
+        return current;
+    }
+  }
+  return current;
+}
+
+/** La forma di un nodo, quando il nodo è un oggetto; `null` altrimenti. */
+function shapeOfSchemaNode(node: unknown): Record<string, unknown> | null {
+  const def = (unwrapSchemaNode(node) as SchemaNode | undefined)?._def;
+  if (def?.typeName !== "ZodObject") return null;
+  return (def.shape as () => Record<string, unknown>)();
+}
+
+function censusNestedShapes(
+  node: unknown,
+  path: string,
+  out: Map<string, readonly string[]>,
+): void {
+  const shape = shapeOfSchemaNode(node);
+  if (shape === null) return;
+  if (path !== "") out.set(path, Object.keys(shape));
+  for (const [key, child] of Object.entries(shape)) {
+    censusNestedShapes(child, path === "" ? key : `${path}.${key}`, out);
+  }
+}
+
+/**
+ * Ogni livello ANNIDATO dello schema della scheda, col percorso e le chiavi che
+ * ammette. Il primo livello non c'è (è `EXPERT_SCHEDA_SCHEMA_KEYS`): qui ci
+ * sono solo gli oggetti dentro gli oggetti, che sono i posti in cui un campo
+ * nuovo passa inosservato.
+ */
+export const EXPERT_SCHEDA_NESTED_SHAPES: ReadonlyMap<string, readonly string[]> = (() => {
+  const out = new Map<string, readonly string[]>();
+  censusNestedShapes(schedaSchema, "", out);
+  return out;
+})();
 
 const depositSchema = z
   .object({
@@ -708,6 +833,29 @@ export function resolveListaEsperti(scheda: ExpertScheda): ListaEsperti | null {
   return scheda.lista ?? null;
 }
 
+/**
+ * GLI ALTRI DEL BALLOTTAGGIO CHE ARRIVANO ALLA VISTA — la regola scritta UNA
+ * volta, e chiesta da tutti e due i lati.
+ *
+ * Un elenco di rivali su un giocatore che la scheda dà titolare (o su cui non
+ * dichiara niente) non è un ballottaggio, è un elenco senza soggetto: il
+ * riquadro non ne sceglie una metà, l'icona resta spenta e l'elenco non arriva
+ * a schermo.
+ *
+ * PERCHÉ È UNA FUNZIONE E NON UNA CONDIZIONE RIPETUTA. La stessa riga viveva
+ * due volte alla lettera: qui, nel consumatore, e dentro `buildScheda`
+ * (src/schedaCompiler.ts), che rifiuta di salvare dei nomi che non verrebbero
+ * mostrati. Due copie di una regola sono due regole, e queste due devono
+ * restare la stessa o il compilatore comincerebbe ad accettare (o a rifiutare)
+ * qualcosa che la vista tratta al contrario — cioè di nuovo lavoro scritto e
+ * mai reso. Adesso il compilatore CHIEDE alla vista, invece di sapere.
+ */
+export function ballottaggioVisibile(
+  scheda: Pick<ExpertScheda, "titolarita" | "ballottaggio">,
+): readonly BallottaggioSoggetto[] {
+  return scheda.titolarita === "ballottaggio" ? scheda.ballottaggio ?? [] : [];
+}
+
 /** `true` quando la scheda dice almeno una cosa — un segnale o una riga di prosa. */
 export function schedaHasContent(scheda: ExpertScheda): boolean {
   return (
@@ -844,12 +992,10 @@ export function resolveExpertInsight(
     titolarita: scheda.titolarita ?? null,
     percentuale: scheda.titolarita === undefined ? null : scheda.percentuale ?? null,
     // GLI ALTRI IN BALLOTTAGGIO SOPRAVVIVONO SOLO A UN BALLOTTAGGIO — stessa
-    // regola di `percentuale` una riga più sopra, e per lo stesso motivo: un
-    // elenco di rivali su un giocatore che la scheda dà titolare (o su cui non
-    // dichiara niente) non è un ballottaggio, è un elenco senza soggetto. Il
-    // riquadro non ne sceglie una metà: l'icona resta spenta e l'elenco non
-    // arriva a schermo.
-    ballottaggio: scheda.titolarita === "ballottaggio" ? scheda.ballottaggio ?? [] : [],
+    // regola di `percentuale` una riga più sopra. La regola sta in
+    // `ballottaggioVisibile` e non qui dentro: la chiede anche il compilatore
+    // di schede, e due copie della stessa riga sono due regole.
+    ballottaggio: ballottaggioVisibile(scheda),
     gerarchia: scheda.gerarchia ?? null,
     rigori: scheda.rigori ?? null,
     piazzati: scheda.piazzati ?? [],
