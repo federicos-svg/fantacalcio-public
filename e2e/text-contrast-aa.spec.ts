@@ -426,10 +426,29 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
 
   // ── IMPOSTAZIONI ──────────────────────────────────────────────────────────
   await gotoScreen(page, "Impostazioni");
-  for (const section of ["teams", "riconferme", "schede", "status"] as const) {
+  // Un partecipante creato prima della spazzata: senza nessuno in archivio la
+  // riga «nome → identificativo» non esiste, e il testo più piccolo di questa
+  // schermata — l'identificativo, 10,5px monospace su --panel-inner — non
+  // verrebbe misurato affatto.
+  await openSettingsSection(page, "teams");
+  await page.locator("#new-person-name").fill("Persona Sintetica");
+  await page.locator("#add-person").click();
+  await expect(page.locator("#league-people-list .person-id-value")).toHaveCount(1);
+  // CINQUE sezioni: la spazzata le attraversa tutte. `archivio` entra qui
+  // insieme alle altre — l'unione di id di `openSettingsSection` non è più
+  // ferma, quindi il giro a mano che serviva prima non serve più.
+  for (const section of ["teams", "riconferme", "schede", "archivio", "status"] as const) {
     await openSettingsSection(page, section);
     await sweepScene(`impostazioni/${section}`);
   }
+  // ARCHIVIO AVVERSARI, secondo passaggio: i due riquadri della forma del file
+  // stanno dentro un <details> CHIUSO, e `measureAllText` salta ciò che non ha
+  // rettangolo. Il giro qui sopra li ha quindi attraversati senza misurarli:
+  // vanno aperti, o il loro testo resta fuori dalla spazzata.
+  await openSettingsSection(page, "archivio");
+  await page.locator("#archive-history-shape summary").click();
+  await page.locator("#archive-profiles-shape summary").click();
+  await sweepScene("impostazioni/archivio-dettagli");
 
   // SCHEDE — il modulo e il riquadro d'allarme esistono solo dopo un gesto:
   // da chiusi non hanno rettangolo, e `measureAllText` salta ciò che non ne

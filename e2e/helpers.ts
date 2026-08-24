@@ -212,7 +212,7 @@ export async function openTableDetail(page: Page): Promise<void> {
  */
 export async function openSettingsSection(
   page: Page,
-  id: "teams" | "riconferme" | "schede" | "status",
+  id: "teams" | "riconferme" | "schede" | "archivio" | "status",
 ): Promise<void> {
   const tab = page.locator(`#settings-tab-${id}`);
   if ((await tab.getAttribute("aria-selected")) === "true") return;
