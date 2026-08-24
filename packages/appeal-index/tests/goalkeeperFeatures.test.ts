@@ -30,6 +30,8 @@ function panelRow(overrides: Partial<PlayerSeasonPanelRow>): PlayerSeasonPanelRo
     fantamedia: 6,
     volatilitaVoto: 0.5,
     golFatti: 0,
+    golSuAzione: 0,
+    rigoriSegnati: 0,
     assist: 0,
     ammonizioni: 0,
     espulsioni: 0,

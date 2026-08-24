@@ -46,6 +46,32 @@ describe("buildPlayerSeasonAggregates", () => {
     expect(agg!.golFatti).toBe(1);
   });
 
+  it("«gol fatti» e' il totale Gf + Rf, e le due componenti restano leggibili a parte", () => {
+    // Allineamento del 2026-08-24: un rigore segnato e' un gol, quindi entra in
+    // `golFatti`. Chi vuole distinguere il bomber dal rigorista designato legge
+    // le componenti, che sono dichiarate e non derivate a occhio.
+    const rows = [
+      record({ matchday: 1, voto_base: 6, voto_raw: 6, Gf: 2 }),
+      record({ matchday: 2, voto_base: 7, voto_raw: 7, Rf: 1 }),
+      record({ matchday: 3, voto_base: 6, voto_raw: 6, Gf: 1, Rf: 1 }),
+    ];
+    const [agg] = buildPlayerSeasonAggregates("2024_25", rows);
+    expect(agg!.golSuAzione).toBe(3);
+    expect(agg!.rigoriSegnati).toBe(2);
+    expect(agg!.golFatti).toBe(5);
+    // L'identita' che tiene insieme i tre campi, asserita e non sperata.
+    expect(agg!.golFatti).toBe(agg!.golSuAzione + agg!.rigoriSegnati);
+  });
+
+  it("un rigorista puro ha golFatti > 0 con golSuAzione a zero", () => {
+    const rows = [record({ matchday: 1, voto_base: 6, voto_raw: 6, Rf: 2 })];
+    const [agg] = buildPlayerSeasonAggregates("2024_25", rows);
+    expect(agg!.golSuAzione).toBe(0);
+    expect(agg!.golFatti).toBe(2);
+    // E il fantavoto li paga: 6 + 3 + 3 = 12.
+    expect(agg!.fantamedia).toBeCloseTo(12);
+  });
+
   it("returns null mediaVoto/fantamedia/volatilitaVoto for a player with zero presenze", () => {
     const rows = [record({ voto_base: null, voto_raw: "", is_blank: true, is_real_performance: false })];
     const [agg] = buildPlayerSeasonAggregates("2024_25", rows);
