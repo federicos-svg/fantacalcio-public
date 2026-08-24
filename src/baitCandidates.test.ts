@@ -36,6 +36,7 @@ import {
 } from "../packages/engine/src/types.js";
 import {
   DEFAULT_PRECEDENT_THRESHOLDS,
+  PRECEDENT_FACT_IDS,
   auctionPrecedents,
   calledPlayerIsExpensive,
   newPrecedentFactCache,
@@ -706,6 +707,43 @@ describe("il pre-filtro non scarta niente che il fatto avrebbe ammesso", () => {
     }
     return out;
   }
+
+  /**
+   * IL TRIPWIRE, ed è la guardia che il confronto con la via lenta NON dà.
+   *
+   * IL BUCO CHE CHIUDE. Il caso qui sotto confronta pre-filtro e via lenta su
+   * una FIXTURE: prova che i due concordano su ciò che quella fixture contiene.
+   * Se domani `PRECEDENT_FACT_IDS` guadagnasse un quarto fatto NEUTRO rispetto
+   * al club e all'acquisto — poniamo «ha speso molto nella stessa fascia di
+   * prezzo» — il pre-filtro comincerebbe a scartare in silenzio righe che quel
+   * fatto avrebbe ammesso, e il confronto resterebbe verde: la fixture quel
+   * fatto non lo conosce, quindi le due vie continuerebbero a concordare su
+   * niente. È un falso negativo invisibile, il guasto peggiore per un
+   * pre-filtro.
+   *
+   * PERCHÉ QUESTA FORMA. Non dipende da nessuna fixture: si rompe nell'ISTANTE
+   * in cui il vocabolario cresce, qualunque cosa la nuova fixture contenga.
+   * `precedentFactsFor()` (packages/opponent-profiles/src/precedents.ts) chiama
+   * tre costruttori CABLATI A MANO e non itera su questo elenco, e
+   * `computeExposureBook()` (src/baitCandidates.ts) ricava `hotClubs` e
+   * `historyPlayers` da quella stessa terna: niente lega meccanicamente i due,
+   * e questa riga è il legame.
+   *
+   * QUANDO SCATTA, NON AGGIORNARE IL LETTERALE E BASTA. Il verde si ricompra
+   * rivedendo, in quest'ordine:
+   *   1. `computeExposureBook()` in src/baitCandidates.ts — il nuovo fatto è
+   *      coperto da `hotClubs` o da `historyPlayers`? Se non lo è, il
+   *      pre-filtro NON è più esatto e va allargato (o rimosso per quel fatto);
+   *   2. la fixture del caso «via lenta» qui sotto — deve contenere una riga
+   *      che quel nuovo fatto ammette e che il pre-filtro potrebbe scartare,
+   *      altrimenti il confronto resta cieco esattamente come oggi;
+   *   3. il commento su `ExposureBook.hotClubs`, che DICHIARA l'esattezza del
+   *      pre-filtro e diventerebbe falso.
+   * Solo dopo si aggiorna questo letterale.
+   */
+  it("il pre-filtro copre esattamente i fatti dichiarati: un quarto fatto deve rivedere questo test", () => {
+    expect(PRECEDENT_FACT_IDS).toEqual(["ricomprato", "club", "piu-cari"]);
+  });
 
   it("stessi candidati e stessi esposti della via lenta", () => {
     const pool = [

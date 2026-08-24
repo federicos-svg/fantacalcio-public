@@ -136,6 +136,99 @@ describe("ciò che INVALIDA, e deve invalidare", () => {
   });
 });
 
+/**
+ * LA SOSTITUZIONE DI LOG, che è il caso che `logLength` da sola non copre.
+ *
+ * `applyImportedRaw()` in src/main.ts non APPENDE: fa `state.log = [...result.
+ * events]`, cioè SOSTITUISCE il log per intero. Due log diversi possono quindi
+ * susseguirsi nella stessa sessione con la stessa lunghezza — e se la firma
+ * delle squadre si limitasse a budget, slot e CONTEGGIO dei venduti, due
+ * acquisti dello stesso ruolo allo stesso prezzo produrrebbero una firma
+ * identica con un INSIEME DI VENDUTI DIVERSO. La voce conservata resterebbe
+ * valida e l'esca continuerebbe a proporre un giocatore ormai venduto.
+ *
+ * È stretto — serve la coincidenza, vive solo dentro la sessione, e riguarda un
+ * suggerimento e non il percorso d'acquisto, che resta su `purchaseFeasibility`
+ * e `maxSafe` — ma il commento su `BaitCacheEntry` dice «non hanno buchi», e
+ * questa spec è ciò che rende vera quella frase invece che ottimista.
+ */
+describe("la firma della cache porta QUALI giocatori sono venduti, non quanti", () => {
+  /** I due candidati dello STESSO ruolo su cui si costruisce la coincidenza. */
+  function twinCandidates(): readonly [string, string, "P" | "D" | "C" | "A"] {
+    const base = baitCandidates(inputAt(SCENARIO.log));
+    if (base.kind !== "candidates") throw new Error(`atteso candidati, ho ${base.reason}`);
+    for (const first of base.candidates) {
+      const second = base.candidates.find(
+        (c) => c.role === first.role && c.playerId !== first.playerId,
+      );
+      if (second !== undefined) return [first.playerId, second.playerId, first.role];
+    }
+    throw new Error("lo scenario non ha due candidati dello stesso ruolo");
+  }
+
+  function withPurchase(
+    log: readonly AuctionEvent[],
+    playerId: string,
+    role: "P" | "D" | "C" | "A",
+  ): readonly AuctionEvent[] {
+    return [
+      ...log,
+      { type: "PURCHASE", seq: log.length, ts: TS, playerId, role, fantaTeamId: PERF_TEAMS[1]!, price: 7 },
+    ];
+  }
+
+  /** La firma VECCHIA — budget, slot e CARDINALITÀ dei venduti. Serve a provare
+   *  che la coincidenza è reale e non ipotetica. */
+  function stampByCount(log: readonly AuctionEvent[]): string {
+    const state = reduce(log, PERF_TEAMS);
+    const parts = Object.keys(state.teams)
+      .sort()
+      .map((id) => {
+        const t = state.teams[id]!;
+        const s2 = t.slotsRemaining;
+        return `${id}:${t.budgetResidual}:${s2.P},${s2.D},${s2.C},${s2.A}`;
+      });
+    return `${parts.join("|")}#${state.purchasedPlayerIds.length}`;
+  }
+
+  function candidateIds(reading: BaitReading): readonly string[] {
+    return reading.kind === "candidates" ? reading.candidates.map((c) => c.playerId) : [];
+  }
+
+  it("due acquisti dello stesso ruolo allo stesso prezzo hanno la VECCHIA firma identica", () => {
+    const [a, b, role] = twinCandidates();
+    const logA = withPurchase(SCENARIO.log, a, role);
+    const logB = withPurchase(SCENARIO.log, b, role);
+    // La coincidenza è reale: stessa lunghezza, stessa contabilità, stessa
+    // cardinalità dei venduti — e insiemi di venduti DIVERSI.
+    expect(logA.length).toBe(logB.length);
+    expect(stampByCount(logA)).toBe(stampByCount(logB));
+    const soldA = new Set(reduce(logA, PERF_TEAMS).purchasedPlayerIds);
+    const soldB = new Set(reduce(logB, PERF_TEAMS).purchasedPlayerIds);
+    expect(soldA.has(a)).toBe(true);
+    expect(soldB.has(a)).toBe(false);
+    expect([...soldA].sort()).not.toEqual([...soldB].sort());
+  });
+
+  it("sostituito il log, l'esca NON propone più il giocatore ormai venduto", () => {
+    const [a, b, role] = twinCandidates();
+    resetBaitCandidatesCache();
+
+    // Primo log: `a` è venduto, `b` no.
+    const readingA = baitCandidates(inputAt(withPurchase(SCENARIO.log, a, role)));
+    expect(candidateIds(readingA)).not.toContain(a);
+    expect(candidateIds(readingA)).toContain(b);
+
+    // SOSTITUZIONE (non append): stessa lunghezza, stessa contabilità, l'altro
+    // giocatore venduto. Senza l'identità dei venduti nella firma questa
+    // lettura sarebbe quella di prima, e `a` tornerebbe fra i liberi.
+    const readingB = baitCandidates(inputAt(withPurchase(SCENARIO.log, b, role)));
+    expect(candidateIds(readingB), "lettura stantia: b è venduto e compare ancora").not.toContain(b);
+    expect(candidateIds(readingB), "lettura stantia: a è di nuovo libero e non compare").toContain(a);
+    expect(baitCandidatesCacheStats().builds).toBe(2);
+  });
+});
+
 // ─── E12 — trasparenza, passo per passo ──────────────────────────────────────
 
 describe("E12 — la stessa sequenza contro la variante non memoizzata", () => {

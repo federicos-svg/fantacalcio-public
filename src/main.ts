@@ -1566,9 +1566,11 @@ function opponentPrecedentsProps(): OpponentPrecedentsProps {
  * sull'identità di `state.pool`: fra un tasto e l'altro della ricerca cambia
  * solo `state.call.playerName`, che non è nella firma di nessuno dei due.
  *
- * `state.log.length` è la firma del log append-only; `baitCandidates` la usa
- * insieme alla propria firma delle squadre per decidere se la voce conservata
- * vale ancora (vedi il commento su `BaitCacheEntry`).
+ * `state.log.length` è una delle due firme dello stato derivato; l'altra la
+ * costruisce `baitCandidates` da sé (budget, slot e chiavi dei venduti per
+ * esteso). Servono entrambe, e il log NON è append-only per questa via:
+ * `applyImportedRaw` più sopra lo SOSTITUISCE — vedi il commento su
+ * `BaitCacheEntry` in src/baitCandidates.ts.
  */
 function baitSectionProps(aState: AuctionState): BaitSectionProps {
   const selected = state.call.selectedPlayer;

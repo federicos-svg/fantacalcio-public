@@ -91,15 +91,18 @@
 // nient'altro. Sei di questi sono confrontati per IDENTITÀ o per valore
 // primitivo; l'unico che non ha un'identità stabile è `state`, perché
 // `reduce()` ne costruisce uno nuovo a ogni render — e per lui la chiave è la
-// coppia (`logLength`, `teamsStamp`), cioè la lunghezza del log append-only più
-// una firma di 8 squadre x 5 interi. Non è «un hash del contenuto» nel senso
-// che tierOrdering.ts rifiuta: là si trattava di ripassare 532 righe a ogni
-// tasto, qui sono quaranta letture di campo, ed è l'unico modo onesto di
-// stampare un oggetto che non ha identità.
+// coppia (`logLength`, `stateStamp`), cioè la lunghezza del log più una firma
+// che porta budget e slot delle otto squadre e le chiavi dei venduti PER
+// ESTESO. Non è «un hash del contenuto» nel senso che tierOrdering.ts rifiuta —
+// là si trattava di ripassare 532 righe a ogni tasto — e non è nemmeno un hash:
+// è il confronto esatto dei soli campi che il calcolo legge davvero. Il perché
+// dell'«per esteso» sta su `BaitCacheEntry`, e non è un di più: senza, una
+// SOSTITUZIONE di log a firma coincidente lascerebbe l'esca a proporre un
+// giocatore già venduto.
 //
 // Fra un tasto e l'altro cambia solo `state.call.playerName`, che NON è nella
 // firma: la cache colpisce ogni volta. Dopo un acquisto `logLength` e
-// `teamsStamp` cambiano entrambi e il calcolo si rifà, che è corretto.
+// `stateStamp` cambiano entrambi e il calcolo si rifà, che è corretto.
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // 5. COSA QUESTO FILE NON FA
@@ -524,6 +527,29 @@ export interface BaitInput {
   readonly openingPrice?: number;
 }
 
+/**
+ * IL TIFO NON HA UN CANALE PER ENTRARE, e questa riga è la guardia che lo tiene.
+ *
+ * `BaitInput` non porta i profili d'intervista: `supportedClub` non è un
+ * `PrecedentFactId` (packages/opponent-profiles/src/types.ts) e qui non arriva
+ * nemmeno il dato da cui verrebbe. Un test di comportamento prova che oggi il
+ * tifo non espone nessuno; QUESTA prova che non c'è la strada.
+ *
+ * Perché un tipo e non un `Object.keys` in un test. Morde a `tsc --noEmit`,
+ * cioè al PRIMO comando di `npm run verify`, senza eseguire una riga di
+ * vitest; e vive ACCANTO alla dichiarazione, quindi finisce nello stesso hunk
+ * di diff di chi aggiungesse il campo, invece che in un file di test che un
+ * revisore può non aprire. Stessa famiglia degli `as const satisfies …` già in
+ * uso nel repository.
+ *
+ * NON È INELUDIBILE — chi aggiunge il campo può cancellare anche queste tre
+ * righe — ma allora lo sta facendo APPOSTA, sotto gli occhi di chi rilegge il
+ * diff, che è tutto ciò che una guardia di questo grado può promettere.
+ */
+type AssertNoProfilesChannel = "profiles" extends keyof BaitInput ? never : true;
+const _noProfilesChannel: AssertNoProfilesChannel = true;
+void _noProfilesChannel;
+
 // ─── L'ordine dichiarato ─────────────────────────────────────────────────────
 
 /**
@@ -836,12 +862,34 @@ function computeBaitCandidates(input: BaitInput): BaitReading {
  * voce non vale e si ricalcola. Il pezzo restante della chiave — il `pool` — è
  * la chiave stessa della `WeakMap`, per IDENTITÀ di riferimento.
  *
- * `teamsStamp` è la firma dello stato derivato, che non ha un'identità stabile
+ * `stateStamp` è la firma dello stato derivato, che non ha un'identità stabile
  * perché `reduce()` ne costruisce uno nuovo a ogni render. `logLength` da solo
  * non basterebbe in un caso reale: le riconferme entrano nello stato senza
  * passare dal log (vedi `reduce()` e src/confirmationsStore.ts), quindi una
  * riconferma registrata mentre la schermata è aperta cambierebbe budget e slot
- * lasciando il log della stessa lunghezza. Le due insieme non hanno buchi.
+ * lasciando il log della stessa lunghezza.
+ *
+ * E NEMMENO LA COPPIA BASTAVA, finché la firma CONTAVA i venduti invece di
+ * nominarli. `applyImportedRaw()` in src/main.ts non appende: fa
+ * `state.log = [...result.events]`, cioè SOSTITUISCE il log per intero. Due
+ * acquisti dello stesso ruolo allo stesso prezzo lasciano budget, slot e
+ * CARDINALITÀ dei venduti identici — quindi, con una firma per conteggio, un
+ * import a firma coincidente avrebbe riusato la lettura precedente e l'esca
+ * avrebbe continuato a proporre un giocatore ormai venduto.
+ * `baitCandidates.cache.test.ts` §«la firma della cache porta QUALI giocatori
+ * sono venduti» costruisce esattamente quel caso, e senza il rinforzo è rosso.
+ *
+ * PERCHÉ ADESSO NON CI SONO BUCHI, e questa volta la frase è dimostrabile: la
+ * firma copre TUTTI E SOLI i campi di `AuctionState` che il calcolo legge
+ * davvero, e li copre per CONTENUTO e non per cardinalità —
+ *   - `state.teams[*].budgetResidual` e `.slotsRemaining` (`maxSafe`,
+ *     `purchaseFeasibility`, `projectAfterPurchase`, `roleSlotsBefore`);
+ *   - l'insieme delle chiavi di `state.teams` (il censimento del tavolo, che è
+ *     la larghezza di una fascia in `buildTierBook`);
+ *   - `state.purchasedPlayerIds`, PER ESTESO (il filtro dei liberi).
+ * `state.teams[*].roster`, `.spent`, `.filled` e `state.lastSeq` non sono letti
+ * da nessuna riga di questo file, quindi non entrano nella firma: chi ne
+ * leggesse uno dovrebbe aggiungerlo qui, ed è la riga che un revisore vede.
  */
 interface BaitCacheEntry {
   readonly book: ExposureBook;
@@ -850,25 +898,37 @@ interface BaitCacheEntry {
   readonly selfId: string;
   readonly openingPrice: number;
   readonly logLength: number;
-  readonly teamsStamp: string;
+  readonly stateStamp: string;
   readonly poolRows: number;
   readonly reading: BaitReading;
 }
 
 /**
- * La firma dello stato derivato: otto squadre per cinque interi, più quanti
- * giocatori risultano venduti. Quaranta letture di campo per tasto — tre ordini
- * di grandezza sotto la passata su 532 righe che src/tierOrdering.ts rifiuta di
- * fare, e l'unico modo onesto di stampare un oggetto che non ha identità.
+ * La firma dello stato derivato: otto squadre per cinque interi, più le chiavi
+ * dei giocatori venduti PER ESTESO.
+ *
+ * PERCHÉ PER ESTESO E NON UN CONTEGGIO: vedi `BaitCacheEntry`. Un conteggio non
+ * cambia quando cambia QUALI giocatori sono venduti, e una sostituzione di log
+ * lascia esattamente quella differenza.
+ *
+ * PERCHÉ PER ESTESO E NON UN HASH: un hash reintrodurrebbe una possibilità di
+ * collisione dove il confronto esatto non ne ha nessuna, e la comprerebbe con
+ * niente. MISURATO a tavolo pieno — 224 venduti, 5.151 caratteri di firma —
+ * costruire questa stringa costa 0,013 ms per tasto, contro i 19-28 ms della
+ * ricostruzione che evita: tre ordini di grandezza. Per una guardia, a quel
+ * prezzo, si sceglie l'esattezza.
+ *
+ * Resta l'unico modo onesto di stampare un oggetto che non ha identità: né
+ * `reduce()` né i suoi `TeamState` sopravvivono a un render.
  */
-function teamsStamp(state: AuctionState): string {
+function stateStamp(state: AuctionState): string {
   const parts: string[] = [];
   for (const id of Object.keys(state.teams).sort((a, b) => a.localeCompare(b))) {
     const t = state.teams[id]!;
     const s = t.slotsRemaining;
     parts.push(`${id}:${t.budgetResidual}:${s.P},${s.D},${s.C},${s.A}`);
   }
-  return `${parts.join("|")}#${state.purchasedPlayerIds.length}`;
+  return `${parts.join("|")}#${state.purchasedPlayerIds.join(",")}`;
 }
 
 let baitCache = new WeakMap<readonly ListonePlayer[], BaitCacheEntry>();
@@ -910,7 +970,7 @@ export function resetBaitCandidatesCache(): void {
  */
 export function baitCandidates(input: BaitInput): BaitReading {
   const openingPrice = input.openingPrice ?? BAIT_PARAMETERS.openingPrice;
-  const stamp = teamsStamp(input.state);
+  const stamp = stateStamp(input.state);
   const cached = baitCache.get(input.pool);
   if (
     cached !== undefined &&
@@ -920,7 +980,7 @@ export function baitCandidates(input: BaitInput): BaitReading {
     cached.selfId === input.selfId &&
     cached.openingPrice === openingPrice &&
     cached.logLength === input.logLength &&
-    cached.teamsStamp === stamp &&
+    cached.stateStamp === stamp &&
     cached.poolRows === input.pool.length
   ) {
     baitHits += 1;
@@ -935,7 +995,7 @@ export function baitCandidates(input: BaitInput): BaitReading {
     selfId: input.selfId,
     openingPrice,
     logLength: input.logLength,
-    teamsStamp: stamp,
+    stateStamp: stamp,
     poolRows: input.pool.length,
     reading,
   });
