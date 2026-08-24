@@ -55,6 +55,27 @@
 .listone-cell--mono {
   font-family: var(--font-mono);
 }
+/* ── IL MARCATORE DELL'ASSE ─────────────────────────────────────────────────
+   «No Malus/Bonus» è UNA colonna per DUE assi (decisione del committente,
+   2026-08-24): «PI» = porta inviolata, «BO» = bonus. Il marcatore è il
+   SECONDO CANALE con cui la cella dichiara di quale dei due sta parlando —
+   testo, non colore, perché un colore da solo non sopravvive a una stampa,
+   a un daltonismo, né alla resa stretta.
+
+   Tiene `--text-sec` e non un token più tenue: sta sulla rampa che la
+   guardia di contrasto misura (e2e/text-contrast-aa.spec.ts), quindi è testo
+   sorvegliato come tutto il resto invece di una sigla grigia che nessuno ha
+   mai misurato. È più piccolo della cifra ma non più chiaro. */
+.listone-axis-tag {
+  margin-left: 4px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-sec);
+  /* Non va a capo da solo: staccato dalla cifra su due righe smetterebbe di
+     leggersi come la sua qualificazione. */
+  white-space: nowrap;
+}
 /* L'etichetta che ogni casella si porta dietro (data-label) NON si disegna
    nella resa larga: là il nome della colonna sta nell'intestazione, una volta
    sola. Compare sotto i 900px, dove l'intestazione a undici colonne non

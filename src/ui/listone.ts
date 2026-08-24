@@ -7,6 +7,17 @@
 // docs/data/LISTONE_UI_LOAD_CONTRACT.md for the JSON shape this expects.
 
 import { type Role, ROLES } from "../../packages/engine/src/types.js";
+import {
+  PAGELLA_ASSENTE,
+  PAGELLA_ASSI_DI_RUOLO,
+  PAGELLA_ETICHETTE,
+  PAGELLA_NON_APPLICABILE,
+  PAGELLA_VOTO_MAX,
+  type PagellaAsse,
+  type PagellaAsseView,
+  type PagellaView,
+  pagellaVuota,
+} from "../pagellaEsperti.js";
 import { escHtml, roleChipHtml } from "./theme.js";
 import { clubBadgeHtml } from "./serieA.js";
 
@@ -142,14 +153,36 @@ export const APPEAL_INDEX_COLUMN_KEY = "appealIndex";
 // `n/d`. Mai uno zero, mai un trattino, mai una media: un voto che nessuno ha
 // scritto non è un voto basso.
 //
+// ── IL QUARTO ASSE: UNA COLONNA SOLA, E L'AMBIGUITÀ SI LEGGE NELLA CELLA ────
+//
+// DECISIONE DEL COMMITTENTE, 2026-08-24, testuale: «Interpreti quella colonna
+// in modo promiscuo lasciando "No Malus/Bonus" e lo valorizzi. Tanto è una
+// cosa che per i portieri vale in un modo e per i giocatori di movimento in un
+// altro ma lo so.»
+//
+// Questo INVERTE la scelta di due colonne separate con cui #33 è entrata in
+// `main` il 2026-08-24. L'argomento di #33 — «ordinare una colonna sola
+// confronterebbe la porta inviolata di un portiere col bonus di un attaccante»
+// — resta VERO, e non viene appianato: viene DICHIARATO nella cella. Ogni
+// cella che porta un voto porta anche il marcatore dell'asse che sta
+// mostrando (`PI` / `BO`), quindi chi ordina la colonna vede, riga per riga,
+// che cosa sta confrontando invece di doverlo dedurre dal ruolo.
+//
+// Il contratto degli assi NON cambia: restano due assi distinti
+// (`pagella_porta_inviolata`, `pagella_bonus`) in src/pagellaEsperti.ts, ed è
+// `resolvePagella` a scegliere quale si applica alla riga. Questa colonna è
+// una VISTA sui due, non un terzo asse: nessuno ha fuso due grandezze nel
+// contratto, si è fusa la loro COLONNA.
+//
 // PERCHÉ QUESTE CHIAVI E NON ALTRE. `pagella_*` è il prefisso con cui la
-// pagella del Gruppo Esperti è già nominata nel lavoro parallelo sui voti: le
-// quattro chiavi che descrivono lo stesso asse portano lo stesso nome, così i
-// due rami parlano della stessa colonna invece di crearne due.
+// pagella del Gruppo Esperti è nominata nel contratto (src/pagellaEsperti.ts):
+// le quattro chiavi che descrivono lo stesso asse portano lo stesso nome, così
+// la colonna e il radar d'asta parlano della stessa cosa invece di crearne due.
 
-/** Il quarto asse ha UN NOME SOLO PER RUOLO e UNA COLONNA SOLA (decisione
- *  dell'Executive, 2026-08-24): per i portieri la fonte lo chiama «No malus»,
- *  per il movimento «Bonus». È lo stesso voto — vedi expertVoteColumnLabel. */
+/** Il quarto asse ha UN NOME SOLO PER RUOLO e UNA COLONNA SOLA (decisione del
+ *  committente, 2026-08-24): per i portieri la fonte lo chiama «No malus», per
+ *  il movimento «Bonus». La chiave NON è l'id di nessun asse del contratto —
+ *  è la chiave della colonna che li mostra tutti e due, uno per riga. */
 export const NO_MALUS_BONUS_COLUMN_KEY = "pagella_no_malus_bonus";
 
 /** I cinque voti /10, nell'ordine dell'elenco di Pico. */
@@ -165,7 +198,24 @@ export type ExpertVoteColumnKey = (typeof EXPERT_VOTE_COLUMN_KEYS)[number];
 
 /** La scala dei cinque voti. Dichiarata una volta e detta a schermo nella nota
  *  sotto la tabella, perché su un telefono non esiste il passaggio del mouse. */
-export const EXPERT_VOTE_MAX = 10;
+export const EXPERT_VOTE_MAX = PAGELLA_VOTO_MAX;
+
+/**
+ * I MARCATORI DELL'ASSE DI RUOLO — il secondo canale della colonna promiscua.
+ *
+ * Due lettere accanto al numero, non un colore: il colore da solo non
+ * sopravvive a una stampa, a un daltonismo, né alla resa stretta in cui la
+ * cella è larga quanto un pollice. Chi ordina «No Malus/Bonus» deve poter
+ * vedere CHE COSA sta confrontando senza risalire al ruolo della riga.
+ *
+ * Le parole intere («Porta inviolata», «Bonus») stanno nel tooltip e nel
+ * `title` della cella: nella cella non ci starebbero senza mangiarsi il
+ * numero, che è il dato.
+ */
+export const ROLE_AXIS_MARKERS: Readonly<Record<string, string>> = {
+  pagella_porta_inviolata: "PI",
+  pagella_bonus: "BO",
+};
 
 /** Rigori e calci piazzati: due segnali della scheda, non due voti. Il dato
  *  c'è già oggi (`designato`/`possibile`, `punizioni`/`angoli`). */
@@ -188,6 +238,14 @@ export const SIGNAL_COLUMN_KEYS: readonly string[] = [
  * I SEGNALI DI UNA RIGA — ciò che la tabella mostra e che la riga di listone
  * non porta.
  *
+ * UNA SORGENTE SOLA (decisione del committente, 2026-08-24): il DEPOSITO DELLE
+ * SCHEDE. #33 aveva aperto una seconda strada — un campo `pagella` sulla riga
+ * di listone — e due posti da cui leggere gli stessi cinque numeri sono due
+ * posti che il giorno dopo dicono cose diverse. Il campo di riga è stato
+ * tolto; il radar del riquadro d'asta legge già da qui
+ * (`resolveExpertInsight`, src/expertScheda.ts), quindi tabella e radar non
+ * possono più divergere su uno stesso giocatore.
+ *
  * Le due etichette arrivano GIÀ TRADOTTE dal vocabolario chiuso delle schede
  * (`RIGORI_LABELS` / `PIAZZATI_LABELS` in src/ui/expertInsight.ts, costruite
  * su `RIGORI_VALUES` / `PIAZZATI_VALUES` di src/expertScheda.ts). Questo
@@ -195,31 +253,50 @@ export const SIGNAL_COLUMN_KEYS: readonly string[] = [
  * vocabolario, non è arrivata da qui. È anche ciò che tiene questo file
  * fuori dal ciclo di import fra `expertScheda.ts` e `ui/listone.ts`.
  *
- * `voti` è una mappa PARZIALE apposta: una chiave assente è un voto che
- * nessuno ha ancora estratto, e si rende `n/d`. Non esiste un modo di
- * scrivere «voto sconosciuto» con un numero, e non deve esisterne uno.
+ * `pagella` è una VISTA GIÀ RISOLTA (`PagellaView`), non la forma depositata:
+ * il quarto asse è già stato scelto in base al ruolo della riga, e un voto
+ * dell'asse sbagliato è già stato rifiutato. Risolvere è lavoro del contratto,
+ * non di chi disegna una tabella.
  */
 export interface ListoneRowSignals {
   /** «designato» / «possibile», o `null` quando la scheda non lo dice. */
   readonly rigori: string | null;
   /** «punizioni» / «angoli» — vuoto quando la scheda non lo dice. */
   readonly piazzati: readonly string[];
-  readonly voti: Readonly<Partial<Record<ExpertVoteColumnKey, number>>>;
+  readonly pagella: PagellaView;
 }
 
-/** Nessun segnale: lo stato onesto quando il deposito delle schede non c'è. */
-export const NO_ROW_SIGNALS: ListoneRowSignals = { rigori: null, piazzati: [], voti: {} };
+/** Nessun segnale, col quarto asse già nominato dal ruolo della riga: lo stato
+ *  onesto quando il deposito delle schede non porta niente su questo giocatore
+ *  — che oggi è ogni giocatore. */
+export function emptyRowSignals(role: Role | null = null): ListoneRowSignals {
+  return { rigori: null, piazzati: [], pagella: pagellaVuota(role) };
+}
 
 export type ListoneRowSignalsLookup = (p: ListonePlayer) => ListoneRowSignals;
 
 /** Il lookup di default — usato dai test e da ogni chiamante che non ha (o non
  *  vuole) il deposito delle schede: ogni riga senza segnali, ogni cella `n/d`. */
-export const noRowSignals: ListoneRowSignalsLookup = () => NO_ROW_SIGNALS;
+export const noRowSignals: ListoneRowSignalsLookup = (p) => emptyRowSignals(p.role);
 
-/** Il testo di una casella che non ha un valore da mostrare. Una sola
- *  costante: `n/d` è una dichiarazione di assenza e deve leggersi identica
- *  ovunque, altrimenti smette di essere riconoscibile come tale. */
-export const VALUE_NOT_AVAILABLE = "n/d";
+/** Il testo di una casella che non ha un valore da mostrare. UNA SOLA
+ *  costante, e viene dal contratto: `n/d` è una dichiarazione di assenza e
+ *  deve leggersi identica nella tabella, nel riquadro d'asta e nel radar. */
+export const VALUE_NOT_AVAILABLE = PAGELLA_ASSENTE;
+
+/**
+ * `n.a.` — «non si applica», che NON è `n/d`. Su questo #33 aveva ragione e la
+ * distinzione resta (decisione del committente, 2026-08-24: «tienile
+ * distinte»).
+ *
+ * Con una colonna sola il caso cambia forma ma non sparisce: non è più «questo
+ * asse non esiste per questo ruolo» — la colonna promiscua mostra sempre
+ * l'asse giusto — ma «la scheda porta il voto dell'ALTRO ruolo». Quel voto non
+ * si applica a questa riga e non viene usato: `resolvePagella` lo rifiuta
+ * (`asseIncoerente`) e la cella lo dice con questa parola invece di far
+ * sparire il fatto dietro un `n/d` che vorrebbe dire «nessuno l'ha estratto».
+ */
+export const VALUE_NOT_APPLICABLE = PAGELLA_NON_APPLICABILE;
 
 const CORE_KEYS = new Set(CORE_COLUMNS.map((c) => c.key));
 CORE_KEYS.add("proxyId");
@@ -700,20 +777,78 @@ export function listoneAppealIndexNote(pool: readonly ListonePlayer[]): string |
  * scala 0–10 sta qui e non solo nel tooltip per la stessa ragione: su un
  * telefono, dove il listone si legge davvero durante l'asta, il passaggio del
  * mouse non esiste.
+ *
+ * I CONTEGGI SONO DI #33 E RESTANO (portati sulla sorgente unica, 2026-08-24).
+ * «Quante divergono dal TOTALE della fonte» è il numero che dice se
+ * l'estrazione sta leggendo male; «quante portano l'asse di un altro ruolo» è
+ * il numero che dice se sta leggendo la scheda del giocatore sbagliato. Sono
+ * le due prove che il contratto della pagella si è procurato apposta, e
+ * contarle a schermo è ciò che le rende utili invece che teoriche.
+ *
+ * PRENDE LE VISTE GIÀ RISOLTE e non il pool: risolvere costa (l'aggancio
+ * nome+squadra sul deposito delle schede), e chi chiama sa se c'è qualcosa da
+ * contare. Con l'elenco vuoto — cioè oggi, perché il deposito non porta
+ * ancora nessuna pagella — non si sweepa niente e la riga dice l'assenza.
  */
-export function listoneExpertSignalsNote(hasVotes: boolean): string {
-  const votes = hasVotes
-    ? `I cinque voti sono su scala 0–${EXPERT_VOTE_MAX}, scritti dal Gruppo Esperti.`
-    : `I cinque voti (Titolarità, Media voto, Salute, No malus / Bonus, Consiglio esperti) sono su ` +
-      `scala 0–${EXPERT_VOTE_MAX} e oggi NON sono ancora estratti: ogni casella dice «${VALUE_NOT_AVAILABLE}». ` +
-      "Assenza dichiarata, mai uno zero.";
+export function listoneExpertSignalsNote(viste: readonly PagellaView[]): string {
+  const conVoti = viste.filter((v) => v.votiPresenti > 0);
+  if (conVoti.length === 0) {
+    return (
+      `Gruppo Esperti: i cinque voti (Titolarità, Media voto, Salute, No malus / Bonus, ` +
+      `Consiglio esperti) sono su scala 0–${EXPERT_VOTE_MAX} e oggi NON sono ancora estratti: ` +
+      `ogni casella dice «${VALUE_NOT_AVAILABLE}». Assenza dichiarata, mai uno zero. ` +
+      NO_MALUS_BONUS_CLAUSE +
+      PARERE_CLAUSE +
+      SCHEDA_SIGNALS_CLAUSE +
+      DISPLAY_ONLY_CLAUSE
+    );
+  }
+  const complete = conVoti.filter((v) => v.completa).length;
+  const parziali = conVoti.length - complete;
+  const divergenti = conVoti.filter((v) => v.verificaTotale === "divergente").length;
+  const incoerenti = conVoti.filter((v) => v.asseIncoerente).length;
+  // I conteggi vanno DOPO la loro etichetta, non prima (regola di #33): «1
+  // righe con pagella» è ciò che «numero + sostantivo» produce ogni volta che
+  // il conteggio vale uno, e questa riga sta sotto la tabella che Pico guarda
+  // durante l'asta. Con l'etichetta davanti la riga si legge uguale per 0, 1 e 200.
   return (
-    `Gruppo Esperti: ${votes} ` +
-    "«No malus / Bonus» è un voto solo — «No malus» per i portieri, «Bonus» per il movimento. " +
-    `«Rigorista» e «Piazzati» riportano la scheda: «${VALUE_NOT_AVAILABLE}» significa che la scheda non lo dice, ` +
-    `non che il giocatore non li calci. ${DISPLAY_ONLY_CLAUSE}`
+    `Gruppo Esperti: i cinque voti sono su scala 0–${EXPERT_VOTE_MAX}, scritti dalla fonte. ` +
+    `Righe con voti: ${conVoti.length} — complete ${complete}, parziali ${parziali}. ` +
+    `TOTALE divergente da quello dichiarato dalla fonte: ${divergenti}. ` +
+    `Righe la cui scheda porta l'asse di un altro ruolo (voto non usato, cella ` +
+    `«${VALUE_NOT_APPLICABLE}»): ${incoerenti}. ` +
+    NO_MALUS_BONUS_CLAUSE +
+    PARERE_CLAUSE +
+    SCHEDA_SIGNALS_CLAUSE +
+    DISPLAY_ONLY_CLAUSE
   );
 }
+
+/**
+ * «Consiglio esperti» è un PARERE, non una misura — clausola di #33, tenuta in
+ * entrambi i rami della nota. Gli altri quattro assi provano a misurare
+ * qualcosa del giocatore; il quinto è il giudizio di chi scrive la scheda, e
+ * chi legge la tabella deve saperlo senza passare dal tooltip.
+ */
+const PARERE_CLAUSE =
+  `«${PAGELLA_ETICHETTE.pagella_consiglio}» è un parere della fonte, non una misura, ` +
+  "e non entra in nessun calcolo di questa applicazione. ";
+
+/** Il quarto asse, spiegato una volta sola: la colonna è una, i marcatori due. */
+const NO_MALUS_BONUS_CLAUSE =
+  `«No malus / Bonus» è UNA colonna per DUE assi del contratto: «No malus / Porta inviolata» ` +
+  `(${ROLE_AXIS_MARKERS.pagella_porta_inviolata}) per i portieri, «Bonus» ` +
+  `(${ROLE_AXIS_MARKERS.pagella_bonus}) per il movimento. Ogni cella con un voto porta il ` +
+  `marcatore dell'asse che sta mostrando, così ordinare la colonna dice sempre che cosa ` +
+  `sta confrontando. ` +
+  `«${VALUE_NOT_APPLICABLE}» = la scheda porta l'asse dell'altro ruolo e il voto non si usa; ` +
+  `«${VALUE_NOT_AVAILABLE}» = l'asse è quello giusto e nessuno l'ha ancora estratto. `;
+
+/** Rigorista e piazzati: riportano la scheda, e il silenzio non è un «no». */
+const SCHEDA_SIGNALS_CLAUSE =
+  `«Rigorista» e «Piazzati» riportano la scheda: «${VALUE_NOT_AVAILABLE}» significa che la ` +
+  `scheda non lo dice, non che il giocatore non li calci. `;
+
 
 const APPEAL_INDEX_COLUMN: ListoneColumn = {
   key: APPEAL_INDEX_COLUMN_KEY,
@@ -750,6 +885,10 @@ const RESERVED_COLUMN_KEYS: ReadonlySet<string> = new Set([
   ...CORE_COLUMNS.map((c) => c.key),
   APPEAL_INDEX_COLUMN_KEY,
   ...SIGNAL_COLUMN_KEYS,
+  // I due assi di ruolo del contratto non sono colonne — la colonna che li
+  // mostra è `pagella_no_malus_bonus` — ma una colonna extra del file caricato
+  // che si chiamasse così si leggerebbe come un asse di pagella senza esserlo.
+  ...PAGELLA_ASSI_DI_RUOLO,
 ]);
 
 /**
@@ -864,6 +1003,14 @@ const COLUMN_TOOLTIPS: Readonly<Record<string, string>> = {
     "Indice di appetibilità 0–100, percentile entro la coorte del proprio ruolo. " +
     "Etichetta di qualità e versione della ricetta nella nota sotto la tabella. " +
     "n/d quando il modello non ha un verdetto per quel giocatore.",
+  // Le etichette NON portano il prefisso «GE» che #33 aveva introdotto: l'elenco
+  // del committente (2026-08-24) nomina le colonne «Titolarità, Media Voto,
+  // Salute, No Malus/Bonus, Consiglio Esperti» e quelle parole si vedono in
+  // tabella. La collisione che il prefisso difendeva — «Titolarità» voto contro
+  // la pastiglia «TITOLARITÀ» del riquadro d'asta — resta chiusa dove #33 l'ha
+  // chiusa davvero: chiavi prefissate `pagella_*`, file separati, e l'etichetta
+  // del CONTRATTO che resta «Titolarità (voto)» (PAGELLA_ETICHETTE). Qui la
+  // prima riga del tooltip dice la differenza a parole.
   pagella_titolarita:
     `Voto di titolarità 0–${EXPERT_VOTE_MAX} scritto dal Gruppo Esperti. ` +
     "NON è la titolarità categorica (titolare / ballottaggio / riserva) del riquadro " +
@@ -871,12 +1018,20 @@ const COLUMN_TOOLTIPS: Readonly<Record<string, string>> = {
   pagella_media_voto: `Voto 0–${EXPERT_VOTE_MAX} sulla media voto attesa, scritto dal Gruppo Esperti.`,
   pagella_salute: `Voto 0–${EXPERT_VOTE_MAX} sulla salute e la tenuta fisica, scritto dal Gruppo Esperti.`,
   [NO_MALUS_BONUS_COLUMN_KEY]:
-    `Voto 0–${EXPERT_VOTE_MAX} del Gruppo Esperti su UNA sola grandezza, che la fonte chiama ` +
-    "«No malus» sulla scheda di un portiere e «Bonus» su quella di un giocatore di movimento. " +
-    "Una colonna sola perché è un voto solo; sulla scheda stretta ogni riga porta la parola del proprio ruolo.",
+    `Voto 0–${EXPERT_VOTE_MAX} del Gruppo Esperti sul QUARTO ASSE, che dipende dal ruolo: ` +
+    `«${PAGELLA_ETICHETTE.pagella_porta_inviolata}» (No malus) per i portieri, marcatore ` +
+    `${ROLE_AXIS_MARKERS.pagella_porta_inviolata}; «${PAGELLA_ETICHETTE.pagella_bonus}» per il ` +
+    `movimento, marcatore ${ROLE_AXIS_MARKERS.pagella_bonus}. ` +
+    "UNA colonna sola per decisione del committente (2026-08-24): sono due grandezze diverse " +
+    "nello stesso posto della riga, e ogni cella dichiara con il marcatore quale delle due " +
+    "sta mostrando — ordinare la colonna resta quindi leggibile invece di confrontare in " +
+    "silenzio la porta inviolata di un portiere col bonus di un attaccante. " +
+    `«${VALUE_NOT_APPLICABLE}» quando la scheda porta l'asse dell'ALTRO ruolo: quel voto non ` +
+    `si applica a questa riga e non viene usato. «${VALUE_NOT_AVAILABLE}» quando l'asse è ` +
+    "quello giusto e nessuno l'ha ancora estratto.",
   pagella_consiglio:
-    `Voto 0–${EXPERT_VOTE_MAX} del «Consiglio Esperti»: è un PARERE della fonte, non una misura, ` +
-    "e non entra in nessun calcolo di questa applicazione.",
+    `Voto 0–${EXPERT_VOTE_MAX} del «Consiglio Esperti», scritto dal Gruppo Esperti: è un PARERE ` +
+    "della fonte, non una misura, e non entra in nessun calcolo di questa applicazione.",
   [RIGORISTA_COLUMN_KEY]:
     "Designazione dei rigori come la dichiara la scheda del Gruppo Esperti: «designato» o «possibile». " +
     "n/d quando la scheda non lo dice — non significa che non li tiri.",
@@ -1152,10 +1307,60 @@ export function listoneCellValue(
     }
     default:
       if ((EXPERT_VOTE_COLUMN_KEYS as readonly string[]).includes(columnKey)) {
-        return signals(p).voti[columnKey as ExpertVoteColumnKey];
+        return expertVoteAxis(p, columnKey, signals)?.voto ?? undefined;
       }
       return p.extra?.[columnKey];
   }
+}
+
+/**
+ * L'ASSE DEL CONTRATTO che una colonna di voto mostra su QUESTA riga.
+ *
+ * Per i quattro assi comuni è una corrispondenza uno a uno. Per la colonna
+ * promiscua «No Malus/Bonus» è il quarto asse — quello che `resolvePagella` ha
+ * già scelto dal ruolo della riga — e si trova per `dipendeDalRuolo`, non per
+ * posizione: l'ordine degli assi è quello della fonte e non un indice su cui
+ * appoggiarsi.
+ */
+function expertVoteAxis(
+  p: ListonePlayer,
+  columnKey: string,
+  signals: ListoneRowSignalsLookup,
+): PagellaAsseView | undefined {
+  const { assi } = signals(p).pagella;
+  if (columnKey === NO_MALUS_BONUS_COLUMN_KEY) return assi.find((a) => a.dipendeDalRuolo);
+  return assi.find((a) => a.asse === (columnKey as PagellaAsse));
+}
+
+/**
+ * IL MARCATORE DELL'ASSE — il secondo canale della colonna promiscua, e
+ * `null` per ogni altra colonna.
+ *
+ * Compare SOLO quando la cella porta davvero un voto. Su una cella `n/d` non
+ * aggiungerebbe niente di vero — non c'è nessun numero di cui dire da quale
+ * asse viene — e oggi, che ogni cella è `n/d`, riempirebbe la colonna di
+ * sigle senza dati accanto.
+ */
+/** L'asse per esteso, per il `title` del marcatore: la sigla da sola è un
+ *  secondo canale, non un indovinello. */
+export function expertVoteAxisTitle(
+  p: ListonePlayer,
+  columnKey: string,
+  signals: ListoneRowSignalsLookup = noRowSignals,
+): string {
+  const axis = expertVoteAxis(p, columnKey, signals);
+  return axis?.asse === null || axis === undefined ? "" : PAGELLA_ETICHETTE[axis.asse];
+}
+
+export function expertVoteAxisMarker(
+  p: ListonePlayer,
+  columnKey: string,
+  signals: ListoneRowSignalsLookup = noRowSignals,
+): string | null {
+  if (columnKey !== NO_MALUS_BONUS_COLUMN_KEY) return null;
+  const axis = expertVoteAxis(p, columnKey, signals);
+  if (axis === undefined || axis.voto === null || axis.asse === null) return null;
+  return ROLE_AXIS_MARKERS[axis.asse] ?? null;
 }
 
 /**
@@ -1165,6 +1370,10 @@ export function listoneCellValue(
  *  - le sette colonne di segnale e l'indice dicono `n/d`: il dato ESISTE come
  *    domanda e nessuno ha ancora scritto la risposta. Mai `0`, mai una media,
  *    mai un trattino che si legge come «zero bonus»;
+ *  - la colonna del quarto asse dice `n.a.` in UN caso solo, e non è lo stesso
+ *    `n/d`: la scheda porta il voto dell'ALTRO ruolo. `resolvePagella` non lo
+ *    usa (`asseIncoerente`), e la cella lo dichiara invece di far sparire il
+ *    fatto dietro un «non estratto»;
  *  - una colonna del file caricato che non ha valore su questa riga tiene il
  *    trattino di sempre: lì il buco è del file, e non c'è nessuna fonte a cui
  *    attribuirlo.
@@ -1179,6 +1388,9 @@ export function listoneCellText(
     // Rounding happens here and nowhere else: the served score keeps its full
     // precision (Phase 5 `roundingPoint: "render_only"`).
     return typeof value === "number" ? String(Math.round(value)) : VALUE_NOT_AVAILABLE;
+  }
+  if (columnKey === NO_MALUS_BONUS_COLUMN_KEY && value === undefined) {
+    return signals(p).pagella.asseIncoerente ? VALUE_NOT_APPLICABLE : VALUE_NOT_AVAILABLE;
   }
   if (SIGNAL_COLUMN_KEYS.includes(columnKey)) {
     return value === undefined ? VALUE_NOT_AVAILABLE : String(value);
@@ -1277,7 +1489,18 @@ function listoneCellHtml(
   }
   const text = listoneCellText(p, col.key, signals);
   const mono = col.kind === "number" ? " listone-cell--mono" : "";
-  return `<div class="listone-cell${mono}"${attrs}>${escHtml(text)}</div>`;
+  // IL MARCATORE È UN ELEMENTO, non due lettere incollate al numero: così ha
+  // una classe sua (si può rimpicciolire senza toccare la cifra), un `title`
+  // che scrive l'asse per esteso, e un test può chiederlo per selettore invece
+  // di frugare in una stringa. `listoneCellText` resta la sola cifra — è quello
+  // che si ordina e quello che le asserzioni di assenza confrontano.
+  const axis = expertVoteAxisMarker(p, col.key, signals);
+  const marker =
+    axis === null
+      ? ""
+      : `<span class="listone-axis-tag" title="${escHtml(expertVoteAxisTitle(p, col.key, signals))}">` +
+        `${escHtml(axis)}</span>`;
+  return `<div class="listone-cell${mono}"${attrs}>${escHtml(text)}${marker}</div>`;
 }
 
 /**

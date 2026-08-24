@@ -445,10 +445,29 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
 
   // ── IMPOSTAZIONI ──────────────────────────────────────────────────────────
   await gotoScreen(page, "Impostazioni");
-  for (const section of ["teams", "riconferme", "schede", "status"] as const) {
+  // Un partecipante creato prima della spazzata: senza nessuno in archivio la
+  // riga «nome → identificativo» non esiste, e il testo più piccolo di questa
+  // schermata — l'identificativo, 10,5px monospace su --panel-inner — non
+  // verrebbe misurato affatto.
+  await openSettingsSection(page, "teams");
+  await page.locator("#new-person-name").fill("Persona Sintetica");
+  await page.locator("#add-person").click();
+  await expect(page.locator("#league-people-list .person-id-value")).toHaveCount(1);
+  // CINQUE sezioni: la spazzata le attraversa tutte. `archivio` entra qui
+  // insieme alle altre — l'unione di id di `openSettingsSection` non è più
+  // ferma, quindi il giro a mano che serviva prima non serve più.
+  for (const section of ["teams", "riconferme", "schede", "archivio", "status"] as const) {
     await openSettingsSection(page, section);
     await sweepScene(`impostazioni/${section}`);
   }
+  // ARCHIVIO AVVERSARI, secondo passaggio: i due riquadri della forma del file
+  // stanno dentro un <details> CHIUSO, e `measureAllText` salta ciò che non ha
+  // rettangolo. Il giro qui sopra li ha quindi attraversati senza misurarli:
+  // vanno aperti, o il loro testo resta fuori dalla spazzata.
+  await openSettingsSection(page, "archivio");
+  await page.locator("#archive-history-shape summary").click();
+  await page.locator("#archive-profiles-shape summary").click();
+  await sweepScene("impostazioni/archivio-dettagli");
 
   // SCHEDE — il modulo e il riquadro d'allarme esistono solo dopo un gesto:
   // da chiusi non hanno rettangolo, e `measureAllText` salta ciò che non ne
@@ -532,15 +551,26 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
   //    questo è il conto di tutto il testo dell'app, non del solo sottoinsieme
   //    riconosciuto: se crolla, qualcosa ha smesso di renderizzare o la
   //    spazzata ha ricominciato a saltare.
+  // RITARATO il 2026-08-24 sul riallineamento di #41 su `main`: 1500 -> 2700.
+  // Il pavimento era rimasto quello di quando la spazzata attraversava meno
+  // scene; poi #23 ha aggiunto l'area «archivio» (due scene), #33 il radar e
+  // le icone, #41 il listone a 390px, e NESSUNO l'ha rialzato. A 3033 misurati
+  // un pavimento a 1500 avrebbe lasciato sparire METÀ delle scene senza
+  // diventare rosso: aveva smesso di essere un pavimento. 2700 è ~90% del
+  // misurato — abbastanza sotto da non essere fragile, abbastanza vicino da
+  // accorgersi di una schermata che smette di renderizzare.
   expect(sampled, "la spazzata non ha misurato quasi nulla: schermate vuote o spazzata inerte")
-    .toBeGreaterThan(1500);
+    .toBeGreaterThan(2700);
 
   // 2. QUANTO DI QUEL TESTO PORTA ANCORA UN COLORE DELLA RAMPA. È la difesa
   //    che c'era prima, conservata intatta: un token rinominato o smesso di
   //    usare lo si vede qui invece che da un verde silenzioso. Non è più un
   //    cancello sull'insieme misurato — è un'osservazione sull'app.
+  // RITARATO il 2026-08-24 con lo stesso criterio: 400 -> 1600 su 1814
+  // misurati. Qui lo scarto era ancora più grosso — il pavimento vecchio
+  // valeva un quarto del vero.
   expect(onRamp, "nessun testo usa più la rampa: TEXT_RAMP_TOKENS è disallineata")
-    .toBeGreaterThan(400);
+    .toBeGreaterThan(1600);
 
   // Stessa difesa per le pastiglie: tutti e quattro i ruoli devono essere
   // stati misurati almeno una volta. Senza questo, togliere la classe

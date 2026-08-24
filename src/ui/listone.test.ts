@@ -42,7 +42,21 @@ import {
   type ListoneColumn,
   type ListonePlayer,
   type ListoneRowSignalsLookup,
+  emptyRowSignals,
 } from "./listone.js";
+import { resolvePagella, type PagellaScheda } from "../pagellaEsperti.js";
+
+/** Cinque voti su cinque: la sola forma per cui la nota smette di dichiarare
+ *  l'assenza. */
+const FULL_PAGELLA: PagellaScheda = {
+  voti: {
+    pagella_titolarita: 9,
+    pagella_media_voto: 7,
+    pagella_salute: 9,
+    pagella_bonus: 6,
+    pagella_consiglio: 8,
+  },
+};
 import {
   visibleColumnKeys,
   type ListoneColumnPrefs,
@@ -1449,9 +1463,12 @@ function signalsFor(
       ? {
           rigori: signals.rigori ?? null,
           piazzati: signals.piazzati ?? [],
-          voti: signals.voti ?? {},
+          // I voti arrivano dal deposito già risolti dal contratto: qui si
+          // risolve la stessa forma che `resolveExpertInsight` consegna a
+          // main.ts, così il test non inventa una seconda strada per i numeri.
+          pagella: resolvePagella({ voti: signals.voti ?? {} } as PagellaScheda, p.role),
         }
-      : { rigori: null, piazzati: [], voti: {} };
+      : emptyRowSignals(p.role);
 }
 
 const columnByKey = (key: string): ListoneColumn =>
@@ -1519,8 +1536,8 @@ describe("colonne del Gruppo Esperti — un voto assente è n/d, mai uno zero", 
     const pool = [VALID_PLAYER, KEEPER] as const;
     const signals: ListoneRowSignalsLookup = (p) =>
       p.name === KEEPER.name
-        ? { rigori: null, piazzati: [], voti: { pagella_salute: 3 } }
-        : { rigori: null, piazzati: [], voti: { pagella_salute: 9 } };
+        ? { rigori: null, piazzati: [], pagella: resolvePagella({ voti: { pagella_salute: 3 } }, p.role) }
+        : { rigori: null, piazzati: [], pagella: resolvePagella({ voti: { pagella_salute: 9 } }, p.role) };
     expect(sortListonePool(pool, "pagella_salute", "asc", signals).map((p) => p.name)).toEqual([
       KEEPER.name,
       VALID_PLAYER.name,
@@ -1609,7 +1626,7 @@ describe("ogni casella si porta la propria etichetta (resa stretta)", () => {
 
 describe("listoneExpertSignalsNote", () => {
   it("says out loud that the five votes are not extracted yet", () => {
-    const note = listoneExpertSignalsNote(false);
+    const note = listoneExpertSignalsNote([]);
     expect(note).toContain("NON sono ancora estratti");
     expect(note).toContain(VALUE_NOT_AVAILABLE);
     expect(note).toContain("mai uno zero");
@@ -1617,13 +1634,13 @@ describe("listoneExpertSignalsNote", () => {
   });
 
   it("stops claiming the absence once the votes are there", () => {
-    const note = listoneExpertSignalsNote(true);
+    const note = listoneExpertSignalsNote([resolvePagella(FULL_PAGELLA, "D")]);
     expect(note).not.toContain("NON sono ancora estratti");
     expect(note).toContain("0–10");
   });
 
   it("states the two meanings of the fourth axis and never turns directive", () => {
-    const note = listoneExpertSignalsNote(false);
+    const note = listoneExpertSignalsNote([]);
     expect(note).toContain("No malus");
     expect(note).toContain("Bonus");
     expect(note).toContain("non usato dal motore decisionale");

@@ -3,6 +3,9 @@ import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
 import {
   FULL_SCHEDA,
   OTHER_PLAYER,
+  PAGELLA_SCHEDA,
+  PAGELLA_SCHEDA_PORTIERE,
+  PAGELLA_SCHEDA_RUOLO_SBAGLIATO,
   SCHEDA_PLAYER,
   schedeDeposit,
 } from "./fixtures/synthetic-schede.js";
@@ -197,6 +200,25 @@ test("i cinque voti del Gruppo Esperti dicono n/d finché non sono estratti — 
   await boot(page);
 
   const row = page.locator(".listone-row", { hasText: WITHOUT_SCHEDA.name });
+  // NESSUNO ZERO E NESSUN TRATTINO nelle cinque caselle — e l'asserzione si
+  // ancora a un selettore che PRIMA si dimostra non vuoto.
+  //
+  // Com'era scritta prima (2026-08-24, difetto trovato nel riallineamento su
+  // `main`): cercava `[data-col^="pagella_"]` e pretendeva `toHaveCount(0)`.
+  // Un `toHaveCount(0)` è verde anche quando il selettore non trova NIENTE, e
+  // il renderer di `main` non emetteva affatto `data-col`: l'asserzione
+  // passava a vuoto, cioè non provava più niente da quando le due parti si
+  // erano fuse. Il conteggio positivo qui sotto è ciò che le ridà i denti —
+  // se il renderer smette di emettere `data-col`, questa riga diventa rossa
+  // PRIMA di arrivare al conteggio a zero.
+  const voteCells = row.locator('[data-col^="pagella_"]');
+  await expect(voteCells, "le cinque celle di voto devono esistere per poterle negare").toHaveCount(
+    5,
+  );
+  for (const text of ["0", "—", "-"]) {
+    await expect(voteCells.filter({ hasText: text })).toHaveCount(0);
+  }
+
   for (const key of [
     "pagella_titolarita",
     "pagella_media_voto",
@@ -206,10 +228,6 @@ test("i cinque voti del Gruppo Esperti dicono n/d finché non sono estratti — 
   ]) {
     await expect(row.locator(`[data-col="${key}"]`)).toHaveText(VALUE_NOT_AVAILABLE);
   }
-  // Nessuna delle cinque caselle mostra uno zero o un trattino.
-  for (const text of ["0", "—", "-"]) {
-    await expect(row.locator(`[data-col^="pagella_"]`).filter({ hasText: text })).toHaveCount(0);
-  }
 
   // E la riga sotto la tabella DICE che i voti non ci sono ancora: cinque
   // colonne di `n/d` senza spiegazione si leggono come una tabella rotta.
@@ -217,6 +235,79 @@ test("i cinque voti del Gruppo Esperti dicono n/d finché non sono estratti — 
   await expect(note).toContainText("NON sono ancora estratti");
   await expect(note).toContainText("mai uno zero");
   await expect(note).toContainText("0–10");
+  expect(externalRequests).toEqual([]);
+});
+
+test("«No Malus/Bonus» è UNA colonna sola e ogni cella dichiara di quale asse parla", async ({
+  page,
+  context,
+}) => {
+  // Decisione del committente, 2026-08-24: «Interpreti quella colonna in modo
+  // promiscuo lasciando "No Malus/Bonus" e lo valorizzi. Tanto è una cosa che
+  // per i portieri vale in un modo e per i giocatori di movimento in un altro
+  // ma lo so.»
+  //
+  // Questo test è il «ma lo so» reso VERIFICABILE sul DOM vivo: quello che il
+  // committente sa deve essere leggibile anche nella cella, da chiunque
+  // guardi la tabella senza aver letto questa decisione. Il marcatore è un
+  // ELEMENTO con una classe sua, non un colore: si legge stampato, si legge
+  // in bianco e nero, e un test può chiederlo per selettore.
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
+  await routeSchede(context, [PAGELLA_SCHEDA, PAGELLA_SCHEDA_PORTIERE]);
+  await boot(page);
+
+  // UNA colonna sola: le due chiavi di #33 non esistono più come colonne.
+  await expect(page.locator('.listone-table-head [data-col="pagella_no_malus_bonus"]')).toHaveCount(
+    1,
+  );
+  for (const gone of ["pagella_porta_inviolata", "pagella_bonus"]) {
+    await expect(page.locator(`.listone-table-head [data-col="${gone}"]`)).toHaveCount(0);
+  }
+
+  // L'attaccante legge il BONUS; il portiere legge la PORTA INVIOLATA; e le
+  // due celle portano marcatori DIVERSI nella stessa colonna.
+  const cell = (player: string) =>
+    page.locator(".listone-row", { hasText: player }).locator('[data-col="pagella_no_malus_bonus"]');
+
+  await expect(cell(SCHEDA_PLAYER)).toContainText("6");
+  await expect(cell(SCHEDA_PLAYER).locator(".listone-axis-tag")).toHaveText("BO");
+  await expect(cell(SCHEDA_PLAYER).locator(".listone-axis-tag")).toHaveAttribute("title", "Bonus");
+
+  await expect(cell(OTHER_PLAYER)).toContainText("1");
+  await expect(cell(OTHER_PLAYER).locator(".listone-axis-tag")).toHaveText("PI");
+  await expect(cell(OTHER_PLAYER).locator(".listone-axis-tag")).toHaveAttribute(
+    "title",
+    "Porta inviolata",
+  );
+
+  expect(externalRequests).toEqual([]);
+});
+
+test("una scheda con l'asse dell'altro ruolo dice n.a., non n/d e non il voto straniero", async ({
+  page,
+  context,
+}) => {
+  // `n.a.` ≠ `n/d` — la distinzione è di #33 ed è stata TENUTA quando le due
+  // colonne sono diventate una (decisione del committente: «tienile
+  // distinte»). Qui la scheda del portiere porta un «bonus», cioè l'asse del
+  // movimento: quel voto non si applica a questa riga e non deve comparire.
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
+  await routeSchede(context, [PAGELLA_SCHEDA_RUOLO_SBAGLIATO]);
+  await boot(page);
+
+  const cell = page
+    .locator(".listone-row", { hasText: OTHER_PLAYER })
+    .locator('[data-col="pagella_no_malus_bonus"]');
+  await expect(cell).toHaveText("n.a.");
+  // Il 6 della scheda straniera NON finisce a schermo, e la cella non mente
+  // dicendo «non estratto» su un voto che invece c'è ed è dell'altro ruolo.
+  await expect(cell).not.toContainText("6");
+  await expect(cell).not.toHaveText(VALUE_NOT_AVAILABLE);
+  // Nessun marcatore: non c'è nessun numero di cui dichiarare l'asse.
+  await expect(cell.locator(".listone-axis-tag")).toHaveCount(0);
+
   expect(externalRequests).toEqual([]);
 });
 
