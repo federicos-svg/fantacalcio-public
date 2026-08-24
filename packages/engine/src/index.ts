@@ -41,8 +41,9 @@ export * from "./tiers.js";
 // zero. Vedi packages/engine/src/absoluteValue.ts §"La catena della
 // derivazione" (decisione di Pico, 2026-08-24).
 export * from "./absoluteValue.js";
-// Indice di appetibilità RELATIVO — dove sta il chiamato adesso fra quelli del
-// suo ruolo che si possono ancora prendere. Una POSIZIONE misurata sull'ordine
-// già dichiarato, non un secondo punteggio: nessuna curva, nessun coefficiente.
-// Vedi packages/engine/src/relativeIndex.ts §"La forma: una posizione".
+// Indice di appetibilità RELATIVO — quanto è appetibile il chiamato adesso fra
+// quelli del suo ruolo che si possono ancora prendere. Un punteggio da 0 a 100
+// (decisione di Pico, 2026-08-24) scritto come QUOTA di due conteggi sull'ordine
+// già dichiarato: nessuna curva da scegliere, nessun coefficiente nuovo.
+// Vedi packages/engine/src/relativeIndex.ts §"La forma: una quota di conteggi".
 export * from "./relativeIndex.js";

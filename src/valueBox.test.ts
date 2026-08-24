@@ -33,6 +33,7 @@ import {
 } from "../packages/engine/src/absoluteValue.js";
 import {
   freeLadder,
+  relativeIndexReading,
   type RelativeIndexInput,
 } from "../packages/engine/src/relativeIndex.js";
 import type { ListoneAppealIndex } from "./ui/listone.js";
@@ -48,7 +49,9 @@ import {
   valueBoxHtml,
   valueBoxNoteText,
   valueBoxSpoken,
+  valueNumberText,
   valueSlotText,
+  valueSlotWhyText,
 } from "./ui/valueBox.js";
 
 // IL RIQUADRO DEL VALORE PORTA DAVVERO QUATTRO NUMERI, E OGNUNO DEI QUATTRO SA
@@ -200,10 +203,12 @@ const ABSOLUTE_UNDECLARED: Omit<AbsoluteValueInput, "called"> = {
 };
 
 // ── GLI INGRESSI DELL'INDICE RELATIVO ───────────────────────────────────────
-// Lo slot 2 è una POSIZIONE fra i liberi del ruolo, misurata sullo stesso
-// ordine che costruisce le fasce (`TIER_BOOK`). Le righe di listone che entrano
-// nella scala sono gli stessi sei `a_*` dell'ordine più un centrocampista, così
-// il conteggio per ruolo non è degenere.
+// Lo slot 2 è un PUNTEGGIO DA 0 A 100 (decisione di Pico, 2026-08-24) misurato
+// sullo stesso ordine che costruisce le fasce (`TIER_BOOK`): la quota degli
+// altri liberi ordinati del ruolo che il chiamato precede. Le righe di listone
+// che entrano nella scala sono gli stessi sei `a_*` dell'ordine più un
+// centrocampista, così il conteggio per ruolo non è degenere — e con sei
+// ordinati liberi la scala si legge a occhio: 100, 80, 60, 40, 20, 0.
 
 const RELATIVE_POOL = [
   { playerId: "a_uno", role: "A" },
@@ -342,33 +347,62 @@ describe("riquadro del valore — i quattro numeri", () => {
     expect(reading.indexRecipe).toBe(RECIPE);
   });
 
-  it("l'indice relativo è la POSIZIONE fra i liberi del ruolo, col suo denominatore", () => {
-    // `a_uno` è il primo dell'ordine e nessuno è stato preso: primo fra i sei
-    // attaccanti ancora liberi. L'unità NON è `indice`: un rango e un punteggio
-    // si leggono in due modi diversi, e il tipo li tiene distinti.
+  it("l'indice relativo è un PUNTEGGIO 0–100, nella stessa unità dello slot 1", () => {
+    // `a_uno` è il primo dell'ordine e nessuno è stato preso: precede tutti e
+    // cinque gli altri liberi ordinati, quindi 100. L'unità è `indice`, come lo
+    // slot 1: il record del 2026-08-21 dichiara DUE unità e questo riquadro non
+    // ne inventa una terza (fino al 2026-08-24 ne aveva una, `posizione`, ed è
+    // uscita insieme alla forma che la chiedeva).
     const reading = readingWithEngine("a_uno", index(72));
     expect(reading.slots["indice-relativo"]).toEqual({
       kind: "numero",
-      value: 1,
-      unit: "posizione",
+      value: 100,
+      unit: "indice",
     });
-    expect(valueSlotText(reading.slots["indice-relativo"])).toBe("1º");
+    expect(valueSlotText(reading.slots["indice-relativo"])).toBe("100");
     expect(reading.relativePopulation).toMatchObject({
       role: "A",
       freeInRole: 6,
       poolInRole: 6,
       freeRankedInRole: 6,
     });
-    // Il denominatore arriva a schermo: «3º» senza «su quanti» è un punteggio
-    // travestito. E il denominatore conta gli ORDINATI, cioè la stessa
-    // popolazione in cui la posizione è misurata.
-    expect(valueBoxHtml(reading)).toContain("su 6 liberi ordinati");
+    // La popolazione arriva a schermo: «100» senza «su quanti» non dice se vale
+    // su due giocatori o su quaranta. Ed è «ALTRI», perché il confronto esclude
+    // lui: il denominatore del rapporto è 5, non 6.
+    expect(valueBoxHtml(reading)).toContain("su 5 altri liberi ordinati");
+  });
+
+  it("i sei ordinati liberi occupano la scala intera, capi compresi", () => {
+    // «Un punteggio da 0 a 100» non è una promessa se nessuno arriva ai capi.
+    const atteso: Readonly<Record<string, number>> = {
+      a_uno: 100,
+      a_due: 80,
+      a_tre: 60,
+      a_non_valutato: 40,
+      a_zero: 20,
+      a_muto: 0,
+    };
+    for (const [playerId, value] of Object.entries(atteso)) {
+      const reading = valueBoxReading({
+        called: { playerId, role: "A" },
+        appealIndex: index(50),
+        call: null,
+        missingDeclaredInputs: [],
+        relative: RELATIVE,
+        absolute: ABSOLUTE,
+      });
+      expect(reading.slots["indice-relativo"], playerId).toEqual({
+        kind: "numero",
+        value,
+        unit: "indice",
+      });
+    }
   });
 
   it("l'indice relativo SALE quando comprano qualcuno sopra di lui", () => {
-    // `a_tre` è terzo nell'ordine. Comprato `a_uno` (che gli sta sopra), fra i
-    // liberi diventa secondo: è esattamente l'esempio con cui Pico ha definito
-    // il numero, e non c'è nessuna formula in mezzo — solo uno in meno da contare.
+    // `a_tre` precede tre dei cinque altri liberi ordinati: 60. Comprato
+    // `a_uno`, che gli sta sopra, ne precede ancora tre ma gli altri sono
+    // quattro: 75. Nessuna formula in mezzo — uno in meno al denominatore.
     const before = valueBoxReading({
       called: { playerId: "a_tre", role: "A" },
       appealIndex: index(50),
@@ -388,17 +422,136 @@ describe("riquadro del valore — i quattro numeri", () => {
 
     expect(before.slots["indice-relativo"]).toEqual({
       kind: "numero",
-      value: 3,
-      unit: "posizione",
+      value: 60,
+      unit: "indice",
     });
     expect(after.slots["indice-relativo"]).toEqual({
       kind: "numero",
-      value: 2,
-      unit: "posizione",
+      value: 75,
+      unit: "indice",
     });
+    // La riga sotto il numero segue la popolazione: cinque altri, poi quattro.
+    expect(valueBoxHtml(before)).toContain("su 5 altri liberi ordinati");
+    expect(valueBoxHtml(after)).toContain("su 4 altri liberi ordinati");
     // E il VALORE ASSOLUTO non si è mosso di un credito: è la differenza fra i
     // due slot, e se sparisse uno dei due numeri starebbe mentendo.
     expect(after.slots["valore-assoluto"]).toEqual(before.slots["valore-assoluto"]);
+  });
+
+  it("UNICO LIBERO ORDINATO: `n/d` col motivo, mai 0 e mai 100", () => {
+    // IL CASO LIMITE, dal lato di chi guarda. Presi cinque dei sei ordinati,
+    // l'ultimo è primo E ultimo: la stessa regola gli imporrebbe 100 e 0. La
+    // cella dice `n/d` e dice perché, invece di scegliere uno dei due.
+    const log = buildLog([
+      buy("a_uno", "A", TEAMS[1]!, 30),
+      buy("a_due", "A", TEAMS[2]!, 20),
+      buy("a_tre", "A", TEAMS[3]!, 15),
+      buy("a_non_valutato", "A", TEAMS[4]!, 10),
+      buy("a_zero", "A", TEAMS[5]!, 5),
+    ]);
+    const reading = valueBoxReading({
+      called: { playerId: "a_muto", role: "A" },
+      appealIndex: index(50),
+      call: null,
+      missingDeclaredInputs: [],
+      relative: relativeOn(log),
+      absolute: ABSOLUTE,
+    });
+    expect(reading.slots["indice-relativo"]).toEqual({
+      kind: "assente",
+      reason: "indice-relativo-unico-libero",
+    });
+    expect(valueSlotText(reading.slots["indice-relativo"])).toBe(VALUE_UNKNOWN);
+    expect(valueBoxHtml(reading)).toContain("unico libero ordinato");
+    // ...e la metà misurabile resta: uno solo, ed è la ragione del `n/d`.
+    expect(reading.relativePopulation).toMatchObject({ freeRankedInRole: 1 });
+  });
+
+  it("senza ordine la cella nomina L'ORDINE, non una causa che non conosce", () => {
+    // IL MOTIVO A MONTE NON ARRIVA FIN QUI, e la cella non finge di averlo. Il
+    // libro delle fasce può mancare per CINQUE ragioni (src/tierOrdering.ts,
+    // `TierBandUnavailable`); di là dal confine il motore riceve `book: null` e
+    // può dire una cosa sola. Prima questa cella diceva «il listone non porta
+    // l'indice», che è vero in due casi su cinque: con l'ordine rifiutato, con
+    // due ricette o senza squadre al tavolo il listone l'indice ce l'ha, e sulla
+    // stessa scheda il pannello FASCIA avrebbe detto il contrario. Questo test è
+    // il posto in cui quella frase non può tornare in silenzio.
+    const state: AuctionState = stateOf(buildLog([]));
+    const reading = valueBoxReading({
+      called: { playerId: "a_tre", role: "A" },
+      appealIndex: index(50),
+      call: null,
+      missingDeclaredInputs: [],
+      relative: {
+        ladder: freeLadder({
+          pool: [...RELATIVE_POOL],
+          book: null,
+          purchasedPlayerIds: state.purchasedPlayerIds,
+        }),
+        state,
+        selfId: SELF,
+      },
+      absolute: ABSOLUTE,
+    });
+    expect(reading.slots["indice-relativo"]).toEqual({
+      kind: "assente",
+      reason: "indice-relativo-senza-ordine",
+    });
+    const html = valueBoxHtml(reading);
+    expect(html).toContain("nessun ordine dichiarato");
+    // La cella dello slot 2 non afferma nulla sul listone. La prima cella sì —
+    // e lì è un fatto suo, perché l'indice della riga chiamata lo vede.
+    expect(valueSlotWhyText("indice-relativo", reading.slots["indice-relativo"], reading)).not.toContain(
+      "non porta l'indice",
+    );
+    // ...e la popolazione resta misurata: contare righe non ha bisogno di ordine.
+    expect(reading.relativePopulation).toMatchObject({ poolInRole: 6, freeInRole: 6 });
+  });
+
+  it("il denominatore conta i liberi ORDINATI, non i liberi: sostituirlo cambia il numero", () => {
+    // LA SCELTA DEL DENOMINATORE, PINNATA. Nel listone del ruolo entrano due
+    // righe che l'ordine NON contiene (nessun verdetto): i liberi diventano
+    // otto, gli ordinati restano sei. Se il numero usasse `freeInRole` il
+    // punteggio di `a_tre` sarebbe 100 x 5/7 = 71,43; con `freeRankedInRole` è
+    // 60. I due numeri sono diversi, quindi questo test muore se qualcuno
+    // sostituisce la popolazione — che è precisamente ciò che prima nessun test
+    // faceva.
+    const conMuti = [
+      ...RELATIVE_POOL,
+      { playerId: "a_senza_verdetto_1", role: "A" as Role },
+      { playerId: "a_senza_verdetto_2", role: "A" as Role },
+    ];
+    const state: AuctionState = stateOf(buildLog([]));
+    const reading = valueBoxReading({
+      called: { playerId: "a_tre", role: "A" },
+      appealIndex: index(50),
+      call: null,
+      missingDeclaredInputs: [],
+      relative: {
+        ladder: freeLadder({
+          pool: conMuti,
+          book: TIER_BOOK,
+          purchasedPlayerIds: state.purchasedPlayerIds,
+        }),
+        state,
+        selfId: SELF,
+      },
+      absolute: ABSOLUTE,
+    });
+    expect(reading.relativePopulation).toMatchObject({ freeInRole: 8, freeRankedInRole: 6 });
+    expect(reading.slots["indice-relativo"]).toEqual({
+      kind: "numero",
+      value: 60,
+      unit: "indice",
+    });
+    expect(reading.slots["indice-relativo"]).not.toEqual({
+      kind: "numero",
+      value: (100 * 5) / 7,
+      unit: "indice",
+    });
+    // ...e la riga a schermo conta la stessa popolazione del numero: se dicesse
+    // «su 7 altri liberi» la frazione mostrata non sarebbe quella calcolata.
+    expect(valueBoxHtml(reading)).toContain("su 5 altri liberi ordinati");
   });
 
   it("il valore relativo si muove con la serata, il valore assoluto no", () => {
@@ -759,12 +912,96 @@ describe("riquadro del valore — la resa non accende nient'altro", () => {
       const slot = reading.slots[id];
       if (slot.kind !== "numero") continue;
       expect(Number.isFinite(slot.value)).toBe(true);
-      // Uno scalare secco, con la virgola italiana quando la quota di uno slot
-      // non è intera (210/7 lo è, 200/9 no). Mai «fra 55 e 70». L'ordinale
-      // dell'indice relativo è ammesso come SUFFISSO — `3º` è un numero solo,
-      // non una coppia — e resta l'unico segno di forma consentito accanto a
-      // `cr`: la sonda continua a bocciare qualunque cosa contenga due numeri.
-      expect(valueSlotText(slot)).toMatch(/^-?\d+(,\d)?( cr|º)?$/);
+      // Uno scalare secco, con la virgola italiana quando il numero non è
+      // intero (210/7 lo è, 200/9 no; il punteggio relativo quasi mai). Mai
+      // «fra 55 e 70», e nessun segno di forma oltre `cr`: dal 2026-08-24 lo
+      // slot 2 è un punteggio e non porta più l'ordinale che portava il rango.
+      expect(valueSlotText(slot)).toMatch(/^-?\d+(,\d)?( cr)?$/);
     }
+  });
+});
+
+// ── L'ARROTONDAMENTO DELLA RESA, E I PAREGGI CHE PUÒ CREARE ─────────────────
+//
+// IL CASO LIMITE CHE NESSUNO AVEVA CHIUSO. Il punteggio relativo è una quota
+// fra conteggi, quindi non è intero quasi mai; la resa ne stampa UN decimale
+// (`valueNumberText`, regola già in casa per i crediti). Un arrotondamento può
+// far mostrare lo STESSO numero a due giocatori distinti — un pareggio che
+// l'ordine sotto non aveva — e la domanda «da quando?» ha una risposta
+// misurabile: due punteggi adiacenti distano `100/(ordinati liberi − 1)`,
+// quindi collidono a un decimale solo oltre 1001.
+//
+// I due test qui sotto sono la coppia che tiene onesta quella riga: il primo
+// prova che al massimo che questo progetto può produrre (532 righe di listone,
+// tutte nello stesso ruolo) NESSUNA coppia collide; il secondo ESIBISCE la
+// collisione appena sopra la soglia. Il secondo non approva niente: documenta
+// il confine, come fanno le letture aperte
+// (`RELATIVE_SCORE_TIES_ONLY_FROM_RENDERING`).
+
+/** I punteggi relativi di `n` attaccanti ordinati su un tavolo fresco, resi
+ *  come li vedrebbe Pico. Nessuna scorciatoia: si costruiscono l'ordine vero,
+ *  la scala vera e la lettura vera, e si rende con la funzione dell'app. */
+function renderedScores(n: number): readonly string[] {
+  const playerIds = Array.from({ length: n }, (_, i) => `a_${String(i).padStart(5, "0")}`);
+  const book = tierBook(
+    {
+      provenance: {
+        source: "listone sintetico di test",
+        recipe: RECIPE,
+        tieBreak: APPEAL_ORDER_TIE_BREAK,
+      },
+      roles: [{ role: "A", playerIds }],
+    },
+    { teamsCount: 8 },
+  );
+  const ladder = freeLadder({
+    pool: playerIds.map((playerId) => ({ playerId, role: "A" as Role })),
+    book,
+    purchasedPlayerIds: [],
+  });
+  const state: AuctionState = stateOf(buildLog([]));
+  return playerIds.map((playerId) => {
+    const reading = relativeIndexReading({
+      called: { playerId, role: "A" },
+      ladder,
+      state,
+      selfId: SELF,
+    });
+    if (reading.kind !== "punteggio") throw new Error(`punteggio atteso per ${playerId}`);
+    return valueNumberText(reading.score);
+  });
+}
+
+describe("riquadro del valore — l'arrotondamento della resa e i pareggi", () => {
+  it("su 532 ordinati liberi — il massimo che il listone può portare — nessuna coppia collide", () => {
+    // 532 è l'intero listone in un ruolo solo, cioè il caso peggiore possibile
+    // e non uno realistico: nella stagione vera gli attaccanti sono una frazione
+    // di quel numero. Se qui non ci sono pareggi, non ce ne sono da nessuna
+    // parte nell'app.
+    const resi = renderedScores(532);
+    expect(resi.length).toBe(532);
+    expect(new Set(resi).size).toBe(532);
+    // I due capi si vedono, e si vedono INTERI: la regola di resa stampa i
+    // decimali solo dove ci sono.
+    expect(resi[0]).toBe("100");
+    expect(resi[531]).toBe("0");
+    // ...e in mezzo la virgola italiana, non il punto.
+    expect(resi[1]).toBe("99,8");
+  });
+
+  it("a 1002 la collisione esiste, ed è esibita invece che taciuta", () => {
+    // IL CONFINE, MISURATO. Con 1002 ordinati liberi il passo fra due punteggi
+    // adiacenti scende sotto 0,1 e due giocatori DISTINTI mostrano lo stesso
+    // numero. Il progetto non ci arriva — 532 righe in tutto, quattro ruoli —
+    // ma il fatto è del numero, non della stagione, e va scritto.
+    const resi = renderedScores(1002);
+    expect(new Set(resi).size).toBeLessThan(resi.length);
+    // La prima collisione è al centro esatto della scala: due giocatori diversi,
+    // lo stesso «50,0» a schermo.
+    expect(resi[500]).toBe("50,0");
+    expect(resi[501]).toBe("50,0");
+    // ...mentre a 1001, un solo giocatore in meno, ancora nessuna.
+    const alConfine = renderedScores(1001);
+    expect(new Set(alConfine).size).toBe(1001);
   });
 });

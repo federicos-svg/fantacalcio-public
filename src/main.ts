@@ -1841,6 +1841,17 @@ function valueBoxProps(aState: AuctionState): ValueBoxProps {
       // costruzione sola, non due), i presi vengono dallo stato ridotto —
       // riconferme comprese, perché `reduce()` le semina lì ed è la stessa
       // nozione di «non prendibile» che usa l'occupazione delle fasce.
+      //
+      // IL MOTIVO DEL RIFIUTO NON PASSA, E LA CELLA NON FINGE DI AVERLO. Il
+      // libro può mancare per CINQUE ragioni diverse (`TierBandUnavailable`), e
+      // qui ne resta soltanto «non c'è»: il motore dell'indice relativo riceve
+      // `null` e può dire una cosa sola. La conseguenza è dichiarata dove si
+      // vede — la cella dello slot 2 dice «nessun ordine dichiarato» e non
+      // afferma una causa che non conosce (src/ui/valueBox.ts,
+      // `VALUE_MISSING_TEXT`) — mentre la causa vera la nomina il pannello
+      // FASCIA, che il motivo ce l'ha. Far viaggiare il motivo fin qui è una
+      // corsia sua: cambierebbe la firma del riquadro e il vocabolario dei
+      // motivi, e non è il cambio di forma dello slot 2.
       relative: {
         ladder: buildFreeLadder(
           state.pool,

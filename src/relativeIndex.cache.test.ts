@@ -2,10 +2,17 @@
 //
 // Il rischio di una memoizzazione non è la lentezza: è mostrare un numero
 // VECCHIO come se fosse fresco, e qui il numero vecchio sarebbe il peggiore di
-// tutti — «terzo fra i liberi» quando i due davanti sono appena stati venduti è
-// esattamente l'errore che l'indice relativo esiste per non fare. Questo file
-// esiste per escluderlo, e quasi tutte le sue asserzioni parlano di
-// CORRETTEZZA, non di tempo.
+// tutti — un punteggio che dice «ne precede il 77%» quando quelli davanti sono
+// appena stati venduti è esattamente l'errore che l'indice relativo esiste per
+// non fare. Questo file esiste per escluderlo, e quasi tutte le sue asserzioni
+// parlano di CORRETTEZZA, non di tempo.
+//
+// I NUMERI ATTESI NON SONO SCRITTI A MANO: `quota(davanti, dietro)` li ricalcola
+// dai due conteggi, così un decimale copiato male non può far passare per verde
+// un test che sta misurando un altro numero. Fino al 2026-08-24 questo file
+// asseriva POSIZIONI (`position: 10`); la decisione di Pico di quel giorno le ha
+// convertite in punteggi, e dove il comportamento è cambiato l'asserzione è
+// invertita con la sua ragione accanto, non tolta.
 //
 // LA DIFFERENZA CON src/tierOrdering.cache.test.ts, e perché servono due file:
 // il libro delle fasce NON dipende dal log, e quel file prova appunto che un
@@ -64,6 +71,10 @@ function strikers(n: number, offset = 0): ListonePlayer[] {
 }
 
 const key = (p: ListonePlayer): string => listonePlayerKey(p);
+
+/** Il punteggio atteso dai due conteggi nudi: la quota degli ALTRI liberi
+ *  ordinati che il chiamato precede. Scritta una volta sola, mai copiata. */
+const quota = (davanti: number, dietro: number): number => (100 * dietro) / (davanti + dietro);
 
 function purchase(seq: number, p: ListonePlayer, team: string, price: number): AuctionEvent {
   return { type: "PURCHASE", seq, ts: TS, playerId: key(p), role: p.role, fantaTeamId: team, price };
@@ -156,12 +167,12 @@ describe("la scala regge il giro che render() rifà a ogni tasto", () => {
 
 // ─── Ciò che invalida: qui il log è nella chiave, ed è la ragione del modulo ──
 
-describe("dopo un acquisto la posizione cambia, e cambia davvero", () => {
+describe("dopo un acquisto il punteggio cambia, e cambia davvero", () => {
   const pool = strikers(40);
-  const called = pool[9]!; // decimo dell'ordine
+  const called = pool[9]!; // decimo dell'ordine: nove davanti, trenta dietro
   const above = [purchase(0, pool[1]!, "Sq2", 42)];
 
-  it("la scala si ricostruisce e la posizione sale", () => {
+  it("la scala si ricostruisce e il punteggio sale", () => {
     const before = readingWithCache({ pool, called });
     expect(freeLadderCacheStats()).toEqual({ builds: 1, hits: 0 });
 
@@ -169,8 +180,9 @@ describe("dopo un acquisto la posizione cambia, e cambia davvero", () => {
     // La voce è SCADUTA: se il log non fosse nella chiave qui ci sarebbe un hit
     // e il numero a schermo resterebbe quello di prima.
     expect(freeLadderCacheStats().builds).toBe(2);
-    expect(before).toMatchObject({ kind: "posizione", position: 10 });
-    expect(after).toMatchObject({ kind: "posizione", position: 9 });
+    expect(before).toMatchObject({ kind: "punteggio", score: quota(9, 30) });
+    // Uno in meno davanti, gli stessi trenta dietro: il numero sale.
+    expect(after).toMatchObject({ kind: "punteggio", score: quota(8, 30) });
   });
 
   it("la lettura dopo l'acquisto è quella VERA, non una riscaldata", () => {
@@ -179,34 +191,38 @@ describe("dopo un acquisto la posizione cambia, e cambia davvero", () => {
     expect(after).toEqual(readingWithoutCache({ pool, called, log: above }));
   });
 
-  it("un acquisto SOTTO di lui non muove il numero, ma la voce scade lo stesso", () => {
-    // La cache non è più fine dell'invalidazione: la chiave è «chi è stato
+  it("un acquisto SOTTO di lui muove il numero — invertita il 2026-08-24 — e la voce scade lo stesso", () => {
+    // L'ASSERZIONE CHE QUESTA SOSTITUISCE diceva «non muove il numero», ed era
+    // vera finché il numero era una POSIZIONE: comprare un peggiore non cambia
+    // il rango. Con un punteggio 0–100 il numero SCENDE, perché di quelli che
+    // restano lui ne precede uno in meno. La riga sulla cache invece non cambia,
+    // ed è il motivo per cui questo test vive qui: la chiave è «chi è stato
     // preso», non «chi è stato preso sopra il chiamato» — che dipenderebbe dal
     // chiamato, cioè dal tasto, ed è esattamente ciò che non deve entrare.
     const below = [purchase(0, pool[30]!, "Sq2", 3)];
     const before = readingWithCache({ pool, called });
     const after = readingWithCache({ pool, called, log: below });
     expect(freeLadderCacheStats().builds).toBe(2);
-    expect(after).toMatchObject({ kind: "posizione", position: 10 });
+    expect(before).toMatchObject({ kind: "punteggio", score: quota(9, 30) });
+    expect(after).toMatchObject({ kind: "punteggio", score: quota(9, 29) });
     expect(after).toEqual(readingWithoutCache({ pool, called, log: below }));
-    expect((after as { position: number }).position).toBe(
-      (before as { position: number }).position,
-    );
+    expect((after as { score: number }).score).toBeLessThan((before as { score: number }).score);
   });
 });
 
-describe("dopo un annullamento la posizione torna coerente con lo stato vero", () => {
+describe("dopo un annullamento il punteggio torna coerente con lo stato vero", () => {
   const pool = strikers(40);
   const called = pool[9]!;
   const bought = [purchase(0, pool[1]!, "Sq2", 42), purchase(1, pool[2]!, "Sq3", 30)];
   const undone = [...bought, voidOf(2, 1)];
 
-  it("annullare riporta la posizione sullo stato reale", () => {
+  it("annullare riporta il punteggio sullo stato reale", () => {
     const afterBuy = readingWithCache({ pool, called, log: bought });
     const afterVoid = readingWithCache({ pool, called, log: undone });
 
-    expect(afterBuy).toMatchObject({ kind: "posizione", position: 8 });
-    expect(afterVoid).toMatchObject({ kind: "posizione", position: 9 });
+    // Due presi davanti, poi uno riportato in vita: sette davanti, poi otto.
+    expect(afterBuy).toMatchObject({ kind: "punteggio", score: quota(7, 30) });
+    expect(afterVoid).toMatchObject({ kind: "punteggio", score: quota(8, 30) });
     expect(afterVoid).toEqual(readingWithoutCache({ pool, called, log: undone }));
     // Annullare il secondo acquisto riporta esattamente allo stato del primo:
     // se la cache stesse restituendo un residuo, questa uguaglianza salterebbe.
@@ -216,7 +232,7 @@ describe("dopo un annullamento la posizione torna coerente con lo stato vero", (
   });
 });
 
-describe("dopo il caricamento delle riconferme la posizione cambia", () => {
+describe("dopo il caricamento delle riconferme il punteggio cambia", () => {
   it("un riconfermato sopra di lui esce dai prendibili", () => {
     const pool = strikers(40);
     const called = pool[9]!;
@@ -226,8 +242,8 @@ describe("dopo il caricamento delle riconferme la posizione cambia", () => {
     const without = readingWithCache({ pool, called });
     const with_ = readingWithCache({ pool, called, confirmations });
 
-    expect(without).toMatchObject({ position: 10 });
-    expect(with_).toMatchObject({ position: 9 });
+    expect(without).toMatchObject({ score: quota(9, 30) });
+    expect(with_).toMatchObject({ score: quota(8, 30) });
     expect(with_).toEqual(readingWithoutCache({ pool, called, confirmations }));
   });
 });
@@ -336,7 +352,7 @@ describe("dove il numero non c'è, dice quale delle due cose manca", () => {
     // Il caso limite della premessa: il generatore serve l'indice e lo serve
     // `null` su tutte le righe. Il libro delle fasce si costruisce (la ricetta
     // c'è), il ruolo risulta ORDINATO, e l'ordine è vuoto: nessuno ha una
-    // posizione, ognuno per la propria mancanza di verdetto. Non è lo stesso
+    // punteggio, ognuno per la propria mancanza di verdetto. Non è lo stesso
     // `n/d` di sopra — là mancava il dato, qui manca il verdetto — e i due
     // motivi non si fondono.
     const pool = [row("Punta Uno", "A", null), row("Punta Due", "A", null)];
@@ -345,8 +361,8 @@ describe("dove il numero non c'è, dice quale delle due cose manca", () => {
     expect(reading.population).toMatchObject({
       poolInRole: 2,
       freeInRole: 2,
-      // Zero ORDINATI liberi: il denominatore della posizione è vuoto, ed è la
-      // ragione per cui la posizione non esiste.
+      // Zero ORDINATI liberi: la popolazione del punteggio è vuota, ed è la
+      // ragione per cui il punteggio non esiste.
       freeRankedInRole: 0,
     });
   });
@@ -431,8 +447,8 @@ describe("trasparenza: memoizzato e non memoizzato coincidono a ogni passo", () 
 
     // La sequenza deve avere SOSTANZA: se producesse solo assenze, il confronto
     // sopra sarebbe vero misurando il nulla.
-    const positions = withCache.filter((r) => r.kind === "posizione").length;
-    expect(positions).toBeGreaterThan(40);
+    const punteggi = withCache.filter((r) => r.kind === "punteggio").length;
+    expect(punteggi).toBeGreaterThan(40);
     // ...e deve aver davvero esercitato la cache in entrambe le direzioni: i
     // TASTI (i passi che non cambiano lo stato) sono hit, gli acquisti sono miss.
     expect(freeLadderCacheStats().hits).toBeGreaterThan(10);
