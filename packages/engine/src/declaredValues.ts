@@ -61,7 +61,14 @@ export type UnratifiedChoiceId =
   | "REGRET_BAND_LEVELS" // basso/medio/alto: una fascia a tre livelli scelta dal motore
   | "V_WITHOUT_EQUALS_OPPORTUNITY_COST" // l'identificazione di §4.2 nella catena FTM
   | "ANCHOR_QUALIFICATION_REQUIRES_ROLE_SAMPLE" // quanta misura serve perché un'ancora qualifichi
-  | "WIDTH_GATE_MIDPOINT_DIMENSION_OFF"; // §4.2 ha due dimensioni, qui ne chiude una
+  | "WIDTH_GATE_MIDPOINT_DIMENSION_OFF" // §4.2 ha due dimensioni, qui ne chiude una
+  // ── Le sei letture della derivazione del valore assoluto (absoluteValue.ts) ──
+  | "ABSOLUTE_BASE_UNIFORM_PER_SLOT" // il budget del ruolo diviso in parti uguali fra i suoi slot
+  | "ABSOLUTE_BASE_EXCLUDES_FONDO" // oltre l'ultima fascia non c'è slot, quindi non c'è base
+  | "CONCORRENZA_SCALE_SYMMETRIC" // +1/0/−1: passo uguale sopra e sotto la parola di mezzo
+  | "CONCORRENZA_ONLY_TITOLARITA" // ballottaggio e gerarchia restano fuori dal numero
+  | "COPPE_BASELINE_IS_ABSENCE" // «non gioca in Europa» = 0, non −1
+  | "PAGELLA_POSITION_IS_TOTAL_OVER_MAX"; // rapporto sul fondo scala, non scarto dal punto medio
 
 /** Perché ciascuna scelta è aperta. Testo macchina-leggibile, non prosa libera. */
 export const UNRATIFIED_CHOICES: Readonly<Record<UnratifiedChoiceId, string>> = {
@@ -77,6 +84,18 @@ export const UNRATIFIED_CHOICES: Readonly<Record<UnratifiedChoiceId, string>> = 
     "richiedere il campione DEL RUOLO per qualificare un'ancora è la lettura stretta: nessun documento la fissa",
   WIDTH_GATE_MIDPOINT_DIMENSION_OFF:
     "§4.2 impone due dimensioni sulla larghezza: qui chiude solo il budget residuo, il midpoint è misurato e inattivo",
+  ABSOLUTE_BASE_UNIFORM_PER_SLOT:
+    "ripartire il budget del ruolo in parti UGUALI fra i suoi slot è l'unica divisione senza pesi dichiarati, ma nessun documento la fissa",
+  ABSOLUTE_BASE_EXCLUDES_FONDO:
+    "chi sta oltre l'ultima fascia non occupa uno slot della ripartizione: qui non ha base, e nessun documento dice che debba averne una",
+  CONCORRENZA_SCALE_SYMMETRIC:
+    "il vocabolario ordina tre parole, non dichiara che il passo sopra e sotto quella di mezzo sia lo stesso",
+  CONCORRENZA_ONLY_TITOLARITA:
+    "ballottaggio e gerarchia sono fatti dichiarati dalla scheda, ma portarli nella stessa unità della titolarità richiederebbe una conversione che nessuno ha dichiarato",
+  COPPE_BASELINE_IS_ABSENCE:
+    "«non gioca in Europa» è trattato come linea di base (0) e non come l'opposto di «ci gioca»: è una lettura, non il dato",
+  PAGELLA_POSITION_IS_TOTAL_OVER_MAX:
+    "il totale entra come rapporto sul fondo scala della fonte: uno scarto dal punto medio sarebbe altrettanto scrivibile e nessuno ha scelto",
 };
 
 /**

@@ -28,10 +28,22 @@
 //     con l'asta, e la formula non è decisa. Lo slot è quindi sempre `n/d` col
 //     proprio motivo. Inventarlo qui sarebbe esattamente ciò che §D9 vieta.
 //
-//  3. VALORE ASSOLUTO IN CREDITI — il valore che Pico DICHIARA per quel
-//     giocatore (`CallScreen.declaredValue`, cioè `DeclaredPlayerValue`):
-//     ingrediente 2 della regola dei tre ingredienti (§D9), non derivato, non
-//     imputato, e per costruzione «la fotografia che non dipende dalla serata».
+//  3. VALORE ASSOLUTO IN CREDITI — non più una dichiarazione giocatore per
+//     giocatore, ma un numero DERIVATO: `absoluteValueReading()`
+//     (packages/engine/src/absoluteValue.ts). Decisione di Pico del
+//     2026-08-24, in tre passaggi: «non esiste il valore in crediti per me»
+//     (esistono l'assoluto e il relativo al momento dell'asta); le tre gambe
+//     dell'assoluto sono concorrenza nel ruolo, coppe europee e turnover,
+//     valutazione del Gruppo Esperti; la SCALA IN CREDITI viene dal
+//     regolamento — il budget d'asta ripartito sugli slot della rosa. La
+//     catena passo per passo, con la provenienza di ogni numero, sta
+//     nell'intestazione di quel modulo; qui si passano gli ingressi e si
+//     traduce il suo esito in uno slot.
+//
+//     `CallScreen.declaredValue` NON alimenta più questo slot. Il listino di
+//     valori per giocatore resta nel motore e resta l'ingrediente 2 di §D9 per
+//     la catena FTM (slot 4); ma il valore assoluto non lo attraversa più, ed è
+//     la ragione per cui questo slot non dipende più da `call`.
 //
 //  4. VALORE RELATIVO IN CREDITI — `DecisionNumbers.fairToMeMaxEffective`
 //     (packages/engine/src/callScreen.ts): il tetto derivato dai valori
@@ -41,6 +53,13 @@
 //     «derivato dai valori dichiarati di Owner → visibile, nessun receipt» —
 //     e NON il campo FTM model-derived, che resta gated e che questo file non
 //     tocca in nessun ramo.
+//
+//     QUESTO SLOT NON È STATO TOCCATO IN QUESTA CORSIA, DI PROPOSITO — un
+//     cambio di formula (slot 3) e un cambio di contratto (slot 4) nella
+//     stessa PR sono due errori che si coprono a vicenda. Ma il difetto è
+//     misurato e va dichiarato invece che lasciato implicito: vedi
+//     `SLOT_4_SUPERSEDED` qui sotto, che lo scrive per esteso ed è pinnato da
+//     un test. La riparazione è un'altra PR.
 //
 // IL TETTO DEL TAVOLO È GIÀ RISPETTATO, E NON SI AGGIUNGE NIENTE PER
 // RISPETTARLO. Il record impone che il valore relativo non possa superare la
@@ -71,10 +90,43 @@
 //    (`src/ui/listone.ts`). I due nomi compaiono qui come prosa, in questa
 //    riga e solo per dire che restano fuori: `grep` li trova, il codice no.
 
+import {
+  type AbsoluteValueChain,
+  type AbsoluteValueInput,
+  type AbsoluteValueMissingReason,
+  absoluteValueReading,
+} from "../packages/engine/src/absoluteValue.js";
 import type { CallScreen, NoTargetReason } from "../packages/engine/src/callScreen.js";
 import { DECLARED_VALUE_PROVENANCE } from "../packages/engine/src/declaredValues.js";
 import type { Role } from "../packages/engine/src/types.js";
 import type { ListoneAppealIndex } from "./ui/listone.js";
+
+/**
+ * IL DIFETTO DELLO SLOT 4, MISURATO OGGI E DICHIARATO QUI INVECE CHE TACIUTO.
+ *
+ * Lo slot 4 è agganciato a `DecisionNumbers.fairToMeMaxEffective`, cioè alla
+ * catena §4.2 della schermata CHIAMATA. Una decisione di Pico del **2026-08-24**
+ * — la stessa giornata che ha smontato il modello dello slot 3 — dice che il
+ * PREZZO RELATIVO si assesta su **quanto mette il secondo offerente, +1**.
+ * Sono due formule diverse per lo stesso slot, e la seconda ha sostituito la
+ * prima nello stesso giorno in cui la prima era ancora l'unica scritta nel
+ * codice.
+ *
+ * QUI NON SI RIPARA NIENTE, e la ragione è di metodo: un cambio di FORMULA
+ * (slot 3, questa PR) e un cambio di CONTRATTO (slot 4) nella stessa corsia
+ * sono due errori che si coprono a vicenda — se il riquadro sbaglia un numero
+ * non si sa più quale dei due cambi l'ha rotto. Questa costante è la
+ * dichiarazione del debito in un posto solo, pinnata da un test come le scelte
+ * non ratificate del motore (`UNRATIFIED_CHOICES`, declaredValues.ts): il test
+ * la DOCUMENTA senza approvarla, e diventa rosso se qualcuno la cancella
+ * lasciando lo slot 4 dov'è.
+ */
+export const SLOT_4_SUPERSEDED =
+  "slot 4 (valore relativo): agganciato a fairToMeMaxEffective (catena §4.2), " +
+  "mentre la decisione di Pico del 2026-08-24 assesta il prezzo relativo su " +
+  "quanto mette il secondo offerente, +1. Formula sostituita, aggancio non " +
+  "ancora spostato: riparazione in una PR dedicata, non in quella che cambia " +
+  "la formula dello slot 3 (stesso giorno).";
 
 /** I quattro slot del riquadro, nell'ordine in cui il record li elenca. */
 export type ValueSlotId =
@@ -110,7 +162,47 @@ export type ValueMissingReason =
   /** L'app non ha oggi una sorgente per gli ingredienti dichiarati di §D9. */
   | "ingredienti-dichiarati-assenti"
   /** Il motore ha risposto, e la sua risposta è «qui non ci sono numeri». */
-  | "motore-senza-numeri";
+  | "motore-senza-numeri"
+  // ── I motivi del VALORE ASSOLUTO derivato (absoluteValue.ts). Ognuno nomina
+  //    LA COSA CHE MANCA: chi legge deve sapere se aspettare una dichiarazione
+  //    di Pico, un dato, o niente del tutto.
+  /** Pico non ha dichiarato il target di quel ruolo: la base non esiste. Mai
+   *  una ripartizione uniforme di ripiego — sarebbe il peso nascosto di §D9. */
+  | "ruolo-senza-target"
+  /** Il target dichiarato non è un numero utilizzabile. */
+  | "target-non-valido"
+  /** La somma dei target dichiarati sfonda il budget del regolamento. */
+  | "target-oltre-il-budget"
+  /** Nessuna fascia per lui: nessun ordine, ruolo non ordinato, o senza verdetto. */
+  | "fascia-assente"
+  /** Ordinato, ma oltre l'ultima fascia: nessuno slot del ruolo gli corrisponde. */
+  | "oltre-gli-slot-del-ruolo"
+  /** La gamba CONCORRENZA ha un peso di Pico e non ha il suo ingrediente. */
+  | "gamba-concorrenza-assente"
+  /** La gamba COPPE ha un peso di Pico e non ha il suo ingrediente. */
+  | "gamba-coppe-assente"
+  /** La gamba PAGELLA ha un peso di Pico e non ha il suo ingrediente. */
+  | "gamba-pagella-assente";
+
+/**
+ * I motivi del motore tradotti nei motivi del riquadro — uno a uno, senza
+ * accorpamenti. È una mappa TOTALE sul vocabolario del motore: se un giorno
+ * `absoluteValueReading` guadagna un motivo nuovo, il compilatore chiede questa
+ * riga in più invece di lasciar passare un `n/d` muto.
+ */
+const ABSOLUTE_VALUE_REASON: Readonly<
+  Record<AbsoluteValueMissingReason, ValueMissingReason>
+> = {
+  "nessun-chiamato": "nessun-chiamato",
+  "ruolo-senza-target": "ruolo-senza-target",
+  "target-non-valido": "target-non-valido",
+  "target-oltre-il-budget": "target-oltre-il-budget",
+  "fascia-assente": "fascia-assente",
+  "oltre-gli-slot-del-ruolo": "oltre-gli-slot-del-ruolo",
+  "gamba-concorrenza-assente": "gamba-concorrenza-assente",
+  "gamba-coppe-assente": "gamba-coppe-assente",
+  "gamba-pagella-assente": "gamba-pagella-assente",
+};
 
 export type ValueSlot =
   | { readonly kind: "numero"; readonly value: number; readonly unit: ValueSlotUnit }
@@ -159,11 +251,23 @@ export interface ValueBoxInput {
   readonly appealIndex: ListoneAppealIndex | undefined;
   /**
    * La schermata CHIAMATA del motore per quel giocatore, quando l'app riesce a
-   * costruirla; `null` quando non ha gli ingressi per chiederla.
+   * costruirla; `null` quando non ha gli ingressi per chiederla. Alimenta il
+   * solo SLOT 4 — lo slot 3 non la attraversa più.
    */
   readonly call: CallScreen | null;
   /** Gli ingredienti dichiarati che mancano, quando `call` è `null`. */
   readonly missingDeclaredInputs: readonly DeclaredInputId[];
+  /**
+   * GLI INGRESSI DELLA DERIVAZIONE DEL VALORE ASSOLUTO — target dichiarati,
+   * libro delle fasce, le tre gambe. Nessuno di essi dipende dalla serata: è
+   * la firma stessa di `AbsoluteValueInput` a garantirlo (nessun
+   * `AuctionState`, nessun log, nessuna rosa).
+   *
+   * `called` viene da qui e non da `input.called`: sono lo stesso giocatore, e
+   * lasciarli due significa poter chiedere il valore assoluto di uno e mostrare
+   * il riquadro di un altro. La funzione lo riscrive prima di chiamare.
+   */
+  readonly absolute: Omit<AbsoluteValueInput, "called">;
 }
 
 export interface ValueBoxReading {
@@ -181,6 +285,21 @@ export interface ValueBoxReading {
   readonly creditsProvenance: string | null;
   /** Il motivo del motore, quando è lui a non emettere numeri. */
   readonly engineReason: NoTargetReason | null;
+  /**
+   * LA CATENA DEL VALORE ASSOLUTO, quando il numero esiste: budget, target,
+   * slot, quota, fascia, base e le tre gambe con la loro posizione. `null`
+   * quando lo slot 3 è `n/d`.
+   *
+   * Viaggia fino a chi mostra perché la derivazione dev'essere ISPEZIONABILE e
+   * non solo corretta: un numero derivato che non sa dire da dove viene è
+   * indistinguibile da un numero inventato.
+   */
+  readonly absoluteChain: AbsoluteValueChain | null;
+  /**
+   * `true` quando il valore assoluto sta sotto il credito minimo. SI DICHIARA,
+   * non si aggiusta: un clamp al pavimento sarebbe una scelta silenziosa.
+   */
+  readonly absoluteBelowCostFloor: boolean;
   /** Gli ingredienti dichiarati che l'app non ha; vuoto quando li ha tutti. */
   readonly missingDeclaredInputs: readonly DeclaredInputId[];
 }
@@ -200,6 +319,8 @@ function noCalledPlayer(): ValueBoxReading {
     indexRecipe: null,
     creditsProvenance: null,
     engineReason: null,
+    absoluteChain: null,
+    absoluteBelowCostFloor: false,
     missingDeclaredInputs: [],
   };
 }
@@ -212,32 +333,30 @@ function absoluteIndexSlot(index: ListoneAppealIndex | undefined): ValueSlot {
 }
 
 /**
- * I due numeri in crediti, insieme perché escono dalla stessa catena e falliscono
- * per lo stesso motivo: senza il valore dichiarato non esiste né la fotografia
- * né il tetto che se ne deriva.
+ * IL VALORE RELATIVO — lo SLOT 4, e da questa corsia in poi l'unico dei quattro
+ * che passa dalla schermata CHIAMATA del motore.
+ *
+ * Non è stato toccato: stessa catena, stessi motivi, stesso `n/d` quando le due
+ * dichiarazioni di Pico non hanno una sorgente nell'app. Il debito che porta
+ * con sé è dichiarato in `SLOT_4_SUPERSEDED`, non nascosto.
  */
-function creditSlots(
+function relativeSlot(
   call: CallScreen | null,
   missing: readonly DeclaredInputId[],
 ): {
-  readonly absolute: ValueSlot;
   readonly relative: ValueSlot;
   readonly engineReason: NoTargetReason | null;
 } {
   if (call === null) {
     const reason: ValueMissingReason =
       missing.length > 0 ? "ingredienti-dichiarati-assenti" : "motore-senza-numeri";
-    return { absolute: ABSENT(reason), relative: ABSENT(reason), engineReason: null };
+    return { relative: ABSENT(reason), engineReason: null };
   }
-  const absolute: ValueSlot =
-    call.declaredValue === null
-      ? ABSENT("motore-senza-numeri")
-      : { kind: "numero", value: call.declaredValue, unit: "crediti" };
   const relative: ValueSlot =
     call.numbers === null
       ? ABSENT("motore-senza-numeri")
       : { kind: "numero", value: call.numbers.fairToMeMaxEffective, unit: "crediti" };
-  return { absolute, relative, engineReason: call.noTargetReason };
+  return { relative, engineReason: call.noTargetReason };
 }
 
 /**
@@ -249,8 +368,16 @@ function creditSlots(
 export function valueBoxReading(input: ValueBoxInput): ValueBoxReading {
   if (input.called === null) return noCalledPlayer();
 
-  const { absolute, relative, engineReason } = creditSlots(input.call, input.missingDeclaredInputs);
-  const showsCredits = absolute.kind === "numero" || relative.kind === "numero";
+  const { relative, engineReason } = relativeSlot(input.call, input.missingDeclaredInputs);
+
+  // IL VALORE ASSOLUTO, derivato. `called` viene riscritto dal riquadro: il
+  // giocatore di cui si dice il valore è, per costruzione, quello di cui si sta
+  // mostrando la scheda.
+  const derived = absoluteValueReading({ ...input.absolute, called: input.called });
+  const absolute: ValueSlot =
+    derived.kind === "assente"
+      ? ABSENT(ABSOLUTE_VALUE_REASON[derived.reason])
+      : { kind: "numero", value: derived.credits, unit: "crediti" };
 
   return {
     called: true,
@@ -265,8 +392,14 @@ export function valueBoxReading(input: ValueBoxInput): ValueBoxReading {
     },
     indexQuality: input.appealIndex?.quality ?? null,
     indexRecipe: input.appealIndex?.recipe ?? null,
-    creditsProvenance: showsCredits ? DECLARED_VALUE_PROVENANCE : null,
+    // L'etichetta di provenienza qualifica i numeri costruiti sui VALORI
+    // DICHIARATI di Pico: da questa corsia in poi è il solo slot 4. Il valore
+    // assoluto non li attraversa più e porta la propria catena
+    // (`absoluteChain`), non questa etichetta.
+    creditsProvenance: relative.kind === "numero" ? DECLARED_VALUE_PROVENANCE : null,
     engineReason,
+    absoluteChain: derived.kind === "valore" ? derived.chain : null,
+    absoluteBelowCostFloor: derived.kind === "valore" && derived.belowCostFloor,
     missingDeclaredInputs: input.call === null ? input.missingDeclaredInputs : [],
   };
 }
