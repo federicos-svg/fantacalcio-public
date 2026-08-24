@@ -380,12 +380,75 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
   }
   await sweepScene("rose");
 
+  // ── ROSE, PIANO DICHIARATO ────────────────────────────────────────────────
+  //
+  // La scena «rose» qui sopra ha misurato il pannello PIANO ROSA nel suo stato
+  // VUOTO, che è l'unico in cui si trova finché nessuno dichiara un piano. E in
+  // quello stato `.role-plan__numbers`, `.role-plan__totals li` e la pastiglia
+  // `.badge--over-plan` NON ESISTONO NEL DOM: `measureAllText` non salta quel
+  // testo, semplicemente non c'è nulla da saltare — che è lo stesso verde per
+  // assenza dei pannelli dietro un gesto (#331, #333, il modulo SCHEDE più
+  // sotto), con una differenza sola: qui il gesto non è un click su un toggle,
+  // è DICHIARARE UN PIANO. Senza, metà di questo pannello resterebbe fuori
+  // sorveglianza — e sarebbe la metà che porta i numeri.
+  //
+  // Il target dei Portieri è DELIBERATAMENTE sotto i 30 cr già spesi in questa
+  // spec: serve a far esistere la pastiglia SOPRA PIANO, che è l'unico testo di
+  // questo pannello dipinto con un colore fuori dalla rampa (--stop-red come
+  // TESTO su --panel-inner). Un piano che non sfora non la farebbe comparire, e
+  // la misura tornerebbe verde senza aver guardato il caso che conta.
+  for (const [role, target] of [
+    ["P", "10"],
+    ["D", "80"],
+    ["C", "140"],
+    ["A", "200"],
+  ] as const) {
+    await page.locator(`#role-plan-target-${role}`).fill(target);
+  }
+  await page.locator("#role-plan-version").fill("pre-asta 1");
+  // Il piano è vivo: i tre gruppi di testo che prima non esistevano adesso ci
+  // sono. Se una di queste tre asserzioni cade, le misure qui sotto starebbero
+  // misurando il vuoto.
+  await expect(page.locator("#role-plan-state")).toContainText("Piano dichiarato «pre-asta 1»");
+  await expect(page.locator("#role-plan-totals")).toBeVisible();
+  await expect(page.locator("#role-plan-P .badge--over-plan")).toBeVisible();
+  for (const sel of [
+    ".badge--over-plan", // --stop-red come TESTO su --panel-inner, 10px
+    ".role-plan__numbers", // --text-sec su --panel-inner, i numeri di piano
+    ".role-plan__numbers em", // --text-dim, le parole accanto a ogni cifra
+    ".role-plan__totals li", // --text-mid, fattibilità e budget libero vero
+  ]) {
+    expect(await textContrast(page, sel), `rose/piano: ${sel}`).toBeGreaterThanOrEqual(
+      AA_NORMAL_TEXT,
+    );
+  }
+  await sweepScene("rose/piano-dichiarato");
+
   // ── IMPOSTAZIONI ──────────────────────────────────────────────────────────
   await gotoScreen(page, "Impostazioni");
-  for (const section of ["teams", "riconferme", "schede", "status"] as const) {
+  // Un partecipante creato prima della spazzata: senza nessuno in archivio la
+  // riga «nome → identificativo» non esiste, e il testo più piccolo di questa
+  // schermata — l'identificativo, 10,5px monospace su --panel-inner — non
+  // verrebbe misurato affatto.
+  await openSettingsSection(page, "teams");
+  await page.locator("#new-person-name").fill("Persona Sintetica");
+  await page.locator("#add-person").click();
+  await expect(page.locator("#league-people-list .person-id-value")).toHaveCount(1);
+  // CINQUE sezioni: la spazzata le attraversa tutte. `archivio` entra qui
+  // insieme alle altre — l'unione di id di `openSettingsSection` non è più
+  // ferma, quindi il giro a mano che serviva prima non serve più.
+  for (const section of ["teams", "riconferme", "schede", "archivio", "status"] as const) {
     await openSettingsSection(page, section);
     await sweepScene(`impostazioni/${section}`);
   }
+  // ARCHIVIO AVVERSARI, secondo passaggio: i due riquadri della forma del file
+  // stanno dentro un <details> CHIUSO, e `measureAllText` salta ciò che non ha
+  // rettangolo. Il giro qui sopra li ha quindi attraversati senza misurarli:
+  // vanno aperti, o il loro testo resta fuori dalla spazzata.
+  await openSettingsSection(page, "archivio");
+  await page.locator("#archive-history-shape summary").click();
+  await page.locator("#archive-profiles-shape summary").click();
+  await sweepScene("impostazioni/archivio-dettagli");
 
   // SCHEDE — il modulo e il riquadro d'allarme esistono solo dopo un gesto:
   // da chiusi non hanno rettangolo, e `measureAllText` salta ciò che non ne

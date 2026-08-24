@@ -7,6 +7,22 @@
 // docs/data/LISTONE_UI_LOAD_CONTRACT.md for the JSON shape this expects.
 
 import { type Role, ROLES } from "../../packages/engine/src/types.js";
+import {
+  PAGELLA_ASSENTE,
+  PAGELLA_ASSI,
+  PAGELLA_ASSI_DI_RUOLO,
+  PAGELLA_ASSI_TUTTI,
+  PAGELLA_ETICHETTE,
+  PAGELLA_NON_APPLICABILE,
+  PAGELLA_TOTALE_MAX,
+  PAGELLA_VOTO_MAX,
+  PAGELLA_VOTO_MIN,
+  type PagellaAsse,
+  type PagellaAsseDiRuolo,
+  type PagellaScheda,
+  pagellaAsseDelRuolo,
+  resolvePagella,
+} from "../pagellaEsperti.js";
 import { C, escHtml, roleChipHtml } from "./theme.js";
 import { clubBadgeHtml } from "./serieA.js";
 
@@ -35,6 +51,20 @@ export interface ListonePlayer {
   readonly extra?: Readonly<Record<string, ListoneCellValue>>;
   /** Present only when the served payload carries one — see below. */
   readonly appealIndex?: ListoneAppealIndex;
+  /**
+   * I CINQUE VOTI SU 10 del Gruppo Esperti e il TOTALE che la fonte dichiara —
+   * stessa forma esatta di `ExpertScheda.pagella` (src/pagellaEsperti.ts), non
+   * una seconda copia con altre chiavi: le colonne del listone e il radar
+   * della schermata d'asta leggono lo stesso contratto, quindi non possono
+   * dire due cose diverse sullo stesso giocatore.
+   *
+   * OGGI NESSUNA RIGA LA PORTA: l'estrazione dalle schede vive nel repository
+   * privato e non esiste ancora. Le sette colonne compaiono con il dato e
+   * spariscono con lui — esattamente come «Indice» — e finché non c'è, la nota
+   * sotto la tabella DICE che non c'è, invece di lasciare sette colonne di
+   * caselle vuote che si leggono come un difetto.
+   */
+  readonly pagella?: PagellaScheda;
 }
 
 /**
@@ -85,9 +115,43 @@ const CORE_COLUMNS: readonly ListoneColumn[] = [
  *  served pool actually carries an index, and disappears with it. */
 export const APPEAL_INDEX_COLUMN_KEY = "appealIndex";
 
+/** Chiave del campo di riga che porta la pagella. NON è una colonna: le colonne
+ *  sono le sette qui sotto, e questa è la struttura da cui si ricavano. */
+export const PAGELLA_ROW_KEY = "pagella";
+
+/**
+ * La colonna del TOTALE. Non è un asse: è la SOMMA dei cinque, ricalcolata da
+ * noi. Ha una chiave sua — che non può collidere con nessun id di asse perché
+ * gli assi si chiamano tutti `pagella_<asse>` e questo è `pagella_totale`, un
+ * nome che il vocabolario degli assi non contiene (verificato da un test).
+ */
+export const PAGELLA_TOTALE_COLUMN_KEY = "pagella_totale";
+
+/**
+ * LE SETTE COLONNE, nell'ordine della fonte, e sono SETTE e non sei.
+ *
+ * I due assi di ruolo — «Porta inviolata» e «Bonus» — hanno UNA COLONNA
+ * CIASCUNO, non una colonna condivisa. Una colonna sola sarebbe più compatta e
+ * sarebbe sbagliata in un modo che si vede solo cliccandoci sopra: ordinarla
+ * metterebbe in fila la porta inviolata dei portieri e il bonus degli
+ * attaccanti come se fossero la stessa grandezza. Con due colonne l'ordinamento
+ * di ciascuna confronta cose confrontabili, e la casella che non si applica
+ * dice `n.a.` invece di restare vuota.
+ */
+export const PAGELLA_COLUMN_KEYS: readonly string[] = [
+  "pagella_titolarita",
+  "pagella_media_voto",
+  "pagella_salute",
+  "pagella_porta_inviolata",
+  "pagella_bonus",
+  "pagella_consiglio",
+  PAGELLA_TOTALE_COLUMN_KEY,
+];
+
 const CORE_KEYS = new Set(CORE_COLUMNS.map((c) => c.key));
 CORE_KEYS.add("proxyId");
 CORE_KEYS.add(APPEAL_INDEX_COLUMN_KEY);
+CORE_KEYS.add(PAGELLA_ROW_KEY);
 
 // Gate OFF means local/static display data cannot create decision surfaces by
 // choosing a suggestive extra-column name. Reject the whole pool fail-closed.
@@ -241,6 +305,57 @@ function isAppealIndex(v: unknown): v is ListoneAppealIndex {
   return names.every((name) => isScaleValue(components[name]));
 }
 
+/**
+ * Un voto di pagella nel payload: intero 0–10, oppure la chiave non c'è. Non
+ * accetta `null`: nel payload l'assenza si scrive NON SCRIVENDO la chiave, e
+ * ammettere due modi di dire «non lo so» significherebbe doverli tenere
+ * d'accordo per sempre.
+ */
+function isVoto(v: unknown): v is number {
+  return (
+    typeof v === "number" &&
+    Number.isInteger(v) &&
+    v >= PAGELLA_VOTO_MIN &&
+    v <= PAGELLA_VOTO_MAX
+  );
+}
+
+/**
+ * Fail-closed come il resto di questo validatore, e con in più la REGOLA DI
+ * RUOLO: una pagella che porta sia «porta inviolata» sia «bonus» descrive due
+ * ruoli insieme, cioè nessun giocatore, e invalida l'intero pool invece di
+ * essere mostrata a metà. È la stessa regola che `pagellaSchema` applica al
+ * deposito delle schede — scritta due volte perché i due ingressi sono due
+ * (JSON del listone, JSON delle schede) e un test le confronta.
+ */
+function isListonePagella(v: unknown): v is PagellaScheda {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
+  const o = v as Record<string, unknown>;
+  for (const key of Object.keys(o)) {
+    if (key !== "voti" && key !== "totaleFonte") return false;
+  }
+  if (typeof o.voti !== "object" || o.voti === null || Array.isArray(o.voti)) return false;
+  const voti = o.voti as Record<string, unknown>;
+  for (const [key, value] of Object.entries(voti)) {
+    if (!(PAGELLA_ASSI_TUTTI as readonly string[]).includes(key)) return false;
+    if (!isVoto(value)) return false;
+  }
+  if (
+    voti.pagella_porta_inviolata !== undefined &&
+    voti.pagella_bonus !== undefined
+  ) return false;
+  if (
+    o.totaleFonte !== undefined &&
+    !(
+      typeof o.totaleFonte === "number" &&
+      Number.isInteger(o.totaleFonte) &&
+      o.totaleFonte >= 0 &&
+      o.totaleFonte <= PAGELLA_TOTALE_MAX
+    )
+  ) return false;
+  return true;
+}
+
 function isListonePlayer(v: unknown): v is Record<string, unknown> {
   if (typeof v !== "object" || v === null) return false;
   const o = v as Record<string, unknown>;
@@ -265,6 +380,7 @@ function isListonePlayer(v: unknown): v is Record<string, unknown> {
     (typeof o.quotation !== "number" || !Number.isFinite(o.quotation) || o.quotation < 0)
   ) return false;
   if (o.appealIndex !== undefined && !isAppealIndex(o.appealIndex)) return false;
+  if (o.pagella !== undefined && !isListonePagella(o.pagella)) return false;
   for (const key of Object.keys(o)) {
     if (CORE_KEYS.has(key)) continue;
     if (isGatedListoneExtraKey(key)) return false;
@@ -313,6 +429,7 @@ export function validateListonePool(json: unknown): ListonePoolValidation {
       club: item.club as string,
       ...(item.quotation !== undefined ? { quotation: item.quotation as number } : {}),
       ...(item.appealIndex !== undefined ? { appealIndex: item.appealIndex as ListoneAppealIndex } : {}),
+      ...(item.pagella !== undefined ? { pagella: item.pagella as PagellaScheda } : {}),
       ...(extraKeys.length > 0
         ? { extra: Object.fromEntries(extraKeys.map((k) => [k, item[k] as ListoneCellValue])) }
         : {}),
@@ -535,6 +652,54 @@ export function listoneAppealIndexNote(pool: readonly ListonePlayer[]): string |
 }
 
 /**
+ * LA RIGA CHE QUALIFICA LE SETTE COLONNE DI PAGELLA — e che, quando le colonne
+ * non ci sono, DICE CHE NON CI SONO.
+ *
+ * Non torna mai `null`, e la differenza con `listoneAppealIndexNote` qui sopra
+ * è deliberata. L'indice, quando manca, è già negato dalla nota di sorgente
+ * («Nessuna appetibilità calcolata»); la pagella no, e un listone senza sette
+ * colonne che nessuno ha mai visto si legge come un listone normale, non come
+ * un dato che manca. Finché l'estrazione privata non esiste — cioè oggi, su
+ * ogni riga — questa riga è l'unico posto in cui l'assenza è scritta.
+ *
+ * I CONTEGGI NON SONO DECORAZIONE. «Quante divergono dal TOTALE della fonte» è
+ * il numero che dice se l'estrazione sta leggendo male, e «quante portano
+ * l'asse di un altro ruolo» è il numero che dice se sta leggendo la scheda del
+ * giocatore sbagliato. Sono le due prove che questo contratto si è procurato
+ * apposta: contarle a schermo è ciò che le rende utili invece che teoriche.
+ */
+export function listonePagellaNote(pool: readonly ListonePlayer[]): string {
+  const righe = pool.filter((p) => p.pagella !== undefined);
+  if (righe.length === 0) {
+    return (
+      "Pagella Gruppo Esperti: nessun voto nel listone caricato — l'estrazione dalle schede " +
+      `non è ancora attiva, quindi le ${PAGELLA_COLUMN_KEYS.length} colonne non compaiono. ` +
+      "Assenza dichiarata, non uno zero."
+    );
+  }
+  const viste = righe.map((p) => resolvePagella(p.pagella, p.role));
+  const complete = viste.filter((v) => v.completa).length;
+  const parziali = viste.filter((v) => !v.completa && v.votiPresenti > 0).length;
+  const vuote = viste.filter((v) => v.votiPresenti === 0).length;
+  const divergenti = viste.filter((v) => v.verificaTotale === "divergente").length;
+  const incoerenti = viste.filter((v) => v.asseIncoerente).length;
+  // I conteggi vanno DOPO la loro etichetta, non prima. Non è stile: «1 righe
+  // con pagella — 1 complete» è ciò che la forma «numero + sostantivo» produce
+  // ogni volta che il conteggio vale uno, e questa riga sta sotto la tabella
+  // che Pico guarda durante l'asta. Con l'etichetta davanti il numero non deve
+  // concordare con niente, e la riga si legge uguale per 0, 1 e 200.
+  return (
+    `Pagella Gruppo Esperti: ${PAGELLA_ASSI} voti su ${PAGELLA_VOTO_MAX} per riga; ` +
+    `«GE Totale» è la loro somma su ${PAGELLA_TOTALE_MAX}, ricalcolata da noi. ` +
+    `Righe con pagella: ${righe.length} — complete ${complete}, parziali ${parziali}, senza voti ${vuote}. ` +
+    `TOTALE divergente da quello dichiarato dalla fonte (cella «somma ≠ dichiarato»): ${divergenti}. ` +
+    `Righe con l'asse di un altro ruolo: ${incoerenti}. ` +
+    `${PAGELLA_NON_APPLICABILE} = l'asse non esiste per quel ruolo; ${PAGELLA_ASSENTE} = esiste e non è stato estratto. ` +
+    `«${PAGELLA_ETICHETTE.pagella_consiglio}» è un parere della fonte, non una misura. ${DISPLAY_ONLY_CLAUSE}`
+  );
+}
+
+/**
  * Full column list for a pool: the 4 core columns, plus any extra columns
  * discovered from the loaded rows (alphabetical, for a deterministic
  * order). An empty pool yields just the core columns.
@@ -550,6 +715,21 @@ const APPEAL_INDEX_COLUMN: ListoneColumn = {
 export function poolHasAppealIndex(pool: readonly ListonePlayer[]): boolean {
   return pool.some((p) => p.appealIndex !== undefined);
 }
+
+/** True quando almeno una riga porta la pagella. Oggi: mai. */
+export function poolHasPagella(pool: readonly ListonePlayer[]): boolean {
+  return pool.some((p) => p.pagella !== undefined);
+}
+
+const PAGELLA_COLUMNS: readonly ListoneColumn[] = [
+  { key: "pagella_titolarita", label: "GE Titolarità", kind: "number", core: false },
+  { key: "pagella_media_voto", label: "GE Media voto", kind: "number", core: false },
+  { key: "pagella_salute", label: "GE Salute", kind: "number", core: false },
+  { key: "pagella_porta_inviolata", label: "GE Porta inviolata", kind: "number", core: false },
+  { key: "pagella_bonus", label: "GE Bonus", kind: "number", core: false },
+  { key: "pagella_consiglio", label: "GE Consiglio", kind: "number", core: false },
+  { key: PAGELLA_TOTALE_COLUMN_KEY, label: "GE Totale", kind: "number", core: false },
+];
 
 export function listoneColumns(pool: readonly ListonePlayer[]): ListoneColumn[] {
   const extraKeys = new Set<string>();
@@ -568,6 +748,7 @@ export function listoneColumns(pool: readonly ListonePlayer[]): ListoneColumn[] 
   return [
     ...CORE_COLUMNS,
     ...(poolHasAppealIndex(pool) ? [APPEAL_INDEX_COLUMN] : []),
+    ...(poolHasPagella(pool) ? PAGELLA_COLUMNS : []),
     ...extraColumns,
   ];
 }
@@ -613,6 +794,28 @@ const COLUMN_TOOLTIPS: Readonly<Record<string, string>> = {
     "Indice di appetibilità 0–100, percentile entro la coorte del proprio ruolo. " +
     "Etichetta di qualità e versione della ricetta nella nota sotto la tabella. " +
     "n/d quando il modello non ha un verdetto per quel giocatore.",
+  // «GE» = Gruppo Esperti. Il prefisso non è un vezzo: senza di lui «Titolarità»
+  // in questa tabella e la pastiglia «TITOLARITÀ» del riquadro d'asta sarebbero
+  // la stessa parola per due cose diverse — un voto su 10 e un'affermazione
+  // categorica. Vedi src/pagellaEsperti.ts §collisione.
+  pagella_titolarita:
+    "GE = Gruppo Esperti. Voto di titolarità 0–10 scritto dalla fonte. NON è la titolarità " +
+    "categorica (titolare/ballottaggio/riserva) del riquadro INSIGHT GIOCATORE: è un voto su una scala.",
+  pagella_media_voto: "GE = Gruppo Esperti. Voto 0–10 sulla media voto attesa, scritto dalla fonte.",
+  pagella_salute: "GE = Gruppo Esperti. Voto 0–10 sulla salute/tenuta fisica, scritto dalla fonte.",
+  pagella_porta_inviolata:
+    "GE = Gruppo Esperti. Voto 0–10 sulla porta inviolata: QUARTO ASSE DEI SOLI PORTIERI. " +
+    "n.a. su ogni riga di movimento — l'asse non esiste per quel ruolo, non è un dato mancante.",
+  pagella_bonus:
+    "GE = Gruppo Esperti. Voto 0–10 sui bonus: QUARTO ASSE DEL SOLO MOVIMENTO. " +
+    "n.a. su ogni riga di portiere — l'asse non esiste per quel ruolo, non è un dato mancante.",
+  pagella_consiglio:
+    "GE = Gruppo Esperti. Voto 0–10 del «Consiglio Esperti»: è un PARERE della fonte, non una misura, " +
+    "e non entra in nessun calcolo dell'app.",
+  [PAGELLA_TOTALE_COLUMN_KEY]:
+    "GE = Gruppo Esperti. Somma dei cinque voti su 50, RICALCOLATA da noi e non letta dalla fonte. " +
+    "«39 ≠ 41» significa che il totale scritto sulla scheda non coincide: almeno un voto è stato letto male. " +
+    "n/d quando i cinque voti non ci sono tutti — una somma parziale su 50 sarebbe un numero falso.",
 };
 
 /**
@@ -864,8 +1067,68 @@ export function listoneCellValue(p: ListonePlayer, columnKey: string): ListoneCe
       // both directions, exactly like a missing cell, and renders `n/d`.
       return p.appealIndex?.score ?? undefined;
     default:
+      if (PAGELLA_COLUMN_KEYS.includes(columnKey)) return pagellaCellValue(p, columnKey);
       return p.extra?.[columnKey];
   }
+}
+
+/**
+ * Il valore ORDINABILE di una colonna di pagella.
+ *
+ * `undefined` in tre casi diversi che a schermo si scrivono in tre modi
+ * diversi — voto non estratto (`n/d`), asse che non esiste per questo ruolo
+ * (`n.a.`), totale non calcolabile (`n/d`) — e in tutti e tre finisce in fondo
+ * all'ordinamento, in entrambe le direzioni, come qualunque cella mancante.
+ * L'ordinamento non è il posto in cui si spiega la differenza: quello è la
+ * cella, e la nota sotto la tabella.
+ *
+ * IL TOTALE È RICALCOLATO, MAI LETTO. `pagella.totaleFonte` — il numero scritto
+ * sulla scheda — non finisce in nessuna colonna: serve a smentire il nostro, e
+ * un dato che serve a smentire non può essere lo stesso dato che mostriamo.
+ */
+function pagellaCellValue(p: ListonePlayer, columnKey: string): number | undefined {
+  if (p.pagella === undefined) return undefined;
+  const view = resolvePagella(p.pagella, p.role);
+  if (columnKey === PAGELLA_TOTALE_COLUMN_KEY) return view.totaleRicalcolato ?? undefined;
+  const asse = columnKey as PagellaAsse;
+  // Colonna di un asse di RUOLO che non è quello di questa riga: nessun valore
+  // da confrontare, perché la domanda non si fa per questo ruolo.
+  if (
+    (PAGELLA_ASSI_DI_RUOLO as readonly string[]).includes(asse) &&
+    pagellaAsseDelRuolo(p.role) !== (asse as PagellaAsseDiRuolo)
+  ) return undefined;
+  return view.assi.find((a) => a.asse === asse)?.voto ?? undefined;
+}
+
+/**
+ * Il TESTO di una cella di pagella — dove i tre «non c'è» smettono di essere
+ * lo stesso `undefined` e tornano a essere tre cose diverse:
+ *
+ *  - `n.a.`  l'asse non esiste per questo ruolo (porta inviolata di un
+ *            attaccante). Non è un buco: è una domanda che non si fa.
+ *  - `n/d`   l'asse esiste ma il voto non è stato estratto. È il caso normale
+ *            di oggi, ed è un buco nostro.
+ *  - `39 ≠ 41` il totale ricalcolato NON coincide con quello scritto sulla
+ *            scheda. Entrambi i numeri restano nella cella: è la prova che
+ *            l'estrazione ha letto male almeno un voto, e mostrarne uno solo
+ *            la cancellerebbe. La nota sotto la tabella le conta.
+ */
+export function pagellaCellText(p: ListonePlayer, columnKey: string): string {
+  if (p.pagella === undefined) return PAGELLA_ASSENTE;
+  const view = resolvePagella(p.pagella, p.role);
+  if (columnKey === PAGELLA_TOTALE_COLUMN_KEY) {
+    if (view.totaleRicalcolato === null) return PAGELLA_ASSENTE;
+    return view.verificaTotale === "divergente"
+      ? `${view.totaleRicalcolato} ≠ ${view.totaleFonte}`
+      : String(view.totaleRicalcolato);
+  }
+  const asse = columnKey as PagellaAsse;
+  if (
+    (PAGELLA_ASSI_DI_RUOLO as readonly string[]).includes(asse) &&
+    pagellaAsseDelRuolo(p.role) !== (asse as PagellaAsseDiRuolo)
+  ) return PAGELLA_NON_APPLICABILE;
+  const voto = view.assi.find((a) => a.asse === asse)?.voto ?? null;
+  return voto === null ? PAGELLA_ASSENTE : String(voto);
 }
 
 /**
@@ -940,7 +1203,9 @@ function listoneCellHtml(p: ListonePlayer, col: ListoneColumn, isAssigned: boole
   const text =
     col.key === APPEAL_INDEX_COLUMN_KEY
       ? typeof value === "number" ? String(Math.round(value)) : "n/d"
-      : value === undefined ? "—" : String(value);
+      : PAGELLA_COLUMN_KEYS.includes(col.key)
+        ? pagellaCellText(p, col.key)
+        : value === undefined ? "—" : String(value);
   const mono = col.kind === "number" ? `font-family:${C.mono};` : "";
   return `<div style="flex:${flex};${mono}">${escHtml(text)}</div>`;
 }
