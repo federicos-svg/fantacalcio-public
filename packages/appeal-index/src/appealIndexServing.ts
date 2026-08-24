@@ -95,7 +95,16 @@ export const APPEAL_INDEX_RECIPE = {
   // change to *any* field here bumps the version. Same reason as above, applied
   // without discretion — a consumer must be able to tell a 1.2.0 payload from a
   // 1.3.0 one without reading the package behind it.
-  recipeVersion: "APPEAL-INDEX-RECIPE@1.3.0",
+  //
+  // 1.4.0: the composition formula is unchanged for the third time, but the
+  // reference moves to VAL-PROTOCOL-A-PHASE4@2.3.0, whose vectors read
+  // `volatility_last_observed` instead of `volatility_lag1`. The two protocols
+  // do not define `continuitaVoto` and `rischio` off the same quantity, so a
+  // payload composed under one is not comparable with a payload composed under
+  // the other, and the version has to say so. Taken before the freeze instant
+  // this same object declares (2026-09-02T12:00:00+02:00), which is what makes
+  // it permitted at all.
+  recipeVersion: "APPEAL-INDEX-RECIPE@1.4.0",
   formulaFreezeDate: "2026-09-02T12:00:00+02:00",
   phase4Protocol: PHASE4_PROTOCOL,
   phase5Protocol: PHASE5_PROTOCOL,

@@ -252,20 +252,19 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
   await page.locator("#critical-roster").click();
   await expect(page.locator("#critical-role-plan-P")).toBeVisible();
 
-  // #333: stessa ragione, secondo gesto. SCARSITÀ PER RUOLO, WAR BOARD e
-  // SQUADRE (LEGA) stanno dietro IL TAVOLO: da chiusi non hanno rettangolo, e
+  // #333: stessa ragione, secondo gesto. SCARSITÀ PER RUOLO e WAR BOARD
+  // stanno dietro IL TAVOLO: da chiusi non hanno rettangolo, e
   // `measureAllText` salta ciò che non ne ha — lasciarli chiusi non farebbe
-  // fallire nulla, farebbe SMETTERE DI MISURARE tre pannelli interi (compreso
+  // fallire nulla, farebbe SMETTERE DI MISURARE due pannelli interi (compreso
   // `.scarcity-metric > span`, uno dei punti d'uso espliciti qui sotto).
   // Anche questo stato resta aperto per le scene successive.
   await openTableDetail(page);
 
-  // I punti d'uso espliciti: micro-etichette del piano per ruolo, nota della
-  // riga di comando, etichetta del filtro di stato, nota del listone.
+  // I punti d'uso espliciti: micro-etichette del piano per ruolo, etichetta
+  // del filtro di stato, nota del listone.
   // Ognuno era fra 2,43:1 e 2,75:1 prima della schiaritura.
   for (const sel of [
     ".critical-role-plan-item em", // --text-dim, 2,75:1 prima
-    "#assign-command-preview", // --text-dim, 2,75:1 prima
     ".status-filter__label", // --text-dim, «FILTRO», 2,75:1 prima
     ".status-filter__caret", // --text-dim, 2,75:1 prima
     ".listone-table-head > div", // --text-sec su --panel-inner, 4,01:1 prima

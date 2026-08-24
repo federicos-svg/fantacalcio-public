@@ -92,7 +92,7 @@ function componentRow(volatility: number): FeatureRow {
     (typeof FEATURE_NAMES)[number],
     number
   >;
-  features.volatilitaVotoLag1 = volatility;
+  features.volatilitaVotoLastObserved = volatility;
   features.roleD = 1;
   return {
     playerKey: "redacted:1",

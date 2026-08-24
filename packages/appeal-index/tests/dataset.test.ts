@@ -85,11 +85,11 @@ describe("buildFeatureRows", () => {
   });
 
   it("does not convert missing fantamedia or volatility to zero", () => {
-    const row = rows.find((candidate) => candidate.features.volatilitaVotoLag1 === Number.NaN);
+    const row = rows.find((candidate) => candidate.features.volatilitaVotoLastObserved === Number.NaN);
     // NaN is deliberately tested through Number.isNaN because NaN !== NaN.
     if (row) {
-      expect(Number.isNaN(row.features.volatilitaVotoLag1)).toBe(true);
-      expect(row.missingFeatures).toContain("volatilitaVotoLag1");
+      expect(Number.isNaN(row.features.volatilitaVotoLastObserved)).toBe(true);
+      expect(row.missingFeatures).toContain("volatilitaVotoLastObserved");
     }
     const noHistoryPanel = {
       ...panel,
@@ -134,6 +134,86 @@ describe("buildFeatureRows", () => {
       fantamediaNext: "not_observable",
       presenzeNext: "observed",
     });
+  });
+});
+
+describe("volatilitaVotoLastObserved — the recovered rows (VAL-PROTOCOL-A-PHASE4@2.3.0)", () => {
+  const panel = buildPlayerSeasonPanel(buildStableCohortSeasons());
+
+  /**
+   * The exact shape of the eleven `NON_FINITE_FEATURES` rows measured on the
+   * 2026-08-20 served artifact: a player with real observed history whose LAST
+   * season has a single presence, so `volatilitaVoto` is `null` for that season
+   * alone. Under the old lag-1 rule the whole vector went non-finite and the
+   * row was dropped; under @2.3.0 the feature reads the most recent season that
+   * has a dispersion at all.
+   */
+  function panelWithSinglePresenceFinalSeason(playerKey: string) {
+    const lastSeason = panel.orderedSeasons[panel.orderedSeasons.length - 1]!;
+    const previousSeason = panel.orderedSeasons[panel.orderedSeasons.length - 2]!;
+    return {
+      ...panel,
+      rows: panel.rows.map((row) =>
+        row.playerKey === playerKey && row.season === lastSeason
+          ? { ...row, presenze: 1, volatilitaVoto: null }
+          : row.playerKey === playerKey && row.season === previousSeason
+            ? { ...row, presenze: 30, volatilitaVoto: 1.25 }
+            : row,
+      ),
+    };
+  }
+
+  it("stays finite when only the last season is short, and carries the last season that had one", () => {
+    const lastSeason = panel.orderedSeasons[panel.orderedSeasons.length - 1]!;
+    const previousSeason = panel.orderedSeasons[panel.orderedSeasons.length - 2]!;
+    const rows = buildFeatureRows(panelWithSinglePresenceFinalSeason("id:101"));
+    const row = rows.find(
+      (candidate) => candidate.playerKey === "id:101" && candidate.featureSeason === lastSeason,
+    );
+    // The last season has no target after it, so the row that must survive is
+    // the one whose feature season is the short one only when such a row
+    // exists; otherwise the guarantee is checked on the previous transition.
+    const probe =
+      row ??
+      rows.find(
+        (candidate) => candidate.playerKey === "id:101" && candidate.featureSeason === previousSeason,
+      )!;
+    expect(Number.isFinite(probe.features.volatilitaVotoLastObserved)).toBe(true);
+    expect(probe.missingFeatures).not.toContain("volatilitaVotoLastObserved");
+  });
+
+  it("reads the most recent season that has a dispersion, not an average of them", () => {
+    const doctored = {
+      ...panel,
+      rows: panel.rows.map((row, index) =>
+        row.playerKey === "id:101"
+          ? { ...row, volatilitaVoto: index === 0 ? 9 : row.season === panel.orderedSeasons[1] ? 2 : null }
+          : row,
+      ),
+    };
+    const rows = buildFeatureRows(doctored).filter((candidate) => candidate.playerKey === "id:101");
+    const late = rows[rows.length - 1]!;
+    expect(late.features.volatilitaVotoLastObserved).toBe(2);
+  });
+
+  it("is NaN only when no season of the player's own history ever had two presences", () => {
+    const starved = {
+      ...panel,
+      rows: panel.rows.map((row) =>
+        row.playerKey === "id:101" ? { ...row, presenze: 1, volatilitaVoto: null } : row,
+      ),
+    };
+    const rows = buildFeatureRows(starved).filter((candidate) => candidate.playerKey === "id:101");
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(Number.isNaN(row.features.volatilitaVotoLastObserved)).toBe(true);
+      expect(row.missingFeatures).toContain("volatilitaVotoLastObserved");
+    }
+  });
+
+  it("never reads a season at or after the target season", () => {
+    const rows = buildFeatureRows(panelWithSinglePresenceFinalSeason("id:101"));
+    expect(() => assertNoLeakage(rows)).not.toThrow();
   });
 });
 

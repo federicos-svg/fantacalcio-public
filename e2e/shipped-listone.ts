@@ -19,7 +19,7 @@
 // these exports describe it truthfully, in the order the app renders it. See
 // e2e/fixtures/synthetic-listone.ts for the DIFFERENT, deliberately synthetic
 // pool used where a spec needs to inject its own network-served data (e.g.
-// e2e/assign-command-line.spec.ts) — that is a different contract and must
+// e2e/auction-actions.spec.ts) — that is a different contract and must
 // stay separate from what this file proves.
 //
 // Fails loudly (throw, at import time) rather than silently on any shape this

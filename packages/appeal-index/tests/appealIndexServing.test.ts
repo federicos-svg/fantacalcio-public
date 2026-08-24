@@ -17,7 +17,7 @@ function features(overrides: Partial<Record<(typeof FEATURE_NAMES)[number], numb
     (typeof FEATURE_NAMES)[number],
     number
   >;
-  return { ...base, presenzeRollingMean3: 20, volatilitaVotoLag1: 1, nSeasonsObserved: 3, ...overrides };
+  return { ...base, presenzeRollingMean3: 20, volatilitaVotoLastObserved: 1, nSeasonsObserved: 3, ...overrides };
 }
 
 function player(
@@ -41,13 +41,13 @@ describe("APPEAL_INDEX_RECIPE", () => {
   it("is frozen: any formula change has to bump the version deliberately", () => {
     // Pinned on purpose. A silent edit to the recipe (or to what it points at)
     // fails here instead of quietly changing what the site shows.
-    expect(APPEAL_INDEX_RECIPE.recipeVersion).toBe("APPEAL-INDEX-RECIPE@1.3.0");
+    expect(APPEAL_INDEX_RECIPE.recipeVersion).toBe("APPEAL-INDEX-RECIPE@1.4.0");
     // The freeze is an instant, not a day: 2026-09-02 at 12:00 Europe/Rome,
     // written with an explicit offset so it is unambiguous without a timezone
     // database. Moved from 2026-08-30 by Pico's decision of 2026-08-15.
     expect(APPEAL_INDEX_RECIPE.formulaFreezeDate).toBe("2026-09-02T12:00:00+02:00");
     expect(appealIndexRecipeHash()).toBe(
-      "sha256:14dcf2103f8ea4bc053e4aafa558a628efc9f1b692640adbcbe31519fb424d32",
+      "sha256:80ec2f3b51ba87f6e72861092029642a99e25e21178ae52845e973177647fc6f",
     );
   });
 
@@ -88,7 +88,7 @@ describe("buildServedAppealIndex", () => {
     // composing at all, so the index has to be 100.
     const served = buildServedAppealIndex([
       player("weak-heuristics", "C", 9, {
-        features: features({ volatilitaVotoLag1: 8, presenzeRollingMean3: 1, nSeasonsObserved: 1 }),
+        features: features({ volatilitaVotoLastObserved: 8, presenzeRollingMean3: 1, nSeasonsObserved: 1 }),
       }),
       player("other", "C", 4),
     ]);

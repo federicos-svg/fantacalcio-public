@@ -18,9 +18,51 @@
 // The fault is injected the same way in every test: Storage.prototype.setItem
 // throws for the listone key ONLY, so the auction log's own storage (a
 // different key, fail-closed by its own path) is untouched.
+//
+// ── PROBE T e la terza fonte (correzione della PRECONDIZIONE) ────────────────
+// PROBE T dichiara, nel suo ultimo blocco, che "entrambe le fonti sono giù" e
+// che quindi a schermo può esserci solo la copia salvata. Da quando
+// src/offline/** è nel build quella frase era falsa: le fonti sono TRE, e la
+// terza — la Cache Storage del service worker — resta in piedi. `handleDataAsset`
+// (src/offline/sw.ts) è network-first con fallback in cache PER SPECIFICA
+// (swPolicy.ts: "the last good copy must survive going offline"), ed è la
+// stessa regola che e2e/service-worker-cache-guards.spec.ts pretende e prova.
+// Il prodotto ha ragione: era la spec ad asserire su una premessa che non
+// aveva stabilito.
+//
+// Perché il difetto era INVISIBILE qui e rosso altrove: in questo repository
+// l'asset spedito contiene le stesse righe della fixture, quindi la copia
+// servita dalla cache è indistinguibile da quella salvata e il test passa
+// senza distinguere le due fonti. Riprodotto a livello di stato (cache di
+// questo build caricata con i byte dell'asset spedito, asset spedito diverso
+// dalla fixture) il blocco finale diventa rosso con "N giocatori caricati" al
+// posto delle righe sintetiche — la stessa firma dell'artefatto di fallimento
+// misurato nel repository privato.
+//
+// La correzione non tocca il prodotto e non indebolisce nulla:
+//   1. si aspetta che il worker CONTROLLI la pagina prima di cambiare rotta,
+//      così l'`addAll` dell'install non può più correre contro la finestra di
+//      `context.unroute` e finire per precacheare l'asset vero;
+//   2. prima del blocco finale si toglie l'asset dalla cache di questo build
+//      (`evictDataAssetFromServiceWorkerCache`, che fallisce se non trova
+//      nessuna cache o se una voce sopravvive), così "entrambe le fonti giù"
+//      torna vero come il test assume;
+//   3. le asserzioni si RAFFORZANO invece di allentarsi: righe esatte, in
+//      ordine, via `expectListoneRows` — che va rosso su qualunque altro pool,
+//      compresa la copia spedita — e la copia offline verificata intatta anche
+//      nel blocco finale, dove prima non era controllata affatto.
 import { expect, test } from "@playwright/test";
 import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { installSyntheticNetworkGuard, readLocalStorageRaw, LISTONE_ASSET_PATH } from "./helpers.js";
+import {
+  installSyntheticNetworkGuard,
+  readLocalStorageRaw,
+  waitForServiceWorkerControl,
+  evictDataAssetFromServiceWorkerCache,
+  expectListoneRows,
+  LISTONE_ASSET_PATH,
+} from "./helpers.js";
+
+const SYNTHETIC_LISTONE_NAMES = SYNTHETIC_LISTONE_POOL.map((player) => player.name);
 
 const POOL_STORAGE_KEY = "fac_pool";
 
@@ -100,7 +142,11 @@ test.describe("listone pool persistence faults (audit r2, findings 4 and 5)", ()
     const externalRequests: string[] = [];
     await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
     await page.goto("/");
-    await expect(page.getByText(SYNTHETIC_LISTONE_POOL[0]!.name, { exact: true })).toBeVisible();
+    await expectListoneRows(page, SYNTHETIC_LISTONE_NAMES);
+    // Prima di toccare le rotte: l'install del worker (e il suo precache) è
+    // finito, quindi da qui in poi la cache di questo build contiene ciò che
+    // QUESTA spec ha servito e non ciò che il server spedisce.
+    await waitForServiceWorkerControl(page);
     const savedBefore = await readLocalStorageRaw(page, POOL_STORAGE_KEY);
     expect(JSON.parse(savedBefore!)).toEqual(SYNTHETIC_LISTONE_POOL);
 
@@ -111,10 +157,17 @@ test.describe("listone pool persistence faults (audit r2, findings 4 and 5)", ()
     await installSyntheticNetworkGuard(context, [], externalRequests);
     await page.reload();
 
-    await expect(page.getByText(SYNTHETIC_LISTONE_POOL[0]!.name, { exact: true })).toBeVisible();
+    await expectListoneRows(page, SYNTHETIC_LISTONE_NAMES);
     await expect(page.getByText("Nessun listone caricato al momento.")).toHaveCount(0);
     // The offline copy is intact — with both sources down it is still there.
     expect(JSON.parse((await readLocalStorageRaw(page, POOL_STORAGE_KEY))!)).toEqual(SYNTHETIC_LISTONE_POOL);
+
+    // "Entrambe le fonti giù" comprende la cache del service worker, che
+    // altrimenti risponderebbe al posto della rete — per specifica. Toglierla
+    // di mezzo QUI è ciò che rende vera la premessa del blocco sotto; l'helper
+    // fallisce se non trova la cache o se una voce sopravvive, quindi questo
+    // passo non può diventare un no-op in silenzio.
+    await evictDataAssetFromServiceWorkerCache(page);
 
     await context.unroute("**/*");
     await context.route("**/*", (route) => {
@@ -125,7 +178,15 @@ test.describe("listone pool persistence faults (audit r2, findings 4 and 5)", ()
       return route.abort("blockedbyclient");
     });
     await page.reload();
-    await expect(page.getByText(SYNTHETIC_LISTONE_POOL[0]!.name, { exact: true })).toBeVisible();
+    // Righe esatte e in ordine, non "un nome è visibile da qualche parte":
+    // è questa forma che distingue la copia salvata da qualunque altro pool
+    // (asset spedito compreso) e che toglie il mascheramento di questo repo.
+    await expectListoneRows(page, SYNTHETIC_LISTONE_NAMES);
+    await expect(page.getByText("Nessun listone caricato al momento.")).toHaveCount(0);
+    // L'altra metà dell'invariante, nel punto in cui conta di più: con tutte
+    // le fonti giù la copia offline è ancora quella, non è stata distrutta né
+    // sostituita.
+    expect(JSON.parse((await readLocalStorageRaw(page, POOL_STORAGE_KEY))!)).toEqual(SYNTHETIC_LISTONE_POOL);
     expect(externalRequests).toEqual([]);
   });
 });

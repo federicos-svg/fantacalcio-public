@@ -8,8 +8,8 @@ import { gotoScreen, installSyntheticNetworkGuard } from "./helpers.js";
 // controls are inert DEV placeholders.
 
 /** Number of grid columns the Rose team-card grid (.teams-grid, shared with
- *  renderTeamsPanel — see src/styles/asta.css) is actually laid out with at
- *  the current viewport, read straight off the live computed style. */
+ *  the war board COMPLETA — see src/styles/asta.css) is actually laid out with
+ *  at the current viewport, read straight off the live computed style. */
 async function roseGridColumnCount(page: Page): Promise<number> {
   return page.evaluate(() => {
     const el = document.querySelector(".teams-grid");

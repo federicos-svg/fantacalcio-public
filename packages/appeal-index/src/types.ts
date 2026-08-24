@@ -68,13 +68,41 @@ export interface PlayerSeasonPanelRow extends PlayerSeasonAggregate {
  *  the only one that can be legitimately absent for a player whose anagrafica
  *  was never resolved. It is then `NaN` and listed in `missingFeatures`,
  *  exactly like an unobservable fantamedia — never zero, and never an age
- *  guessed from the current date. */
+ *  guessed from the current date.
+ *
+ *  `volatilitaVotoLastObserved` replaced `volatilitaVotoLag1` in
+ *  `VAL-PROTOCOL-A-PHASE4@2.3.0` (T5). Same slot, same parameter count, a
+ *  different and strictly wider reading rule — see `types.ts` note below and
+ *  `dataset.ts`. */
 export const FEATURE_NAMES = [
   "fantamediaLag1",
   "fantamediaRollingMean3",
   "presenzeLag1",
   "presenzeRollingMean3",
-  "volatilitaVotoLag1",
+  /**
+   * Dispersion of the player's `voto_base` in the MOST RECENT season of his
+   * own history that has one at all — not necessarily season `s`.
+   *
+   * `volatilitaVoto` is `null` by construction for a season with fewer than
+   * two presences (`seasonAggregate.ts`), because a standard deviation over a
+   * single match is not a dispersion: reporting `0` there would say "perfectly
+   * consistent" about a player nobody watched, and that would be an invented
+   * number. That refusal is correct and is untouched.
+   *
+   * What was wrong is what the FEATURE did with it. Reading season `s` alone
+   * (`volatilitaVotoLag1`) turned "this player made exactly one appearance
+   * last year" into a non-finite vector, and the complete-case pipeline then
+   * dropped the WHOLE row — every other feature of a player with years of
+   * observed history included. The quantity was in hand the whole time: the
+   * builder already holds the same `<= s` history slice every rolling feature
+   * reads. So this feature now reads the most recent season that actually has
+   * a dispersion, and is `NaN` only when NO season of that player's history
+   * has two presences — a genuine absence, not an accident of the last year.
+   *
+   * Nothing is imputed and nothing leaks: the value is an observed statistic
+   * of an observed season `<= s`, and `sourceSeasons` still accounts for it.
+   */
+  "volatilitaVotoLastObserved",
   "nSeasonsObserved",
   "golFattiRollingMean3",
   "assistRollingMean3",

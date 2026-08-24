@@ -58,9 +58,9 @@ export function executeVoidCommand(
   fantaTeamIds: readonly string[],
   confirmations: readonly ConfirmationInput[] = [],
 ): VoidCommandResult {
-  // Same shape as executeAssignCommand(): check feasibility explicitly first
-  // so a structural refusal comes back as data (violations) the caller can
-  // humanize, not as a thrown Error whose .message lands raw on screen.
+  // Same shape as main.ts's commitPurchase(): check feasibility explicitly
+  // first so a structural refusal comes back as data (violations) the caller
+  // can humanize, not as a thrown Error whose .message lands raw on screen.
   const feasibility = voidFeasibility(log, targetSeq);
   if (!feasibility.ok) {
     return { ok: false, reason: "not-feasible", violations: feasibility.violations };

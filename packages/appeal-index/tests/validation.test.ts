@@ -127,7 +127,7 @@ describe("evaluateFold / evaluateCandidateAcrossFolds", () => {
       testRows: [
         ...fold.testRows,
         { ...fold.testRows[0]!, playerKey: "synthetic:no-vote-season-test",
-          features: { ...fold.testRows[0]!.features, volatilitaVotoLag1: Number.NaN } },
+          features: { ...fold.testRows[0]!.features, volatilitaVotoLastObserved: Number.NaN } },
       ],
     });
 

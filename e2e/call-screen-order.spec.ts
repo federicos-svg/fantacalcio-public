@@ -18,8 +18,8 @@ import { installSyntheticNetworkGuard, openTableDetail } from "./helpers.js";
 // ragione per cui questa schermata esiste — stava sotto la piega a TUTTE e
 // quattro le risoluzioni: a 390px a 2507px dall'inizio del documento, cioè la
 // terza schermata, con davanti un blocco vuoto per costruzione (GIOCATORE
-// SUGGERITO), un'azione (INSERIMENTO RAPIDO) e due letture del tavolo
-// (SCARSITÀ, WAR BOARD). Misurato, non stimato.
+// SUGGERITO) e due letture del tavolo (SCARSITÀ, WAR BOARD). Misurato, non
+// stimato.
 //
 // PERCHÉ MORDE. Non basta asserire che il campo esista: un campo che esiste
 // 2500px più in basso esisteva anche prima. Le tre asserzioni sono
@@ -146,7 +146,6 @@ test("il campo di ricerca è sopra la piega a 390, 1280, 1440 e 1920 — con 6 r
       //    per ciò che è fuori dalla finestra.
       const searchTop = await documentTop(page, "#search-player");
       for (const behind of [
-        ["#assign-command-panel", "INSERIMENTO RAPIDO"],
         ["#suggested-player", "GIOCATORE SUGGERITO"],
         ["#table-detail", "IL TAVOLO"],
       ] as const) {
@@ -155,6 +154,16 @@ test("il campo di ricerca è sopra la piega a 390, 1280, 1440 e 1920 — con 6 r
           `${where}: ${behind[1]} è tornato sopra il campo di ricerca`,
         ).toBeGreaterThan(searchTop);
       }
+
+      // c-bis. ORDINE VERTICALE DEL LISTONE (richiesta di Pico, 2026-08-17):
+      //    il listone sta SOTTO il blocco del giocatore suggerito. Confronto
+      //    fra posizioni assolute nel documento, come sopra: vale anche per
+      //    ciò che è fuori dalla finestra, e diventa rosso se qualcuno
+      //    rimette la tabella davanti al segnaposto.
+      expect(
+        await documentTop(page, "#listone-block"),
+        `${where}: il listone è tornato sopra GIOCATORE SUGGERITO`,
+      ).toBeGreaterThan(await documentTop(page, "#suggested-player"));
 
       // La pagina non scorre mai di lato.
       expect(
@@ -212,7 +221,7 @@ test("ridurre non toglie: il tavolo è dietro UN gesto, nel DOM, raggiungibile d
   const toggle = page.locator("#table-detail-toggle");
   const body = page.locator("#table-detail-body");
 
-  // 1. CHIUSO DI DEFAULT, MA NEL DOM. I tre pannelli non sono stati rimossi:
+  // 1. CHIUSO DI DEFAULT, MA NEL DOM. I due pannelli non sono stati rimossi:
   //    sono presenti e nascosti, che è una cosa diversa e verificabile.
   await expect(body).toBeHidden();
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -221,7 +230,6 @@ test("ridurre non toglie: il tavolo è dietro UN gesto, nel DOM, raggiungibile d
   await expect(toggle).toContainText("IL TAVOLO");
   await expect(toggle).toContainText("scarsità per ruolo");
   await expect(toggle).toContainText("war board");
-  await expect(toggle).toContainText("squadre");
   for (const selector of [
     "#role-scarcity-panel",
     "#war-board-full",
@@ -231,10 +239,9 @@ test("ridurre non toglie: il tavolo è dietro UN gesto, nel DOM, raggiungibile d
     await expect(page.locator(selector), `${selector} nel DOM da chiuso`).toHaveCount(1);
     await expect(page.locator(selector), `${selector} nascosto da chiuso`).toBeHidden();
   }
-  // SQUADRE (LEGA) è dentro il gruppo e continua a esistere: la sua
-  // eliminazione è una decisione che non è stata presa.
-  const teams = page.locator("#table-detail-body .panel", { hasText: "SQUADRE (LEGA)" });
-  await expect(teams).toHaveCount(1);
+  // La griglia SQUADRE (LEGA) è stata RIMOSSA su richiesta di Pico
+  // (2026-08-17): non deve tornare né qui dentro né altrove nella schermata.
+  await expect(page.locator(".panel", { hasText: "SQUADRE (LEGA)" })).toHaveCount(0);
 
   // 2. RAGGIUNGIBILE DA TASTIERA. Un <button> vero, tabbabile, che si apre con
   //    Invio — non un div con un listener di click.
@@ -256,15 +263,13 @@ test("ridurre non toglie: il tavolo è dietro UN gesto, nel DOM, raggiungibile d
   // finirebbe sul body.
   await expect(toggle).toBeFocused();
 
-  // 3. APERTO, I TRE PANNELLI SONO QUELLI DI SEMPRE — stessi numeri, stessa
-  //    struttura: otto schede di war board, otto di SQUADRE, quattro celle di
-  //    scarsità. Nessuna informazione è stata tolta lungo la strada.
+  // 3. APERTO, I DUE PANNELLI SONO QUELLI DI SEMPRE — stessi numeri, stessa
+  //    struttura: otto schede di war board, quattro celle di scarsità.
+  //    Nessuna informazione è stata tolta lungo la strada.
   await expect(page.locator("#role-scarcity-panel")).toBeVisible();
   await expect(page.locator("#role-scarcity-grid > .scarcity-cell")).toHaveCount(4);
   await expect(page.locator("#war-board-full")).toBeVisible();
   await expect(page.locator("#war-board-full-grid > .war-board__card")).toHaveCount(8);
-  await expect(teams).toBeVisible();
-  await expect(teams.locator(".teams-grid > div")).toHaveCount(8);
 
   // 4. REVERSIBILE, E LO STATO SOPRAVVIVE A UN RE-RENDER (la schermata si
   //    ricostruisce a ogni battuta di tasto nella ricerca).
@@ -278,12 +283,23 @@ test("ridurre non toglie: il tavolo è dietro UN gesto, nel DOM, raggiungibile d
   await expect(body).toBeHidden();
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
 
-  // 5. GIOCATORE SUGGERITO non è stato cancellato: è sceso in fondo, visibile,
-  //    e dice ancora esattamente quello che diceva.
+  // 5. GIOCATORE SUGGERITO non è stato cancellato: sta sotto la ricerca e
+  //    sopra il listone, visibile, e dice ancora esattamente quello che diceva.
   const suggested = page.locator("#suggested-player");
   await expect(suggested).toHaveCount(1);
   await expect(suggested).toContainText("GIOCATORE SUGGERITO — CHI CHIAMARE ORA");
   await expect(suggested).toContainText("Nessun suggerimento automatico attivo");
+
+  // 6. INSERIMENTO RAPIDO è stato RIMOSSO su richiesta di Pico (2026-08-17):
+  //    né il pannello né i suoi controlli esistono più, in nessun momento.
+  for (const selector of [
+    "#assign-command-panel",
+    "#assign-command-input",
+    "#assign-command-submit",
+    "#assign-command-preview",
+  ]) {
+    await expect(page.locator(selector), `${selector} non deve esistere`).toHaveCount(0);
+  }
 
   expect(externalRequests).toEqual([]);
 });
@@ -334,7 +350,7 @@ test("selezionato un giocatore, «chi me lo contende» è a un gesto sopra la pi
   expect(externalRequests).toEqual([]);
 });
 
-test("il tavolo torna al suo posto nel momento d'asta: SQUADRE (LEGA) resta in chiaro", async ({
+test("il gruppo IL TAVOLO esiste solo nella chiamata: nel momento d'asta c'è la war board MINI", async ({
   page,
   context,
 }) => {
@@ -342,22 +358,86 @@ test("il tavolo torna al suo posto nel momento d'asta: SQUADRE (LEGA) resta in c
   await installSyntheticNetworkGuard(context, SMALL_POOL, externalRequests);
   await boot(page, { width: 1280, height: 720 });
 
-  // Nella chiamata: dentro il gruppo, dietro il gesto.
+  // Nella chiamata: la war board COMPLETA è dentro il gruppo, dietro il gesto.
   await expect(page.locator("#table-detail")).toHaveCount(1);
-  await expect(page.locator(".panel", { hasText: "SQUADRE (LEGA)" })).toBeHidden();
+  await expect(page.locator("#war-board-full")).toBeHidden();
 
   await page.locator(".listone-row--clickable").first().click();
   await page.getByRole("button", { name: /^Avvia/ }).click();
   await expect(page.locator("#assign-price")).toBeVisible();
 
-  // Nel momento d'asta il gruppo non esiste — e SQUADRE (LEGA) è esattamente
-  // dov'era, in chiaro, senza gesti: quella schermata non ha perso nulla.
+  // Nel momento d'asta il gruppo non esiste, e non ha portato con sé la war
+  // board COMPLETA nel momento sbagliato: lì vive la MINI, come prima
+  // (e2e/war-board.spec.ts) — la contabilità di tutto il tavolo resta in
+  // chiaro, senza gesti.
   await expect(page.locator("#table-detail")).toHaveCount(0);
-  await expect(page.locator(".panel", { hasText: "SQUADRE (LEGA)" })).toBeVisible();
-  // E il gruppo non ha portato con sé la war board COMPLETA nel momento
-  // sbagliato: lì vive la MINI, come prima (e2e/war-board.spec.ts).
   await expect(page.locator("#war-board-full")).toHaveCount(0);
   await expect(page.locator("#war-board-mini")).toBeVisible();
+
+  expect(externalRequests).toEqual([]);
+});
+
+test("nel momento d'asta INSIGHT GIOCATORE sta sopra TAVOLO — BUDGET E MAX BID", async ({
+  page,
+  context,
+}) => {
+  // ORDINE VERTICALE DEI DUE BLOCCHI ADIACENTI (richiesta di Pico,
+  // 2026-08-17): scambiati fra loro, INSIGHT sopra e TAVOLO sotto. Stesso
+  // idioma dell'asserzione listone/suggerito qui sopra — id semantici e
+  // posizioni assolute nel documento, non indici di figli né classi di
+  // layout: il confronto vale anche per ciò che sta fuori dalla finestra, e
+  // diventa rosso se qualcuno rimette la war board davanti alla scheda.
+  //
+  // La riga di legenda «bdg = crediti residui · max bid = …» NON è un blocco a
+  // sé: è l'ultima riga del pannello della war board MINI. Uno scambio che la
+  // lasciasse indietro separerebbe la legenda dai numeri che spiega, quindi il
+  // caso asserisce anche il suo contenimento e la sua posizione DENTRO il
+  // pannello.
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, SMALL_POOL, externalRequests);
+
+  for (const viewport of VIEWPORTS) {
+    const where = `${viewport.width}px`;
+    await boot(page, viewport);
+
+    await page.locator(".listone-row--clickable").first().click();
+    await page.getByRole("button", { name: /^Avvia/ }).click();
+    await expect(page.locator("#assign-price")).toBeVisible();
+
+    // I due blocchi esistono entrambi: un confronto fra due assenti passerebbe
+    // per vuoto (documentTop lancia se il selettore non trova niente).
+    await expect(page.locator("#player-insight-panel")).toHaveCount(1);
+    await expect(page.locator("#war-board-mini")).toHaveCount(1);
+
+    const insightTop = await documentTop(page, "#player-insight-panel");
+    const miniTop = await documentTop(page, "#war-board-mini");
+    expect(
+      miniTop,
+      `${where}: TAVOLO — BUDGET E MAX BID sta a ${miniTop}px e INSIGHT GIOCATORE a ${insightTop}px: ` +
+        `la war board MINI è tornata sopra INSIGHT GIOCATORE`,
+    ).toBeGreaterThan(insightTop);
+
+    // La legenda segue la war board: dentro il pannello, sotto le otto schede.
+    expect(
+      await page.evaluate(
+        () =>
+          document
+            .querySelector("#war-board-mini")
+            ?.contains(document.querySelector("#war-board-mini-note")) ?? false,
+      ),
+      `${where}: la riga di legenda è uscita dal pannello della war board MINI`,
+    ).toBe(true);
+    const noteTop = await documentTop(page, "#war-board-mini-note");
+    const listTop = await documentTop(page, "#war-board-mini-list");
+    expect(
+      noteTop,
+      `${where}: la legenda è a ${noteTop}px e le schede squadra a ${listTop}px`,
+    ).toBeGreaterThan(listTop);
+    expect(
+      noteTop,
+      `${where}: la legenda della war board è finita sopra INSIGHT GIOCATORE`,
+    ).toBeGreaterThan(insightTop);
+  }
 
   expect(externalRequests).toEqual([]);
 });

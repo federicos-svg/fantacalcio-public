@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { SYNTHETIC_LISTONE_POOL, E2E_TARGET_PLAYER, E2E_PURCHASE_PRICE } from "./fixtures/synthetic-listone.js";
-import { installSyntheticNetworkGuard, readLocalStorageJson, selectStatusFilter } from "./helpers.js";
+import { installSyntheticNetworkGuard, openTableDetail, readLocalStorageJson, selectStatusFilter } from "./helpers.js";
 
 interface StoredEvent {
   readonly type: "PURCHASE" | "VOID";
@@ -22,11 +22,20 @@ test("opponent assignment keeps budget, slots, history and player state coherent
   await page.locator("#assign-price").fill(String(E2E_PURCHASE_PRICE));
   await page.getByRole("button", { name: "Registra acquisto", exact: true }).click();
 
-  const teams = page.locator(".panel", { hasText: "SQUADRE (LEGA)" });
-  const opponent = teams.locator("div", { hasText: /^Squadra2$/ }).locator("..");
+  // La contabilità per squadra si legge nella war board COMPLETA (la griglia
+  // SQUADRE (LEGA) è stata rimossa su richiesta di Pico, 2026-08-17): stessa
+  // domanda — budget e slot dell'avversario dopo il suo acquisto — su un altro
+  // pannello, che è dietro il gesto IL TAVOLO.
+  await openTableDetail(page);
+  const opponent = page.locator("#war-board-full-Squadra2");
+  await expect(opponent).toContainText("Squadra2");
   await expect(opponent).toContainText("490 cr");
-  await expect(opponent).toContainText("A");
-  await expect(opponent).toContainText("6");
+  // Gli slot residui per ruolo, per esteso e nell'ordine dell'engine: l'A
+  // comprato scende da 7 a 6 e nient'altro si muove.
+  await expect(opponent.locator(".war-board__slots")).toHaveAttribute(
+    "aria-label",
+    "Slot residui per ruolo: P 3, D 9, C 9, A 6",
+  );
   const history = page.locator(".panel", { hasText: "STORICO ACQUISTI" });
   await expect(history).toContainText(E2E_TARGET_PLAYER.name);
   await expect(history).toContainText("Squadra2");
@@ -34,7 +43,9 @@ test("opponent assignment keeps budget, slots, history and player state coherent
   await expect(page.locator(".listone-row", { hasText: E2E_TARGET_PLAYER.name })).toContainText("Assegnato");
 
   await page.reload();
-  await expect(teams).toContainText("Squadra2");
+  // `tableDetailOpen` è stato dell'app, non del DOM: un reload lo azzera.
+  await openTableDetail(page);
+  await expect(opponent).toContainText("Squadra2");
   await expect(opponent).toContainText("490 cr");
   await expect(history).toContainText("Squadra2");
   const log = await readLocalStorageJson<StoredEvent[]>(page, "fac_log");

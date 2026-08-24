@@ -84,7 +84,7 @@ describe("composeAppealIndexComponents", () => {
 
   it("rischio stays within [0,1]", () => {
     const c = composeAppealIndexComponents({
-      features: featureRow({ presenzeRollingMean3: 0, volatilitaVotoLag1: 10, nSeasonsObserved: 1 }).features,
+      features: featureRow({ presenzeRollingMean3: 0, volatilitaVotoLastObserved: 10, nSeasonsObserved: 1 }).features,
       predictedFantamediaNext: 5,
       predictedPresenzeNext: 0,
       roleCohortFantamediaNext: [6],
