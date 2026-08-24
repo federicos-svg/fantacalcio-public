@@ -190,6 +190,81 @@ test.describe("service worker cache lookup — regression guards", () => {
     expect(outcome.ms).toBeLessThan(15_000);
   });
 
+  test("an /assets/ URL this build does not contain is answered locally, never from the network", async ({
+    page,
+    context,
+  }) => {
+    // BUNDLE-01, the race that made `offline-cold-start.spec.ts` flaky: the
+    // club badges ask for `/assets/clubs/<slug>.svg`, a URL computed from the
+    // club name at runtime (src/ui/serieA.ts), and this repository ships no
+    // logo file at all. Such a URL can never be in the precache list, so it
+    // used to fall through to the network — where, offline and cold, it simply
+    // failed, and where, online, it landed in Cache Storage only if the page
+    // happened to re-render AFTER `clients.claim()`. That coin toss is what
+    // this spec removes: the precache list is the complete inventory of the
+    // built artifact, so a `/assets/` path missing from it is proof of absence,
+    // and the worker answers it itself.
+    await page.goto("/");
+    await waitForServiceWorkerControl(page);
+
+    // The URL the APP really asks for, taken from the rendered badge rather
+    // than reconstructed here — a hardcoded slug would keep passing after the
+    // product stopped requesting it.
+    const logoPath = await page.evaluate(() => {
+      const img = document.querySelector('img[src^="/assets/clubs/"]');
+      return img === null ? null : new URL(img.getAttribute("src")!, location.origin).pathname;
+    });
+    expect(logoPath, "the app must be rendering at least one club logo URL").not.toBeNull();
+
+    // Precondition, fail-closed: this build genuinely does not contain it. If a
+    // deployment ever DOES ship the file it is precached like any other built
+    // file, the rule under test never applies, and this spec must say so
+    // instead of proving nothing.
+    const precache = await page.evaluate(
+      async () => ((await (await fetch("/app-integrity.json")).json()) as { precache: string[] }).precache,
+    );
+    expect(precache, "the file must be absent from the build for this rule to be the one under test").not.toContain(
+      logoPath,
+    );
+
+    // A network that accepts the request and never answers it. If the worker
+    // reaches for the network at all, this counter moves.
+    let hungRequests = 0;
+    await context.route(`**${logoPath}`, () => {
+      hungRequests += 1;
+    });
+
+    const outcome = await page.evaluate(async (path) => {
+      try {
+        const res = await fetch(path!);
+        return { settled: true, status: res.status };
+      } catch (error) {
+        return { settled: false, status: `THREW: ${String(error)}` };
+      }
+    }, logoPath);
+
+    // THE assertion: the network was never asked. Not "it was fast" — a
+    // threshold would only say the timeout happened to be short today.
+    expect(hungRequests, "the worker must not fetch an asset this build does not contain").toBe(0);
+    // And the app gets the answer it already knows how to handle: a load
+    // failure, which is what drives the club badge's `onerror` fallback.
+    expect(outcome.settled).toBe(true);
+    expect(outcome.status).toBe(404);
+
+    // Offline changes nothing, which is the whole point of the rule.
+    await context.setOffline(true);
+    const offlineOutcome = await page.evaluate(async (path) => {
+      try {
+        return { settled: true, status: (await fetch(path!)).status };
+      } catch (error) {
+        return { settled: false, status: `THREW: ${String(error)}` };
+      }
+    }, logoPath);
+    expect(offlineOutcome.settled).toBe(true);
+    expect(offlineOutcome.status).toBe(404);
+    expect(hungRequests, "still no network attempt once the context is offline").toBe(0);
+  });
+
   test("a foreign cache is never consulted, even when this build's cache has a hole", async ({ page, context }) => {
     await page.goto("/");
     await waitForServiceWorkerControl(page);
