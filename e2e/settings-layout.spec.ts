@@ -35,6 +35,16 @@ test("the settings menu swaps the right-hand panel and survives a re-render", as
   await page.locator("#add-person").click();
   await expect(page.locator("#league-people-list input")).toHaveValue("Bruno");
   await expect(page.locator("#settings-tab-teams")).toHaveAttribute("aria-selected", "true");
+  // Adding a participant hands the keyboard BACK to the name field, so the
+  // next one can be typed without reaching for the mouse — and it does so ONE
+  // FRAME after the re-render (focusAfterRender, src/main.ts). Asserting it
+  // here is not a wait dressed up as an assertion: it is that contract, and
+  // until it has landed the app still owes the page a focus move that will
+  // overwrite whatever this test focuses next. That is precisely how CI run
+  // #45 lost the ArrowDown below into the text field — the menu never moved
+  // and #settings-tab-riconferme stayed aria-selected="false" for the whole
+  // timeout. Same guard purchase() already uses in e2e/critical-overlays.spec.ts.
+  await expect(page.locator("#new-person-name")).toBeFocused();
 
   // Arrow keys move within the menu, and focus follows across the re-render.
   // Four stops now (teams -> riconferme -> schede -> status -> wraps to teams).
