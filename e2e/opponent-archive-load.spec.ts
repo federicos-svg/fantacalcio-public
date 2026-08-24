@@ -210,3 +210,64 @@ test("l'archivio avversari entra da Impostazioni, si vede in numeri, sopravvive 
 
   expect(externalRequests).toEqual([]);
 });
+
+// ── LA RESA AI TRE VIEWPORT ─────────────────────────────────────────────────
+//
+// IL DIFETTO CHE QUESTO TEST MISURA, e che era vivo su questo ramo. I due
+// riquadri «che forma ha il file» sono <pre>: il loro contenuto minimo è la
+// riga più lunga del file d'esempio, larga più di uno schermo da telefono.
+// `.archive-shape__template` porta `overflow-x: auto` proprio per scorrere
+// dentro di sé — ma un elemento di griglia nasce `min-width: auto` e una
+// traccia `auto` non scende sotto il contenuto minimo, quindi quell'
+// `overflow-x` non entrava mai in funzione: a 390px era l'INTERA PAGINA a
+// scorrere di lato, di 139px misurati.
+//
+// PERCHÉ È UN TEST E NON UNA LETTURA DEL CSS. Lo sbordo si vede solo a
+// riquadri APERTI: da chiusi il <pre> non ha rettangolo e la pagina sta
+// nello schermo. È esattamente il caso che si dimentica di guardare a mano.
+const VIEWPORTS = [
+  { width: 390, height: 844 },
+  { width: 768, height: 1024 },
+  { width: 1280, height: 720 },
+] as const;
+
+test("il pannello archivio sta nello schermo a 390, 768 e 1280, anche a riquadri aperti", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, PRECEDENT_POOL, externalRequests);
+
+  /** Di quanto la pagina sborda di lato: <= 0 significa «non scorre». */
+  const sidewaysOverflow = (): Promise<number> =>
+    page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+    await gotoScreen(page, "Impostazioni");
+    await page.locator("#settings-tab-archivio").click();
+    await expect(page.locator("#settings-tab-archivio")).toHaveAttribute("aria-selected", "true");
+    expect(await sidewaysOverflow(), `archivio chiuso @ ${viewport.width}`).toBeLessThanOrEqual(0);
+
+    // I due <details> aperti: è qui che il pannello sbordava.
+    await page.locator("#archive-history-shape summary").click();
+    await page.locator("#archive-profiles-shape summary").click();
+    await expect(page.locator("#archive-history-shape .archive-shape__template")).toBeVisible();
+    expect(await sidewaysOverflow(), `archivio aperto @ ${viewport.width}`).toBeLessThanOrEqual(0);
+
+    // Il riquadro scorre DENTRO DI SÉ: è ciò che l'`overflow-x` prometteva.
+    // A 1280 il pannello è abbastanza largo da contenere la riga, quindi lì
+    // non c'è niente da scorrere e la promessa è già mantenuta senza barra.
+    const template = page.locator("#archive-history-shape .archive-shape__template");
+    const box = await template.boundingBox();
+    expect(box, `il template ha un rettangolo @ ${viewport.width}`).not.toBeNull();
+    expect(box!.width, `il template sta nel pannello @ ${viewport.width}`).toBeLessThanOrEqual(
+      viewport.width,
+    );
+  }
+
+  expect(externalRequests).toEqual([]);
+});

@@ -490,16 +490,28 @@
    e dei profili d'intervista. src/ui/opponentArchiveSettings.ts.
    Ogni colore qui è un token della rampa di base.css: questo pannello finisce
    nella spazzata AA di e2e/text-contrast-aa.spec.ts come tutto il resto. */
+/* `minmax(0, 1fr)` + `min-width: 0` su TUTTA la catena, non per gusto: una
+   traccia `auto` e un elemento di griglia (che nasce `min-width: auto`) non
+   scendono MAI sotto il contenuto minimo di ciò che contengono. Il template
+   qui sotto è un <pre>: il suo contenuto minimo è la riga più lunga del file
+   d'esempio. Senza questi vincoli la traccia si allarga per contenerla,
+   l'`overflow-x` di `.archive-shape__template` non entra mai in funzione, e a
+   390px a scorrere di lato è l'INTERA PAGINA invece del solo riquadro —
+   misurato: 139px di sbordo prima di questa correzione. */
 .opponent-archive-settings {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
+  min-width: 0;
 }
 .archive-section {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   padding: 12px 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
+  min-width: 0;
 }
 .archive-section__title {
   margin: 0;
@@ -570,8 +582,11 @@
   font-size: 11.5px;
   line-height: 1.4;
   /* Il template è largo quanto la riga più lunga: scorre dentro di sé invece
-     di allargare il pannello delle impostazioni. */
+     di allargare il pannello delle impostazioni. Funziona solo perché gli
+     antenati di griglia hanno `min-width: 0` (vedi sopra): da soli questi
+     `overflow-x` non basterebbero. */
   overflow-x: auto;
+  min-width: 0;
 }
 .archive-shape__rules {
   margin: 8px 0 0;
