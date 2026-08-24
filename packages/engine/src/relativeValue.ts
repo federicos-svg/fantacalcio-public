@@ -96,7 +96,17 @@ import { competitorSet } from "./competitors.js";
 import { type AuctionState, type Role, COST_FLOOR } from "./types.js";
 
 /**
- * IL RILANCIO MINIMO — il «più uno» di Pico.
+ * IL RILANCIO MINIMO — un credito.
+ *
+ * PROVENIENZA, ACCANTO AL NUMERO E NON ALTROVE (§D9): è di REGOLAMENTO prima
+ * che di conversazione. `docs/data/LEAGUE_RULES.md` §3-bis lo dichiara due
+ * volte, come campo e come frase — `min_bid_increment: 1` e «rilancio minimo:
+ * +1 credito» —, ed è la stessa regola che il «più uno» di Pico nomina nel
+ * record di `docs/DECISIONS.md` citato in testa a questo file. Le due fonti non
+ * sono in concorrenza: il regolamento è la casa del numero, il record è il
+ * posto dove Pico dice quale numero entra nella formula del prezzo relativo.
+ * Senza la prima riga qui sopra questo 1 sarebbe indistinguibile da un 1
+ * scelto stasera.
  *
  * Vale un credito e oggi coincide NUMERICAMENTE con `COST_FLOOR`, ma è un'altra
  * grandezza: `COST_FLOOR` è il costo minimo di uno slot, questo è lo scatto
@@ -205,6 +215,14 @@ export function relativePriceReading(input: RelativePriceInput): RelativePriceRe
   // Quale vincolo ha deciso, a parità il primo dell'ordine: la scala è la
   // regola, i due tetti sono limiti che mordono soltanto quando sono più
   // stretti di lei.
+  //
+  // I DUE `<=` SONO LA REGOLA DI PARITÀ, e non una comodità di scrittura:
+  // portarli a `<` non sposterebbe `credits` di un credito — `Math.min` non
+  // distingue i pari — ma cambierebbe l'ETICHETTA, e con lei la frase che il
+  // riquadro mostra a chi guarda: un pareggio diventerebbe «il tavolo chiede di
+  // più» quando il tavolo non chiede niente di più. Per questo i due pareggi
+  // sono pinnati uno a uno in packages/engine/tests/relativeValue.test.ts
+  // (describe «la parità va alla scala»), e non soltanto dichiarati qui.
   const boundBy: RelativePriceBound =
     rivalScale <= richestMaxBid && rivalScale <= mine.maxSafe
       ? "scala-dei-rivali"

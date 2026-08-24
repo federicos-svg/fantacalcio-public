@@ -349,7 +349,6 @@ export interface ValueBoxInput {
    */
   readonly missingDeclaredInputs: readonly DeclaredInputId[];
   /**
-  /**
    * GLI INGRESSI DELLA DERIVAZIONE DEL VALORE ASSOLUTO — target dichiarati,
    * libro delle fasce, le tre gambe. Nessuno di essi dipende dalla serata: è
    * la firma stessa di `AbsoluteValueInput` a garantirlo (nessun

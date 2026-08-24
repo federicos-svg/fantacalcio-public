@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import {
   INITIAL_BUDGET,
@@ -365,5 +366,98 @@ describe("prezzo relativo — il debito verso la catena fair-to-me è dichiarato
     expect(SUPERSEDES_FAIR_TO_ME_IN_THE_RIQUADRO).toContain("relativePriceReading()");
     expect(SUPERSEDES_FAIR_TO_ME_IN_THE_RIQUADRO).toContain("fairToMeMaxEffective");
     expect(SUPERSEDES_FAIR_TO_ME_IN_THE_RIQUADRO).toContain("marcato, non rimosso");
+  });
+});
+
+describe("prezzo relativo — la parità va alla scala, e l'etichetta lo dice", () => {
+  // PERCHÉ QUESTI DUE CASI ESISTONO. A parità `Math.min` non distingue nulla:
+  // il numero è lo stesso comunque si scriva il confronto. Cambia SOLO
+  // `boundBy`, cioè la frase che il riquadro mostra a Pico durante l'asta. Con
+  // un `<` al posto di un `<=` un pareggio verrebbe raccontato come un tetto
+  // che morde — «il tavolo chiede di più» — mentre il tavolo non chiede un
+  // credito più della scala. Il numero resterebbe giusto e la frase diventerebbe
+  // falsa: è esattamente il caso che nessun `expect` sul numero può pinnare.
+
+  it("SCALA == TETTO DEL PIÙ RICCO: il pareggio è della scala, non del tetto", () => {
+    // Bianchi 62, Rossi 61, Verdi 34: «secondo + 1» vale 62, e 62 è anche tutto
+    // ciò che il più ricco può mettere. Il tetto non morde: lo tocca.
+    const state = stateOf(
+      buildLog([
+        ...drainToMaxBid(BIANCHI, 62),
+        ...drainToMaxBid(ROSSI, 61),
+        ...drainToMaxBid(VERDI, 34),
+        ...ROLE_FULL.flatMap(fillAttack),
+      ]),
+    );
+    expect(maxBidOf(state, BIANCHI)).toBe(62);
+    expect(maxBidOf(state, ROSSI)).toBe(61);
+
+    const reading = relativePriceReading({ state, role: "A", selfId: SELF });
+    expect(reading.kind).toBe("prezzo");
+    if (reading.kind !== "prezzo") return;
+
+    // I DUE TERMINI SONO DAVVERO PARI: senza questo la misura non proverebbe
+    // la parità ma un caso qualunque.
+    expect(reading.chain.rivalScale).toBe(reading.chain.richestMaxBid);
+    expect(reading.chain.rivalScale).toBe(62);
+    expect(reading.credits).toBe(62);
+    expect(reading.chain.boundBy).toBe("scala-dei-rivali");
+  });
+
+  it("SCALA == MIO MAX_SAFE: il pareggio è della scala, non del mio tetto", () => {
+    // Il tavolo di Pico (96 · 61 · 34) e il mio budget portato esattamente a
+    // 62: «secondo + 1» vale 62, e 62 è anche tutto ciò che io posso mettere.
+    const state = stateOf(buildLog([...PICO_PURCHASES, ...drainToMaxBid(SELF, 62)]));
+    expect(maxBidOf(state, SELF)).toBe(62);
+
+    const reading = relativePriceReading({ state, role: "A", selfId: SELF });
+    expect(reading.kind).toBe("prezzo");
+    if (reading.kind !== "prezzo") return;
+
+    expect(reading.chain.rivalScale).toBe(reading.chain.myMaxSafe);
+    expect(reading.chain.rivalScale).toBe(62);
+    expect(reading.chain.richestMaxBid).toBe(96);
+    expect(reading.credits).toBe(62);
+    expect(reading.chain.boundBy).toBe("scala-dei-rivali");
+  });
+});
+
+describe("prezzo relativo — il rilancio minimo è di regolamento", () => {
+  it("porta la sua casa normativa scritta accanto al numero", () => {
+    // §D9 vuole la provenienza ACCANTO al numero, non in un documento che
+    // qualcuno dovrà ricordarsi di aprire. Questa sonda legge il sorgente dal
+    // disco e diventa rossa il giorno in cui la citazione sparisce: senza di
+    // essa `MINIMUM_RAISE = 1` sarebbe indistinguibile da un 1 scelto stasera.
+    //
+    // Il regolamento vive nel repository privato e qui si cita PER NOME e
+    // SEZIONE, come già fanno absoluteValue.ts (§3, `initial_auction_budget`) e
+    // anchors.ts: nessun dato privato attraversa il confine, solo il riferimento.
+    const src = readFileSync(new URL("../src/relativeValue.ts", import.meta.url), "utf8");
+    const docblock = src.slice(0, src.indexOf("export const MINIMUM_RAISE"));
+    expect(docblock).toContain("docs/data/LEAGUE_RULES.md");
+    expect(docblock).toContain("min_bid_increment");
+    expect(docblock).toContain("§3-bis");
+  });
+
+  it("è il RILANCIO: il prezzo batte il secondo, ed è il più basso che lo batte", () => {
+    // Il legame col regolamento non è `toBe(1)` — vero anche per un 1
+    // inventato —, è il SIGNIFICATO del numero: «rilancio minimo +1 credito»
+    // vuol dire che l'offerta che vince è la più piccola strettamente maggiore
+    // di quella del secondo. Un 2 al posto dell'1 non sarebbe più minima; uno 0
+    // non vincerebbe. Entrambe le mutazioni fanno cadere questa misura.
+    for (const [label, state] of [
+      ["esempio di Pico", PICO_STATE],
+      ["cinque minuti dopo", AFTER_ROSSI_STATE],
+    ] as const) {
+      const reading = relativePriceReading({ state, role: "A", selfId: SELF });
+      expect(reading.kind, label).toBe("prezzo");
+      if (reading.kind !== "prezzo") continue;
+      // Vince: sta SOPRA il secondo.
+      expect(reading.credits, label).toBeGreaterThan(reading.chain.secondMaxBid);
+      // Ed è il più basso che vince: un credito meno e si pareggia, non si vince.
+      expect(reading.credits - 1, label).toBe(reading.chain.secondMaxBid);
+      // Il rilancio è INTERO, come lo sono le offerte del regolamento.
+      expect(Number.isInteger(MINIMUM_RAISE)).toBe(true);
+    }
   });
 });

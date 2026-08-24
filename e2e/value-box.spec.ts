@@ -220,6 +220,16 @@ test("il riquadro del valore rende quattro celle dentro la scheda del chiamato",
     "il tetto del tavolo: nessuno arriva più in alto",
   );
 
+  // E LA STESSA RIGA ARRIVA A CHI NON GUARDA. L'`aria-label` del riquadro è la
+  // sola forma in cui uno screen reader legge queste quattro celle: finché lo
+  // slot 4 diceva `n/d` non perdeva niente, adesso porta un numero che a tavolo
+  // fresco è identico su ogni scheda di ogni ruolo. Senza il vincolo, chi
+  // ascolta sentirebbe per minuti la stessa cifra senza sapere che misura il
+  // tavolo (src/ui/valueBox.ts, `valueBoxSpoken`).
+  const spoken = await page.locator("#value-box").getAttribute("aria-label");
+  expect(spoken).toContain(FRESH_TABLE_PRICE);
+  expect(spoken).toContain("il tetto del tavolo: nessuno arriva più in alto");
+
   // NESSUNA NOTA CHE PROMETTA UNA CELLA SPENTA: dopo le due corsie nessuno dei
   // quattro numeri aspetta una dichiarazione di Pico, quindi la testata non
   // nomina più né i valori per giocatore né il profilo di rischio. Il perché

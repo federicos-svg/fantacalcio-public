@@ -41,6 +41,9 @@ import {
   type ValueBoxReading,
 } from "./valueBox.js";
 import {
+  DECLARED_INPUT_TEXT,
+  VALUE_MISSING_TEXT,
+  VALUE_SLOT_LABELS,
   VALUE_UNKNOWN,
   valueBoxHtml,
   missingDeclaredInputsText,
@@ -930,5 +933,183 @@ describe("riquadro del valore — la resa non accende nient'altro", () => {
       // non è intera (210/7 lo è, 200/9 no). Mai «fra 55 e 70».
       expect(valueSlotText(slot)).toMatch(/^-?\d+(,\d)?( cr)?$/);
     }
+  });
+});
+
+describe("riquadro del valore — la riga che manca, quando manca davvero", () => {
+  // IL RAMO NON VUOTO DI `missingDeclaredInputsText()` NON ERA PROVATO DA
+  // NESSUNO. Il commento accanto alla funzione dichiara «la funzione resta, e
+  // resta provata»: era vero per il ramo vuoto — che l'app percorre sempre — e
+  // falso per l'altro, l'unico che scrive una frase. Una review avversariale
+  // ha sostituito quella frase con «manca un dato.» e la suite è rimasta verde.
+  // Fra correggere il commento e provare la funzione si è scelto di provarla:
+  // la frase è la riga che tornerà a schermo il giorno in cui una cella
+  // dipenderà di nuovo da una dichiarazione di Pico, e un commento che promette
+  // una copertura è un'asserzione — si aggiorna o si inverte, non si annacqua.
+  //
+  // La lettura passa dalla funzione VERA e non da un oggetto scritto a mano:
+  // `called` c'è, `call` è `null`, e in quel ramo `valueBoxReading()` porta la
+  // lista fino a `ValueBoxReading.missingDeclaredInputs` (src/valueBox.ts).
+
+  function readingWithMissing(missing: readonly ("valori-dichiarati" | "profilo-di-rischio")[]) {
+    return valueBoxReading({
+      called: { playerId: "a_uno", role: "A" },
+      appealIndex: index(72),
+      call: null,
+      missingDeclaredInputs: missing,
+      absolute: ABSOLUTE,
+      table: tableOf(),
+    });
+  }
+
+  it("DUE dichiarazioni mancanti: le nomina tutte e due, e le lega con «e»", () => {
+    const reading = readingWithMissing(DECLARED_INPUTS_WITHOUT_SOURCE as readonly (
+      | "valori-dichiarati"
+      | "profilo-di-rischio"
+    )[]);
+    expect(reading.missingDeclaredInputs).toEqual(["valori-dichiarati", "profilo-di-rischio"]);
+    expect(missingDeclaredInputsText(reading)).toBe(
+      "i tuoi valori per giocatore e il tuo profilo di rischio: ancora fuori dall'app.",
+    );
+    // NOMINA LA COSA CHE MANCA, una per una: «manca un dato» sarebbe la cella
+    // vuota travestita da frase, ed è la mutazione che restava verde.
+    expect(missingDeclaredInputsText(reading)).toContain(DECLARED_INPUT_TEXT["valori-dichiarati"]);
+    expect(missingDeclaredInputsText(reading)).toContain(DECLARED_INPUT_TEXT["profilo-di-rischio"]);
+    // E arriva in testata, che è dove la riga si legge.
+    expect(valueBoxNoteText(reading)).toContain(missingDeclaredInputsText(reading));
+  });
+
+  it("UNA sola dichiarazione mancante: la nomina, e non aggiunge una «e» senza secondo", () => {
+    const reading = readingWithMissing(["profilo-di-rischio"]);
+    expect(missingDeclaredInputsText(reading)).toBe(
+      "il tuo profilo di rischio: ancora fuori dall'app.",
+    );
+    expect(missingDeclaredInputsText(reading)).not.toContain(" e ");
+  });
+
+  it("nessuna dichiarazione mancante: stringa vuota, e la testata non la nomina", () => {
+    // Il ramo che l'app percorre oggi. Resta pinnato accanto agli altri due,
+    // così i due esiti della funzione si leggono insieme.
+    const reading = readingWithMissing([]);
+    expect(missingDeclaredInputsText(reading)).toBe("");
+    expect(valueBoxNoteText(reading)).not.toContain("ancora fuori dall'app");
+  });
+});
+
+describe("riquadro del valore — chi ascolta sente quello che chi guarda legge", () => {
+  // LA RIGA DEL VINCOLO NON PUÒ FERMARSI ALLO SCHERMO. Prima di questa corsia
+  // lo slot 4 recitava `n/d` e la lettura vocale non perdeva niente; adesso
+  // recita un numero, e a tavolo fresco è lo STESSO numero su ogni scheda di
+  // ogni ruolo. Senza la riga del vincolo chi usa lo screen reader sentirebbe
+  // per minuti la stessa cifra senza mai sapere che misura il tavolo.
+
+  function spokenOf(log = buildLog([])): string {
+    return valueBoxSpoken(
+      valueBoxReading({
+        called: { playerId: "a_uno", role: "A" },
+        appealIndex: index(72),
+        call: null,
+        missingDeclaredInputs: [],
+        absolute: ABSOLUTE,
+        table: tableOf(log),
+      }),
+    );
+  }
+
+  it("TETTO DEL TAVOLO: la lettura vocale porta il numero E il suo vincolo", () => {
+    const spoken = spokenOf();
+    expect(spoken).toContain(`${FRESH_TABLE_PRICE} cr`);
+    expect(spoken).toContain(RELATIVE_PRICE_BOUND_TEXT["tetto-del-piu-ricco"]);
+  });
+
+  it("SCALA DEI RIVALI: cambia il tavolo, cambia la frase che si sente", () => {
+    const spoken = spokenOf(buildLog(TEAMS.slice(1, 7).flatMap((t) => fillRole(t, "A", 1, 200))));
+    expect(spoken).toContain("275 cr");
+    expect(spoken).toContain(RELATIVE_PRICE_BOUND_TEXT["scala-dei-rivali"]);
+    expect(spoken).not.toContain(RELATIVE_PRICE_BOUND_TEXT["tetto-del-piu-ricco"]);
+  });
+
+  it("ogni cella parlata dice nome, numero e riga: nessuna resta muta", () => {
+    // La stessa regola delle celle a schermo, e vale per tutte e quattro: un
+    // `n/d` senza il suo motivo è un silenzio, non un'informazione.
+    const reading = valueBoxReading({
+      called: { playerId: "a_uno", role: "A" },
+      appealIndex: index(72),
+      call: null,
+      missingDeclaredInputs: [],
+      absolute: ABSOLUTE_UNDECLARED,
+      table: tableOf(),
+    });
+    const spoken = valueBoxSpoken(reading);
+    for (const id of VALUE_SLOT_ORDER) {
+      const slot = reading.slots[id];
+      expect(spoken, id).toContain(VALUE_SLOT_LABELS[id]);
+      expect(spoken, id).toContain(valueSlotText(slot));
+      expect(spoken, id).toContain(valueSlotWhyText(id, slot, reading));
+    }
+    // Il valore assoluto è `n/d` in questa scena, e il MOTIVO si sente.
+    expect(spoken).toContain(VALUE_MISSING_TEXT["ruolo-senza-target"]);
+  });
+
+  it("la lettura vocale non mette in relazione due numeri fra loro", () => {
+    // Ogni voce parla della PROPRIA cella, come a schermo. Nessun rapporto,
+    // nessuna differenza, nessuna somma: il raccordo fra i due numeri in
+    // crediti è una domanda di prodotto che nessun record ha deciso, e questa
+    // superficie non la anticipa.
+    const spoken = spokenOf();
+    expect(spoken).not.toMatch(/volte|rapporto|differenza|contro|rispetto a/i);
+  });
+});
+
+describe("riquadro del valore — lo slot 4 non ha una riga generica, e non ne ha bisogno", () => {
+  // IL RAMO GENERICO NON ESISTE PIÙ. `VALUE_SLOT_SOURCE` aveva una quarta voce
+  // di ripiego per il valore relativo che nessuna esecuzione poteva
+  // raggiungere: una review avversariale l'ha sostituita con una frase
+  // direttiva e nessun test è caduto. Queste misure tengono chiuso il
+  // vocabolario della riga dello slot 4 al posto di quella voce.
+
+  const SLOT_4_VOCABULARY = new Set<string>([
+    ...Object.values(RELATIVE_PRICE_BOUND_TEXT),
+    ...Object.values(VALUE_MISSING_TEXT),
+  ]);
+
+  function readingOf(log: ReturnType<typeof buildLog>, selfId = SELF): ValueBoxReading {
+    return valueBoxReading({
+      called: { playerId: "a_uno", role: "A" },
+      appealIndex: index(72),
+      call: null,
+      missingDeclaredInputs: [],
+      absolute: ABSOLUTE,
+      table: { state: stateOf(log), selfId },
+    });
+  }
+
+  it("la riga dello slot 4 esce SEMPRE dal vocabolario chiuso, in ogni suo stato", () => {
+    const scenes: readonly (readonly [string, ValueBoxReading])[] = [
+      ["tavolo fresco", readingOf(buildLog([]))],
+      ["mercato differenziato", readingOf(buildLog(TEAMS.slice(1, 7).flatMap((t) => fillRole(t, "A", 1, 200))))],
+      ["il mio tetto morde", readingOf(DRAINED_LOG)],
+      ["ruolo pieno per me", readingOf(buildLog(fillRole(SELF, "A", 7, 1)))],
+      ["nessun rivale", readingOf(buildLog(TEAMS.slice(1).flatMap((t) => fillRole(t, "A", 7, 1))))],
+      ["un solo rivale", readingOf(buildLog(TEAMS.slice(1, 7).flatMap((t) => fillRole(t, "A", 7, 1))))],
+      ["non sono al tavolo", readingOf(buildLog([]), "squadra_che_non_esiste")],
+    ];
+    for (const [label, reading] of scenes) {
+      const why = valueSlotWhyText("valore-relativo", reading.slots["valore-relativo"], reading);
+      expect(SLOT_4_VOCABULARY.has(why), `${label}: «${why}» fuori dal vocabolario`).toBe(true);
+    }
+  });
+
+  it("una coppia incoerente non produce una frase inventata: dice `n/d`", () => {
+    // È l'unico ingresso che resta fuori dai sette stati qui sopra, e non lo
+    // produce `valueBoxReading()`: un numero passato con una lettura che non
+    // porta il vincolo. La risposta è il token di assenza — «non lo so» —, non
+    // una descrizione a parole di un numero di cui non si conosce la
+    // provenienza. È il ramo che prima ospitava la voce irraggiungibile.
+    const reading = readingOf(buildLog([]));
+    const senzaVincolo: ValueBoxReading = { ...reading, relativePriceBound: null };
+    expect(
+      valueSlotWhyText("valore-relativo", reading.slots["valore-relativo"], senzaVincolo),
+    ).toBe(VALUE_UNKNOWN);
   });
 });

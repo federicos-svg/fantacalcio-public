@@ -154,7 +154,7 @@ import {
   renderValueBoxBlock,
   type ValueBoxProps,
 } from "./ui/views.js";
-import { DECLARED_INPUTS_WITHOUT_SOURCE, valueBoxReading } from "./valueBox.js";
+import { valueBoxReading } from "./valueBox.js";
 import {
   INTEREST_FLAG_NOT_PERSISTED_NOTICE,
   enqueueInterestFlag,
@@ -1837,8 +1837,11 @@ function valueBoxProps(aState: AuctionState): ValueBoxProps {
       // aspetta più una dichiarazione di Pico, quindi la nota in testata
       // («… ancora fuori dall'app») prometterebbe una cella spenta per una
       // ragione che non è la sua. Ogni `n/d` nomina adesso la cosa che manca
-      // A QUELLA cella. `DECLARED_INPUTS_WITHOUT_SOURCE` resta dichiarata in
-      // src/valueBox.ts, dove il fatto che descrive è ancora vero.
+      // A QUELLA cella. `DECLARED_INPUTS_WITHOUT_SOURCE` resta dichiarata e
+      // provata in src/valueBox.ts, dove il fatto che descrive è ancora vero,
+      // e da qui NON è più nemmeno importata: un import che sopravvive al
+      // proprio ultimo uso è un aggancio che sembra vivo, e `strict` senza
+      // `noUnusedLocals` non lo segnala.
       missingDeclaredInputs: [],
       absolute: {
         // I TARGET DICHIARATI, così come Pico li ha scritti: la forma parziale
