@@ -68,7 +68,13 @@ export type UnratifiedChoiceId =
   | "CONCORRENZA_SCALE_SYMMETRIC" // +1/0/−1: passo uguale sopra e sotto la parola di mezzo
   | "CONCORRENZA_ONLY_TITOLARITA" // ballottaggio e gerarchia restano fuori dal numero
   | "COPPE_BASELINE_IS_ABSENCE" // «non gioca in Europa» = 0, non −1
-  | "PAGELLA_POSITION_IS_TOTAL_OVER_MAX"; // rapporto sul fondo scala, non scarto dal punto medio
+  | "PAGELLA_POSITION_IS_TOTAL_OVER_MAX" // rapporto sul fondo scala, non scarto dal punto medio
+  // ── Le cinque letture dell'indice relativo (relativeIndex.ts) ──────────────
+  | "RELATIVE_NUMBER_IS_A_POSITION" // il numero è un conteggio, non un indice riscalato
+  | "RELATIVE_TIES_BY_DECLARED_ORDER" // «superiore a lui» letto sull'ordine dichiarato, pareggi compresi
+  | "RELATIVE_TAKEN_INCLUDES_CONFIRMED" // riconfermato = non prendibile, come per l'occupazione delle fasce
+  | "RELATIVE_ORDER_INCLUDES_FONDO" // anche chi è oltre l'ultima fascia entra nel conto
+  | "RELATIVE_OWNERSHIP_BESIDE_THE_NUMBER"; // «quanti ne ho presi io» resta accanto, non dentro
 
 /** Perché ciascuna scelta è aperta. Testo macchina-leggibile, non prosa libera. */
 export const UNRATIFIED_CHOICES: Readonly<Record<UnratifiedChoiceId, string>> = {
@@ -96,6 +102,16 @@ export const UNRATIFIED_CHOICES: Readonly<Record<UnratifiedChoiceId, string>> = 
     "«non gioca in Europa» è trattato come linea di base (0) e non come l'opposto di «ci gioca»: è una lettura, non il dato",
   PAGELLA_POSITION_IS_TOTAL_OVER_MAX:
     "il totale entra come rapporto sul fondo scala della fonte: uno scarto dal punto medio sarebbe altrettanto scrivibile e nessuno ha scelto",
+  RELATIVE_NUMBER_IS_A_POSITION:
+    "l'indice relativo esce come POSIZIONE fra i liberi del ruolo: nessun documento dice che debba essere una posizione invece di un indice riscalato, e un riscalamento richiederebbe una curva che nessuno ha dichiarato",
+  RELATIVE_TIES_BY_DECLARED_ORDER:
+    "«indice superiore a lui» è letto sull'ordine dichiarato (pareggi rotti da APPEAL_ORDER_TIE_BREAK) e non sul confronto nudo dei punteggi: le due letture divergono sui pari punteggio",
+  RELATIVE_TAKEN_INCLUDES_CONFIRMED:
+    "un giocatore riconfermato conta fra i NON prendibili, come già in TierOccupancy.freeCount: nessun documento lo fissa per questo numero",
+  RELATIVE_ORDER_INCLUDES_FONDO:
+    "chi sta oltre l'ultima fascia entra comunque nel conto dei liberi sopra di lui, al contrario di quanto fa la base del valore assoluto: la differenza è una lettura, non il dato",
+  RELATIVE_OWNERSHIP_BESIDE_THE_NUMBER:
+    "«quanti ne ho presi io e quanti gli avversari» restano fatti misurati ACCANTO alla posizione: farli entrare nel numero richiederebbe un coefficiente che nessuno ha dichiarato",
 };
 
 /**

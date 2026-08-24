@@ -23,10 +23,26 @@
 //     **solo nel riquadro della scheda del chiamato**; la deroga display-only
 //     del 2026-08-12 resta intera in tutto il resto, `n/d` compreso).
 //
-//  2. INDICE RELATIVO — «l'indice che si muove durante la serata». NON ESISTE:
-//     nessuna funzione, in questo repository, calcola un indice che si muove
-//     con l'asta, e la formula non è decisa. Lo slot è quindi sempre `n/d` col
-//     proprio motivo. Inventarlo qui sarebbe esattamente ciò che §D9 vieta.
+//  2. INDICE RELATIVO — «l'indice che si muove durante la serata», e da questa
+//     corsia in poi ha una strada: `relativeIndexReading()`
+//     (packages/engine/src/relativeIndex.ts). Non è un punteggio nuovo ed è
+//     importante che non lo sia: è la STESSA appetibilità dell'indice
+//     assoluto, riletta sulla popolazione rimasta — la POSIZIONE del chiamato
+//     fra quelli del suo ruolo che si possono ancora prendere, contata
+//     sull'ordine già dichiarato che costruisce le fasce. Nell'esempio con cui
+//     Pico l'ha definito (2026-08-24) il 75 non cambia: cambia chi c'è ancora
+//     sopra di lui, e quando sono stati presi tutti la posizione diventa 1.
+//
+//     È UN CONTEGGIO, NON UNA FORMULA, e la differenza è tutta la ragione per
+//     cui questo slot può accendersi senza violare §D9: un riscalamento su
+//     0–100 avrebbe avuto bisogno di una curva, una fascia di confini, e
+//     nessuno dei due è dichiarato da nessuna parte. Una posizione non ha
+//     parametri. Le altre variabili che Pico nomina — quanti ne restano
+//     liberi, quanti ne ho presi io, quanti gli avversari — sono MISURATE e
+//     viaggiano ACCANTO al numero (`relativePopulation`), mai dentro: farle
+//     entrare richiederebbe un coefficiente, e un coefficiente che non è di
+//     Pico non esiste. La catena passo per passo sta nell'intestazione di quel
+//     modulo; qui si passano gli ingressi e si traduce il suo esito in uno slot.
 //
 //  3. VALORE ASSOLUTO IN CREDITI — non più una dichiarazione giocatore per
 //     giocatore, ma un numero DERIVATO: `absoluteValueReading()`
@@ -98,6 +114,12 @@ import {
 } from "../packages/engine/src/absoluteValue.js";
 import type { CallScreen, NoTargetReason } from "../packages/engine/src/callScreen.js";
 import { DECLARED_VALUE_PROVENANCE } from "../packages/engine/src/declaredValues.js";
+import {
+  type RelativeIndexInput,
+  type RelativeIndexMissingReason,
+  type RelativeIndexPopulation,
+  relativeIndexReading,
+} from "../packages/engine/src/relativeIndex.js";
 import type { Role } from "../packages/engine/src/types.js";
 import type { ListoneAppealIndex } from "./ui/listone.js";
 
@@ -142,8 +164,15 @@ export const VALUE_SLOT_ORDER: readonly ValueSlotId[] = [
   "valore-relativo",
 ];
 
-/** Le due unità di misura decise dal record: due indici e due crediti. */
-export type ValueSlotUnit = "indice" | "crediti";
+/**
+ * Le unità di misura del riquadro. Il record ne decide due — indici e crediti
+ * — e la terza NON è una terza grandezza inventata: è la forma in cui l'indice
+ * relativo esce dal motore, cioè una POSIZIONE (1-based) dentro una
+ * popolazione, non un punteggio su una scala. Tenerla distinta da `indice`
+ * serve a chi mostra: `73` e `3º` non si leggono nello stesso modo, e renderli
+ * uguali farebbe passare un rango per un punteggio.
+ */
+export type ValueSlotUnit = "indice" | "crediti" | "posizione";
 
 /**
  * Perché uno slot non porta un numero. Ogni motivo è un fatto verificabile,
@@ -157,8 +186,19 @@ export type ValueMissingReason =
   | "indice-assente"
   /** L'indice c'è ma non ha verdetto (`score === null`): `n/d` portato dal dato. */
   | "indice-senza-verdetto"
-  /** Nessuna formula decisa, e nessun codice che calcoli un indice che si muove. */
-  | "indice-relativo-non-calcolato"
+  // ── I motivi dell'INDICE RELATIVO (relativeIndex.ts). Quattro «non lo so»
+  //    che non si fondono, perché sono quattro attese diverse: il listone non
+  //    porta l'indice (si aspetta il deposito), l'ordine non copre il suo ruolo,
+  //    l'indice non ha verdetto su QUESTA riga (si aspetta un verdetto), oppure
+  //    il giocatore è già passato e non c'è più niente da aspettare.
+  /** Nessuna riga porta l'indice: «sopra di lui» non è definibile per nessuno. */
+  | "indice-relativo-senza-ordine"
+  /** C'è un ordine, ma non copre il suo ruolo. */
+  | "indice-relativo-ruolo-non-ordinato"
+  /** Il ruolo è ordinato, lui no: l'indice non ha verdetto su questa riga. */
+  | "indice-relativo-non-ordinato"
+  /** È già stato preso: non è più fra quelli che si possono ancora prendere. */
+  | "indice-relativo-gia-preso"
   /** L'app non ha oggi una sorgente per gli ingredienti dichiarati di §D9. */
   | "ingredienti-dichiarati-assenti"
   /** Il motore ha risposto, e la sua risposta è «qui non ci sono numeri». */
@@ -202,6 +242,25 @@ const ABSOLUTE_VALUE_REASON: Readonly<
   "gamba-concorrenza-assente": "gamba-concorrenza-assente",
   "gamba-coppe-assente": "gamba-coppe-assente",
   "gamba-pagella-assente": "gamba-pagella-assente",
+};
+
+/**
+ * I motivi del motore dell'indice relativo tradotti nei motivi del riquadro —
+ * uno a uno, senza accorpamenti, come per il valore assoluto. Mappa TOTALE sul
+ * vocabolario del motore: un motivo nuovo di là fa chiedere al compilatore
+ * questa riga in più invece di lasciar passare un `n/d` muto.
+ *
+ * `nessun-chiamato` collassa sul motivo condiviso del riquadro e non su uno
+ * suo: quando non c'è un chiamato non c'è nessuno slot che possa dire altro.
+ */
+const RELATIVE_INDEX_REASON: Readonly<
+  Record<RelativeIndexMissingReason, ValueMissingReason>
+> = {
+  "nessun-chiamato": "nessun-chiamato",
+  "listone-senza-ordine": "indice-relativo-senza-ordine",
+  "ruolo-non-ordinato": "indice-relativo-ruolo-non-ordinato",
+  "non-ordinato": "indice-relativo-non-ordinato",
+  "gia-preso": "indice-relativo-gia-preso",
 };
 
 export type ValueSlot =
@@ -268,6 +327,18 @@ export interface ValueBoxInput {
    * il riquadro di un altro. La funzione lo riscrive prima di chiamare.
    */
   readonly absolute: Omit<AbsoluteValueInput, "called">;
+  /**
+   * GLI INGRESSI DELLA POSIZIONE RELATIVA — la scala dei liberi e lo stato
+   * ridotto. Al contrario del valore assoluto, questi DIPENDONO dalla serata
+   * per costruzione: è la definizione stessa di «relativo», e la firma di
+   * `RelativeIndexInput` la porta in chiaro (`ladder`, `state`).
+   *
+   * La scala arriva già costruita e MEMOIZZATA da src/relativeIndex.ts: il
+   * riquadro non la calcola, perché ricostruirla qui significherebbe rifarla a
+   * ogni tasto della ricerca. `called` viene riscritto come per il valore
+   * assoluto, e per la stessa ragione.
+   */
+  readonly relative: Omit<RelativeIndexInput, "called">;
 }
 
 export interface ValueBoxReading {
@@ -300,6 +371,18 @@ export interface ValueBoxReading {
    * non si aggiusta: un clamp al pavimento sarebbe una scelta silenziosa.
    */
   readonly absoluteBelowCostFloor: boolean;
+  /**
+   * LA POPOLAZIONE DEL RUOLO, MISURATA: quanti se ne possono ancora prendere,
+   * quanti ne ha presi Pico e quanti gli avversari. `null` solo quando non c'è
+   * nessun chiamato.
+   *
+   * Viaggia ANCHE quando lo slot 2 è `n/d`, e non è ridondanza: quanti ne
+   * restano liberi è un conteggio di righe, non ha bisogno di nessun indice, e
+   * tacerlo insieme alla posizione direbbe «non so niente» quando si sa metà.
+   * Sono le altre variabili che Pico nomina nella definizione del numero, tenute
+   * accanto e mai dentro — dentro servirebbe un coefficiente.
+   */
+  readonly relativePopulation: RelativeIndexPopulation | null;
   /** Gli ingredienti dichiarati che l'app non ha; vuoto quando li ha tutti. */
   readonly missingDeclaredInputs: readonly DeclaredInputId[];
 }
@@ -321,6 +404,7 @@ function noCalledPlayer(): ValueBoxReading {
     engineReason: null,
     absoluteChain: null,
     absoluteBelowCostFloor: false,
+    relativePopulation: null,
     missingDeclaredInputs: [],
   };
 }
@@ -330,6 +414,29 @@ function absoluteIndexSlot(index: ListoneAppealIndex | undefined): ValueSlot {
   if (index === undefined) return ABSENT("indice-assente");
   if (index.score === null) return ABSENT("indice-senza-verdetto");
   return { kind: "numero", value: index.score, unit: "indice" };
+}
+
+/**
+ * L'INDICE RELATIVO — la posizione del chiamato fra quelli del suo ruolo che si
+ * possono ancora prendere, o il perché non ce l'ha.
+ *
+ * Nessuna aritmetica qui: il numero è `reading.position`, così com'è. Il
+ * riquadro non lo riscala, non lo arrotonda e non lo converte — convertirlo in
+ * qualcosa che «somigli» a un indice 0–100 sarebbe la curva che il motore ha
+ * rifiutato di scegliere, riscritta un piano più in alto.
+ */
+function relativeIndexSlot(
+  called: CalledIdentity,
+  input: Omit<RelativeIndexInput, "called">,
+): { readonly slot: ValueSlot; readonly population: RelativeIndexPopulation | null } {
+  const reading = relativeIndexReading({ ...input, called });
+  if (reading.kind === "assente") {
+    return { slot: ABSENT(RELATIVE_INDEX_REASON[reading.reason]), population: reading.population };
+  }
+  return {
+    slot: { kind: "numero", value: reading.position, unit: "posizione" },
+    population: reading.population,
+  };
 }
 
 /**
@@ -370,6 +477,11 @@ export function valueBoxReading(input: ValueBoxInput): ValueBoxReading {
 
   const { relative, engineReason } = relativeSlot(input.call, input.missingDeclaredInputs);
 
+  // LA POSIZIONE RELATIVA. `called` è riscritto dal riquadro, come per il
+  // valore assoluto: il giocatore di cui si dice la posizione è, per
+  // costruzione, quello di cui si sta mostrando la scheda.
+  const relativeIndex = relativeIndexSlot(input.called, input.relative);
+
   // IL VALORE ASSOLUTO, derivato. `called` viene riscritto dal riquadro: il
   // giocatore di cui si dice il valore è, per costruzione, quello di cui si sta
   // mostrando la scheda.
@@ -383,10 +495,7 @@ export function valueBoxReading(input: ValueBoxInput): ValueBoxReading {
     called: true,
     slots: {
       "indice-assoluto": absoluteIndexSlot(input.appealIndex),
-      // Sempre assente, e per un motivo che non è un difetto di questo file:
-      // la formula non è decisa e nessun modulo del repository calcola un
-      // indice che si muove con la serata. Vedi l'intestazione.
-      "indice-relativo": ABSENT("indice-relativo-non-calcolato"),
+      "indice-relativo": relativeIndex.slot,
       "valore-assoluto": absolute,
       "valore-relativo": relative,
     },
@@ -400,6 +509,7 @@ export function valueBoxReading(input: ValueBoxInput): ValueBoxReading {
     engineReason,
     absoluteChain: derived.kind === "valore" ? derived.chain : null,
     absoluteBelowCostFloor: derived.kind === "valore" && derived.belowCostFloor,
+    relativePopulation: relativeIndex.population,
     missingDeclaredInputs: input.call === null ? input.missingDeclaredInputs : [],
   };
 }

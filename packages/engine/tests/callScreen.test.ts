@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   ABSOLUTE_VALUE_UNRATIFIED_CHOICES,
+  RELATIVE_INDEX_UNRATIFIED_CHOICES,
   ALPHA_BY_PROFILE,
   COST_FLOOR,
   DECLARED_VALUE_PROVENANCE,
@@ -378,6 +379,12 @@ describe("callScreen — scelte del motore non ratificate, dichiarate nel dato",
       // volta pinnato in packages/engine/tests/absoluteValue.test.ts, quindi
       // non può gonfiarsi in silenzio per far passare questo confronto.
       ...ABSOLUTE_VALUE_UNRATIFIED_CHOICES,
+      // LA TERZA SUPERFICIE: l'indice relativo (../src/relativeIndex.ts).
+      // Entra per elenco dichiarato e per la stessa ragione dell'assoluto — la
+      // lista che quella lettura porta è la stessa su ogni ramo — e il suo
+      // contenuto è a sua volta pinnato in
+      // packages/engine/tests/relativeIndex.test.ts.
+      ...RELATIVE_INDEX_UNRATIFIED_CHOICES,
     ];
     for (const id of used) expect(UNRATIFIED_CHOICES[id].length).toBeGreaterThan(0);
     // Nessun identificatore del vocabolario resta orfano: se se ne aggiunge uno

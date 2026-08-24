@@ -83,6 +83,31 @@ const POOL_WITHOUT_INDEX: readonly ListonePlayer[] = POOL.map(
   ({ appealIndex: _drop, ...row }) => row,
 );
 
+// IL LISTONE DELLA SCENA CHE SI MUOVE: due attaccanti ORDINATI, uno sopra
+// l'altro. Serve un secondo verdetto perché «il numero sale quando comprano
+// qualcuno sopra di lui» abbia un sopra da comprare.
+const SECOND_BEST = "Attaccante Secondo";
+const POOL_TWO_RANKED: readonly ListonePlayer[] = [
+  ...POOL,
+  {
+    name: SECOND_BEST,
+    role: "A",
+    // STESSO CLUB del chiamato, e non è un dettaglio: selezionare una riga
+    // imposta anche i filtri RUOLO e SQUADRA della ricerca, e restano impostati
+    // quando si torna indietro. Due club diversi renderebbero il secondo
+    // giocatore invisibile al filtro del primo, e il test fallirebbe per un
+    // motivo che non è quello che sta misurando.
+    club: "ClubUno",
+    quotation: 19,
+    appealIndex: {
+      score: CALLED_SCORE - 10,
+      quality: QUALITY,
+      recipe: RECIPE,
+      components: { appetibilitaBase: CALLED_SCORE - 10 },
+    },
+  },
+];
+
 // docs/NO_GO.md §Prodotto: nessuna di queste parole può comparire su questa
 // superficie. Stessa famiglia della guardia già in uso in e2e/tier-band.spec.ts.
 const DIRECTIVE =
@@ -118,6 +143,15 @@ async function callPlayer(page: Page, name: string): Promise<void> {
   await selectListoneRowByName(page, name);
   await page.getByRole("button", { name: /^Avvia/ }).click();
   await expect(page.locator("#value-box")).toBeVisible();
+}
+
+/** Registra un acquisto vero, dal form ASSEGNA A: è il gesto che muove lo
+ *  stato d'asta, e quindi la sola cosa che può muovere l'indice relativo. */
+async function assignToFirstOpponent(page: Page, price: number): Promise<void> {
+  await page.locator("#assign-team").selectOption("Squadra2");
+  await page.locator("#assign-price").fill(String(price));
+  await page.getByRole("button", { name: "Registra acquisto", exact: true }).click();
+  await expect(page.locator("#search-player")).toBeVisible();
 }
 
 test("il riquadro del valore rende quattro celle dentro la scheda del chiamato", async ({
@@ -173,12 +207,18 @@ test("il riquadro del valore rende quattro celle dentro la scheda del chiamato",
   await expect(page.locator("#value-box-note")).toContainText(QUALITY);
   await expect(page.locator("#value-box-note")).toContainText(RECIPE);
 
-  // Gli altri tre dicono `n/d` E dicono perché: l'indice relativo perché la
-  // formula non è decisa, i due in crediti perché manca una dichiarazione.
-  await expect(page.locator("#value-box-number-indice-relativo")).toHaveText(VALUE_UNKNOWN);
+  // c-bis. L'INDICE RELATIVO È UN NUMERO, e nel giro vero: nel listone di
+  //    questa spec gli attaccanti con un verdetto sono due — il chiamato e
+  //    nessun altro, perché «Attaccante Senza Verdetto» non entra nell'ordine —
+  //    quindi il chiamato è il PRIMO fra quelli ancora prendibili. La cella dice
+  //    l'ordinale, non un punteggio, e la riga sotto dice fra quanti: `1º` senza
+  //    denominatore si leggerebbe come un indice.
+  await expect(page.locator("#value-box-number-indice-relativo")).toHaveText("1º");
   await expect(page.locator("#value-box-why-indice-relativo")).toContainText(
-    "formula non decisa",
+    "su 1 libero ordinato",
   );
+
+  // Gli altri due dicono `n/d` E dicono perché: manca una dichiarazione.
   // I DUE `n/d` IN CREDITI NON SONO PIÙ LO STESSO `n/d`, ed è la differenza che
   // la decisione di Pico del 2026-08-24 ha introdotto: il valore ASSOLUTO è
   // derivato dal regolamento e dai target di ruolo (che l'app raccoglie già nel
@@ -293,6 +333,12 @@ test("senza indice nel listone la prima cella tace anche lei, e lo dice", async 
   await expect(page.locator("#value-box-why-indice-assoluto")).toContainText(
     "non porta l'indice",
   );
+  // E tace anche la SECONDA, con un motivo suo: senza nessun punteggio non c'è
+  // un ordine, e senza ordine «quanti stanno sopra di lui» non è una domanda
+  // con risposta. Non è lo stesso `n/d` della prima cella — quello dice che il
+  // dato manca, questo dice che senza quel dato la posizione non esiste.
+  await expect(page.locator("#value-box-number-indice-relativo")).toHaveText(VALUE_UNKNOWN);
+  await expect(page.locator("#value-box-why-indice-relativo")).toContainText("nessun ordine");
   // Nessuna qualificazione: senza indice non c'è niente da qualificare, e il
   // riquadro non inventa un'etichetta di qualità che il dato non ha portato.
   await expect(page.locator("#value-box-note")).not.toContainText("ricetta");
@@ -310,4 +356,44 @@ test("l'indice senza verdetto è un n/d diverso da «il listone non porta l'indi
   await expect(page.locator("#value-box-why-indice-assoluto")).toContainText("non ha verdetto");
   // La qualificazione resta, perché il dato c'è: è il verdetto a mancare.
   await expect(page.locator("#value-box-note")).toContainText(RECIPE);
+  // E l'indice RELATIVO tace per la sua ragione, che è ancora un'altra: senza
+  // verdetto non entra nell'ordine, quindi non è ultimo — è fuori. Tre `n/d`
+  // dell'indice, tre frasi diverse: se collassassero, il riquadro direbbe che
+  // si sta aspettando la cosa sbagliata.
+  await expect(page.locator("#value-box-number-indice-relativo")).toHaveText(VALUE_UNKNOWN);
+  await expect(page.locator("#value-box-why-indice-relativo")).toContainText(
+    "l'indice non lo ordina",
+  );
+});
+
+// IL NUMERO CHE SI MUOVE, NEL BROWSER VERO — la sola prova che l'indice
+// relativo è agganciato allo STATO DELL'ASTA e non a una fotografia del
+// caricamento. I test di unità provano il calcolo; questo prova il giro:
+// `render()` ricostruisce il DOM dopo un acquisto e la cella cambia.
+test("l'indice relativo sale dopo che comprano qualcuno sopra di lui", async ({ page }) => {
+  await boot(page, POOL_TWO_RANKED);
+  await callPlayer(page, SECOND_BEST);
+
+  // Due attaccanti ordinati, lui è il secondo. Il terzo attaccante del listone
+  // è libero ma SENZA VERDETTO: non entra nell'ordine, quindi non entra nel
+  // denominatore — «2º su 3» farebbe leggere una posizione che non è la sua.
+  await expect(page.locator("#value-box-number-indice-relativo")).toHaveText("2º");
+  await expect(page.locator("#value-box-why-indice-relativo")).toContainText(
+    "su 2 liberi ordinati",
+  );
+
+  // Il migliore passa a un avversario: si torna alla ricerca, lo si chiama, lo
+  // si assegna, e poi si torna sul nostro.
+  await page.getByText("← Indietro alla ricerca").click();
+  await expect(page.locator("#search-player")).toBeVisible();
+  await callPlayer(page, CALLED);
+  await assignToFirstOpponent(page, 30);
+
+  await callPlayer(page, SECOND_BEST);
+  // UNO IN MENO SOPRA DI LUI: primo fra quelli che restano, e la popolazione
+  // libera è scesa a uno. Nessuna formula in mezzo — uno in meno da contare.
+  await expect(page.locator("#value-box-number-indice-relativo")).toHaveText("1º");
+  await expect(page.locator("#value-box-why-indice-relativo")).toContainText(
+    "su 1 libero ordinato",
+  );
 });

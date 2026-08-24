@@ -31,6 +31,10 @@ import {
   NO_LEG_INPUTS,
   type AbsoluteValueInput,
 } from "../packages/engine/src/absoluteValue.js";
+import {
+  freeLadder,
+  type RelativeIndexInput,
+} from "../packages/engine/src/relativeIndex.js";
 import type { ListoneAppealIndex } from "./ui/listone.js";
 import {
   DECLARED_INPUTS_WITHOUT_SOURCE,
@@ -195,12 +199,45 @@ const ABSOLUTE_UNDECLARED: Omit<AbsoluteValueInput, "called"> = {
   legs: NO_LEG_INPUTS,
 };
 
+// ── GLI INGRESSI DELL'INDICE RELATIVO ───────────────────────────────────────
+// Lo slot 2 è una POSIZIONE fra i liberi del ruolo, misurata sullo stesso
+// ordine che costruisce le fasce (`TIER_BOOK`). Le righe di listone che entrano
+// nella scala sono gli stessi sei `a_*` dell'ordine più un centrocampista, così
+// il conteggio per ruolo non è degenere.
+
+const RELATIVE_POOL = [
+  { playerId: "a_uno", role: "A" },
+  { playerId: "a_due", role: "A" },
+  { playerId: "a_tre", role: "A" },
+  { playerId: "a_non_valutato", role: "A" },
+  { playerId: "a_zero", role: "A" },
+  { playerId: "a_muto", role: "A" },
+  { playerId: "c_uno", role: "C" },
+] as const;
+
+/** La scala dei liberi su un tavolo fresco: nessuno è ancora stato preso. */
+function relativeOn(log = buildLog([])): Omit<RelativeIndexInput, "called"> {
+  const state: AuctionState = stateOf(log);
+  return {
+    ladder: freeLadder({
+      pool: [...RELATIVE_POOL],
+      book: TIER_BOOK,
+      purchasedPlayerIds: state.purchasedPlayerIds,
+    }),
+    state,
+    selfId: SELF,
+  };
+}
+
+const RELATIVE = relativeOn();
+
 function readingWithEngine(playerId: string, appealIndex?: ListoneAppealIndex): ValueBoxReading {
   return valueBoxReading({
     called: { playerId, role: "A" },
     appealIndex,
     call: engineCall(playerId),
     missingDeclaredInputs: [],
+    relative: RELATIVE,
     absolute: ABSOLUTE,
   });
 }
@@ -212,6 +249,7 @@ function readingAsShipped(appealIndex?: ListoneAppealIndex): ValueBoxReading {
     appealIndex,
     call: null,
     missingDeclaredInputs: DECLARED_INPUTS_WITHOUT_SOURCE,
+    relative: RELATIVE,
     absolute: ABSOLUTE_UNDECLARED,
   });
 }
@@ -236,6 +274,7 @@ describe("riquadro del valore — i quattro numeri", () => {
       appealIndex: index(72),
       call,
       missingDeclaredInputs: [],
+      relative: RELATIVE,
       absolute: ABSOLUTE,
     });
 
@@ -260,6 +299,7 @@ describe("riquadro del valore — i quattro numeri", () => {
       appealIndex: index(72),
       call,
       missingDeclaredInputs: [],
+      relative: RELATIVE,
       absolute: ABSOLUTE,
     });
     expect(reading.slots["valore-assoluto"]).toEqual({
@@ -302,13 +342,63 @@ describe("riquadro del valore — i quattro numeri", () => {
     expect(reading.indexRecipe).toBe(RECIPE);
   });
 
-  it("l'indice relativo è n/d e dice che la formula non è decisa: nessuno lo calcola", () => {
+  it("l'indice relativo è la POSIZIONE fra i liberi del ruolo, col suo denominatore", () => {
+    // `a_uno` è il primo dell'ordine e nessuno è stato preso: primo fra i sei
+    // attaccanti ancora liberi. L'unità NON è `indice`: un rango e un punteggio
+    // si leggono in due modi diversi, e il tipo li tiene distinti.
     const reading = readingWithEngine("a_uno", index(72));
     expect(reading.slots["indice-relativo"]).toEqual({
-      kind: "assente",
-      reason: "indice-relativo-non-calcolato",
+      kind: "numero",
+      value: 1,
+      unit: "posizione",
     });
-    expect(valueBoxHtml(reading)).toContain("formula non decisa");
+    expect(valueSlotText(reading.slots["indice-relativo"])).toBe("1º");
+    expect(reading.relativePopulation).toMatchObject({
+      role: "A",
+      freeInRole: 6,
+      poolInRole: 6,
+      freeRankedInRole: 6,
+    });
+    // Il denominatore arriva a schermo: «3º» senza «su quanti» è un punteggio
+    // travestito. E il denominatore conta gli ORDINATI, cioè la stessa
+    // popolazione in cui la posizione è misurata.
+    expect(valueBoxHtml(reading)).toContain("su 6 liberi ordinati");
+  });
+
+  it("l'indice relativo SALE quando comprano qualcuno sopra di lui", () => {
+    // `a_tre` è terzo nell'ordine. Comprato `a_uno` (che gli sta sopra), fra i
+    // liberi diventa secondo: è esattamente l'esempio con cui Pico ha definito
+    // il numero, e non c'è nessuna formula in mezzo — solo uno in meno da contare.
+    const before = valueBoxReading({
+      called: { playerId: "a_tre", role: "A" },
+      appealIndex: index(50),
+      call: null,
+      missingDeclaredInputs: [],
+      relative: relativeOn(),
+      absolute: ABSOLUTE,
+    });
+    const after = valueBoxReading({
+      called: { playerId: "a_tre", role: "A" },
+      appealIndex: index(50),
+      call: null,
+      missingDeclaredInputs: [],
+      relative: relativeOn(buildLog([buy("a_uno", "A", TEAMS[1]!, 30)])),
+      absolute: ABSOLUTE,
+    });
+
+    expect(before.slots["indice-relativo"]).toEqual({
+      kind: "numero",
+      value: 3,
+      unit: "posizione",
+    });
+    expect(after.slots["indice-relativo"]).toEqual({
+      kind: "numero",
+      value: 2,
+      unit: "posizione",
+    });
+    // E il VALORE ASSOLUTO non si è mosso di un credito: è la differenza fra i
+    // due slot, e se sparisse uno dei due numeri starebbe mentendo.
+    expect(after.slots["valore-assoluto"]).toEqual(before.slots["valore-assoluto"]);
   });
 
   it("il valore relativo si muove con la serata, il valore assoluto no", () => {
@@ -388,6 +478,7 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       appealIndex: undefined,
       call: null,
       missingDeclaredInputs: DECLARED_INPUTS_WITHOUT_SOURCE,
+      relative: RELATIVE,
       absolute: ABSOLUTE,
     });
     for (const id of VALUE_SLOT_ORDER) {
@@ -427,6 +518,7 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       appealIndex: index(50),
       call,
       missingDeclaredInputs: [],
+      relative: RELATIVE,
       absolute: ABSOLUTE,
     });
     expect(reading.slots["valore-relativo"]).toEqual({
@@ -471,6 +563,7 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       appealIndex: index(64),
       call,
       missingDeclaredInputs: [],
+      relative: RELATIVE,
       absolute: ABSOLUTE,
     });
 
@@ -512,6 +605,7 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       appealIndex: index(64),
       call,
       missingDeclaredInputs: [],
+      relative: RELATIVE,
       absolute: ABSOLUTE,
     });
 
@@ -523,6 +617,7 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       appealIndex: index(64),
       call: engineCallWith("a_non_valutato", BOOK_CON_NON_VALUTATO, VALUES),
       missingDeclaredInputs: [],
+      relative: RELATIVE,
       absolute: ABSOLUTE,
     });
     expect(reading.engineReason).not.toBe(nonDichiarato.engineReason);
@@ -541,6 +636,7 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       appealIndex: index(72),
       call: engineCall("a_uno"),
       missingDeclaredInputs: [],
+      relative: RELATIVE,
       absolute: ABSOLUTE_UNDECLARED,
     });
     expect(reading.slots["valore-assoluto"]).toEqual({
@@ -563,6 +659,7 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       appealIndex: index(72),
       call: engineCall("a_uno"),
       missingDeclaredInputs: [],
+      relative: RELATIVE,
       absolute: { ...ABSOLUTE, roleTargets: { ...ABSOLUTE_TARGETS, A: 0 } },
     });
     expect(reading.slots["valore-assoluto"]).toEqual({
@@ -613,6 +710,7 @@ describe("riquadro del valore — la resa non accende nient'altro", () => {
         appealIndex: undefined,
         call: null,
         missingDeclaredInputs: [],
+        relative: RELATIVE,
         absolute: ABSOLUTE,
       }),
     ];
@@ -640,6 +738,7 @@ describe("riquadro del valore — la resa non accende nient'altro", () => {
       appealIndex: index(72),
       call,
       missingDeclaredInputs: [],
+      relative: RELATIVE,
       absolute: ABSOLUTE,
     });
     expect(reading.slots["valore-relativo"]).toEqual({
@@ -661,8 +760,11 @@ describe("riquadro del valore — la resa non accende nient'altro", () => {
       if (slot.kind !== "numero") continue;
       expect(Number.isFinite(slot.value)).toBe(true);
       // Uno scalare secco, con la virgola italiana quando la quota di uno slot
-      // non è intera (210/7 lo è, 200/9 no). Mai «fra 55 e 70».
-      expect(valueSlotText(slot)).toMatch(/^-?\d+(,\d)?( cr)?$/);
+      // non è intera (210/7 lo è, 200/9 no). Mai «fra 55 e 70». L'ordinale
+      // dell'indice relativo è ammesso come SUFFISSO — `3º` è un numero solo,
+      // non una coppia — e resta l'unico segno di forma consentito accanto a
+      // `cr`: la sonda continua a bocciare qualunque cosa contenga due numeri.
+      expect(valueSlotText(slot)).toMatch(/^-?\d+(,\d)?( cr|º)?$/);
     }
   });
 });

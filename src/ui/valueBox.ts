@@ -56,7 +56,10 @@ export const VALUE_SLOT_LABELS: Readonly<Record<ValueSlotId, string>> = {
 /** Da dove viene lo slot quando porta un numero. Una riga, mai una promessa. */
 const VALUE_SLOT_SOURCE: Readonly<Record<ValueSlotId, string>> = {
   "indice-assoluto": "dal listone, prima dell'asta",
-  "indice-relativo": "si muove durante la serata",
+  // Sovrascritta a runtime con la popolazione vera del ruolo, così la riga dice
+  // FRA QUANTI la posizione è misurata e non una promessa generica: vedi
+  // `valueSlotWhyText`.
+  "indice-relativo": "fra i liberi del suo ruolo, adesso",
   // Sovrascritta a runtime con la catena vera (budget → target → slot →
   // fascia), così la riga dice DA DOVE viene il numero e non una promessa
   // generica: vedi `valueSlotWhyText`.
@@ -76,7 +79,15 @@ export const VALUE_MISSING_TEXT: Readonly<Record<ValueMissingReason, string>> = 
   "nessun-chiamato": "nessun giocatore chiamato",
   "indice-assente": "il listone non porta l'indice",
   "indice-senza-verdetto": "l'indice non ha verdetto su di lui",
-  "indice-relativo-non-calcolato": "formula non decisa: non si calcola",
+  // I motivi dell'INDICE RELATIVO. Quattro frasi diverse perché sono quattro
+  // attese diverse: aspettare che il deposito serva l'indice, aspettare che
+  // l'ordine copra questo ruolo, aspettare un verdetto su QUESTA riga, o non
+  // aspettare niente perché il giocatore è già passato. Un «non disponibile»
+  // unico le confonderebbe tutte.
+  "indice-relativo-senza-ordine": "il listone non porta l'indice: nessun ordine",
+  "indice-relativo-ruolo-non-ordinato": "il suo ruolo non è ordinato",
+  "indice-relativo-non-ordinato": "senza verdetto: l'indice non lo ordina",
+  "indice-relativo-gia-preso": "già preso: non è più in gioco",
   "ingredienti-dichiarati-assenti": "manca una tua dichiarazione",
   "motore-senza-numeri": "il motore non emette numeri qui",
   // I motivi del valore assoluto derivato. Ognuno NOMINA LA COSA CHE MANCA:
@@ -188,11 +199,20 @@ export function valueNumberText(value: number): string {
   return value.toFixed(1).replace(".", ",");
 }
 
-/** Il testo della cella: il numero con la sua unità, oppure `n/d`. */
+/**
+ * Il testo della cella: il numero con la sua unità, oppure `n/d`.
+ *
+ * L'ORDINALE È UN SEGNO DI FORMA, non una conversione. `3º` e `3` sono lo
+ * stesso numero; il maschile ordinale dice che è un RANGO e non un punteggio,
+ * che è l'unica cosa che distingue a colpo d'occhio la cella 2 dalla cella 1 —
+ * due numeri vicini, due significati diversi. Nessun `Intl`, nessuna locale del
+ * runtime: il determinismo del progetto vale anche qui.
+ */
 export function valueSlotText(slot: ValueSlot): string {
   if (slot.kind === "assente") return VALUE_UNKNOWN;
   const text = valueNumberText(slot.value);
-  return slot.unit === "crediti" ? `${text} cr` : text;
+  if (slot.unit === "crediti") return `${text} cr`;
+  return slot.unit === "posizione" ? `${text}º` : text;
 }
 
 /**
@@ -218,6 +238,39 @@ export function absoluteChainText(reading: ValueBoxReading): string {
   return reading.absoluteBelowCostFloor ? `${head} — sotto il credito minimo` : head;
 }
 
+/**
+ * LA POPOLAZIONE SU CUI LA POSIZIONE È MISURATA, in una riga: «su 41 liberi
+ * ordinati».
+ *
+ * È il denominatore, e senza di lui «3º» non dice niente — terzo su quattro e
+ * terzo su quaranta sono due situazioni opposte.
+ *
+ * IL DENOMINATORE È `freeRankedInRole`, NON `freeInRole`, ed è una correzione
+ * misurata e non una preferenza: la posizione è contata fra i giocatori che
+ * l'indice ORDINA, e nel ruolo possono restare liberi anche giocatori senza
+ * verdetto, che nell'ordine non ci sono. Scrivere «3º fra 4 liberi» quando gli
+ * ordinati sono tre farebbe leggere «ultimo» a chi invece è ultimo di una
+ * popolazione più piccola: il numeratore e il denominatore devono contare la
+ * stessa cosa, altrimenti la frazione mente. Quanti ne restano liberi IN TUTTO
+ * resta misurato in `ValueBoxReading.relativePopulation.freeInRole`.
+ *
+ * QUANTI NE HA PRESI PICO E QUANTI GLI AVVERSARI NON COMPAIONO QUI, e non è una
+ * dimenticanza: non entrano nel numero (entrarci richiederebbe un coefficiente
+ * che nessuno ha dichiarato), quindi una riga che dice DA DOVE VIENE il numero
+ * mentirebbe a nominarli. Restano misurati nella lettura per chi li vuole, e
+ * sono già a schermo nel pannello SVUOTAMENTO DEL RUOLO, che è la superficie il
+ * cui mestiere è proprio quello.
+ *
+ * Il singolare si scrive al singolare: «su 1 libero ordinato». Nessun `Intl`,
+ * nessuna locale del runtime — una `s` in più è una riga in meno di fiducia.
+ */
+export function relativePopulationText(reading: ValueBoxReading): string {
+  const population = reading.relativePopulation;
+  if (population === null) return "";
+  const n = population.freeRankedInRole;
+  return n === 1 ? "su 1 libero ordinato" : `su ${n} liberi ordinati`;
+}
+
 /** La riga sotto il numero: la provenienza se c'è un numero, il motivo se no. */
 export function valueSlotWhyText(
   id: ValueSlotId,
@@ -235,6 +288,11 @@ export function valueSlotWhyText(
     // sola superficie su cui la derivazione arriva sotto gli occhi di Pico.
     if (id === "valore-assoluto" && reading.absoluteChain !== null) {
       return absoluteChainText(reading);
+    }
+    // Stessa ragione della catena qui sopra: una posizione senza il suo
+    // denominatore si legge come un punteggio, cioè come un numero che non è.
+    if (id === "indice-relativo" && reading.relativePopulation !== null) {
+      return relativePopulationText(reading);
     }
     return VALUE_SLOT_SOURCE[id];
   }

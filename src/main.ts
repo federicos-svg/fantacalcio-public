@@ -115,6 +115,7 @@ import {
 } from "./postPurchaseProjection.js";
 import { executeVoidCommand, voidErrorText } from "./voidCommand.js";
 import { rolePriceFacts, roleTopPurchases } from "./nominationContext.js";
+import { buildFreeLadder } from "./relativeIndex.js";
 import { buildTierBook, tierBandReading } from "./tierOrdering.js";
 // L'elenco DICHIARATO delle squadre di Serie A impegnate in una coppa europea
 // nel 2026/27 — la gamba «coppe e turnover» del valore assoluto. Costante
@@ -1782,10 +1783,18 @@ function tierBandProps(aState: AuctionState): TierBandProps {
  *
  * NIENTE DI QUESTO SI MUOVE DURANTE LA SERATA, ed è vero per costruzione e non
  * per attenzione: `AbsoluteValueInput` non ha un campo in cui uno stato d'asta
- * possa entrare. `aState` serve a UNA cosa sola — derivare il censimento delle
- * squadre al tavolo dentro `buildTierBook` — ed è la stessa cosa che il
- * riquadro FASCIA fa già; il libro che ne esce è memoizzato su
+ * possa entrare. Il libro che ne esce è memoizzato su
  * `(pool, source, teamsCount)` e non conosce il log.
+ *
+ * LO SLOT 2, INVECE, SI MUOVE — ed è tutto il suo mestiere. La posizione
+ * relativa è misurata sulla SCALA DEI LIBERI (src/relativeIndex.ts), che è
+ * l'unico ingrediente di questa funzione a dipendere dal log: cambia quando
+ * qualcuno compra, e solo allora. È memoizzata su `(pool, libro, presi)`, cioè
+ * su una chiave che il log tocca soltanto per il pezzo che il log davvero
+ * cambia — un tasto nella ricerca la lascia intatta. `aState` serve quindi a
+ * DUE cose: derivare il censimento delle squadre al tavolo dentro
+ * `buildTierBook` (come fa già il riquadro FASCIA) e portare al motore chi è
+ * stato preso e quanti slot di quel ruolo sono già riempiti.
  */
 function valueBoxProps(aState: AuctionState): ValueBoxProps {
   const selected = state.call.selectedPlayer;
@@ -1810,6 +1819,19 @@ function valueBoxProps(aState: AuctionState): ValueBoxProps {
       appealIndex: selected?.appealIndex,
       call: null,
       missingDeclaredInputs: DECLARED_INPUTS_WITHOUT_SOURCE,
+      // LA SCALA DEI LIBERI, memoizzata: il libro è già quello sopra (una
+      // costruzione sola, non due), i presi vengono dallo stato ridotto —
+      // riconferme comprese, perché `reduce()` le semina lì ed è la stessa
+      // nozione di «non prendibile» che usa l'occupazione delle fasce.
+      relative: {
+        ladder: buildFreeLadder(
+          state.pool,
+          book.kind === "book" ? book.book : null,
+          aState.purchasedPlayerIds,
+        ),
+        state: aState,
+        selfId: SELF_ID,
+      },
       absolute: {
         // I TARGET DICHIARATI, così come Pico li ha scritti: la forma parziale
         // attraversa il confine intatta, e un ruolo non dichiarato resta una
