@@ -66,7 +66,12 @@ import type {
   ExpertInsightView,
   ListaEsperti,
 } from "../expertScheda.js";
-import { PIAZZATI_LABELS, RIGORI_LABELS, TITOLARITA_LABELS } from "./schedaLabels.js";
+import {
+  LISTA_ESPERTI_LABELS,
+  PIAZZATI_LABELS,
+  RIGORI_LABELS,
+  TITOLARITA_LABELS,
+} from "./schedaLabels.js";
 import { escHtml } from "./theme.js";
 
 /** Le quattro famiglie. `lista` è la sola che può non esserci. */
@@ -95,11 +100,7 @@ export interface SchedaIcona {
 
 // ── Le parole ────────────────────────────────────────────────────────────────
 
-export const LISTA_ESPERTI_LABELS: Readonly<Record<ListaEsperti, string>> = {
-  consigliato: "consigliato",
-  possibile_sorpresa: "possibile sorpresa",
-  sconsigliato: "sconsigliato",
-};
+export { LISTA_ESPERTI_LABELS };
 
 /** Il tono di ciascuna lista: verde, blu, rosso — come li ha chiesti Pico. */
 export const LISTA_ESPERTI_TONI: Readonly<Record<ListaEsperti, SchedaIconaTono>> = {

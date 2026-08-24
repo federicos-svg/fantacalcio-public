@@ -726,6 +726,30 @@
   cursor: pointer;
 }
 
+/* I due blocchi che il modulo ha guadagnato quando i tre campi irraggiungibili
+   del contratto hanno avuto una via d'ingresso: «con chi si gioca il posto» e
+   la pagella. Stessa cornice di .schede-checks — sono gruppi di campi dentro il
+   modulo, non pannelli a sé — ma a griglia, perché dentro ci stanno coppie
+   nome/quota e caselle di voto, non pastiglie in fila.
+
+   Le righe interne usano .league-teams-grid (auto-fit, minmax 180px): a 390px
+   diventano una colonna sola da sé, senza una seconda regola di rottura da
+   tenere allineata a mano. */
+.schede-group {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  /* min-width:0 sul fieldset: senza, il contenuto a griglia può imporgli una
+     larghezza minima e far scorrere la pagina di lato sul telefono. */
+  min-width: 0;
+}
+.schede-group legend {
+  padding: 0 4px;
+}
+
 .schede-nota {
   resize: vertical;
   min-height: 76px;
