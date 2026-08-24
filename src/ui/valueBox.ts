@@ -57,11 +57,15 @@ export const VALUE_SLOT_LABELS: Readonly<Record<ValueSlotId, string>> = {
 const VALUE_SLOT_SOURCE: Readonly<Record<ValueSlotId, string>> = {
   "indice-assoluto": "dal listone, prima dell'asta",
   "indice-relativo": "si muove durante la serata",
-  "valore-assoluto": "il valore che hai dichiarato",
   // Sovrascritta a runtime con l'etichetta che il motore impone
   // (`DECLARED_VALUE_PROVENANCE`), così la parola non può divergere dalla
   // costante: vedi `valueSlotWhyText`.
-  "valore-relativo": "derivato dai tuoi valori, adesso",
+  "valore-assoluto": "il valore che hai dichiarato",
+  // QUANTO COSTA VINCERE, e da dove si vede: la scala dei rivali ancora
+  // capienti. Non è un consiglio e non è un permesso — è il prezzo che il
+  // tavolo impone adesso, e la riga lo dice nominando l'ingrediente invece di
+  // qualificarlo («adesso», «stimato», «indicativo» direbbero meno).
+  "valore-relativo": "il secondo max bid al tavolo, +1",
 };
 
 /**
@@ -76,6 +80,11 @@ export const VALUE_MISSING_TEXT: Readonly<Record<ValueMissingReason, string>> = 
   "indice-relativo-non-calcolato": "formula non decisa: non si calcola",
   "ingredienti-dichiarati-assenti": "manca una tua dichiarazione",
   "motore-senza-numeri": "il motore non emette numeri qui",
+  "tavolo-senza-la-mia-squadra": "la tua squadra non è a questo tavolo",
+  "ruolo-pieno-per-me": "il tuo ruolo è pieno: non puoi comprarlo",
+  "non-posso-offrire": "il tuo budget è bloccato dalla riserva",
+  "nessun-rivale-eleggibile": "nessun rivale può ancora comprarlo",
+  "un-solo-rivale-eleggibile": "un solo rivale capiente: non c'è un secondo",
 };
 
 /** Il motivo del motore, quando è lui a non emettere numeri. */
@@ -116,7 +125,11 @@ export function missingDeclaredInputsText(reading: ValueBoxReading): string {
     names.length === 1
       ? names[0]!
       : `${names.slice(0, -1).join(", ")} e ${names[names.length - 1]!}`;
-  return `I due valori in crediti restano n/d finché ${list} non entrano nell'app.`;
+  // «Il valore assoluto», non «i due valori»: dal 2026-08-24 il valore relativo
+  // si calcola sui soli vincoli duri del tavolo e non aspetta più nessuna
+  // dichiarazione. Dire ancora «i due» prometterebbe che quella cella è spenta
+  // per una ragione che non è la sua.
+  return `Il valore assoluto resta n/d finché ${list} non entrano nell'app.`;
 }
 
 /**
@@ -153,10 +166,12 @@ export function valueSlotWhyText(
   reading: ValueBoxReading,
 ): string {
   if (slot.kind === "numero") {
-    // Il tetto derivato porta l'etichetta di provenienza che il motore impone,
-    // presa dalla lettura e non riscritta qui: `DECLARED_VALUE_PROVENANCE`.
-    if (id === "valore-relativo" && reading.creditsProvenance !== null) {
-      return `${reading.creditsProvenance}, adesso`;
+    // Il valore ASSOLUTO porta l'etichetta di provenienza che il motore impone,
+    // presa dalla lettura e non riscritta qui: `DECLARED_VALUE_PROVENANCE`. Il
+    // valore RELATIVO non la porta più, e non è una dimenticanza — quel numero
+    // dai valori dichiarati non passa: `src/valueBox.ts`, slot 4.
+    if (id === "valore-assoluto" && reading.creditsProvenance !== null) {
+      return reading.creditsProvenance;
     }
     return VALUE_SLOT_SOURCE[id];
   }

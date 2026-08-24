@@ -33,25 +33,42 @@
 //     ingrediente 2 della regola dei tre ingredienti (§D9), non derivato, non
 //     imputato, e per costruzione «la fotografia che non dipende dalla serata».
 //
-//  4. VALORE RELATIVO IN CREDITI — `DecisionNumbers.fairToMeMaxEffective`
-//     (packages/engine/src/callScreen.ts): il tetto derivato dai valori
-//     dichiarati di Pico, che si muove durante la serata perché si muovono i
-//     suoi ingredienti misurati (il costo opportunità della migliore
-//     alternativa ancora sul mercato e il max bid vero). È §D9 perimetro 1 —
-//     «derivato dai valori dichiarati di Owner → visibile, nessun receipt» —
-//     e NON il campo FTM model-derived, che resta gated e che questo file non
-//     tocca in nessun ramo.
+//  4. VALORE RELATIVO IN CREDITI — `relativePriceReading()`
+//     (packages/engine/src/relativeValue.ts): **quanto costa vincere adesso**,
+//     cioè il secondo max bid fra i rivali eleggibili più uno, con tetto al max
+//     bid del più ricco e a `maxSafe(io, ruolo)`. È `docs/DECISIONS.md` §"Il
+//     prezzo relativo si assesta su quanto mette il secondo, non il più ricco"
+//     (Pico, 2026-08-24): l'asta è a rilanci, e chi vince paga quanto è
+//     disposto a mettere il secondo, più uno. Il più ricco dice soltanto SE
+//     PUOI PERDERE; il secondo dice QUANTO TI COSTA VINCERE.
 //
-// IL TETTO DEL TAVOLO È GIÀ RISPETTATO, E NON SI AGGIUNGE NIENTE PER
-// RISPETTARLO. Il record impone che il valore relativo non possa superare la
-// capacità di spesa del tavolo. Quel vincolo è soddisfatto per costruzione, non
-// per una clausola scritta qui: `fairToMeMaxEffective ≤ maxSafe(io, ruolo)`
-// (invariante `chainOk` del motore), e `maxSafe(io, ruolo)` è uno degli addendi
-// del massimo su tutte le squadre — un giocatore lo compra UNA squadra, quindi
-// «quanto il tavolo può pagarlo adesso» è il massimo dei max bid veri, non la
-// loro somma. Aggiungere qui un secondo clamp significherebbe scegliere una
-// formula che Pico non ha deciso; l'invariante è invece verificata in
-// src/valueBox.test.ts su stati d'asta costruiti col motore vero.
+//     QUESTO SLOT NON PASSA PIÙ DALLA CATENA FAIR-TO-ME, ed è la correzione di
+//     un difetto misurato: era nato agganciato a
+//     `DecisionNumbers.fairToMeMaxEffective` (packages/engine/src/callScreen.ts)
+//     — il tetto derivato dai valori dichiarati di Pico, dall'α del profilo di
+//     rischio e dal costo opportunità del piano B — quattro ore dopo che Pico
+//     aveva dichiarato una formula DIVERSA per lo stesso numero. Nessuno se
+//     n'era accorto perché lo slot diceva comunque `n/d`. La catena FTM non è
+//     stata cancellata: `callScreen()`, `chainOk` e `opportunityQualityGate`
+//     restano dove sono, ed è il solo `fairToMeMaxEffective` a restare senza
+//     consumatori su questo percorso — marcato come tale nell'intestazione di
+//     `callScreen.ts` e in `SUPERSEDES_FAIR_TO_ME_IN_THE_RIQUADRO`.
+//
+//     NON SERVONO DICHIARAZIONI DI PICO PER ACCENDERLO, e infatti si accende:
+//     i suoi ingredienti sono soltanto fatti duri dell'event log — budget
+//     residuo, slot residui, riserva dura — passati per `competitorSet()` e
+//     `maxSafe()`. È la ragione per cui è l'unico dei quattro numeri in crediti
+//     che l'app di oggi sa davvero calcolare.
+//
+// IL TETTO DEL TAVOLO NON È PIÙ UNA CONSEGUENZA: È SCRITTO NELLA FORMULA. Il
+// record impone che il valore relativo non possa superare la capacità di spesa
+// del tavolo, e adesso quel vincolo è uno degli argomenti del minimo finale —
+// il max bid del PIÙ RICCO fra i rivali eleggibili, che è «quanto il tavolo può
+// pagarlo adesso» (un giocatore lo compra UNA squadra: la capacità è il massimo
+// dei max bid veri, non la loro somma). Il secondo tetto è `maxSafe(io, ruolo)`,
+// interrogata e mai riderivata: resta hard-safe e non overridabile. Nessuno dei
+// due è un clamp aggiunto qui per prudenza — sono i due limiti che il record di
+// Pico nomina, e stanno nel motore, non nella vista.
 //
 // COSA NON C'È, DI PROPOSITO:
 //  - nessun `target_band`, nessuno `stretch_cap`, nessun «prendilo fino a» /
@@ -73,7 +90,11 @@
 
 import type { CallScreen, NoTargetReason } from "../packages/engine/src/callScreen.js";
 import { DECLARED_VALUE_PROVENANCE } from "../packages/engine/src/declaredValues.js";
-import type { Role } from "../packages/engine/src/types.js";
+import {
+  relativePriceReading,
+  type RelativePriceMissingReason,
+} from "../packages/engine/src/relativeValue.js";
+import type { AuctionState, Role } from "../packages/engine/src/types.js";
 import type { ListoneAppealIndex } from "./ui/listone.js";
 
 /** I quattro slot del riquadro, nell'ordine in cui il record li elenca. */
@@ -110,7 +131,37 @@ export type ValueMissingReason =
   /** L'app non ha oggi una sorgente per gli ingredienti dichiarati di §D9. */
   | "ingredienti-dichiarati-assenti"
   /** Il motore ha risposto, e la sua risposta è «qui non ci sono numeri». */
-  | "motore-senza-numeri";
+  | "motore-senza-numeri"
+  // ── I motivi del PREZZO RELATIVO (relativeValue.ts). Ognuno nomina un fatto
+  //    del tavolo, e nessuno di essi ha un numero di ripiego dietro: senza un
+  //    secondo rivale non esiste un secondo max bid, e «non lo so» è la
+  //    risposta giusta.
+  /** Nessuna squadra mia in questo stato d'asta: non c'è un «io» che paghi. */
+  | "tavolo-senza-la-mia-squadra"
+  /** Il ruolo è pieno PER ME: non posso comprarlo, quindi non c'è un prezzo che io paghi. */
+  | "ruolo-pieno-per-me"
+  /** Il mio budget è bloccato dalla riserva dura: nessuna offerta valida, nessun prezzo. */
+  | "non-posso-offrire"
+  /** Nessun rivale può ancora comprarlo: non c'è nessuna asta da vincere. */
+  | "nessun-rivale-eleggibile"
+  /** Un solo rivale può ancora comprarlo: IL SECONDO NON ESISTE, e non si sostituisce col primo. */
+  | "un-solo-rivale-eleggibile";
+
+/**
+ * I motivi del motore tradotti nei motivi del riquadro — uno a uno, senza
+ * accorpamenti. È una mappa TOTALE sul vocabolario di `relativeValue.ts`: se un
+ * giorno quel modulo guadagna un motivo nuovo, il compilatore chiede questa
+ * riga in più invece di lasciar passare un `n/d` muto.
+ */
+const RELATIVE_PRICE_REASON: Readonly<
+  Record<RelativePriceMissingReason, ValueMissingReason>
+> = {
+  "squadra-assente": "tavolo-senza-la-mia-squadra",
+  "ruolo-pieno-per-me": "ruolo-pieno-per-me",
+  "max-safe-a-zero": "non-posso-offrire",
+  "nessun-rivale-eleggibile": "nessun-rivale-eleggibile",
+  "un-solo-rivale-eleggibile": "un-solo-rivale-eleggibile",
+};
 
 export type ValueSlot =
   | { readonly kind: "numero"; readonly value: number; readonly unit: ValueSlotUnit }
@@ -159,11 +210,29 @@ export interface ValueBoxInput {
   readonly appealIndex: ListoneAppealIndex | undefined;
   /**
    * La schermata CHIAMATA del motore per quel giocatore, quando l'app riesce a
-   * costruirla; `null` quando non ha gli ingressi per chiederla.
+   * costruirla; `null` quando non ha gli ingressi per chiederla. Alimenta il
+   * solo SLOT 3 — lo slot 4 non la attraversa più.
    */
   readonly call: CallScreen | null;
   /** Gli ingredienti dichiarati che mancano, quando `call` è `null`. */
   readonly missingDeclaredInputs: readonly DeclaredInputId[];
+  /**
+   * IL TAVOLO ADESSO, e serve al solo SLOT 4: lo stato d'asta prodotto dal
+   * reducer più la propria identità. Non è opzionale e non ha un default —
+   * l'app ce l'ha sempre, e un tavolo assente non è «zero rivali», è una
+   * domanda a cui non si può rispondere.
+   *
+   * Il RUOLO su cui si compete non sta qui: viene da `called.role`, perché
+   * sono lo stesso ruolo e tenerne due significherebbe poter chiedere il prezzo
+   * di un reparto mentre si mostra la scheda di un altro.
+   */
+  readonly table: ValueBoxTable;
+}
+
+/** Lo stato d'asta e l'identità di chi guarda: gli ingressi del prezzo relativo. */
+export interface ValueBoxTable {
+  readonly state: AuctionState;
+  readonly selfId: string;
 }
 
 export interface ValueBoxReading {
@@ -175,8 +244,10 @@ export interface ValueBoxReading {
   readonly indexRecipe: string | null;
   /**
    * L'etichetta di provenienza che il motore impone accanto a ogni numero
-   * costruito sui valori dichiarati. `null` quando nessuno dei due numeri in
-   * crediti è a schermo: una provenienza senza numero non qualifica niente.
+   * costruito sui valori dichiarati. Qualifica il SOLO valore assoluto — il
+   * valore relativo non passa dai valori dichiarati — ed è `null` quando quel
+   * numero non è a schermo: una provenienza senza il suo numero non qualifica
+   * niente, e appiccicata a un numero che viene da un'altra strada mentirebbe.
    */
   readonly creditsProvenance: string | null;
   /** Il motivo del motore, quando è lui a non emettere numeri. */
@@ -212,32 +283,47 @@ function absoluteIndexSlot(index: ListoneAppealIndex | undefined): ValueSlot {
 }
 
 /**
- * I due numeri in crediti, insieme perché escono dalla stessa catena e falliscono
- * per lo stesso motivo: senza il valore dichiarato non esiste né la fotografia
- * né il tetto che se ne deriva.
+ * IL VALORE ASSOLUTO — lo SLOT 3, e da questa corsia in poi l'unico dei quattro
+ * che passa dalla schermata CHIAMATA del motore: il valore che Pico DICHIARA
+ * per quel giocatore, non derivato e non imputato.
  */
-function creditSlots(
+function absoluteCreditSlot(
   call: CallScreen | null,
   missing: readonly DeclaredInputId[],
 ): {
   readonly absolute: ValueSlot;
-  readonly relative: ValueSlot;
   readonly engineReason: NoTargetReason | null;
 } {
   if (call === null) {
     const reason: ValueMissingReason =
       missing.length > 0 ? "ingredienti-dichiarati-assenti" : "motore-senza-numeri";
-    return { absolute: ABSENT(reason), relative: ABSENT(reason), engineReason: null };
+    return { absolute: ABSENT(reason), engineReason: null };
   }
   const absolute: ValueSlot =
     call.declaredValue === null
       ? ABSENT("motore-senza-numeri")
       : { kind: "numero", value: call.declaredValue, unit: "crediti" };
-  const relative: ValueSlot =
-    call.numbers === null
-      ? ABSENT("motore-senza-numeri")
-      : { kind: "numero", value: call.numbers.fairToMeMaxEffective, unit: "crediti" };
-  return { absolute, relative, engineReason: call.noTargetReason };
+  return { absolute, engineReason: call.noTargetReason };
+}
+
+/**
+ * IL VALORE RELATIVO — lo SLOT 4: quanto costa vincere questo giocatore adesso.
+ *
+ * Tutto il calcolo sta in `relativePriceReading()`, che è del motore e non
+ * conosce questa vista; qui si passa il tavolo e si traduce il suo esito in uno
+ * slot. In particolare NON si aggiunge nessun tetto, nessun arrotondamento e
+ * nessun ramo di ripiego: i due tetti del record di Pico sono già dentro quel
+ * numero, e un terzo scritto qui sarebbe una formula che nessuno ha deciso.
+ */
+function relativeCreditSlot(table: ValueBoxTable, role: Role): ValueSlot {
+  const reading = relativePriceReading({
+    state: table.state,
+    role,
+    selfId: table.selfId,
+  });
+  return reading.kind === "assente"
+    ? ABSENT(RELATIVE_PRICE_REASON[reading.reason])
+    : { kind: "numero", value: reading.credits, unit: "crediti" };
 }
 
 /**
@@ -249,8 +335,11 @@ function creditSlots(
 export function valueBoxReading(input: ValueBoxInput): ValueBoxReading {
   if (input.called === null) return noCalledPlayer();
 
-  const { absolute, relative, engineReason } = creditSlots(input.call, input.missingDeclaredInputs);
-  const showsCredits = absolute.kind === "numero" || relative.kind === "numero";
+  const { absolute, engineReason } = absoluteCreditSlot(
+    input.call,
+    input.missingDeclaredInputs,
+  );
+  const relative = relativeCreditSlot(input.table, input.called.role);
 
   return {
     called: true,
@@ -265,7 +354,10 @@ export function valueBoxReading(input: ValueBoxInput): ValueBoxReading {
     },
     indexQuality: input.appealIndex?.quality ?? null,
     indexRecipe: input.appealIndex?.recipe ?? null,
-    creditsProvenance: showsCredits ? DECLARED_VALUE_PROVENANCE : null,
+    // LA PROVENIENZA QUALIFICA IL SOLO VALORE ASSOLUTO, ed è la conseguenza
+    // diretta del cambio di sorgente dello slot 4: «derivato dai tuoi valori»
+    // sarebbe falso accanto a un numero che dai valori dichiarati non passa.
+    creditsProvenance: absolute.kind === "numero" ? DECLARED_VALUE_PROVENANCE : null,
     engineReason,
     missingDeclaredInputs: input.call === null ? input.missingDeclaredInputs : [],
   };

@@ -1752,21 +1752,34 @@ function tierBandProps(aState: AuctionState): TierBandProps {
  * funzione non può conoscere. `listonePlayerKey` è la STESSA chiave con cui
  * l'event log registra un acquisto, come per `tierBandProps`.
  *
- * `call: null`, E PERCHÉ NON È UNA SCORCIATOIA. La schermata CHIAMATA del
- * motore (`callScreen()`, packages/engine/src/callScreen.ts) è scritta,
- * esportata e provata, ma pretende DUE dichiarazioni di Pico che il core
- * pubblico non ha ancora un posto dove raccogliere: il listino dei valori per
- * giocatore (`DeclaredValueBook`) e il profilo di rischio (`ValueProfile`, che
- * sceglie l'α preregistrato di §4.2). Nessuna delle due ha una sorgente in
- * `src/`. Fabbricarne una qui — un valore dedotto dalla quotazione, un profilo
- * «medio» di default — sarebbe inventare esattamente l'ingrediente 2 della
- * regola dei tre ingredienti (§D9), cioè far dire all'app che Pico ha
- * dichiarato qualcosa che non ha dichiarato. Il riquadro dice invece `n/d` e
- * dice quale dichiarazione manca; il giorno in cui quelle due entrano nell'app,
- * questa funzione passa un `CallScreen` vero e i due slot in crediti si
- * accendono senza toccare né la lettura né la vista.
+ * `call: null`, E PERCHÉ NON È UNA SCORCIATOIA — vale per il SOLO valore
+ * assoluto. La schermata CHIAMATA del motore (`callScreen()`,
+ * packages/engine/src/callScreen.ts) è scritta, esportata e provata, ma pretende
+ * DUE dichiarazioni di Pico che il core pubblico non ha ancora un posto dove
+ * raccogliere: il listino dei valori per giocatore (`DeclaredValueBook`) e il
+ * profilo di rischio (`ValueProfile`, che sceglie l'α preregistrato di §4.2).
+ * Nessuna delle due ha una sorgente in `src/`. Fabbricarne una qui — un valore
+ * dedotto dalla quotazione, un profilo «medio» di default — sarebbe inventare
+ * esattamente l'ingrediente 2 della regola dei tre ingredienti (§D9), cioè far
+ * dire all'app che Pico ha dichiarato qualcosa che non ha dichiarato. Il
+ * riquadro dice invece `n/d` e dice quale dichiarazione manca; il giorno in cui
+ * quelle due entrano nell'app, questa funzione passa un `CallScreen` vero e il
+ * valore assoluto si accende senza toccare né la lettura né la vista.
+ *
+ * IL VALORE RELATIVO, INVECE, SI ACCENDE OGGI, e `table` è la ragione. Dal
+ * 2026-08-24 quel numero è «quanto costa vincere adesso» — il secondo max bid
+ * fra i rivali eleggibili, più uno — e i suoi ingredienti sono soltanto fatti
+ * duri dell'event log che l'app HA GIÀ: `deriveAuctionState()` e `SELF_ID`,
+ * cioè gli stessi due che alimentano la war board e il momento dell'asta.
+ * Nessuna dichiarazione di Pico entra in quel numero, quindi nessuna
+ * dichiarazione mancante può spegnerlo.
+ *
+ * `aState` ARRIVA COME PARAMETRO e non da una seconda `deriveAuctionState()`:
+ * il riquadro deve mostrare lo stesso tavolo che la scheda intorno a lui sta
+ * già mostrando — max bid in testata, war board, momento dell'asta — e due
+ * derivazioni nello stesso render sono due fotografie che possono divergere.
  */
-function valueBoxProps(): ValueBoxProps {
+function valueBoxProps(aState: AuctionState): ValueBoxProps {
   const selected = state.call.selectedPlayer;
   return {
     reading: valueBoxReading({
@@ -1775,6 +1788,7 @@ function valueBoxProps(): ValueBoxProps {
       appealIndex: selected?.appealIndex,
       call: null,
       missingDeclaredInputs: DECLARED_INPUTS_WITHOUT_SOURCE,
+      table: { state: aState, selfId: SELF_ID },
     }),
   };
 }
@@ -5493,7 +5507,7 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   // dettaglio: e2e/asta-gesto-principale.spec.ts asserisce che «ASSEGNA A»
   // resti entro 560px dal bordo del documento, ed è la ragione per cui le
   // quattro celle stanno su una riga sola (src/styles/asta.css).
-  card.appendChild(renderValueBoxBlock(valueBoxProps()));
+  card.appendChild(renderValueBoxBlock(valueBoxProps(aState)));
 
   // MOMENTO DELL'ASTA — ridotto al ruolo chiamato, dentro la scheda (#331
   // punto 2). Le altre tre celle di ruolo, il censimento MERCATO e la nota
