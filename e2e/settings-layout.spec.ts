@@ -9,13 +9,19 @@ test("the settings menu swaps the right-hand panel and survives a re-render", as
   await gotoScreen(page, "Impostazioni");
 
   // Opens on the area you act on; each menu entry carries its own icon.
-  // Four areas: teams, riconferme pre-asta (#231), schede Gruppo Esperti,
-  // status.
+  // CINQUE aree: teams, riconferme pre-asta (#231), schede Gruppo Esperti,
+  // archivio avversari (la via d'ingresso dello storico d'asta, senza la quale
+  // il pannello AVVERSARI resterebbe muto in produzione), status.
   await expect(page.locator("#settings-tab-teams")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#settings-tab-riconferme")).toHaveAttribute("aria-selected", "false");
   await expect(page.locator("#settings-tab-schede")).toHaveAttribute("aria-selected", "false");
+  await expect(page.locator("#settings-tab-archivio")).toHaveAttribute("aria-selected", "false");
   await expect(page.locator("#settings-tab-status")).toHaveAttribute("aria-selected", "false");
-  await expect(page.locator("#settings-menu svg")).toHaveCount(4);
+  // Era 4 finché «schede» e «archivio» si contendevano lo stesso slot: sono
+  // nate in parallelo e sono atterrate entrambe, quindi le icone sono 5. Il
+  // numero è aggiornato al vero, non allentato: se un'area sparisse dal menu
+  // questa riga deve tornare rossa.
+  await expect(page.locator("#settings-menu svg")).toHaveCount(5);
   await expect(page.locator("#new-person-name")).toBeVisible();
 
   // Only the selected area is built, so the other one is absent from the DOM
@@ -47,7 +53,10 @@ test("the settings menu swaps the right-hand panel and survives a re-render", as
   await expect(page.locator("#new-person-name")).toBeFocused();
 
   // Arrow keys move within the menu, and focus follows across the re-render.
-  // Four stops now (teams -> riconferme -> schede -> status -> wraps to teams).
+  // CINQUE fermate ora, non quattro:
+  // teams -> riconferme -> schede -> archivio -> status -> torna a teams.
+  // È l'arrivo di «archivio» accanto a «schede» ad aver reso falsa la versione
+  // a quattro fermate di questa asserzione.
   await page.locator("#settings-tab-teams").focus();
   await page.keyboard.press("ArrowDown");
   await expect(page.locator("#settings-tab-riconferme")).toHaveAttribute("aria-selected", "true");
@@ -55,6 +64,9 @@ test("the settings menu swaps the right-hand panel and survives a re-render", as
   await page.keyboard.press("ArrowDown");
   await expect(page.locator("#settings-tab-schede")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#settings-tab-schede")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.locator("#settings-tab-archivio")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#settings-tab-archivio")).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(page.locator("#settings-tab-status")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#settings-tab-status")).toBeFocused();
@@ -65,6 +77,7 @@ test("the settings menu swaps the right-hand panel and survives a re-render", as
   await expect(page.locator("#settings-tab-teams")).toHaveAttribute("tabindex", "0");
   await expect(page.locator("#settings-tab-riconferme")).toHaveAttribute("tabindex", "-1");
   await expect(page.locator("#settings-tab-schede")).toHaveAttribute("tabindex", "-1");
+  await expect(page.locator("#settings-tab-archivio")).toHaveAttribute("tabindex", "-1");
   await expect(page.locator("#settings-tab-status")).toHaveAttribute("tabindex", "-1");
 
   // No development placeholder left on this screen.

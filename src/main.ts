@@ -50,6 +50,23 @@ import {
   type OpponentProfile,
   type PastAuctionPurchase,
 } from "../packages/opponent-profiles/src/index.js";
+import {
+  applyAuctionHistoryText,
+  applyOpponentProfilesText,
+  forgetAuctionHistory,
+  forgetOpponentProfiles,
+  type ArchiveMessage,
+} from "./opponentArchive.js";
+import {
+  ARCHIVE_SETTINGS_ICON,
+  renderOpponentArchiveSettings,
+} from "./ui/opponentArchiveSettings.js";
+import {
+  attemptCopy,
+  copyMessage,
+  copySucceeded,
+  type CopyOutcome,
+} from "./personIdClipboard.js";
 import { budgetPlan } from "../packages/engine/src/budget.js";
 import { purchaseFeasibility, recordPurchase, type ProposedPurchase } from "../packages/engine/src/feasibility.js";
 import type { ConfirmationInput } from "../packages/engine/src/confirmations.js";
@@ -523,6 +540,18 @@ interface AppState {
   auctionHistory: readonly PastAuctionPurchase[];
   opponentProfiles: readonly OpponentProfile[];
   /**
+   * L'esito dell'ULTIMA azione sui due archivi (Impostazioni → Archivio
+   * avversari), o `null` finché non ce n'è stata nessuna in questa sessione.
+   *
+   * In stato, non nel DOM, per la ragione di sempre in questo file: `render()`
+   * ricostruisce l'intero albero a ogni tasto, e un messaggio che vivesse solo
+   * a schermo sparirebbe al primo re-render — cioè spesso prima di essere
+   * stato letto. Non è mai persistito: è il racconto di un gesto appena
+   * compiuto, non un fatto dell'archivio.
+   */
+  archiveHistoryMessage: ArchiveMessage | null;
+  archiveProfilesMessage: ArchiveMessage | null;
+  /**
    * Le schede del Gruppo Esperti, lette a runtime dal deposito privato
    * (src/expertScheda.ts). `{ ok: false, reason: "absent" }` è lo stato di
    * partenza e resta tale finché la risposta non arriva valida: assente,
@@ -576,6 +605,15 @@ interface AppState {
   schedaImportError: string;
   rosterError: string;
   newPersonName: string;
+  /**
+   * L'esito dell'ULTIMO gesto di copia di un identificativo, o `null` finché
+   * non ce n'è stato nessuno.
+   *
+   * Porta il NOME e non l'id: la conferma sta sotto un elenco di pulsanti
+   * identici, e senza il nome due clic ravvicinati non si distinguono. Non è
+   * mai persistito — è il racconto di un gesto, non un fatto del registro.
+   */
+  personIdCopy: { readonly personName: string; readonly outcome: CopyOutcome } | null;
   settingsArea: string;
 }
 
@@ -820,6 +858,10 @@ const state: AppState = {
   // sbagliato con l'aria di un fatto.
   auctionHistory: loadAuctionHistory(browserStorage).purchases,
   opponentProfiles: loadOpponentProfiles(browserStorage).profiles,
+  // Nessun messaggio al boot: non è stato compiuto nessun gesto. Lo stato
+  // degli archivi lo dice il riepilogo, che è un fatto e non un esito.
+  archiveHistoryMessage: null,
+  archiveProfilesMessage: null,
   // Nessuna scheda finché il deposito non risponde: il riquadro parte da
   // «fonte aggiuntiva non disponibile», che è la verità al primo frame.
   expertSchede: EXPERT_SCHEDE_ABSENT,
@@ -840,6 +882,7 @@ const state: AppState = {
   schedaImportError: "",
   rosterError: "",
   newPersonName: "",
+  personIdCopy: null,
   // Opens on the area you act on; app status is diagnostics, read on demand.
   settingsArea: "teams",
 };
@@ -1507,6 +1550,67 @@ function opponentPrecedentsProps(): OpponentPrecedentsProps {
     }),
     teamLabels: seatLabelMap(),
   };
+}
+
+// ── ARCHIVIO AVVERSARI — la via d'ingresso dei due depositi runtime-local ────
+//
+// PERCHÉ QUESTE QUATTRO FUNZIONI ESISTONO. `opponentPrecedentsProps()` qui
+// sopra legge `state.auctionHistory` e `state.opponentProfiles`, che il boot
+// riempie da `loadAuctionHistory` / `loadOpponentProfiles`. Fino a qui nessun
+// punto dell'app chiamava mai le SCRITTURE gemelle di quelle letture: il
+// pannello AVVERSARI: I PRECEDENTI era una stanza arredata senza porta, e in
+// produzione avrebbe detto «Nessuno storico d'asta caricato» per sempre.
+// Queste sono la porta; la logica sta in src/opponentArchive.ts, dove è
+// verificabile senza un DOM.
+//
+// LO STATO RISPECCHIA LA MEMORIA, MAI L'INTENZIONE. Ogni azione riassegna
+// `state.auctionHistory` con ciò che il modulo ha RILETTO dallo storage dopo
+// l'azione — non con ciò che si è tentato di scrivere. È così che il rifiuto
+// di un file storto lascia visibile l'archivio che è rimasto, e che una
+// scrittura non attecchita si vede invece di essere promessa.
+
+function loadAuctionHistoryFromText(text: string): void {
+  const applied = applyAuctionHistoryText(browserStorage, text);
+  state.auctionHistory = applied.stored;
+  state.archiveHistoryMessage = applied.message;
+  render();
+}
+
+function loadOpponentProfilesFromText(text: string): void {
+  const applied = applyOpponentProfilesText(browserStorage, text);
+  state.opponentProfiles = applied.stored;
+  state.archiveProfilesMessage = applied.message;
+  render();
+}
+
+function forgetAuctionHistoryArchive(): void {
+  const applied = forgetAuctionHistory(browserStorage);
+  state.auctionHistory = applied.stored;
+  state.archiveHistoryMessage = applied.message;
+  render();
+}
+
+function forgetOpponentProfilesArchive(): void {
+  const applied = forgetOpponentProfiles(browserStorage);
+  state.opponentProfiles = applied.stored;
+  state.archiveProfilesMessage = applied.message;
+  render();
+}
+
+/** Il corpo dell'area Impostazioni → Archivio avversari. */
+function renderArchivioAvversariSettings(): HTMLElement {
+  return renderOpponentArchiveSettings({
+    history: state.auctionHistory,
+    profiles: state.opponentProfiles,
+    seats: state.leagueRoster.seats,
+    selfSeatId: SELF_ID,
+    historyMessage: state.archiveHistoryMessage,
+    profilesMessage: state.archiveProfilesMessage,
+    onHistoryFileText: loadAuctionHistoryFromText,
+    onProfilesFileText: loadOpponentProfilesFromText,
+    onForgetHistory: forgetAuctionHistoryArchive,
+    onForgetProfiles: forgetOpponentProfilesArchive,
+  });
 }
 
 /**
@@ -2606,6 +2710,17 @@ const SETTINGS_AREAS: readonly SettingsArea[] = [
     body: () => renderSchedeSettings(),
   },
   {
+    // La via d'ingresso dello storico d'asta: senza questa area il pannello
+    // AVVERSARI resterebbe muto in produzione, perché non esisterebbe alcun
+    // punto in cui caricare l'archivio. Convive con "schede": le due aree
+    // sono nate in parallelo e occupavano lo stesso slot, ma rispondono a
+    // due domande diverse e nessuna sostituisce l'altra.
+    id: "archivio",
+    title: "Archivio avversari",
+    icon: ARCHIVE_SETTINGS_ICON,
+    body: () => renderArchivioAvversariSettings(),
+  },
+  {
     id: "status",
     title: "Stato app",
     icon: SETTINGS_ICONS.status,
@@ -2749,6 +2864,57 @@ function persistRoster(next: LeagueRoster): void {
     : "Modifica non salvata: la memoria locale ha rifiutato la scrittura. Le altre funzioni non sono toccate.";
 }
 
+/** Il nodo che mostra a schermo l'identificativo di una persona, o `null`. */
+function personIdNode(personId: string): Element | null {
+  return document.querySelector(`.person-id-value[data-person-id="${CSS.escape(personId)}"]`);
+}
+
+/**
+ * Seleziona a schermo l'identificativo. Rende `false` quando non c'è niente da
+ * selezionare — così «è selezionato, premi Ctrl+C» non viene mai detto su una
+ * selezione che non esiste.
+ */
+function selectPersonIdOnScreen(personId: string): boolean {
+  const node = personIdNode(personId);
+  if (node === null) return false;
+  const selection = window.getSelection();
+  if (selection === null) return false;
+  const range = document.createRange();
+  range.selectNodeContents(node);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  return true;
+}
+
+/**
+ * Copia l'identificativo di un partecipante, e dice che cosa è successo
+ * DAVVERO (src/personIdClipboard.ts: tre esiti, tre frasi).
+ *
+ * L'esistenza del nodo si controlla senza selezionarlo: `attemptCopy` promette
+ * di non toccare la selezione dell'utente quando gli appunti rispondono, e
+ * selezionare durante la costruzione delle porte violerebbe quella promessa
+ * proprio nel caso normale.
+ *
+ * LA RISELEZIONE DOPO IL RENDER non è un dettaglio: `render()` ricostruisce
+ * l'intero albero, quindi la selezione fatta dal ripiego morirebbe insieme al
+ * nodo che la teneva — e la frase «è selezionato a schermo» diventerebbe falsa
+ * nell'istante in cui viene scritta.
+ */
+async function copyPersonId(person: { readonly id: string; readonly name: string }): Promise<void> {
+  const clipboard = navigator.clipboard as Clipboard | undefined;
+  const outcome = await attemptCopy(person.id, {
+    writeText:
+      typeof clipboard?.writeText === "function" ? (text) => clipboard.writeText(text) : null,
+    selectAndCopy:
+      personIdNode(person.id) === null
+        ? null
+        : () => selectPersonIdOnScreen(person.id) && document.execCommand("copy"),
+  });
+  state.personIdCopy = { personName: person.name, outcome };
+  render();
+  if (outcome === "selection") selectPersonIdOnScreen(person.id);
+}
+
 const ROSTER_ERRORS: Record<string, string> = {
   "name-required": "Serve un nome.",
   "duplicate-name": "C'è già un partecipante con questo nome.",
@@ -2885,9 +3051,68 @@ function renderLeagueTeamsSettings(): HTMLElement {
       persistRoster(result.roster);
     });
     field.appendChild(input);
+
+    // L'IDENTIFICATIVO DELLA PERSONA, LEGGIBILE E COPIABILE, ACCANTO AL NOME.
+    //
+    // Sta qui e non in una schermata propria perché è qui che serve: lo
+    // storico d'asta (Impostazioni → Archivio avversari) è chiavato su
+    // `personId`, e quando Pico compila quel file sta guardando questo elenco.
+    // Un elenco di identificativi senza i nomi accanto non servirebbe a
+    // niente: l'utilità è tutta nell'accostamento.
+    //
+    // Il pulsante sta dentro la `<label>` della persona: attivarlo NON sposta
+    // il fuoco sul campo del nome, perché la label salta il proprio
+    // comportamento di attivazione quando il bersaglio dell'evento è a sua
+    // volta un elemento interattivo.
+    const idRow = document.createElement("div");
+    idRow.className = "person-id-row";
+
+    const idValue = document.createElement("code");
+    idValue.className = "person-id-value";
+    idValue.dataset.personId = person.id;
+    idValue.textContent = person.id;
+    // Nome accessibile esplicito: letto da solo, `person:8f3…` non dice a
+    // quale delle due cose accanto si riferisce.
+    idValue.setAttribute("aria-label", `Identificativo di ${person.name}`);
+    idRow.appendChild(idValue);
+
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "btn btn--secondary person-id-copy";
+    copyBtn.dataset.personId = person.id;
+    copyBtn.textContent = "Copia";
+    copyBtn.title = `Copia l'identificativo di ${person.name}`;
+    copyBtn.setAttribute("aria-label", copyBtn.title);
+    copyBtn.addEventListener("click", () => {
+      void copyPersonId(person);
+    });
+    idRow.appendChild(copyBtn);
+
+    field.appendChild(idRow);
     people.appendChild(field);
   }
   panel.appendChild(people);
+
+  // L'esito dell'ULTIMO gesto di copia. Un gesto senza risposta si ripete, e
+  // ripetuto su un pulsante che NON ha copiato produce un file scritto con una
+  // stringa vuota incollata dentro.
+  if (state.personIdCopy !== null) {
+    const status = document.createElement("p");
+    status.id = "person-id-copy-status";
+    status.setAttribute("role", "status");
+    status.className = copySucceeded(state.personIdCopy.outcome)
+      ? "person-id-copy-status"
+      : "person-id-copy-status person-id-copy-status--warn";
+    status.textContent = copyMessage(state.personIdCopy.personName, state.personIdCopy.outcome);
+    panel.appendChild(status);
+  }
+
+  const idHint = document.createElement("p");
+  idHint.className = "hint-text";
+  idHint.id = "person-id-hint";
+  idHint.textContent =
+    "L'identificativo sotto ogni nome è la chiave con cui lo storico d'asta riconosce la persona (Impostazioni → Archivio avversari). Si genera una volta e non cambia mai: rinominare qualcuno corregge l'etichetta, non l'identità.";
+  panel.appendChild(idHint);
 
   if (state.leagueRoster.people.length === 0) {
     const empty = document.createElement("p");
