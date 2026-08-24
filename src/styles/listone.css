@@ -42,8 +42,130 @@
    clipping text or causing page-level horizontal scroll. */
 .listone-table-head > div,
 .listone-row > div {
+  flex: var(--col-flex, 1) 1 0;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+.listone-cell--club,
+.listone-cell--name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.listone-cell--mono {
+  font-family: var(--font-mono);
+}
+/* L'etichetta che ogni casella si porta dietro (data-label) NON si disegna
+   nella resa larga: là il nome della colonna sta nell'intestazione, una volta
+   sola. Compare sotto i 900px, dove l'intestazione a undici colonne non
+   esiste più — vedi il blocco in fondo a questo file. */
+
+/* ── UNDICI COLONNE SU UN TELEFONO ──────────────────────────────────────────
+   Il listone si legge DURANTE un'asta, spesso da 390px di larghezza. Undici
+   colonne affiancate lì dentro fanno 24px a colonna: non è una tabella
+   stretta, è una tabella illeggibile.
+
+   TRE STRADE, E PERCHÉ QUESTA. (1) Far scorrere la pagina in orizzontale:
+   escluso, si perde il nome del giocatore mentre si guarda il suo voto e si
+   rompe tutto il resto della schermata. (2) Far scorrere la TABELLA dentro
+   il suo riquadro: meglio, ma durante un rilancio si scorre con una mano
+   sola e il nome esce comunque dallo schermo. (3) Smettere di essere una
+   tabella: ogni riga diventa una SCHEDA aperta dal nome, e dietro di lui
+   ruolo, squadra e le sette caselle del Gruppo Esperti scorrono a capo, ognuna
+   con la propria etichetta accanto al proprio valore. Nessuna informazione
+   persa, nessuno scorrimento orizzontale — né di pagina né di tabella — e
+   ogni numero resta attaccato al nome di chi riguarda.
+
+   L'INTESTAZIONE NON SPARISCE, cambia mestiere: da riga di colonne a gruppo
+   di pastiglie che vanno a capo. È l'unico comando di ordinamento che questa
+   tabella ha, e toglierlo sotto una certa larghezza vorrebbe dire togliere
+   l'ordinamento a chi usa il telefono. Le celle dell'intestazione non hanno
+   `data-label` e non ne hanno bisogno: sono già il nome della colonna. */
+@media (max-width: 899px) {
+  .listone-table-head {
+    flex-wrap: wrap;
+    gap: 3px;
+    padding: 6px;
+  }
+  /* Pastiglie strette apposta: sono dieci e stanno tutte sopra la prima riga
+     della tabella. Ogni pixel che si prendono qui è un pixel che allontana la
+     paginazione dal campo di ricerca — vedi la nota sulla riga-scheda qui
+     sotto e `e2e/call-screen-order.spec.ts`. */
+  .listone-table-head > div {
+    flex: 0 0 auto;
+    padding: 2px 6px;
+    font-size: 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+
+  /* LA RIGA DIVENTA UNA SCHEDA. Il nome fa da titolo su tutta la larghezza;
+     sotto, ruolo, squadra e le sette caselle del Gruppo Esperti scorrono a
+     capo come un elenco di coppie «etichetta valore».
+
+     PERCHÉ IN LINEA E NON IN COLONNA. La prima resa metteva l'etichetta SOPRA
+     il valore, in griglia: si leggeva benissimo e faceva 330px per scheda,
+     cioè 3300px per una pagina da dieci — la paginazione finiva alla quarta
+     schermata. `e2e/call-screen-order.spec.ts` misura esattamente questo e
+     l'ha bocciata: una pagina di listone deve stare in due schermate, perché
+     il controllo che si usa a ogni ricerca non può essere un viaggio.
+     L'etichetta in linea dimezza l'altezza di ogni coppia e porta la scheda
+     intorno ai 110px: stessa informazione, nessuna etichetta persa, e la
+     paginazione torna a portata di pollice. */
+  .listone-row {
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 8px;
+    padding: 7px 10px;
+    font-size: 11.5px;
+  }
+  /* La riga larga distribuisce lo spazio per rapporti; qui ogni casella è
+     larga quanto il suo contenuto e va a capo quando serve. `--col-flex`
+     resta scritto sull'elemento e torna a valere da 900px in su. */
+  .listone-row > div {
+    flex: 0 0 auto;
+  }
+  /* Il NOME apre la scheda ed è l'unica cosa in grassetto: ruolo, squadra e
+     le sette caselle del Gruppo Esperti gli scorrono dietro andando a capo.
+     Non è una griglia: una griglia darebbe a ogni casella la stessa larghezza
+     e «CONSIGLIO ESPERTI» ne chiede il doppio di «SALUTE», quindi metà delle
+     colonne resterebbe mezza vuota — e ogni pixel sprecato in larghezza qui
+     diventa altezza, cioè distanza fra il campo di ricerca e la paginazione
+     (`e2e/call-screen-order.spec.ts`, che misura esattamente quella). */
+  .listone-row > div[data-col="name"] {
+    flex: 0 1 auto;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+  .listone-row--assigned > div[data-col="name"] {
+    color: var(--text-dim);
+  }
+  /* L'ETICHETTA DENTRO LA CASELLA. È l'unica cosa che dice, su un telefono,
+     di che grandezza è quel numero — e per «No malus / Bonus» è la parola del
+     ruolo di QUESTA riga, non quella condivisa dell'intestazione (vedi
+     listoneColumnLabelForRole in src/ui/listone.ts). */
+  .listone-row > div[data-label]::before {
+    content: attr(data-label);
+    margin-right: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+    color: var(--text-sec);
+  }
+  /* Le tre caselle d'identità si spiegano da sé: il nome è il titolo della
+     scheda, la pastiglia P/D/C/A porta la propria lettera e la squadra il
+     proprio stemma. Le loro etichette costerebbero una riga di larghezza per
+     dire quello che si vede già — e la larghezza, qui, è altezza.
+     La specificità è la stessa della regola qui sopra (`div` incluso) e vince
+     perché viene dopo: senza il `div` perderebbe, ed è esattamente quello che
+     era successo — «NOME Aldo Prova» stampato su ogni scheda. */
+  .listone-row > div[data-col="name"]::before,
+  .listone-row > div[data-col="role"]::before,
+  .listone-row > div[data-col="club"]::before {
+    content: none;
+  }
 }
 .listone-row--clickable {
   cursor: pointer;
@@ -155,4 +277,59 @@
 .status-filter__check {
   color: var(--text-accent);
   font-size: 11px;
+}
+
+/* ── Pannello «Colonne visibili» ────────────────────────────────────────────
+   Un interruttore per colonna, con lo stato dichiarato su `aria-pressed` e
+   non solo nel colore: il segno di spunta è testo. */
+.listone-columns {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-inner);
+}
+.listone-columns__label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-sec);
+}
+.listone-columns__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-sec);
+}
+.listone-columns__toggle:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+.listone-columns__toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.listone-columns__toggle[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  font-weight: 700;
+}
+.listone-columns__mark {
+  font-size: 11px;
+  color: var(--text-accent);
+}
+.listone-columns__warn {
+  flex: 1 0 100%;
+  font-size: 11px;
+  color: var(--text-mid);
 }

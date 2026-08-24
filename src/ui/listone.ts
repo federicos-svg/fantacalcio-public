@@ -7,7 +7,7 @@
 // docs/data/LISTONE_UI_LOAD_CONTRACT.md for the JSON shape this expects.
 
 import { type Role, ROLES } from "../../packages/engine/src/types.js";
-import { C, escHtml, roleChipHtml } from "./theme.js";
+import { escHtml, roleChipHtml } from "./theme.js";
 import { clubBadgeHtml } from "./serieA.js";
 
 export type ListoneCellValue = string | number;
@@ -81,9 +81,114 @@ const CORE_COLUMNS: readonly ListoneColumn[] = [
   { key: "quotation", label: "Quotazione", kind: "number", core: true },
 ];
 
+/** Le tre colonne d'identità: nome, ruolo, squadra. Sono le prime tre della
+ *  lista di Pico (2026-08-24) e le uniche che nessuna vista può spegnere
+ *  senza che la riga smetta di dire di chi parla. */
+const IDENTITY_COLUMNS: readonly ListoneColumn[] = CORE_COLUMNS.slice(0, 3);
+
+/** La quotazione di listino. Resta una colonna del pool a tutti gli effetti —
+ *  validata, ordinabile, riaccendibile — ma dal 2026-08-24 NON è più visibile
+ *  di default: Pico ha chiesto undici colonne e questa non è fra loro
+ *  («Nascondile, ma lasciale attivabili»). */
+const QUOTATION_COLUMN: ListoneColumn = CORE_COLUMNS[3] as ListoneColumn;
+
 /** Column key of the appeal index. Not a core column: it exists only when the
  *  served pool actually carries an index, and disappears with it. */
 export const APPEAL_INDEX_COLUMN_KEY = "appealIndex";
+
+// ── LE COLONNE DEL GRUPPO ESPERTI ────────────────────────────────────────────
+//
+// L'ELENCO È DI PICO, E L'ORDINE ANCHE (richiesta del committente, 2026-08-24):
+// «nome, ruolo, squadra, indice di appetibilità, Titolarità, Media Voto,
+// Salute, No Malus/Bonus, Consiglio Esperti, rigorista, piazzati». Undici
+// colonne visibili di default; tutto il resto — la quotazione di listino
+// compresa — resta nel listone, nascosto e riaccendibile dal pannello
+// «Colonne visibili».
+//
+// I CINQUE VOTI SONO VOTI, NON GIUDIZI CATEGORICI. Sono su scala 0–10 e
+// arrivano dalle schede del Gruppo Esperti. OGGI NON ESISTONO ANCORA:
+// l'estrazione è in lavorazione altrove, e finché non atterra ogni cella dice
+// `n/d`. Mai uno zero, mai un trattino, mai una media: un voto che nessuno ha
+// scritto non è un voto basso.
+//
+// PERCHÉ QUESTE CHIAVI E NON ALTRE. `pagella_*` è il prefisso con cui la
+// pagella del Gruppo Esperti è già nominata nel lavoro parallelo sui voti: le
+// quattro chiavi che descrivono lo stesso asse portano lo stesso nome, così i
+// due rami parlano della stessa colonna invece di crearne due.
+
+/** Il quarto asse ha UN NOME SOLO PER RUOLO e UNA COLONNA SOLA (decisione
+ *  dell'Executive, 2026-08-24): per i portieri la fonte lo chiama «No malus»,
+ *  per il movimento «Bonus». È lo stesso voto — vedi expertVoteColumnLabel. */
+export const NO_MALUS_BONUS_COLUMN_KEY = "pagella_no_malus_bonus";
+
+/** I cinque voti /10, nell'ordine dell'elenco di Pico. */
+export const EXPERT_VOTE_COLUMN_KEYS = [
+  "pagella_titolarita",
+  "pagella_media_voto",
+  "pagella_salute",
+  NO_MALUS_BONUS_COLUMN_KEY,
+  "pagella_consiglio",
+] as const;
+
+export type ExpertVoteColumnKey = (typeof EXPERT_VOTE_COLUMN_KEYS)[number];
+
+/** La scala dei cinque voti. Dichiarata una volta e detta a schermo nella nota
+ *  sotto la tabella, perché su un telefono non esiste il passaggio del mouse. */
+export const EXPERT_VOTE_MAX = 10;
+
+/** Rigori e calci piazzati: due segnali della scheda, non due voti. Il dato
+ *  c'è già oggi (`designato`/`possibile`, `punizioni`/`angoli`). */
+export const RIGORISTA_COLUMN_KEY = "scheda_rigorista";
+export const PIAZZATI_COLUMN_KEY = "scheda_piazzati";
+
+/**
+ * Le sette colonne che NON vivono sulla riga del listone: i cinque voti e i
+ * due segnali di scheda. Il loro valore arriva dall'esterno, riga per riga
+ * (vedi `ListoneRowSignals`), perché il deposito delle schede è un'altra
+ * fonte con un'altra identità di aggancio — nome + squadra, non la riga.
+ */
+export const SIGNAL_COLUMN_KEYS: readonly string[] = [
+  ...EXPERT_VOTE_COLUMN_KEYS,
+  RIGORISTA_COLUMN_KEY,
+  PIAZZATI_COLUMN_KEY,
+];
+
+/**
+ * I SEGNALI DI UNA RIGA — ciò che la tabella mostra e che la riga di listone
+ * non porta.
+ *
+ * Le due etichette arrivano GIÀ TRADOTTE dal vocabolario chiuso delle schede
+ * (`RIGORI_LABELS` / `PIAZZATI_LABELS` in src/ui/expertInsight.ts, costruite
+ * su `RIGORI_VALUES` / `PIAZZATI_VALUES` di src/expertScheda.ts). Questo
+ * modulo non traduce e non inventa parole: se una parola non è nel
+ * vocabolario, non è arrivata da qui. È anche ciò che tiene questo file
+ * fuori dal ciclo di import fra `expertScheda.ts` e `ui/listone.ts`.
+ *
+ * `voti` è una mappa PARZIALE apposta: una chiave assente è un voto che
+ * nessuno ha ancora estratto, e si rende `n/d`. Non esiste un modo di
+ * scrivere «voto sconosciuto» con un numero, e non deve esisterne uno.
+ */
+export interface ListoneRowSignals {
+  /** «designato» / «possibile», o `null` quando la scheda non lo dice. */
+  readonly rigori: string | null;
+  /** «punizioni» / «angoli» — vuoto quando la scheda non lo dice. */
+  readonly piazzati: readonly string[];
+  readonly voti: Readonly<Partial<Record<ExpertVoteColumnKey, number>>>;
+}
+
+/** Nessun segnale: lo stato onesto quando il deposito delle schede non c'è. */
+export const NO_ROW_SIGNALS: ListoneRowSignals = { rigori: null, piazzati: [], voti: {} };
+
+export type ListoneRowSignalsLookup = (p: ListonePlayer) => ListoneRowSignals;
+
+/** Il lookup di default — usato dai test e da ogni chiamante che non ha (o non
+ *  vuole) il deposito delle schede: ogni riga senza segnali, ogni cella `n/d`. */
+export const noRowSignals: ListoneRowSignalsLookup = () => NO_ROW_SIGNALS;
+
+/** Il testo di una casella che non ha un valore da mostrare. Una sola
+ *  costante: `n/d` è una dichiarazione di assenza e deve leggersi identica
+ *  ovunque, altrimenti smette di essere riconoscibile come tale. */
+export const VALUE_NOT_AVAILABLE = "n/d";
 
 const CORE_KEYS = new Set(CORE_COLUMNS.map((c) => c.key));
 CORE_KEYS.add("proxyId");
@@ -183,17 +288,36 @@ export function isGatedListoneExtraKey(key: string): boolean {
   return normalized === null || GATED_EXTRA_KEYS.has(normalized);
 }
 
-/** Columns shown by default — the 4 fields already established as the minimum shape. */
-export const DEFAULT_VISIBLE_COLUMN_KEYS: readonly string[] = CORE_COLUMNS.map((c) => c.key);
+/**
+ * LE UNDICI COLONNE VISIBILI DI DEFAULT, nell'ordine chiesto da Pico il
+ * 2026-08-24: nome, ruolo, squadra, indice di appetibilità, Titolarità, Media
+ * Voto, Salute, No Malus/Bonus, Consiglio Esperti, rigorista, piazzati.
+ *
+ * ERANO QUATTRO (name, role, club, quotation) e la QUOTAZIONE non è più fra
+ * loro. Non è stata tolta dal listone: è nascosta e riaccendibile dal pannello
+ * «Colonne visibili», che è esattamente la scelta che Pico ha fatto quando gli
+ * è stato chiesto che fine facessero le colonne fuori dall'elenco
+ * («Nascondile, ma lasciale attivabili»).
+ *
+ * `appealIndex` è nell'elenco ma la sua colonna esiste solo quando il pool
+ * porta davvero un indice — regola invariata, vedi `listoneColumns`: qui
+ * cambia il POSTO che occupa quando c'è, non la condizione che la fa esistere.
+ */
+export const DEFAULT_VISIBLE_COLUMN_KEYS: readonly string[] = [
+  ...IDENTITY_COLUMNS.map((c) => c.key),
+  APPEAL_INDEX_COLUMN_KEY,
+  ...SIGNAL_COLUMN_KEYS,
+];
 
 /**
- * Default visible columns for a specific pool: the four core ones, plus the
- * appeal index when the pool carries it. Extra source columns stay hidden
- * behind the column picker as before — the index does not, because a column
- * nobody switches on is not "visible on the site".
+ * Le colonne visibili di default PER QUESTO POOL: le undici qui sopra, meno
+ * quelle che per questo pool non esistono affatto (oggi: l'indice, quando il
+ * deposito non ne porta uno). Filtrare invece di enumerare i casi tiene una
+ * regola sola quando le colonne condizionali diventeranno più di una.
  */
 export function defaultVisibleColumnKeys(pool: readonly ListonePlayer[]): string[] {
-  return [...DEFAULT_VISIBLE_COLUMN_KEYS, ...(poolHasAppealIndex(pool) ? [APPEAL_INDEX_COLUMN_KEY] : [])];
+  const existing = new Set(listoneColumns(pool).map((c) => c.key));
+  return DEFAULT_VISIBLE_COLUMN_KEYS.filter((key) => existing.has(key));
 }
 
 /** The one clause that is true of every pool, whatever loaded it — so the
@@ -535,10 +659,31 @@ export function listoneAppealIndexNote(pool: readonly ListonePlayer[]): string |
 }
 
 /**
- * Full column list for a pool: the 4 core columns, plus any extra columns
- * discovered from the loaded rows (alphabetical, for a deterministic
- * order). An empty pool yields just the core columns.
+ * LA RIGA CHE QUALIFICA LE SETTE COLONNE DEL GRUPPO ESPERTI — e che, finché i
+ * voti non ci sono, DICE che non ci sono.
+ *
+ * Non torna mai `null`, ed è una differenza voluta rispetto alla nota
+ * dell'indice qui sopra. Cinque colonne intere di `n/d` senza una riga che le
+ * spieghi si leggono come una tabella rotta, non come un dato che manca — e
+ * l'unico posto in cui l'assenza è scritta a parole, oggi, è questo. La
+ * scala 0–10 sta qui e non solo nel tooltip per la stessa ragione: su un
+ * telefono, dove il listone si legge davvero durante l'asta, il passaggio del
+ * mouse non esiste.
  */
+export function listoneExpertSignalsNote(hasVotes: boolean): string {
+  const votes = hasVotes
+    ? `I cinque voti sono su scala 0–${EXPERT_VOTE_MAX}, scritti dal Gruppo Esperti.`
+    : `I cinque voti (Titolarità, Media voto, Salute, No malus / Bonus, Consiglio esperti) sono su ` +
+      `scala 0–${EXPERT_VOTE_MAX} e oggi NON sono ancora estratti: ogni casella dice «${VALUE_NOT_AVAILABLE}». ` +
+      "Assenza dichiarata, mai uno zero.";
+  return (
+    `Gruppo Esperti: ${votes} ` +
+    "«No malus / Bonus» è un voto solo — «No malus» per i portieri, «Bonus» per il movimento. " +
+    `«Rigorista» e «Piazzati» riportano la scheda: «${VALUE_NOT_AVAILABLE}» significa che la scheda non lo dice, ` +
+    `non che il giocatore non li calci. ${DISPLAY_ONLY_CLAUSE}`
+  );
+}
+
 const APPEAL_INDEX_COLUMN: ListoneColumn = {
   key: APPEAL_INDEX_COLUMN_KEY,
   label: "Indice",
@@ -546,30 +691,91 @@ const APPEAL_INDEX_COLUMN: ListoneColumn = {
   core: false,
 };
 
+/**
+ * Le sette colonne che leggono i segnali di riga. Le etichette sono le parole
+ * di Pico; il quarto asse porta ENTRAMBI i nomi di ruolo nell'intestazione
+ * condivisa e uno solo — quello giusto — sulla riga (vedi
+ * `listoneColumnLabelForRole`).
+ */
+const SIGNAL_COLUMNS: readonly ListoneColumn[] = [
+  { key: "pagella_titolarita", label: "Titolarità", kind: "number", core: false },
+  { key: "pagella_media_voto", label: "Media voto", kind: "number", core: false },
+  { key: "pagella_salute", label: "Salute", kind: "number", core: false },
+  { key: NO_MALUS_BONUS_COLUMN_KEY, label: "No malus / Bonus", kind: "number", core: false },
+  { key: "pagella_consiglio", label: "Consiglio esperti", kind: "number", core: false },
+  { key: RIGORISTA_COLUMN_KEY, label: "Rigorista", kind: "string", core: false },
+  { key: PIAZZATI_COLUMN_KEY, label: "Piazzati", kind: "string", core: false },
+];
+
 /** True when the served pool actually carries an index for at least one row. */
 export function poolHasAppealIndex(pool: readonly ListonePlayer[]): boolean {
   return pool.some((p) => p.appealIndex !== undefined);
 }
 
+/** Le chiavi che questo file calcola da sé. Una colonna extra del file
+ *  caricato che portasse uno di questi nomi sarebbe una SECONDA colonna con
+ *  la stessa chiave: due intestazioni identiche e un ordinamento ambiguo. */
+const RESERVED_COLUMN_KEYS: ReadonlySet<string> = new Set([
+  ...CORE_COLUMNS.map((c) => c.key),
+  APPEAL_INDEX_COLUMN_KEY,
+  ...SIGNAL_COLUMN_KEYS,
+]);
+
+/**
+ * L'elenco completo delle colonne di un pool, NELL'ORDINE IN CUI SI VEDONO —
+ * che è quello dell'elenco di Pico (2026-08-24) e non più quello della forma
+ * della riga:
+ *
+ *   nome, ruolo, squadra, [indice], i cinque voti, rigorista, piazzati,
+ *   quotazione, poi le colonne extra del file caricato (alfabetiche).
+ *
+ * L'ordine sta QUI e non nella lista delle colonne visibili apposta: una
+ * colonna riaccesa dal pannello torna al suo posto invece di comparire in
+ * fondo, e due utenti che accendono le stesse colonne vedono la stessa
+ * tabella. La visibilità decide CHI si vede, mai DOVE.
+ *
+ * L'indice compare solo quando il pool ne porta uno: regola invariata.
+ * I sette segnali invece ci sono SEMPRE, perché la loro assenza è un dato —
+ * `n/d` — e una colonna che sparisce non dice niente a nessuno.
+ */
 export function listoneColumns(pool: readonly ListonePlayer[]): ListoneColumn[] {
   const extraKeys = new Set<string>();
   for (const p of pool) {
     if (p.extra) for (const k of Object.keys(p.extra)) extraKeys.add(k);
   }
-  const extraColumns: ListoneColumn[] = [...extraKeys].sort((a, b) => a.localeCompare(b, "it")).map((key) => ({
-    key,
-    label: key,
-    kind: inferExtraColumnKind(pool, key),
-    core: false,
-  }));
-  // The index sits right after the core columns and only exists when the data
-  // brought one: a pool without it has no "Indice" column to sort, toggle or
-  // explain.
+  const extraColumns: ListoneColumn[] = [...extraKeys]
+    .filter((key) => !RESERVED_COLUMN_KEYS.has(key))
+    .sort((a, b) => a.localeCompare(b, "it"))
+    .map((key) => ({
+      key,
+      label: key,
+      kind: inferExtraColumnKind(pool, key),
+      core: false,
+    }));
   return [
-    ...CORE_COLUMNS,
+    ...IDENTITY_COLUMNS,
     ...(poolHasAppealIndex(pool) ? [APPEAL_INDEX_COLUMN] : []),
+    ...SIGNAL_COLUMNS,
+    QUOTATION_COLUMN,
     ...extraColumns,
   ];
+}
+
+/**
+ * L'ETICHETTA DI UNA COLONNA PER UNA RIGA DI QUEL RUOLO — l'unico punto in cui
+ * «No malus / Bonus» smette di essere due parole insieme.
+ *
+ * È UNA COLONNA SOLA (decisione dell'Executive, 2026-08-24) perché è UN VOTO
+ * SOLO: la fonte lo chiama «No malus» sulla scheda di un portiere e «Bonus» su
+ * quella di chiunque altro. L'intestazione della tabella li porta entrambi,
+ * perché una colonna sopra righe di ruoli diversi non può scegliere; la
+ * scheda stretta, dove ogni casella sta sotto la riga di UN giocatore, porta
+ * la parola del suo ruolo e nient'altro. Nessuno dei due ruoli legge mai la
+ * parola dell'altro sopra il proprio numero.
+ */
+export function listoneColumnLabelForRole(column: ListoneColumn, role: Role): string {
+  if (column.key !== NO_MALUS_BONUS_COLUMN_KEY) return column.label;
+  return role === "P" ? "No malus" : "Bonus";
 }
 
 function inferExtraColumnKind(pool: readonly ListonePlayer[], key: string): ColumnKind {
@@ -580,10 +786,24 @@ function inferExtraColumnKind(pool: readonly ListonePlayer[], key: string): Colu
   return "string";
 }
 
-/** Column widths shared between the header (DOM, views.ts) and row HTML below. */
+/**
+ * Le larghezze relative, condivise fra intestazione (views.ts) e righe.
+ *
+ * Contano SOLO nella resa larga: sotto i 900px la riga diventa una scheda a
+ * griglia e questi rapporti non si applicano più (src/styles/listone.css).
+ * Con undici colonne il nome resta il doppio di una colonna qualsiasi e i
+ * cinque voti — una o due cifre — stanno stretti apposta, per lasciare
+ * respiro a nome e squadra, che sono quelli che si leggono a colpo d'occhio.
+ */
 export function listoneColumnFlex(key: string): number {
   if (key === "name") return 2;
-  if (key === "club") return 1.4;
+  if (key === "club") return 1.5;
+  if (key === "role") return 0.8;
+  if (key === APPEAL_INDEX_COLUMN_KEY) return 0.9;
+  if ((EXPERT_VOTE_COLUMN_KEYS as readonly string[]).includes(key)) return 0.85;
+  if (key === RIGORISTA_COLUMN_KEY) return 1.1;
+  if (key === PIAZZATI_COLUMN_KEY) return 1.2;
+  if (key === "quotation") return 0.9;
   return 1;
 }
 
@@ -613,6 +833,25 @@ const COLUMN_TOOLTIPS: Readonly<Record<string, string>> = {
     "Indice di appetibilità 0–100, percentile entro la coorte del proprio ruolo. " +
     "Etichetta di qualità e versione della ricetta nella nota sotto la tabella. " +
     "n/d quando il modello non ha un verdetto per quel giocatore.",
+  pagella_titolarita:
+    `Voto di titolarità 0–${EXPERT_VOTE_MAX} scritto dal Gruppo Esperti. ` +
+    "NON è la titolarità categorica (titolare / ballottaggio / riserva) del riquadro " +
+    "INSIGHT GIOCATORE: quella è un'affermazione, questo è un voto su una scala.",
+  pagella_media_voto: `Voto 0–${EXPERT_VOTE_MAX} sulla media voto attesa, scritto dal Gruppo Esperti.`,
+  pagella_salute: `Voto 0–${EXPERT_VOTE_MAX} sulla salute e la tenuta fisica, scritto dal Gruppo Esperti.`,
+  [NO_MALUS_BONUS_COLUMN_KEY]:
+    `Voto 0–${EXPERT_VOTE_MAX} del Gruppo Esperti su UNA sola grandezza, che la fonte chiama ` +
+    "«No malus» sulla scheda di un portiere e «Bonus» su quella di un giocatore di movimento. " +
+    "Una colonna sola perché è un voto solo; sulla scheda stretta ogni riga porta la parola del proprio ruolo.",
+  pagella_consiglio:
+    `Voto 0–${EXPERT_VOTE_MAX} del «Consiglio Esperti»: è un PARERE della fonte, non una misura, ` +
+    "e non entra in nessun calcolo di questa applicazione.",
+  [RIGORISTA_COLUMN_KEY]:
+    "Designazione dei rigori come la dichiara la scheda del Gruppo Esperti: «designato» o «possibile». " +
+    "n/d quando la scheda non lo dice — non significa che non li tiri.",
+  [PIAZZATI_COLUMN_KEY]:
+    "Calci piazzati dichiarati dalla scheda del Gruppo Esperti: «punizioni», «angoli», o entrambi. " +
+    "n/d quando la scheda non lo dice.",
 };
 
 /**
@@ -849,7 +1088,18 @@ export function paginateListonePool(
   return { items: pool.slice(start, start + pageSize), page: clampedPage, totalPages };
 }
 
-export function listoneCellValue(p: ListonePlayer, columnKey: string): ListoneCellValue | undefined {
+/**
+ * Il valore ORDINABILE di una casella. `signals` porta ciò che la riga non ha:
+ * i cinque voti e i due segnali di scheda. Il default `noRowSignals` non è una
+ * comodità — è la postura fail-closed di questo file: chi non ha il deposito
+ * delle schede non ottiene numeri, ottiene `undefined`, che si rende `n/d` e
+ * finisce in fondo all'ordinamento in entrambe le direzioni.
+ */
+export function listoneCellValue(
+  p: ListonePlayer,
+  columnKey: string,
+  signals: ListoneRowSignalsLookup = noRowSignals,
+): ListoneCellValue | undefined {
   switch (columnKey) {
     case "name":
       return p.name;
@@ -863,9 +1113,46 @@ export function listoneCellValue(p: ListonePlayer, columnKey: string): ListoneCe
       // A withheld verdict has no value to compare: `undefined` sorts last in
       // both directions, exactly like a missing cell, and renders `n/d`.
       return p.appealIndex?.score ?? undefined;
+    case RIGORISTA_COLUMN_KEY:
+      return signals(p).rigori ?? undefined;
+    case PIAZZATI_COLUMN_KEY: {
+      const piazzati = signals(p).piazzati;
+      return piazzati.length === 0 ? undefined : piazzati.join(" · ");
+    }
     default:
+      if ((EXPERT_VOTE_COLUMN_KEYS as readonly string[]).includes(columnKey)) {
+        return signals(p).voti[columnKey as ExpertVoteColumnKey];
+      }
       return p.extra?.[columnKey];
   }
+}
+
+/**
+ * IL TESTO DI UNA CASELLA, cioè dove `undefined` smette di essere una cosa
+ * sola e torna a essere quello che è per quella colonna.
+ *
+ *  - le sette colonne di segnale e l'indice dicono `n/d`: il dato ESISTE come
+ *    domanda e nessuno ha ancora scritto la risposta. Mai `0`, mai una media,
+ *    mai un trattino che si legge come «zero bonus»;
+ *  - una colonna del file caricato che non ha valore su questa riga tiene il
+ *    trattino di sempre: lì il buco è del file, e non c'è nessuna fonte a cui
+ *    attribuirlo.
+ */
+export function listoneCellText(
+  p: ListonePlayer,
+  columnKey: string,
+  signals: ListoneRowSignalsLookup = noRowSignals,
+): string {
+  const value = listoneCellValue(p, columnKey, signals);
+  if (columnKey === APPEAL_INDEX_COLUMN_KEY) {
+    // Rounding happens here and nowhere else: the served score keeps its full
+    // precision (Phase 5 `roundingPoint: "render_only"`).
+    return typeof value === "number" ? String(Math.round(value)) : VALUE_NOT_AVAILABLE;
+  }
+  if (SIGNAL_COLUMN_KEYS.includes(columnKey)) {
+    return value === undefined ? VALUE_NOT_AVAILABLE : String(value);
+  }
+  return value === undefined ? "—" : String(value);
 }
 
 /**
@@ -877,10 +1164,11 @@ export function sortListonePool(
   pool: readonly ListonePlayer[],
   columnKey: string,
   direction: SortDirection,
+  signals: ListoneRowSignalsLookup = noRowSignals,
 ): ListonePlayer[] {
   return [...pool].sort((a, b) => {
-    const va = listoneCellValue(a, columnKey);
-    const vb = listoneCellValue(b, columnKey);
+    const va = listoneCellValue(a, columnKey, signals);
+    const vb = listoneCellValue(b, columnKey, signals);
     if (va === undefined && vb === undefined) return 0;
     if (va === undefined) return 1;
     if (vb === undefined) return -1;
@@ -908,13 +1196,36 @@ export function listoneRowHtml(
   p: ListonePlayer,
   columns: readonly ListoneColumn[],
   isAssigned: boolean = false,
+  signals: ListoneRowSignalsLookup = noRowSignals,
 ): string {
-  return columns.map((col) => listoneCellHtml(p, col, isAssigned)).join("");
+  return columns.map((col) => listoneCellHtml(p, col, isAssigned, signals)).join("");
 }
 
-function listoneCellHtml(p: ListonePlayer, col: ListoneColumn, isAssigned: boolean): string {
-  const flex = listoneColumnFlex(col.key);
-  const value = listoneCellValue(p, col.key);
+/**
+ * L'attributo che porta l'intestazione DENTRO la casella.
+ *
+ * Sotto i 900px la tabella non è più una tabella: l'intestazione a undici
+ * colonne non esiste e ogni casella si porta la propria etichetta, disegnata
+ * da `content: attr(data-label)` (src/styles/listone.css). Non è una copia
+ * decorativa — è l'unico posto in cui, su un telefono, si legge di che
+ * grandezza è quel numero, e per questo l'etichetta è quella del RUOLO DELLA
+ * RIGA, non quella condivisa dell'intestazione.
+ */
+function cellAttributes(p: ListonePlayer, col: ListoneColumn): string {
+  return (
+    ` data-col="${escHtml(col.key)}" data-label="${escHtml(listoneColumnLabelForRole(col, p.role))}"` +
+    ` style="--col-flex:${listoneColumnFlex(col.key)};"`
+  );
+}
+
+function listoneCellHtml(
+  p: ListonePlayer,
+  col: ListoneColumn,
+  isAssigned: boolean,
+  signals: ListoneRowSignalsLookup,
+): string {
+  const attrs = cellAttributes(p, col);
+  const value = listoneCellValue(p, col.key, signals);
   if (col.kind === "role" && typeof value === "string") {
     // Riga già assegnata -> pastiglia ARRETRATA. `opacity: 0.6` su tutta la
     // riga faceva due cose insieme: attenuava il testo (ed è per questo che è
@@ -924,28 +1235,36 @@ function listoneCellHtml(p: ListonePlayer, col: ListoneColumn, isAssigned: boole
     // non puoi più comprare diventavano la cosa più accesa del listone. Il
     // disco arretrato è lo stesso hue a L 0.42 — vedi ROLE_CHIP_MUTED_TEXT in
     // theme.ts per i numeri.
-    return `<div style="flex:${flex};">${roleChipHtml(value, isAssigned ? "muted" : "full")}</div>`;
+    return `<div class="listone-cell"${attrs}>${roleChipHtml(value, isAssigned ? "muted" : "full")}</div>`;
   }
   if (col.key === "club" && typeof value === "string") {
-    return `<div style="flex:${flex};display:flex;align-items:center;gap:6px;">${clubBadgeHtml(value)}${escHtml(value)}</div>`;
+    return `<div class="listone-cell listone-cell--club"${attrs}>${clubBadgeHtml(value)}${escHtml(value)}</div>`;
   }
   if (col.key === "name" && typeof value === "string") {
     const badge = isAssigned ? `<span class="badge badge--assigned">Assegnato</span>` : "";
-    return `<div style="flex:${flex};display:flex;align-items:center;gap:6px;">${escHtml(value)}${badge}</div>`;
+    return `<div class="listone-cell listone-cell--name"${attrs}>${escHtml(value)}${badge}</div>`;
   }
-  // Rounding happens here and nowhere else: the served score keeps its full
-  // precision (Phase 5 `roundingPoint: "render_only"`), and a row the model
-  // gave no verdict for says so instead of showing an em dash like an
-  // ordinary missing cell.
-  const text =
-    col.key === APPEAL_INDEX_COLUMN_KEY
-      ? typeof value === "number" ? String(Math.round(value)) : "n/d"
-      : value === undefined ? "—" : String(value);
-  const mono = col.kind === "number" ? `font-family:${C.mono};` : "";
-  return `<div style="flex:${flex};${mono}">${escHtml(text)}</div>`;
+  const text = listoneCellText(p, col.key, signals);
+  const mono = col.kind === "number" ? " listone-cell--mono" : "";
+  return `<div class="listone-cell${mono}"${attrs}>${escHtml(text)}</div>`;
 }
 
-/** Static header row for the empty state (always just the 4 core columns, not clickable). */
+/**
+ * L'intestazione dello stato vuoto — non cliccabile, nessun pool da ordinare.
+ *
+ * Mostra le stesse colonne che si vedrebbero con un listone caricato (quelle
+ * di default che esistono senza pool), non più le quattro di una volta: lo
+ * scheletro di una tabella vuota deve somigliare alla tabella che arriverà,
+ * altrimenti insegna una forma che poi cambia da sola.
+ */
 export function listoneTableHeadHtml(): string {
-  return CORE_COLUMNS.map((c) => `<div style="flex:${listoneColumnFlex(c.key)};">${escHtml(c.label)}</div>`).join("");
+  const visible = new Set(defaultVisibleColumnKeys([]));
+  return listoneColumns([])
+    .filter((c) => visible.has(c.key))
+    .map(
+      (c) =>
+        `<div class="listone-cell" data-col="${escHtml(c.key)}" style="--col-flex:${listoneColumnFlex(c.key)};">` +
+        `${escHtml(c.label)}</div>`,
+    )
+    .join("");
 }

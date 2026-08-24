@@ -19,6 +19,7 @@ import { devStaticPanel, devStaticBadge } from "./devStatic.js";
 import {
   type ListonePlayer,
   type ListoneColumn,
+  type ListoneRowSignalsLookup,
   type ListoneSort,
   type ListoneStatusFilter,
   listoneRowHtml,
@@ -134,8 +135,22 @@ export interface ListonePanelState {
   /** Line qualifying the "Indice" column — quality label and recipe version,
    *  both carried by the served rows. `null` when the pool carries no index. */
   readonly appealIndexNote: string | null;
+  /** Riga che qualifica le sette colonne del Gruppo Esperti — vedi
+   *  `listoneExpertSignalsNote` in ui/listone.ts. Mai vuota. */
+  readonly expertSignalsNote: string;
   readonly sort: ListoneSort | null;
   readonly visibleColumnKeys: readonly string[];
+  /**
+   * I segnali di ogni riga — i cinque voti e i due campi di scheda — presi
+   * dove vivono davvero (il deposito delle schede), non dalla riga di
+   * listone. Il chiamante passa un lookup e non una mappa già costruita
+   * perché risolvere l'aggancio nome+squadra costa, e serve solo per le
+   * righe che finiscono a schermo.
+   */
+  readonly rowSignals: ListoneRowSignalsLookup;
+  /** `false` quando l'ultima scelta di colonne NON è stata salvata nel
+   *  browser: si dice, invece di lasciarla sparire al reload. */
+  readonly columnPrefsPersisted: boolean;
   readonly page: number;
   readonly columnPanelOpen: boolean;
   readonly manualOverrideOpen: boolean;
@@ -179,8 +194,11 @@ export function renderListoneSvincolati(
     loadError,
     sourceNote,
     appealIndexNote,
+    expertSignalsNote,
     sort,
     visibleColumnKeys,
+    rowSignals,
+    columnPrefsPersisted,
     page,
     columnPanelOpen,
     manualOverrideOpen,
@@ -241,7 +259,9 @@ export function renderListoneSvincolati(
 
   const columns = listoneColumns(pool);
   const visibleColumns = columns.filter((c) => visibleColumnKeys.includes(c.key));
-  const sortedPool = sort ? sortListonePool(displayPool, sort.key, sort.direction) : displayPool;
+  const sortedPool = sort
+    ? sortListonePool(displayPool, sort.key, sort.direction, rowSignals)
+    : displayPool;
   const paged = paginateListonePool(sortedPool, page);
 
   const panel = document.createElement("div");
@@ -264,7 +284,9 @@ export function renderListoneSvincolati(
   panel.appendChild(titleRow);
 
   if (columnPanelOpen) {
-    panel.appendChild(renderListoneColumnSelector(columns, visibleColumnKeys, onToggleColumn));
+    panel.appendChild(
+      renderListoneColumnSelector(columns, visibleColumnKeys, columnPrefsPersisted, onToggleColumn),
+    );
   }
 
   const table = document.createElement("div");
@@ -292,7 +314,7 @@ export function renderListoneSvincolati(
           "listone-row" +
           (isAssigned ? " listone-row--assigned" : " listone-row--clickable") +
           (isSelected ? " listone-row--selected" : "");
-        row.innerHTML = listoneRowHtml(p, visibleColumns, isAssigned);
+        row.innerHTML = listoneRowHtml(p, visibleColumns, isAssigned, rowSignals);
         if (!isAssigned) {
           row.title = "Clic per selezionare questo giocatore nella ricerca";
           row.addEventListener("click", () => onSelectPlayer(p));
@@ -319,6 +341,15 @@ export function renderListoneSvincolati(
     indexNote.textContent = appealIndexNote;
     panel.appendChild(indexNote);
   }
+
+  // Sempre presente, anche (soprattutto) quando i voti non ci sono: cinque
+  // colonne di `n/d` senza una riga che le spieghi si leggono come una
+  // tabella rotta. Vedi listoneExpertSignalsNote in ui/listone.ts.
+  const signalsNote = document.createElement("div");
+  signalsNote.id = "listone-expert-signals-note";
+  signalsNote.style.cssText = `font-size:11px;color:${C.textDim};margin-top:4px;`;
+  signalsNote.textContent = expertSignalsNote;
+  panel.appendChild(signalsNote);
 
   panel.appendChild(renderListoneManualOverride(onFileText, true, onForget, manualOverrideOpen, onToggleManualOverride));
 
@@ -419,9 +450,13 @@ function renderStatusFilterControl(
 function renderColumnPanelToggle(open: boolean, onToggle: () => void): HTMLElement {
   const btn = document.createElement("button");
   btn.type = "button";
+  btn.id = "listone-column-panel-toggle";
   btn.textContent = "⚙";
   btn.setAttribute("aria-label", "Colonne visibili");
   btn.setAttribute("aria-expanded", String(open));
+  // Il pannello esiste nel DOM solo da aperto: `aria-controls` si dichiara
+  // quando c'è qualcosa da controllare, altrimenti punta al nulla.
+  if (open) btn.setAttribute("aria-controls", LISTONE_COLUMN_PANEL_ID);
   btn.title = "Colonne visibili — apri/chiudi il pannello per scegliere quali colonne mostrare";
   btn.className = "btn btn--icon" + (open ? " is-active" : "");
   btn.style.flex = "none";
@@ -471,7 +506,16 @@ function renderListoneTableHead(
   head.className = "listone-table-head";
   for (const col of columns) {
     const cell = document.createElement("div");
-    cell.style.cssText = `flex:${listoneColumnFlex(col.key)};cursor:pointer;user-select:none;`;
+    cell.className = "listone-cell";
+    cell.dataset.col = col.key;
+    // La larghezza viaggia in una CUSTOM PROPERTY e non più in `flex` diretto:
+    // uno stile inline batte qualunque foglio di stile, e sotto i 900px la
+    // resa stretta DEVE poter ridefinire la disposizione delle celle. Con la
+    // variabile il rapporto resta dato qui e la disposizione resta decisa dal
+    // CSS, dove i punti di rottura sono scritti (src/styles/listone.css).
+    cell.style.setProperty("--col-flex", String(listoneColumnFlex(col.key)));
+    cell.style.cursor = "pointer";
+    cell.style.userSelect = "none";
     cell.textContent = listoneColumnHeaderLabel(col, sort);
     cell.title = `${listoneColumnTooltip(col)} — clic per ordinare`;
     cell.addEventListener("click", () => onSortColumn(col.key));
@@ -480,35 +524,73 @@ function renderListoneTableHead(
   return head;
 }
 
-// Column-visibility checkboxes — one per available column (core + any extra
-// columns discovered in the loaded file). Toggling never touches the
-// underlying pool, only which columns are rendered. Rendered inside the
-// panel opened by renderColumnPanelToggle (see above), not sprawled under
-// the title by default.
+/** L'id del pannello delle colonne — dichiarato una volta perché il bottone
+ *  che lo apre lo nomini in `aria-controls` senza una seconda stringa. */
+export const LISTONE_COLUMN_PANEL_ID = "listone-column-panel";
+
+/**
+ * IL PANNELLO «COLONNE VISIBILI» — un interruttore per colonna.
+ *
+ * ERANO CASELLE DI SPUNTA DENTRO UNA <label>. Adesso sono BOTTONI con
+ * `aria-pressed`, e il cambio non è cosmetico:
+ *
+ *  - lo stato è DICHIARATO sul controllo stesso (`aria-pressed="true|false"`),
+ *    quindi chi legge con la tastiera o con uno screen reader sente «premuto»
+ *    invece di dover dedurre l'accensione dal colore di una casella;
+ *  - il bersaglio diventa una pastiglia intera invece di un quadratino di
+ *    13px: questo pannello si apre durante un'asta, spesso col pollice;
+ *  - un bottone è raggiungibile con TAB e si aziona con INVIO e SPAZIO senza
+ *    che nessuno debba scriverlo, perché è ciò che un bottone fa di suo.
+ *
+ * Spegnere non tocca il pool: la colonna resta nel listone, ordinabile e
+ * riaccendibile da qui. È la scelta di Pico del 2026-08-24 — «Nascondile, ma
+ * lasciale attivabili» — e la memoria di ciò che ha premuto vive in
+ * src/listoneColumnPrefs.ts, non in questa funzione.
+ */
 function renderListoneColumnSelector(
   columns: readonly ListoneColumn[],
   visibleColumnKeys: readonly string[],
+  columnPrefsPersisted: boolean,
   onToggleColumn: (key: string) => void,
 ): HTMLElement {
   const wrap = document.createElement("div");
-  wrap.style.cssText = `display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:10px;padding:10px;border:1px solid ${C.border};border-radius:8px;background:${C.panelInner};`;
+  wrap.id = LISTONE_COLUMN_PANEL_ID;
+  wrap.className = "listone-columns";
+  wrap.setAttribute("role", "group");
+  wrap.setAttribute("aria-label", "Colonne visibili");
 
   const label = document.createElement("span");
-  label.style.cssText = `font-size:11px;font-weight:600;color:${C.textSec};`;
+  label.className = "listone-columns__label";
   label.textContent = "Colonne:";
   wrap.appendChild(label);
 
   for (const col of columns) {
-    const chip = document.createElement("label");
-    chip.style.cssText = `display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:${C.textMid};cursor:pointer;`;
+    const on = visibleColumnKeys.includes(col.key);
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.id = `listone-column-toggle-${col.key}`;
+    chip.className = "listone-columns__toggle";
+    chip.setAttribute("aria-pressed", String(on));
     chip.title = listoneColumnTooltip(col);
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = visibleColumnKeys.includes(col.key);
-    checkbox.addEventListener("change", () => onToggleColumn(col.key));
-    chip.appendChild(checkbox);
+    // Il segno di spunta è TESTO, non un colore: la differenza fra accesa e
+    // spenta non può essere solo cromatica.
+    const mark = document.createElement("span");
+    mark.className = "listone-columns__mark";
+    mark.setAttribute("aria-hidden", "true");
+    mark.textContent = on ? "✓" : "＋";
+    chip.appendChild(mark);
     chip.appendChild(document.createTextNode(col.label));
+    chip.addEventListener("click", () => onToggleColumn(col.key));
     wrap.appendChild(chip);
+  }
+
+  if (!columnPrefsPersisted) {
+    const warn = document.createElement("div");
+    warn.id = "listone-columns-not-persisted";
+    warn.className = "listone-columns__warn";
+    warn.textContent =
+      "Questa scelta di colonne non è stata salvata in questo browser: vale per la sessione corrente e al ricaricamento tornano le colonne di default.";
+    wrap.appendChild(warn);
   }
   return wrap;
 }

@@ -140,10 +140,14 @@ type SweepCount = { readonly measured: number; readonly onRamp: number };
  * bottoni: sono testo dell'app, si leggono o non si leggono, e adesso la
  * spazzata lo dice.
  */
-async function expectAllTextAboveAA(page: Page, scene: string): Promise<SweepCount> {
+async function expectAllTextAboveAA(
+  page: Page,
+  scene: string,
+  scope = "*",
+): Promise<SweepCount> {
   const resolved = await resolveTokenColors(page, TEXT_RAMP_TOKENS);
   const byColor = new Map(Object.entries(resolved).map(([token, hex]) => [hex, token]));
-  const swept = await measureAllText(page);
+  const swept = await measureAllText(page, scope);
 
   // Categoria 3 — NON CLASSIFICABILE: rossa, non saltata. È l'intero motivo
   // per cui questa spazzata è stata riscritta.
@@ -260,6 +264,14 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
   // Anche questo stato resta aperto per le scene successive.
   await openTableDetail(page);
 
+  // #COLONNE (2026-08-24): il pannello «Colonne visibili» sta dietro un gesto,
+  // esattamente come i due qui sopra — da chiuso non ha rettangolo e la
+  // spazzata non lo salta, semplicemente non trova nulla da misurare. È il
+  // comando con cui si riaccendono le colonne nascoste: va aperto, o resta
+  // fuori sorveglianza. Anche questo stato sopravvive alle scene successive.
+  await page.locator("#listone-column-panel-toggle").click();
+  await expect(page.locator("#listone-column-panel")).toBeVisible();
+
   // I punti d'uso espliciti: micro-etichette del piano per ruolo, etichetta
   // del filtro di stato, nota del listone.
   // Ognuno era fra 2,43:1 e 2,75:1 prima della schiaritura.
@@ -269,6 +281,11 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
     ".status-filter__caret", // --text-dim, 2,75:1 prima
     ".listone-table-head > div", // --text-sec su --panel-inner, 4,01:1 prima
     ".scarcity-metric > span", // --text-sec, «slot liberi» / «in listone»
+    ".listone-columns__label", // --text-sec su --panel-inner, «Colonne:»
+    ".listone-columns__toggle", // --text-sec, l'interruttore spento
+    ".listone-columns__toggle[aria-pressed='true']", // --text-primary, acceso
+    ".listone-columns__mark", // --text-accent, il segno di spunta
+    "#listone-expert-signals-note", // --text-dim, la riga che dichiara i n/d
   ]) {
     expect(await textContrast(page, sel), `chiamata: ${sel}`).toBeGreaterThanOrEqual(
       AA_NORMAL_TEXT,
@@ -466,6 +483,45 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
     expect(await textContrast(page, sel), `schede: ${sel}`).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
   }
   await sweepScene("impostazioni/schede-errori");
+
+  // ── LISTONE A 390px — LA RESA CHE SI LEGGE DAVVERO IN ASTA ────────────────
+  //
+  // #COLONNE (2026-08-24): sotto i 900px il listone smette di essere una
+  // tabella e ogni casella si porta la propria etichetta, disegnata da
+  // `content: attr(data-label)` su `::before`. È testo dipinto a schermo che
+  // A 1280px NON ESISTE — quindi nessuna delle scene qui sopra lo ha mai
+  // toccato, e sarebbe stato l'unico testo dell'app fuori misura proprio nel
+  // formato in cui il listone si legge davvero: un telefono, in piedi, con i
+  // secondi contati.
+  //
+  // Spazzata RISTRETTA al listone e non all'intera pagina: cambiare viewport
+  // ridisegna ogni pannello dell'app, e una scena d'insieme a 390px
+  // misurerebbe (e potrebbe bocciare) mezza applicazione per ragioni che non
+  // hanno niente a che vedere con queste colonne. Ristretta resta comunque
+  // fail-closed: dentro il listone, un testo non classificabile è rosso
+  // esattamente come uno sotto soglia.
+  await gotoScreen(page, "Asta");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator(".listone-row").first()).toBeVisible();
+  // Le etichette esistono solo sotto i 900px: se questa non c'è, la misura
+  // qui sotto starebbe guardando il vuoto.
+  expect(
+    await page
+      .locator('.listone-row [data-col="scheda_rigorista"]')
+      .first()
+      .evaluate((el) => getComputedStyle(el, "::before").content),
+    "a 390px ogni casella deve portare la propria etichetta",
+  ).toContain("Rigorista");
+  const narrow = await expectAllTextAboveAA(
+    page,
+    "asta/listone-390",
+    ".listone-table, .listone-table *, .listone-columns, .listone-columns *",
+  );
+  expect(narrow.measured, "la spazzata stretta non ha misurato nulla nel listone").toBeGreaterThan(
+    20,
+  );
+  sampled += narrow.measured;
+  onRamp += narrow.onRamp;
 
   // La spazzata non può essere passata per vuoto — due pavimenti distinti,
   // perché adesso misurano due cose diverse.
