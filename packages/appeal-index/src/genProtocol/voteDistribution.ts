@@ -62,7 +62,25 @@ export function voteBinIndex(votoBase: number): number | null {
   return steps;
 }
 
-/** `flag_bonus` di §A.3 per la congiunta del ruolo A: gol, assist o rigore sbagliato. */
+/**
+ * `flag_bonus` di §A.3 per la congiunta del ruolo A: gol, assist o rigore
+ * sbagliato.
+ *
+ * DOMANDA APERTA, registrata qui e non decisa qui (2026-08-24). §A.3 fissa il
+ * predicato alla lettera — `(Gf>0 ∨ Ass>0 ∨ Rs>0)` — e §C lo congela: cambiarlo
+ * invalida i confronti gia' fatti e richiede `protocol_id` 2.0.0. Il testo fu
+ * pero' scritto quando si credeva che `Rf` fosse gia' dentro `Gf`, premessa che
+ * la misura di campo privata del 2026-08-24 ha falsificato. Conseguenza
+ * concreta: una giornata in cui l'attaccante segna SOLO su rigore (`Rf>0`,
+ * `Gf=0`) qui risulta «senza bonus», e i «senza bonus» sono gli unici
+ * eleggibili al modificatore attacco (§21) — cioe' il predicato sta oggi
+ * dichiarando eleggibile chi un bonus lo ha preso.
+ *
+ * Il comportamento NON viene cambiato di iniziativa: aggiungere `Rf` qui e' una
+ * modifica al protocollo preregistrato, non alla tariffa, e la decisione e' di
+ * Pico. Finche' non e' presa, la lettera di §A.3 vince e la sua conseguenza sta
+ * scritta sopra invece che scoperta a valle.
+ */
 export function hasBonusFlag(row: MatchdayVote): boolean {
   return row.Gf > 0 || row.Ass > 0 || row.Rs > 0;
 }

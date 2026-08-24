@@ -867,6 +867,16 @@ function voteSeasonValue(id: GenVoteFeatureId, row: GenPanelRow, role: GenRole):
       return row.presenze;
     case "formaUltime10":
       return formaUltime10(row, role);
+    // DOMANDA APERTA, registrata e non decisa qui (2026-08-24). Il `3` e' la
+    // tariffa del gol scritta a mano, e la formula e' quella dichiarata da
+    // §D.5 («(3·Gf + Ass) / presenze»), congelata da §C. Dopo la misura di
+    // campo privata del 2026-08-24 — `Gf` = gol su azione, `Rf` = rigori
+    // segnati, colonne disgiunte — questa formula ignora i gol su rigore: un
+    // rigorista puro ha `bonusRate` sistematicamente sottostimato. La forma
+    // coerente con la tariffa sarebbe `3·(Gf + Rf) + Ass`, ma cambiare la
+    // definizione di una feature preregistrata e' decisione di Pico
+    // (`protocol_id` 2.0.0), non di questo file: finche' non e' presa vale la
+    // lettera di §D.5. Stesso discorso per `golLag1` qui sotto.
     case "bonusRate":
       return n > 0 ? (3 * totals.Gf + totals.Ass) / n : NaN;
     case "malusRate":

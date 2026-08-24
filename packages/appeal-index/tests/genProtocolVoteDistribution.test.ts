@@ -84,6 +84,13 @@ describe("genProtocol/voteDistribution — i 9 bin di §A.3", () => {
     expect(hasBonusFlag(vote(7, { Gf: 1 }))).toBe(true);
     expect(hasBonusFlag(vote(7, { Ass: 1 }))).toBe(true);
     expect(hasBonusFlag(vote(7, { Rs: 1 }))).toBe(true);
+    // `Rf` NON alza il flag, e dal 2026-08-24 questa riga sorveglia una
+    // tensione aperta invece di una verita': la tariffa ora paga il rigore
+    // segnato come un gol, ma §A.3 fissa il predicato alla lettera e §C lo
+    // congela. Il test tiene ferma la lettera del protocollo; la conseguenza
+    // (chi segna solo su rigore risulta «senza bonus» ed e' quindi eleggibile
+    // al modificatore attacco) e' scritta accanto a `hasBonusFlag` ed e'
+    // decisione di Pico, non di questo test.
     expect(hasBonusFlag(vote(7, { Rf: 1 }))).toBe(false);
     expect(hasBonusFlag(vote(7, { Amm: 1 }))).toBe(false);
 

@@ -95,6 +95,14 @@ export function buildPlayerSeasonAggregates(
     b.roles.push(r.role);
     b.teams.push(r.team);
     b.matchdaysObserved += 1;
+    // `golFatti` conta la colonna `Gf`, che dopo la misura di campo privata
+    // del 2026-08-24 sappiamo essere i gol SU AZIONE: i rigori segnati stanno
+    // in `Rf`, colonna disgiunta. Il campo resta `Gf` puro — cambiarlo in
+    // `Gf + Rf` cambierebbe la feature `golFattiRollingMean3` e con essa il
+    // significato di un ingresso del modello, che non e' una correzione di
+    // tariffa ma una decisione di modellazione (di Pico). Il fantavoto, che e'
+    // la grandezza corretta il 2026-08-24, i rigori li conta: li conta
+    // `computeFantavoto`, qui sotto.
     b.golFatti += r.Gf ?? 0;
     b.assist += r.Ass ?? 0;
     b.ammonizioni += r.Amm ?? 0;
