@@ -22,15 +22,45 @@ import {
   DEFAULT_VISIBLE_COLUMN_KEYS,
   LISTONE_FALLBACK_NOTE,
   LISTONE_GATED_EXTRA_KEYS,
+  LISTONE_IDENTITY_COLUMN_KEYS,
   listoneSourceNote,
   formatListoneUpdatedAt,
   isGatedListoneExtraKey,
   listoneAppealIndexNote,
   defaultVisibleColumnKeys,
   poolHasAppealIndex,
+  listoneCellText,
+  listoneColumnLabelForRole,
+  listoneExpertSignalsNote,
   APPEAL_INDEX_COLUMN_KEY,
+  EXPERT_VOTE_COLUMN_KEYS,
+  NO_MALUS_BONUS_COLUMN_KEY,
+  PIAZZATI_COLUMN_KEY,
+  RIGORISTA_COLUMN_KEY,
+  SIGNAL_COLUMN_KEYS,
+  VALUE_NOT_AVAILABLE,
+  type ListoneColumn,
   type ListonePlayer,
+  type ListoneRowSignalsLookup,
+  emptyRowSignals,
 } from "./listone.js";
+import { resolvePagella, type PagellaScheda } from "../pagellaEsperti.js";
+
+/** Cinque voti su cinque: la sola forma per cui la nota smette di dichiarare
+ *  l'assenza. */
+const FULL_PAGELLA: PagellaScheda = {
+  voti: {
+    pagella_titolarita: 9,
+    pagella_media_voto: 7,
+    pagella_salute: 9,
+    pagella_bonus: 6,
+    pagella_consiglio: 8,
+  },
+};
+import {
+  visibleColumnKeys,
+  type ListoneColumnPrefs,
+} from "../listoneColumnPrefs.js";
 
 // Synthetic fixtures only — no real player/club names, per project no-go
 // (no proprietary data anywhere in the repo, including tests).
@@ -281,10 +311,27 @@ describe("parseListoneJsonText — used for both the manual loader and localStor
 });
 
 describe("listoneColumns", () => {
-  it("returns just the 4 core columns for an empty pool", () => {
+  // AGGIORNATO IL 2026-08-24, richiesta del committente. Erano quattro colonne
+  // (name, role, club, quotation) nell'ordine della forma della riga. Adesso
+  // l'ordine è quello dell'elenco di Pico — nome, ruolo, squadra, indice, i
+  // cinque voti del Gruppo Esperti, rigorista, piazzati — e la QUOTAZIONE sta
+  // dopo di loro, perché non è più fra le colonne visibili di default. Le
+  // colonne extra del file caricato restano in coda, alfabetiche.
+  it("lists the columns in Pico's order, quotation after the eleven, extras last", () => {
     const columns = listoneColumns([]);
-    expect(columns.map((c) => c.key)).toEqual(["name", "role", "club", "quotation"]);
-    expect(columns.every((c) => c.core)).toBe(true);
+    expect(columns.map((c) => c.key)).toEqual([
+      "name",
+      "role",
+      "club",
+      "pagella_titolarita",
+      "pagella_media_voto",
+      "pagella_salute",
+      NO_MALUS_BONUS_COLUMN_KEY,
+      "pagella_consiglio",
+      RIGORISTA_COLUMN_KEY,
+      PIAZZATI_COLUMN_KEY,
+      "quotation",
+    ]);
   });
 
   it("appends extra columns discovered across the pool, alphabetically", () => {
@@ -293,8 +340,18 @@ describe("listoneColumns", () => {
       { name: "Test Two", role: "P", club: "Club Beta", alfa: "x" },
     ]);
     const columns = listoneColumns(pool ?? []);
-    expect(columns.map((c) => c.key)).toEqual(["name", "role", "club", "quotation", "alfa", "zeta"]);
+    expect(columns.map((c) => c.key).slice(-3)).toEqual(["quotation", "alfa", "zeta"]);
     expect(columns.filter((c) => !c.core).every((c) => c.core === false)).toBe(true);
+  });
+
+  // Una colonna extra del file caricato che porti la chiave di una colonna
+  // calcolata qui produrrebbe DUE colonne con la stessa chiave: due
+  // intestazioni identiche e un ordinamento che non sa quale delle due
+  // ordinare. Vince quella calcolata, una sola volta.
+  it("never emits two columns under the same key when the file collides with a computed one", () => {
+    const pool = parseListonePool([{ ...VALID_PLAYER, [RIGORISTA_COLUMN_KEY]: "x" }]);
+    const keys = listoneColumns(pool ?? []).map((c) => c.key);
+    expect(keys.filter((k) => k === RIGORISTA_COLUMN_KEY)).toHaveLength(1);
   });
 
   it("infers extra column kind (number vs string) from the first row that has it", () => {
@@ -305,8 +362,110 @@ describe("listoneColumns", () => {
 });
 
 describe("DEFAULT_VISIBLE_COLUMN_KEYS", () => {
-  it("is exactly the 4 core fields, nothing extra, no appetibilità", () => {
-    expect(DEFAULT_VISIBLE_COLUMN_KEYS).toEqual(["name", "role", "club", "quotation"]);
+  // AGGIORNATA IL 2026-08-24, richiesta del committente: «nel listone di
+  // default voglio che le colonne siano: nome, ruolo, squadra, indice di
+  // appetibilità, Titolarità, Media Voto, Salute, No Malus/Bonus, Consiglio
+  // Esperti, rigorista, piazzati». Erano le quattro colonne del pool;
+  // l'asserzione non è stata tolta né allentata, dice le undici nuove — e
+  // dice, riga sotto, che la QUOTAZIONE non è più fra loro.
+  it("is exactly Pico's eleven columns, in his order", () => {
+    expect(DEFAULT_VISIBLE_COLUMN_KEYS).toEqual([
+      "name",
+      "role",
+      "club",
+      APPEAL_INDEX_COLUMN_KEY,
+      "pagella_titolarita",
+      "pagella_media_voto",
+      "pagella_salute",
+      NO_MALUS_BONUS_COLUMN_KEY,
+      "pagella_consiglio",
+      RIGORISTA_COLUMN_KEY,
+      PIAZZATI_COLUMN_KEY,
+    ]);
+    expect(DEFAULT_VISIBLE_COLUMN_KEYS).toHaveLength(11);
+  });
+
+  it("no longer shows the listino quotation by default — hidden, never removed", () => {
+    expect(DEFAULT_VISIBLE_COLUMN_KEYS).not.toContain("quotation");
+    // Sempre nel listone: ordinabile, riaccendibile, con la sua intestazione.
+    expect(listoneColumns([]).map((c) => c.key)).toContain("quotation");
+  });
+
+  it("keeps the seven Gruppo Esperti columns even for a pool that carries nothing", () => {
+    // Sono sempre presenti apposta: la loro assenza È un dato (`n/d`), e una
+    // colonna che sparisce non lo dice a nessuno.
+    expect(defaultVisibleColumnKeys([VALID_PLAYER])).toEqual(
+      DEFAULT_VISIBLE_COLUMN_KEYS.filter((k) => k !== APPEAL_INDEX_COLUMN_KEY),
+    );
+  });
+});
+
+describe("le tre colonne d'identità sono BLINDATE", () => {
+  // IL VARCO CHE QUESTA SUITE NON COPRIVA, trovato eseguendo l'app durante la
+  // review di PR #41 (2026-08-24): il pannello «Colonne visibili» generava un
+  // interruttore per OGNI colonna, identità comprese, e premendo «Nome» la
+  // riga restava «P CLU ClubUno n/d …» — senza il nome del giocatore.
+  //
+  // L'invariante era scritta in un commento, e un commento non fallisce.
+  // Adesso vive nel dato (`locked`) e in queste asserzioni.
+  const withExtras = parseListonePool([{ ...VALID_PLAYER, fvm: 12, zeta: "x" }])!;
+
+  it("names exactly nome, ruolo e squadra — the first three of Pico's list", () => {
+    expect(LISTONE_IDENTITY_COLUMN_KEYS).toEqual(["name", "role", "club"]);
+    // DERIVATE, non riscritte a mano: sono anche le prime tre dell'elenco di
+    // default e le prime tre delle colonne del listone. Due elenchi che
+    // devono restare uguali divergono in silenzio — questo non può.
+    expect(DEFAULT_VISIBLE_COLUMN_KEYS.slice(0, 3)).toEqual([...LISTONE_IDENTITY_COLUMN_KEYS]);
+    expect(listoneColumns([]).slice(0, 3).map((c) => c.key)).toEqual([
+      ...LISTONE_IDENTITY_COLUMN_KEYS,
+    ]);
+  });
+
+  it("marks those three columns `locked`, and NO other column, whatever the pool", () => {
+    const poolWithIndex = parseListonePool([withIndex("Test Uno", 72.5)])!;
+    for (const columns of [listoneColumns([]), listoneColumns(withExtras), listoneColumns(poolWithIndex)]) {
+      expect(columns.filter((c) => c.locked === true).map((c) => c.key)).toEqual([
+        ...LISTONE_IDENTITY_COLUMN_KEYS,
+      ]);
+    }
+  });
+
+  it("does not lock every `core` column — the listino quotation stays switchable", () => {
+    // `core` e `locked` dicono due cose diverse. La quotazione è core
+    // (validata, tipizzata, di questo file) ed È spegnibile: una riga senza
+    // quotazione dice ancora di chi parla. Confonderle bloccherebbe una
+    // colonna che Pico ha chiesto esplicitamente di poter spegnere.
+    const quotation = listoneColumns([]).find((c) => c.key === "quotation")!;
+    expect(quotation.core).toBe(true);
+    expect(quotation.locked).not.toBe(true);
+  });
+
+  it("keeps the identity columns visible against the very archive PR #41 could write", () => {
+    const columns = listoneColumns([]);
+    const defaults = defaultVisibleColumnKeys([]);
+    // `{"schemaVersion":1,"hidden":["name"],"shown":[]}` — letto dal
+    // localStorage vero, dopo un clic su «Nome» nel pannello di allora.
+    const legacy: ListoneColumnPrefs = { hidden: ["name"], shown: [] };
+    expect(visibleColumnKeys(columns, defaults, legacy)[0]).toBe("name");
+  });
+
+  it("cannot be emptied: the three survive an archive that hides every column", () => {
+    const columns = listoneColumns([]);
+    const defaults = defaultVisibleColumnKeys([]);
+    const everythingOff: ListoneColumnPrefs = { hidden: columns.map((c) => c.key), shown: [] };
+    expect(visibleColumnKeys(columns, defaults, everythingOff)).toEqual([
+      ...LISTONE_IDENTITY_COLUMN_KEYS,
+    ]);
+  });
+
+  it("leaves the other columns exactly as switchable as before", () => {
+    const columns = listoneColumns(withExtras);
+    const defaults = defaultVisibleColumnKeys(withExtras);
+    const prefs: ListoneColumnPrefs = { hidden: [PIAZZATI_COLUMN_KEY], shown: ["quotation", "fvm"] };
+    const visible = visibleColumnKeys(columns, defaults, prefs);
+    expect(visible).not.toContain(PIAZZATI_COLUMN_KEY);
+    expect(visible).toContain("quotation");
+    expect(visible).toContain("fvm");
   });
 });
 
@@ -441,13 +600,20 @@ describe("listoneRowHtml — visible columns", () => {
 });
 
 describe("listoneTableHeadHtml (empty-state static header)", () => {
+  // AGGIORNATO IL 2026-08-24, richiesta del committente: lo scheletro della
+  // tabella vuota mostra le colonne di default, quindi «Quotazione» non c'è
+  // più (nascosta, non tolta) e ci sono le sette del Gruppo Esperti.
   it("has no Appetibilità column (not honestly derivable yet)", () => {
     const html = listoneTableHeadHtml();
     expect(html).not.toContain("Appetibilità");
     expect(html).toContain("Nome");
     expect(html).toContain("Ruolo");
     expect(html).toContain("Squadra");
-    expect(html).toContain("Quotazione");
+    expect(html).toContain("Titolarità");
+    expect(html).toContain("No malus / Bonus");
+    expect(html).toContain("Rigorista");
+    expect(html).toContain("Piazzati");
+    expect(html).not.toContain("Quotazione");
   });
 });
 
@@ -1219,7 +1385,20 @@ describe("appeal index — column and rendering", () => {
 
   it("shows the column by default, so it is visible without opening the picker", () => {
     expect(defaultVisibleColumnKeys(pool)).toContain(APPEAL_INDEX_COLUMN_KEY);
-    expect(defaultVisibleColumnKeys([VALID_PLAYER])).toEqual([...DEFAULT_VISIBLE_COLUMN_KEYS]);
+    // AGGIORNATA IL 2026-08-24: l'uguaglianza con l'elenco intero non regge
+    // più perché l'indice È dentro `DEFAULT_VISIBLE_COLUMN_KEYS` (quarta
+    // colonna dell'elenco di Pico) mentre la sua COLONNA esiste solo per un
+    // pool che ne porti uno. La regola invariata — «senza indice non c'è
+    // colonna» — si asserisce così, senza ammorbidirla.
+    expect(defaultVisibleColumnKeys([VALID_PLAYER])).not.toContain(APPEAL_INDEX_COLUMN_KEY);
+    expect(defaultVisibleColumnKeys([VALID_PLAYER])).toEqual(
+      DEFAULT_VISIBLE_COLUMN_KEYS.filter((k) => k !== APPEAL_INDEX_COLUMN_KEY),
+    );
+  });
+
+  it("keeps the index in fourth place, right after nome/ruolo/squadra", () => {
+    expect(defaultVisibleColumnKeys(pool).indexOf(APPEAL_INDEX_COLUMN_KEY)).toBe(3);
+    expect(listoneColumns(pool).map((c) => c.key).indexOf(APPEAL_INDEX_COLUMN_KEY)).toBe(3);
   });
 
   it("rounds only at render time and never invents a value for a withheld verdict", () => {
@@ -1261,5 +1440,212 @@ describe("listoneAppealIndexNote", () => {
     expect(note).toContain("non validato");
     expect(note).toContain("1 con verdetto, 1 n/d");
     expect(note).toContain("non usato dal motore decisionale");
+  });
+});
+
+// ── LE SETTE COLONNE DEL GRUPPO ESPERTI ──────────────────────────────────────
+//
+// Richiesta del committente, 2026-08-24. Cinque VOTI su 10 (Titolarità, Media
+// voto, Salute, No malus / Bonus, Consiglio esperti) e due SEGNALI di scheda
+// (rigorista, piazzati). I voti non sono ancora estratti: il valore di quelle
+// caselle è oggi sempre assente, e la prova che conta è che l'assenza si
+// scriva `n/d` e non uno zero, un trattino o una media.
+
+const KEEPER: ListonePlayer = { name: "Test Portiere", role: "P", club: "Club Alfa", quotation: 5 };
+
+/** Un lookup che risponde solo su una riga — ogni altra riga resta senza segnali. */
+function signalsFor(
+  name: string,
+  signals: { rigori?: string | null; piazzati?: readonly string[]; voti?: Record<string, number> },
+): ListoneRowSignalsLookup {
+  return (p) =>
+    p.name === name
+      ? {
+          rigori: signals.rigori ?? null,
+          piazzati: signals.piazzati ?? [],
+          // I voti arrivano dal deposito già risolti dal contratto: qui si
+          // risolve la stessa forma che `resolveExpertInsight` consegna a
+          // main.ts, così il test non inventa una seconda strada per i numeri.
+          pagella: resolvePagella({ voti: signals.voti ?? {} } as PagellaScheda, p.role),
+        }
+      : emptyRowSignals(p.role);
+}
+
+const columnByKey = (key: string): ListoneColumn =>
+  listoneColumns([]).find((c) => c.key === key) as ListoneColumn;
+
+describe("colonne del Gruppo Esperti — un voto assente è n/d, mai uno zero", () => {
+  it("renders every one of the five votes as n/d when nothing has been extracted", () => {
+    for (const key of EXPERT_VOTE_COLUMN_KEYS) {
+      expect(listoneCellText(VALID_PLAYER, key)).toBe(VALUE_NOT_AVAILABLE);
+      expect(listoneCellValue(VALID_PLAYER, key)).toBeUndefined();
+    }
+  });
+
+  it("never renders 0, an em dash or a midpoint for a missing vote", () => {
+    const columns = EXPERT_VOTE_COLUMN_KEYS.map((key) => columnByKey(key));
+    const html = listoneRowHtml(VALID_PLAYER, columns);
+    expect(html).not.toContain(">0<");
+    expect(html).not.toContain(">—<");
+    expect(html).not.toContain(">5<");
+    expect(html.match(/>n\/d</g)).toHaveLength(EXPERT_VOTE_COLUMN_KEYS.length);
+  });
+
+  it("renders a vote that HAS been extracted as the plain number", () => {
+    const signals = signalsFor(VALID_PLAYER.name, { voti: { pagella_salute: 7 } });
+    expect(listoneCellText(VALID_PLAYER, "pagella_salute", signals)).toBe("7");
+    // Le altre quattro restano assenti: un voto non tira gli altri con sé.
+    expect(listoneCellText(VALID_PLAYER, "pagella_media_voto", signals)).toBe(VALUE_NOT_AVAILABLE);
+  });
+
+  it("says n/d — not a dash — for rigorista and piazzati with no scheda", () => {
+    expect(listoneCellText(VALID_PLAYER, RIGORISTA_COLUMN_KEY)).toBe(VALUE_NOT_AVAILABLE);
+    expect(listoneCellText(VALID_PLAYER, PIAZZATI_COLUMN_KEY)).toBe(VALUE_NOT_AVAILABLE);
+  });
+
+  it("renders rigorista and piazzati from the scheda, both kinds together", () => {
+    const signals = signalsFor(VALID_PLAYER.name, {
+      rigori: "designato",
+      piazzati: ["punizioni", "angoli"],
+    });
+    expect(listoneCellText(VALID_PLAYER, RIGORISTA_COLUMN_KEY, signals)).toBe("designato");
+    expect(listoneCellText(VALID_PLAYER, PIAZZATI_COLUMN_KEY, signals)).toBe("punizioni · angoli");
+  });
+
+  it("keeps a missing extra column on the em dash — that hole belongs to the file", () => {
+    // La differenza è deliberata: `n/d` dichiara una fonte che non ha ancora
+    // risposto, il trattino una casella vuota del file caricato.
+    const pool = parseListonePool([{ ...VALID_PLAYER, fvm: 9 }, { name: "T2", role: "P", club: "C2" }])!;
+    expect(listoneCellText(pool[1]!, "fvm")).toBe("—");
+  });
+
+  it("sorts rows without a signal last, in both directions", () => {
+    const pool = [VALID_PLAYER, KEEPER] as const;
+    const signals = signalsFor(KEEPER.name, { rigori: "designato" });
+    expect(sortListonePool(pool, RIGORISTA_COLUMN_KEY, "asc", signals).map((p) => p.name)).toEqual([
+      KEEPER.name,
+      VALID_PLAYER.name,
+    ]);
+    expect(sortListonePool(pool, RIGORISTA_COLUMN_KEY, "desc", signals).map((p) => p.name)).toEqual([
+      KEEPER.name,
+      VALID_PLAYER.name,
+    ]);
+  });
+
+  it("sorts the five votes numerically, missing votes last", () => {
+    const pool = [VALID_PLAYER, KEEPER] as const;
+    const signals: ListoneRowSignalsLookup = (p) =>
+      p.name === KEEPER.name
+        ? { rigori: null, piazzati: [], pagella: resolvePagella({ voti: { pagella_salute: 3 } }, p.role) }
+        : { rigori: null, piazzati: [], pagella: resolvePagella({ voti: { pagella_salute: 9 } }, p.role) };
+    expect(sortListonePool(pool, "pagella_salute", "asc", signals).map((p) => p.name)).toEqual([
+      KEEPER.name,
+      VALID_PLAYER.name,
+    ]);
+  });
+});
+
+describe("«No malus / Bonus» — una colonna sola, due nomi di ruolo", () => {
+  const column = columnByKey(NO_MALUS_BONUS_COLUMN_KEY);
+
+  it("is ONE column, not two", () => {
+    const keys = listoneColumns([]).map((c) => c.key);
+    expect(keys.filter((k) => k === NO_MALUS_BONUS_COLUMN_KEY)).toHaveLength(1);
+    expect(keys).not.toContain("pagella_porta_inviolata");
+    expect(keys).not.toContain("pagella_bonus");
+  });
+
+  it("carries BOTH words in the shared header — a column over mixed roles cannot pick one", () => {
+    expect(column.label).toBe("No malus / Bonus");
+  });
+
+  it("carries only the row's own word on the row itself", () => {
+    expect(listoneColumnLabelForRole(column, "P")).toBe("No malus");
+    for (const role of ["D", "C", "A"] as const) {
+      expect(listoneColumnLabelForRole(column, role)).toBe("Bonus");
+    }
+  });
+
+  it("puts that per-row word in the cell, so a phone card never shows the other role's word", () => {
+    const keeperHtml = listoneRowHtml(KEEPER, [column]);
+    expect(keeperHtml).toContain('data-label="No malus"');
+    expect(keeperHtml).not.toContain('data-label="Bonus"');
+    const strikerHtml = listoneRowHtml(VALID_PLAYER, [column]);
+    expect(strikerHtml).toContain('data-label="Bonus"');
+    expect(strikerHtml).not.toContain('data-label="No malus"');
+  });
+
+  it("leaves every other column's label alone, whatever the role", () => {
+    for (const key of SIGNAL_COLUMN_KEYS.filter((k) => k !== NO_MALUS_BONUS_COLUMN_KEY)) {
+      const col = columnByKey(key);
+      expect(listoneColumnLabelForRole(col, "P")).toBe(col.label);
+      expect(listoneColumnLabelForRole(col, "A")).toBe(col.label);
+    }
+  });
+
+  it("explains in the tooltip which word belongs to which role", () => {
+    const tooltip = listoneColumnTooltip(column);
+    expect(tooltip).toContain("No malus");
+    expect(tooltip).toContain("Bonus");
+    expect(tooltip).toContain("portiere");
+    expect(tooltip).not.toContain("colonna aggiuntiva dal file caricato");
+  });
+});
+
+describe("ogni casella si porta la propria etichetta (resa stretta)", () => {
+  it("marks every cell with its column key and its row-correct label", () => {
+    const columns = listoneColumns([]);
+    const html = listoneRowHtml(KEEPER, columns);
+    for (const col of columns) {
+      expect(html).toContain(`data-col="${col.key}"`);
+    }
+    expect(html).toContain('data-label="Nome"');
+    expect(html).toContain('data-label="No malus"');
+  });
+
+  it("HTML-escapes the two new attributes too (defense in depth)", () => {
+    // `data-col` porta la chiave della colonna, che per una colonna extra è
+    // un'intestazione arrivata da un file caricato: una virgoletta lì dentro
+    // uscirebbe dall'attributo.
+    const pool = parseListonePool([{ ...VALID_PLAYER, 'x" onmouseover="alert(1)': 3 }])!;
+    const cols = listoneColumns(pool);
+    const html = listoneRowHtml(pool[0]!, cols);
+    expect(html).not.toContain('onmouseover="alert(1)"');
+    expect(html).toContain("&quot;");
+  });
+
+  it("carries the width as a custom property, so a stylesheet can override the layout", () => {
+    // Uno `style="flex:2"` inline batte qualunque foglio di stile: sotto i
+    // 900px la resa stretta deve poter ridisporre le celle, quindi il
+    // rapporto viaggia in `--col-flex` e la disposizione resta al CSS.
+    const html = listoneRowHtml(VALID_PLAYER, listoneColumns([]));
+    expect(html).toContain("--col-flex:2");
+    expect(html).not.toContain("style=\"flex:");
+  });
+});
+
+describe("listoneExpertSignalsNote", () => {
+  it("says out loud that the five votes are not extracted yet", () => {
+    const note = listoneExpertSignalsNote([]);
+    expect(note).toContain("NON sono ancora estratti");
+    expect(note).toContain(VALUE_NOT_AVAILABLE);
+    expect(note).toContain("mai uno zero");
+    expect(note).toContain("0–10");
+  });
+
+  it("stops claiming the absence once the votes are there", () => {
+    const note = listoneExpertSignalsNote([resolvePagella(FULL_PAGELLA, "D")]);
+    expect(note).not.toContain("NON sono ancora estratti");
+    expect(note).toContain("0–10");
+  });
+
+  it("states the two meanings of the fourth axis and never turns directive", () => {
+    const note = listoneExpertSignalsNote([]);
+    expect(note).toContain("No malus");
+    expect(note).toContain("Bonus");
+    expect(note).toContain("non usato dal motore decisionale");
+    for (const word of ["prezzo", "consigliato", "target", "fair"]) {
+      expect(note.toLowerCase()).not.toContain(word);
+    }
   });
 });

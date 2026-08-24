@@ -190,17 +190,27 @@ import {
   resolveListonePool,
   listoneSourceNote,
   listoneAppealIndexNote,
-  listonePagellaNote,
   filterListonePool,
   listonePlayerKey,
   listonePoolIndex,
   normalizeIdentityPart,
   orphanPlayerIds,
   resolvePlayerDisplayName,
-  DEFAULT_VISIBLE_COLUMN_KEYS,
   defaultVisibleColumnKeys,
+  listoneColumns,
+  listoneExpertSignalsNote,
   poolHasAppealIndex,
+  emptyRowSignals,
+  type ListoneRowSignals,
+  type ListoneRowSignalsLookup,
 } from "./ui/listone.js";
+import {
+  loadListoneColumnPrefs,
+  saveListoneColumnPrefs,
+  toggleColumnPref,
+  visibleColumnKeys,
+  type ListoneColumnPrefs,
+} from "./listoneColumnPrefs.js";
 import { roleBudgetPlanHtml } from "./ui/roleBudgetPlan.js";
 import {
   AVVISO_VALUES,
@@ -219,7 +229,9 @@ import {
   resolveExpertInsight,
   type ExpertSchedaStore,
   type SchedaTarget,
+  expertSchedeHavePagella,
 } from "./expertScheda.js";
+import type { PagellaView } from "./pagellaEsperti.js";
 import {
   AVVISO_LABELS,
   FONTE_LABELS,
@@ -513,7 +525,22 @@ interface AppState {
   // by the next pool change, never dismissable by the operator.
   poolNotice: string;
   poolSort: ListoneSort | null;
-  poolVisibleColumns: string[];
+  /**
+   * LE DEVIAZIONI DI PICO DALLE COLONNE DI DEFAULT — non l'elenco delle
+   * colonne visibili.
+   *
+   * Qui c'era `poolVisibleColumns: string[]`, un elenco assoluto ricalcolato
+   * dal default a OGNI cambio di pool (boot, deposito che risponde, file
+   * caricato a mano, «dimentica»): cioè la scelta di chi guardava veniva
+   * buttata via cinque volte al giorno, in silenzio. Le colonne visibili sono
+   * adesso DERIVATE a ogni render da queste deviazioni più il pool corrente
+   * (`listoneVisibleColumnKeys` più sotto), quindi non c'è più nessuno stato
+   * da tenere in sincrono e nessun punto in cui una ricarica possa perderlo.
+   * Contratto e ragioni: src/listoneColumnPrefs.ts.
+   */
+  poolColumnPrefs: ListoneColumnPrefs;
+  /** `false` quando l'ultima scrittura delle preferenze non ha tenuto. */
+  poolColumnPrefsPersisted: boolean;
   poolPage: number;
   poolColumnPanelOpen: boolean;
   poolManualOverrideOpen: boolean;
@@ -848,7 +875,10 @@ const state: AppState = {
   poolLoadError: "",
   poolNotice: "",
   poolSort: null,
-  poolVisibleColumns: defaultVisibleColumnKeys(bootPool.pool),
+  // Fail-closed a vuoto come gli altri side-store: un archivio illeggibile
+  // riparte dalle undici colonne di default, non da una tabella storta.
+  poolColumnPrefs: loadListoneColumnPrefs(browserStorage),
+  poolColumnPrefsPersisted: true,
   poolPage: 1,
   poolColumnPanelOpen: false,
   poolManualOverrideOpen: false,
@@ -1130,7 +1160,6 @@ function applyResolvedPool(
   state.poolModifiedAt = modifiedAt;
   state.poolLoadError = "";
   state.poolSort = null;
-  state.poolVisibleColumns = defaultVisibleColumnKeys(resolved.pool);
   state.poolPage = 1;
   const notices = [disarmSelectionOutsidePool(nextIndex)];
   // Never persist a raw payload that resolves to zero rows (finding 5): the
@@ -1207,7 +1236,6 @@ function loadPoolFromText(text: string): void {
     state.poolLoadError = "File non valido: non è JSON leggibile.";
     state.poolNotice = disarmSelectionOutsidePool(listonePoolIndex(state.pool)) ?? "";
     state.poolSort = null;
-    state.poolVisibleColumns = [...DEFAULT_VISIBLE_COLUMN_KEYS];
     render();
     return;
   }
@@ -1227,7 +1255,6 @@ function loadPoolFromText(text: string): void {
           : "Formato non valido: attesa una lista di { proxyId?, name, role, club, quotation? } con role ∈ P/D/C/A (più eventuali colonne extra).";
     state.poolNotice = disarmSelectionOutsidePool(listonePoolIndex(state.pool)) ?? "";
     state.poolSort = null;
-    state.poolVisibleColumns = [...DEFAULT_VISIBLE_COLUMN_KEYS];
     render();
     return;
   }
@@ -1237,7 +1264,6 @@ function loadPoolFromText(text: string): void {
   state.poolModifiedAt = null;
   state.poolLoadError = "";
   state.poolSort = null;
-  state.poolVisibleColumns = defaultVisibleColumnKeys(pool);
   state.poolPage = 1;
   const notices = [disarmSelectionOutsidePool(listonePoolIndex(pool))];
   if (!savePersistedPool(text)) notices.push(POOL_NOT_PERSISTED_NOTICE);
@@ -1255,7 +1281,6 @@ function forgetPool(): void {
   state.poolModifiedAt = null;
   state.poolLoadError = "";
   state.poolSort = null;
-  state.poolVisibleColumns = [...DEFAULT_VISIBLE_COLUMN_KEYS];
   state.poolPage = 1;
   // Empty pool: nothing left for an automatic source to orphan, which is
   // exactly what makes this the explicit way past a refused substitution
@@ -1281,14 +1306,42 @@ function sortListoneByColumn(key: string): void {
   render();
 }
 
+/**
+ * LE COLONNE VISIBILI ADESSO — derivate, non conservate.
+ *
+ * Le undici di default per QUESTO pool, meno quelle che Pico ha spento, più
+ * quelle che ha acceso; nell'ordine deciso da `listoneColumns`, che è quello
+ * del suo elenco. Ricalcolarle a ogni render invece di tenerle in `state` è
+ * ciò che fa sopravvivere la sua scelta a un cambio di listone: prima ogni
+ * ricarica del pool la sovrascriveva col default.
+ */
+function listoneVisibleColumnKeys(): string[] {
+  return visibleColumnKeys(
+    listoneColumns(state.pool),
+    defaultVisibleColumnKeys(state.pool),
+    state.poolColumnPrefs,
+  );
+}
+
 function toggleListoneColumn(key: string): void {
-  const idx = state.poolVisibleColumns.indexOf(key);
-  if (idx === -1) {
-    state.poolVisibleColumns = [...state.poolVisibleColumns, key];
-  } else {
-    state.poolVisibleColumns = state.poolVisibleColumns.filter((k) => k !== key);
-  }
+  // IL SECONDO GIRO DI CHIAVE (2026-08-24). Il pannello non attacca nemmeno il
+  // gestore del clic alle tre colonne blindate, quindi da lì questa riga non
+  // scatta mai. Sta qui perché una chiamata che arrivasse da un'altra strada
+  // non deve poter SCRIVERE nell'archivio una preferenza che poi nessuno
+  // onora: `visibleColumnKeys` mostrerebbe la colonna comunque, e resterebbe
+  // in `localStorage` una riga che dice il falso. La bandiera è quella della
+  // colonna, non un secondo elenco di chiavi tenuto a mano.
+  if (listoneColumns(state.pool).find((c) => c.key === key)?.locked === true) return;
+  state.poolColumnPrefs = toggleColumnPref(
+    state.poolColumnPrefs,
+    key,
+    defaultVisibleColumnKeys(state.pool),
+  );
+  state.poolColumnPrefsPersisted = saveListoneColumnPrefs(browserStorage, state.poolColumnPrefs);
   render();
+  // Il fuoco torna sull'interruttore appena premuto: si accendono e spengono
+  // più colonne di fila, e senza questo ogni pressione riporterebbe al body.
+  focusAfterRender(`listone-column-toggle-${key}`);
 }
 
 function changePoolPage(page: number): void {
@@ -1299,6 +1352,11 @@ function changePoolPage(page: number): void {
 function toggleListoneColumnPanel(): void {
   state.poolColumnPanelOpen = !state.poolColumnPanelOpen;
   render();
+  // `render()` ricostruisce il DOM, quindi il bottone appena premuto non
+  // esiste più e il fuoco finisce sul body: chi era arrivato qui con TAB
+  // dovrebbe ripartire dall'inizio della schermata per premerlo di nuovo.
+  // Stessa cura, e stessa ragione, del filtro di stato qui sopra.
+  focusAfterRender("listone-column-panel-toggle");
 }
 
 function toggleListoneManualOverride(): void {
@@ -1717,6 +1775,75 @@ function playerInsightProps(): PlayerInsightProps {
     view: resolveExpertInsight(state.expertSchede, target, chosen),
     choicePersisted: state.schedaLinksPersisted,
     onChooseScheda: chooseScheda,
+  };
+}
+
+/**
+ * I SEGNALI DI OGNI RIGA DEL LISTONE — i cinque voti del Gruppo Esperti e i
+ * due campi «rigorista» e «piazzati» — presi da dove vivono davvero: il
+ * deposito delle schede, agganciato per NOME + SQUADRA, non la riga di
+ * listone. È la stessa risoluzione del riquadro INSIGHT GIOCATORE, quindi le
+ * due superfici non possono dire due cose diverse sullo stesso giocatore.
+ *
+ * MEMOIZZATO PER RENDER, e non per comodità: `resolveExpertInsight` confronta
+ * i token del nome contro l'indice delle schede, e ordinare la tabella per una
+ * di queste colonne lo chiederebbe per OGNI riga del pool (un listone vero ne
+ * ha ~530). Una cache costruita all'inizio del render e buttata alla fine
+ * garantisce una risoluzione per riga distinta, mai una per confronto.
+ *
+ * I CINQUE VOTI SONO SEMPRE VUOTI, OGGI, E LA COLONNA LO DICE (`n/d`).
+ * L'estrazione dei voti dalle schede vive fuori da questo ramo e non è ancora
+ * atterrata: quando lo farà, QUESTO è l'unico punto da cambiare — i voti
+ * arriveranno dentro la vista della scheda e si copiano qui dentro `voti`.
+ * Fino ad allora non si inventa niente: nessuno zero, nessuna media, nessun
+ * valore di riempimento. Un voto che nessuno ha scritto non è un voto basso.
+ */
+/**
+ * Le pagelle risolte da CONTARE nella nota sotto la tabella — e l'elenco vuoto
+ * finché non c'è niente da contare.
+ *
+ * La passata sul pool intero esiste perché i due numeri di #33 («quante
+ * divergono dal totale della fonte», «quante portano l'asse di un altro
+ * ruolo») valgono solo se sono sul pool e non sulla pagina a schermo. Ma con
+ * il deposito senza pagelle — cioè oggi, sempre — la passata conterebbe zero
+ * su ~500 righe a ogni render: la guardia la salta del tutto.
+ */
+function listoneExpertPagellaViews(signals: ListoneRowSignalsLookup): readonly PagellaView[] {
+  if (!expertSchedeHavePagella(state.expertSchede)) return [];
+  return state.pool.map((p) => signals(p).pagella);
+}
+
+function listoneRowSignalsLookup(): ListoneRowSignalsLookup {
+  const cache = new Map<string, ListoneRowSignals>();
+  return (p) => {
+    const key = listonePlayerKey(p);
+    const cached = cache.get(key);
+    if (cached !== undefined) return cached;
+    // IL RUOLO ENTRA NEL TARGET: serve a una cosa sola, sapere QUALE sia il
+    // quarto asse della pagella per questa riga — e ad accorgersi quando la
+    // scheda ne porta uno di un altro ruolo (`asseIncoerente`, poi «n.a.»
+    // nella cella). Non entra in `listonePlayerKey` né in `schedaLinkRowKey`:
+    // l'identità di una riga resta nome + squadra.
+    const target: SchedaTarget = { name: p.name, club: p.club, role: p.role };
+    const chosen = state.schedaLinks.get(schedaLinkRowKey(target)) ?? null;
+    const view = resolveExpertInsight(state.expertSchede, target, chosen);
+    const signals: ListoneRowSignals =
+      view.rigori === null && view.piazzati.length === 0 && view.pagella.votiPresenti === 0
+        ? emptyRowSignals(p.role)
+        : {
+            // Le parole sono quelle del vocabolario chiuso delle schede, non
+            // riscritte qui: `ui/listone.ts` riceve etichette, non enum, e non
+            // ha nessun modo di inventarne una che il vocabolario non abbia.
+            rigori: view.rigori === null ? null : RIGORI_LABELS[view.rigori],
+            piazzati: view.piazzati.map((kind) => PIAZZATI_LABELS[kind]),
+            // GIÀ RISOLTA, e dalla STESSA vista che alimenta il radar del
+            // riquadro d'asta: una sorgente sola per gli stessi cinque numeri
+            // (decisione del committente, 2026-08-24). Tabella e radar non
+            // possono più divergere su uno stesso giocatore.
+            pagella: view.pagella,
+          };
+    cache.set(key, signals);
+    return signals;
   };
 }
 
@@ -4978,6 +5105,9 @@ function renderMomentoChiamata(
     { text: state.call.playerName, role: state.call.role, club: state.call.club, status: state.poolStatusFilter },
     assignedKeys,
   );
+  // Un lookup solo per tutto il render: la sua memo copre sia le righe a
+  // schermo sia (quando ci sarà da contare) la passata della nota.
+  const rowSignals = listoneRowSignalsLookup();
   listoneWrap.appendChild(
     renderListoneSvincolati(
       {
@@ -4988,9 +5118,13 @@ function renderMomentoChiamata(
           state.poolSource, state.poolModifiedAt, poolHasAppealIndex(state.pool),
         ),
         appealIndexNote: listoneAppealIndexNote(state.pool),
-        pagellaNote: listonePagellaNote(state.pool),
+        // I conteggi di #33 girano solo quando c'è qualcosa da contare: la
+        // nota lo dice, e oggi dice che i voti non sono ancora estratti.
+        expertSignalsNote: listoneExpertSignalsNote(listoneExpertPagellaViews(rowSignals)),
         sort: state.poolSort,
-        visibleColumnKeys: state.poolVisibleColumns,
+        visibleColumnKeys: listoneVisibleColumnKeys(),
+        rowSignals,
+        columnPrefsPersisted: state.poolColumnPrefsPersisted,
         page: state.poolPage,
         columnPanelOpen: state.poolColumnPanelOpen,
         manualOverrideOpen: state.poolManualOverrideOpen,
