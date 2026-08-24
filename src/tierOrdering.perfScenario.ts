@@ -22,6 +22,12 @@ import { ROLES, ROSTER_REQUIREMENTS } from "../packages/engine/src/types.js";
 import type { AuctionEvent, AuctionState, Role } from "../packages/engine/src/types.js";
 import type { ListonePlayer } from "./ui/listone.js";
 import { listonePlayerKey } from "./ui/listone.js";
+import {
+  expertSchedaStore,
+  type ExpertScheda,
+  type ExpertSchedaStore,
+} from "./expertScheda.js";
+import { PAGELLA_VOTO_MAX, pagellaAsseDelRuolo, type PagellaScheda } from "./pagellaEsperti.js";
 
 /**
  * PRNG seminato (mulberry32): 32 bit di stato, nessuna dipendenza, stessa
@@ -217,4 +223,94 @@ export function tierPerfScenario(
     }
   }
   return { pool, log, state: reduce(log, PERF_TEAMS), called };
+}
+
+// ── IL DEPOSITO DELLE SCHEDE ALLA SCALA VERA ─────────────────────────────────
+//
+// PERCHÉ ESISTE (debito dichiarato di #41, chiuso qui). Il giro dei SEGNALI di
+// riga — l'aggancio nome+squadra di ogni riga del listone sul deposito delle
+// schede, e la passata sul pool intero che alimenta la nota sotto la tabella —
+// non aveva in questo repository nessuna fixture alla propria scala: quella
+// e2e ne porta SEI righe. Una misura presa su sei righe non dice niente su
+// cosa succede su 532, e una memoizzazione decisa su quel numero sarebbe
+// stata decisa a occhio.
+//
+// ZERO DATI REALI, come tutto il resto di questo file: i nomi sono
+// `Sintetico NNN`, i club `Club NN`, i voti escono dallo stesso PRNG seminato.
+// Nessuna scheda del Gruppo Esperti, nessuna prosa editoriale di terzi: la
+// `nota` qui sotto è una riga scritta per la misura.
+
+/**
+ * QUANTE RIGHE DEL LISTONE HANNO UNA SCHEDA, nel banco. Pico ne scrive ~200 su
+ * un listone da ~530: la quota qui sotto è quella, e non 1, perché il costo
+ * vero è misto — le righe CON scheda pagano la risoluzione piena (candidati,
+ * pagella risolta), quelle SENZA pagano comunque la piega del nome e la
+ * scansione del secchio della loro squadra.
+ */
+export const PERF_SCHEDE_COVERAGE = 200 / PERF_POOL_ROWS;
+
+/** Una pagella sintetica: cinque voti sull'asse giusto per il ruolo, e il
+ *  totale COERENTE con la loro somma (un totale sbagliato è un caso a parte,
+ *  non il caso normale da misurare). */
+function perfPagella(role: Role, rnd: () => number): PagellaScheda {
+  const voto = (): number => Math.round(rnd() * PAGELLA_VOTO_MAX);
+  const asse = pagellaAsseDelRuolo(role);
+  const voti: PagellaScheda["voti"] = {
+    pagella_titolarita: voto(),
+    pagella_media_voto: voto(),
+    pagella_salute: voto(),
+    pagella_consiglio: voto(),
+    ...(asse === null ? {} : { [asse]: voto() }),
+  };
+  const totaleFonte = Object.values(voti).reduce((a, b) => a + b, 0);
+  return { voti, totaleFonte };
+}
+
+/**
+ * Il deposito che il banco usa: una scheda per una quota delle righe del pool,
+ * scritta sulla STESSA identità della riga (nome + squadra).
+ *
+ * `withPagella: false` produce lo stesso deposito SENZA i cinque voti: è il
+ * ramo di oggi — l'estrazione privata non è ancora atterrata — ed è il termine
+ * di paragone che rende leggibile quanto costa il giorno in cui atterrerà.
+ */
+export function perfSchede(
+  pool: readonly ListonePlayer[],
+  withPagella = true,
+  coverage = PERF_SCHEDE_COVERAGE,
+  seed = 20260824,
+): ExpertScheda[] {
+  // DUE FLUSSI SEPARATI, e non è pignoleria: la copertura si estrae dal primo,
+  // i voti dal secondo. Con un flusso solo il ramo `withPagella: false`
+  // consumerebbe meno numeri e finirebbe per coprire righe DIVERSE, cioè i due
+  // depositi non sarebbero più confrontabili — e «quanto costano le pagelle»
+  // si misurerebbe fra due fixture diverse invece che fra le stesse due volte.
+  const rnd = mulberry32(seed ^ 0x5c4ed3);
+  const rndVoti = mulberry32(seed ^ 0x1d0771);
+  const schede: ExpertScheda[] = [];
+  for (const row of pool) {
+    if (rnd() >= coverage) continue;
+    schede.push({
+      player: row.name,
+      club: row.club,
+      titolarita: "titolare",
+      rigori: "possibile",
+      piazzati: ["angoli"],
+      nota: "Riga sintetica del banco di misura: nessun contenuto editoriale.",
+      aggiornata: "2026-08-01",
+      fonte: "scheda",
+      ...(withPagella ? { pagella: perfPagella(row.role, rndVoti) } : {}),
+    });
+  }
+  return schede;
+}
+
+/** Lo stesso deposito, già indicizzato come lo indicizza l'app. */
+export function perfSchedeStore(
+  pool: readonly ListonePlayer[],
+  withPagella = true,
+  coverage = PERF_SCHEDE_COVERAGE,
+  seed = 20260824,
+): ExpertSchedaStore {
+  return expertSchedaStore(perfSchede(pool, withPagella, coverage, seed));
 }

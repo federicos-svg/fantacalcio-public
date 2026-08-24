@@ -235,6 +235,86 @@ describe("celle — la colonna promiscua mostra l'asse del ruolo della riga", ()
   });
 });
 
+// ── IL SECONDO CANALE DEL MARCATORE ──────────────────────────────────────────
+//
+// Debito dichiarato di #41, confermato da una review indipendente: il
+// marcatore portava l'asse per esteso SOLO in un `title`, su uno `<span>` senza
+// `tabindex`. Un `title` così lo apre soltanto il passaggio del mouse: chi
+// legge a voce non lo incontra (non è contenuto, è un attributo), chi naviga
+// da tastiera nemmeno (la cella non riceve il fuoco). Le due lettere restavano
+// non spiegate per tutti quelli che non hanno un mouse — proprio nella PR che
+// altrove cura l'accessibilità con precisione.
+
+describe("il marcatore dice l'asse anche a chi non ha un mouse", () => {
+  const columns = listoneColumns([DIFENSORE]).filter((c) => c.key === NO_MALUS_BONUS_COLUMN_KEY);
+  const htmlOf = (p: ListonePlayer, signals = DEPOSITO): string =>
+    listoneRowHtml(p, columns, false, signals);
+
+  it("la frase per esteso è CONTENUTO dell'elemento, non solo un attributo", () => {
+    // La prova che morde: tolto ogni attributo, la frase deve restare. Un
+    // `title` sopravvivrebbe a questa sostituzione solo come attributo, e
+    // sparirebbe dal testo.
+    const html = htmlOf(DIFENSORE);
+    const senzaAttributi = html.replace(/<[^>]*>/g, "");
+    expect(senzaAttributi).toContain(PAGELLA_ETICHETTE.pagella_bonus);
+    expect(html).toContain(
+      `<span class="listone-axis-tag__sr">${PAGELLA_ETICHETTE.pagella_bonus}</span>`,
+    );
+  });
+
+  it("un portiere sente «Porta inviolata», non «Bonus»", () => {
+    const html = htmlOf(PORTIERE);
+    expect(html).toContain(
+      `<span class="listone-axis-tag__sr">${PAGELLA_ETICHETTE.pagella_porta_inviolata}</span>`,
+    );
+    expect(html).not.toContain(
+      `<span class="listone-axis-tag__sr">${PAGELLA_ETICHETTE.pagella_bonus}</span>`,
+    );
+    expect(html).toContain(`<span aria-hidden="true">${ROLE_AXIS_MARKERS.pagella_porta_inviolata}</span>`);
+  });
+
+  it("la SIGLA è nascosta alla voce: «BO» letto ad alta voce è un suono, non una parola", () => {
+    expect(htmlOf(DIFENSORE)).toContain(
+      `<span aria-hidden="true">${ROLE_AXIS_MARKERS.pagella_bonus}</span>`,
+    );
+  });
+
+  it("il `title` resta, per il mouse: due canali, non uno sostituito con l'altro", () => {
+    expect(htmlOf(DIFENSORE)).toContain(`title="${PAGELLA_ETICHETTE.pagella_bonus}"`);
+  });
+
+  it("ZERO stop di tabulazione aggiunti: nessun `tabindex`, nessun controllo", () => {
+    // Il vincolo che ha deciso la forma della soluzione. Un listone da 532
+    // righe con un elemento focusabile in più per riga è una tabella che non
+    // si attraversa più: la frase accessibile sta sull'elemento che c'era già.
+    const html = htmlOf(DIFENSORE);
+    expect(html).not.toContain("tabindex");
+    expect(html).not.toContain("<button");
+    expect(html).not.toContain("<a ");
+  });
+
+  it("una cella senza voto non porta nemmeno la frase: non c'è niente da qualificare", () => {
+    // `data-label` porta comunque il nome della colonna per il ruolo (è
+    // l'etichetta della resa stretta): quello che NON deve esserci è il
+    // marcatore, sigla e frase comprese.
+    const html = htmlOf(SENZA);
+    expect(html).not.toContain("listone-axis-tag");
+    expect(html).not.toContain('aria-hidden="true"');
+    expect(html).toContain(VALUE_NOT_AVAILABLE);
+  });
+
+  it("«n.a.» non guadagna un marcatore, e resta diverso da «n/d»", () => {
+    // La scheda del portiere porta l'asse del movimento: il voto non si
+    // applica, quindi non c'è nessun asse da dichiarare accanto a un numero
+    // che non c'è. E le due parole restano due.
+    const sbagliata = signalsFrom({ [PORTIERE.name]: BONUS });
+    const html = htmlOf(PORTIERE, sbagliata);
+    expect(html).toContain(VALUE_NOT_APPLICABLE);
+    expect(html).not.toContain("listone-axis-tag");
+    expect(VALUE_NOT_APPLICABLE).not.toBe(VALUE_NOT_AVAILABLE);
+  });
+});
+
 describe("ordinamento — la colonna promiscua dichiara che cosa confronta", () => {
   it("le celle senza voto finiscono in fondo, in entrambe le direzioni", () => {
     for (const direction of ["asc", "desc"] as const) {

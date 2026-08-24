@@ -270,16 +270,94 @@ test("«No Malus/Bonus» è UNA colonna sola e ogni cella dichiara di quale asse
   const cell = (player: string) =>
     page.locator(".listone-row", { hasText: player }).locator('[data-col="pagella_no_malus_bonus"]');
 
+  // AGGIORNATA, NON AMMORBIDITA (2026-08-24, debito dichiarato di #41). Prima
+  // il marcatore era `toHaveText("BO")` sull'elemento intero: adesso l'elemento
+  // porta DUE canali — la sigla che si vede e la frase che si sente — e
+  // l'asserzione li pretende entrambi, per selettore, invece di guardare il
+  // testo unito. Quello che era «BO» adesso è «BO» visibile PIÙ «Bonus»
+  // parlato: la stessa asserzione di prima, con in più quella che mancava.
   await expect(cell(SCHEDA_PLAYER)).toContainText("6");
-  await expect(cell(SCHEDA_PLAYER).locator(".listone-axis-tag")).toHaveText("BO");
-  await expect(cell(SCHEDA_PLAYER).locator(".listone-axis-tag")).toHaveAttribute("title", "Bonus");
+  const bonusTag = cell(SCHEDA_PLAYER).locator(".listone-axis-tag");
+  await expect(bonusTag.locator("[aria-hidden='true']")).toHaveText("BO");
+  await expect(bonusTag.locator(".listone-axis-tag__sr")).toHaveText("Bonus");
+  await expect(bonusTag).toHaveAttribute("title", "Bonus");
 
   await expect(cell(OTHER_PLAYER)).toContainText("1");
-  await expect(cell(OTHER_PLAYER).locator(".listone-axis-tag")).toHaveText("PI");
-  await expect(cell(OTHER_PLAYER).locator(".listone-axis-tag")).toHaveAttribute(
-    "title",
-    "Porta inviolata",
-  );
+  const portaTag = cell(OTHER_PLAYER).locator(".listone-axis-tag");
+  await expect(portaTag.locator("[aria-hidden='true']")).toHaveText("PI");
+  await expect(portaTag.locator(".listone-axis-tag__sr")).toHaveText("Porta inviolata");
+  await expect(portaTag).toHaveAttribute("title", "Porta inviolata");
+
+  expect(externalRequests).toEqual([]);
+});
+
+/** Quanti elementi dentro `selector` si raggiungono col TAB. Conta i controlli
+ *  nativi e qualunque cosa porti un `tabindex` non negativo — cioè esattamente
+ *  ciò che aggiungerebbe una fermata a chi attraversa la tabella. */
+async function tabStops(page: Page, selector: string): Promise<number> {
+  return page.evaluate((sel) => {
+    const root = document.querySelector(sel);
+    if (root === null) return -1;
+    const candidates = root.querySelectorAll(
+      "a[href], button, input, select, textarea, [tabindex], [contenteditable='true']",
+    );
+    let n = 0;
+    for (const el of Array.from(candidates)) {
+      const ti = el.getAttribute("tabindex");
+      if (ti !== null && Number(ti) < 0) continue;
+      if (el.matches(":disabled")) continue;
+      n += 1;
+    }
+    return n;
+  }, selector);
+}
+
+test("il marcatore si legge senza mouse, e non aggiunge nemmeno una fermata al TAB", async ({
+  page,
+  context,
+}) => {
+  // I DUE MEZZI DELLO STESSO DEBITO (#41). Il `title` da solo non basta — lo
+  // apre il passaggio del mouse e nient'altro — ma la strada ovvia per
+  // renderlo raggiungibile (un `tabindex` sul marcatore) su 532 righe
+  // aggiungerebbe fino a 532 fermate a una tabella che si attraversa già a
+  // fatica. Questa spec pretende ENTRAMBE le metà: la frase c'è, e le fermate
+  // sono le stesse di quando i marcatori non c'erano.
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
+  await routeSchede(context, [PAGELLA_SCHEDA, PAGELLA_SCHEDA_PORTIERE]);
+  await boot(page);
+
+  const markers = page.locator(".listone-row .listone-axis-tag");
+  const conMarcatori = await markers.count();
+  expect(conMarcatori).toBeGreaterThan(0);
+  const stopsConMarcatori = await tabStops(page, "#listone-block");
+  // Dentro le RIGHE non si tabula affatto: la selezione è un clic sulla riga,
+  // e il marcatore non ha cambiato quel fatto.
+  expect(await tabStops(page, "#listone-block .listone-row")).toBe(0);
+
+  // Ogni marcatore porta la frase per esteso COME CONTENUTO, non come
+  // attributo: è quello che uno screen reader legge.
+  for (let i = 0; i < conMarcatori; i += 1) {
+    const testo = await markers.nth(i).locator(".listone-axis-tag__sr").textContent();
+    expect(["Bonus", "Porta inviolata"]).toContain((testo ?? "").trim());
+  }
+
+  // …e la frase NON si vede: occupa un pixel ed è ritagliata, quindi la cella
+  // a schermo resta la cifra più due lettere. La misura è il rettangolo reso,
+  // non un giudizio a occhio.
+  const box = await markers.first().locator(".listone-axis-tag__sr").boundingBox();
+  expect(box, "il testo fuori dalla vista deve comunque essere reso").not.toBeNull();
+  expect(box!.width).toBeLessThanOrEqual(1);
+  expect(box!.height).toBeLessThanOrEqual(1);
+
+  // LO STESSO LISTONE SENZA PAGELLE: nessun marcatore, e lo STESSO numero di
+  // fermate. È la prova del «zero stop aggiunti», non una dichiarazione.
+  await context.unroute(`**${SCHEDE_PATH}`);
+  await routeSchede(context, []);
+  await page.reload();
+  await expect(page.locator(".listone-row").first()).toBeVisible();
+  await expect(page.locator(".listone-row .listone-axis-tag")).toHaveCount(0);
+  expect(await tabStops(page, "#listone-block")).toBe(stopsConMarcatori);
 
   expect(externalRequests).toEqual([]);
 });
