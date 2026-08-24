@@ -41,6 +41,33 @@ import {
 } from "./warBoard.js";
 import type { ResidualPressure } from "../../packages/engine/src/anchors.js";
 import type { PrecedentsReading } from "../../packages/opponent-profiles/src/types.js";
+import {
+  EMPTY_ROLE_PLAN_DRAFT,
+  PLAN_VERSION_MAX,
+  type RolePlanDraft,
+  type RolePlanReading,
+  declaredTotal,
+  parseTargetInput,
+  withPlanVersion,
+  withTarget,
+} from "../rolePlan.js";
+import {
+  PLAN_VERSION_FIELD_LABEL,
+  PLAN_VERSION_HINT,
+  ROLE_PLAN_CLEARED_ANNOUNCE,
+  ROLE_PLAN_CLEAR_LABEL,
+  ROLE_PLAN_NOT_SAVED,
+  ROLE_PLAN_NOTE,
+  ROLE_PLAN_TITLE,
+  TARGET_FIELD_HINT,
+  TARGET_REJECTION_TEXT,
+  TARGET_UNDECLARED,
+  declaredTotalText,
+  planStateText,
+  planTotalsText,
+  rolePlanGridHtml,
+  targetFieldLabel,
+} from "./rolePlan.js";
 import type { RoleDepletionReading } from "../roleDepletion.js";
 import {
   ROLE_DEPLETION_NOTE,
@@ -1290,6 +1317,12 @@ export function renderRoseScreen(
   // Pure accounting rows from packages/engine/src/auction.ts opponentTier1(),
   // built by the caller. Empty array -> the panel is not rendered at all.
   opponents: readonly OpponentTier1[] = [],
+  // IL MIO PIANO (PLAN-01), costruito dal chiamante con renderRolePlanPanel()
+  // e montato subito sotto la riga di intestazione: è il piano DI OWNER, e su
+  // questa schermata viene prima della contabilità degli avversari. `null`
+  // quando la squadra di Owner non è nello stato derivato — non esiste un
+  // piano di una squadra che non c'è, e un pannello vuoto direbbe il contrario.
+  myPlanPanel: HTMLElement | null = null,
 ): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "screen-container";
@@ -1297,8 +1330,28 @@ export function renderRoseScreen(
 
   const hint = document.createElement("div");
   hint.className = "hint-text";
-  hint.innerHTML = `Rose — sola lettura, derivata dallo storico acquisti. Le icone <span style="border:1px dashed ${C.textDim};border-radius:3px;padding:0 3px;">DEV</span> non eseguono azioni reali.`;
+  // Un id, perché questa riga adesso ha DUE forme e una spec deve poter dire
+  // quale delle due sta leggendo: `.hint-text` su questa schermata prende anche
+  // i due suggerimenti del modulo del piano e la sua nota.
+  hint.id = "rose-screen-hint";
+  // LA FRASE DICE QUALE PARTE È DI SOLA LETTURA, adesso che non lo è più tutta.
+  // Da quando questa schermata ospita il piano rosa, sotto questa riga c'è un
+  // MODULO: quattro campi che Owner compila e una dichiarazione che finisce in
+  // `localStorage`. Continuare a scrivere «Rose — sola lettura» a due
+  // centimetri da un campo editabile è un'etichetta che contraddice ciò che
+  // etichetta, e una schermata che si contraddice smette di essere creduta
+  // anche dove dice il vero. Le rose e la contabilità RESTANO derivate dal log
+  // e non si toccano: è quello che la frase continua a dire, ma per la parte
+  // giusta. Senza pannello (nessuna squadra di Owner nello stato derivato) la
+  // schermata è di nuovo di sola lettura per intero, e la frase torna quella.
+  const devIcons = `<span style="border:1px dashed ${C.textDim};border-radius:3px;padding:0 3px;">DEV</span>`;
+  hint.innerHTML =
+    myPlanPanel === null
+      ? `Rose — sola lettura, derivata dallo storico acquisti. Le icone ${devIcons} non eseguono azioni reali.`
+      : `Rose — le rose e la contabilità sono di sola lettura, derivate dallo storico acquisti. Il piano rosa qui sotto è invece tuo da scrivere: i target che dichiari restano nel browser. Le icone ${devIcons} non eseguono azioni reali.`;
   wrap.appendChild(hint);
+
+  if (myPlanPanel !== null) wrap.appendChild(myPlanPanel);
 
   if (opponents.length > 0) {
     wrap.appendChild(renderOpponentTier1Panel(opponents, teamLabels));
@@ -1384,6 +1437,243 @@ export function renderOpponentTier1Panel(
     "Sola contabilità derivata dal log dell'asta: credito residuo e slot ancora liberi per ogni avversario. Nessuna stima di interesse, nessun indice comportamentale, nessuna raccomandazione.";
   panel.appendChild(note);
 
+  return panel;
+}
+
+// ── PIANO ROSA (VIVO) — target, riserve, scostamento (PLAN-01) ───────────────
+//
+// Superficie del piano rosa vivo che il motore calcolava già senza che nessuna
+// schermata lo importasse: `livePlan()`, `validateRolePlan()`, `LivePlan` e
+// `DeclaredRolePlan` vivono in packages/engine/src/livePlan.ts da prima di
+// questo batch, completi e testati, e `grep` non trovava un solo import in
+// `src/`. Questo pannello è il passo di visualizzazione mancante, più il
+// modulo che RACCOGLIE la dichiarazione di Owner — senza la quale il piano non
+// esiste, perché il sistema non ne propone uno.
+//
+// DOVE VIVE E PERCHÉ. Sulla schermata ROSE, la stessa che ospita già
+// AVVERSARI TIER-1: è la superficie che `npm run route -- --surface dashboard`
+// indica per «rose, budget, piano per ruolo». NON sulla schermata Asta —
+// l'invariante UI di docs/FRONTEND_STRUCTURE.md tiene i blocchi di quadro
+// generale fuori di lì, e #331 ha appena restituito a quella schermata lo
+// spazio verticale che il gesto principale le chiedeva.
+//
+// QUESTO FILE NON CHIAMA IL MOTORE. La lettura (`read`) e la persistenza
+// (`persist`) arrivano iniettate da main.ts, come ogni altro pannello qui
+// dentro: views.ts non importa `livePlan` e non deriva nessun numero.
+//
+// REPAINT PARZIALE, NON `render()`. Ogni tasto digitato in un campo target
+// ricalcola la lettura e ridipinge SOLO le tre parti che cambiano — frase di
+// stato, schede di ruolo, totali. Ricostruire l'albero intero costerebbe il
+// fuoco del campo che l'operatore sta usando: stessa scelta, per lo stesso
+// motivo, delle pastiglie di marcatura in src/main.ts.
+export interface RolePlanPanelProps {
+  /** La dichiarazione conservata, di cui il pannello tiene la copia viva. */
+  readonly draft: RolePlanDraft;
+  /** Ricalcola la lettura. Iniettata: qui non si chiama il motore. */
+  readonly read: (draft: RolePlanDraft) => RolePlanReading;
+  /** Conserva. `false` = la scrittura non ha attecchito, e va detto. */
+  readonly persist: (draft: RolePlanDraft) => boolean;
+}
+
+export function renderRolePlanPanel(props: RolePlanPanelProps): HTMLElement {
+  let draft = props.draft;
+
+  const panel = document.createElement("section");
+  panel.id = "role-plan-panel";
+  panel.className = "panel role-plan";
+  panel.setAttribute("aria-label", "Piano rosa: target, riserve e scostamento per ruolo");
+
+  const title = document.createElement("div");
+  title.className = "panel-title";
+  title.textContent = ROLE_PLAN_TITLE;
+  panel.appendChild(title);
+
+  const stateLine = document.createElement("p");
+  stateLine.id = "role-plan-state";
+  stateLine.className = "role-plan__state";
+  panel.appendChild(stateLine);
+
+  const grid = document.createElement("div");
+  grid.id = "role-plan-grid";
+  grid.className = "role-plan__grid";
+  panel.appendChild(grid);
+
+  const totals = document.createElement("ul");
+  totals.id = "role-plan-totals";
+  totals.className = "role-plan__totals";
+  panel.appendChild(totals);
+
+  // ── Dichiarazione ─────────────────────────────────────────────────────────
+  const form = document.createElement("div");
+  form.id = "role-plan-form";
+  form.className = "role-plan__form";
+
+  const formTitle = document.createElement("div");
+  formTitle.className = "role-plan__form-title";
+  formTitle.id = "role-plan-form-title";
+  formTitle.textContent = "IL TUO PIANO — DICHIARA I TARGET";
+  form.appendChild(formTitle);
+
+  const targetHint = document.createElement("p");
+  targetHint.id = "role-plan-target-hint";
+  targetHint.className = "hint-text";
+  targetHint.textContent = TARGET_FIELD_HINT;
+  form.appendChild(targetHint);
+
+  const feedback = document.createElement("p");
+  feedback.id = "role-plan-feedback";
+  feedback.className = "role-plan__feedback";
+  // Un rifiuto o una scrittura non andata a buon fine devono raggiungere anche
+  // chi non guarda quel punto dello schermo.
+  //
+  // MA NON UN ANNUNCIO PER TASTO. Questa è una regione `aria-live`, e ogni
+  // carattere digitato in un campo target è un `input`: una conferma di
+  // salvataggio scritta qui verrebbe letta ad alta voce a ogni cifra («target 8
+  // salvato», «target 80 salvato»), cioè trasformerebbe l'aiuto in rumore
+  // proprio per chi ne dipende. Il salvataggio riuscito si vede già — la scheda
+  // del ruolo qui sopra si aggiorna nello stesso istante — quindi il caso
+  // normale non scrive niente. Qui finiscono solo le due cose che lo schermo NON
+  // dice da sé: un valore rifiutato, e una scrittura che non ha attecchito.
+  feedback.setAttribute("role", "status");
+  feedback.setAttribute("aria-live", "polite");
+
+  const totalLine = document.createElement("p");
+  totalLine.id = "role-plan-declared-total";
+  totalLine.className = "role-plan__declared-total";
+
+  const fields = document.createElement("div");
+  fields.className = "role-plan__fields";
+
+  const inputs: Partial<Record<Role, HTMLInputElement>> = {};
+
+  /** `announce` è la frase da leggere ad alta voce, e per il caso normale è la
+   *  stringa vuota: vedi il commento su `feedback`. Una scrittura fallita la
+   *  sovrascrive sempre, perché quella nessuno la vede. */
+  const commit = (next: RolePlanDraft, announce: string): void => {
+    draft = next;
+    feedback.textContent = props.persist(draft) ? announce : ROLE_PLAN_NOT_SAVED;
+    paint();
+  };
+
+  for (const role of ROLES) {
+    const field = document.createElement("label");
+    field.className = "role-plan__field";
+
+    const caption = document.createElement("span");
+    caption.className = "field-label";
+    caption.textContent = targetFieldLabel(role);
+    field.appendChild(caption);
+
+    const input = document.createElement("input");
+    input.id = `role-plan-target-${role}`;
+    input.className = "field-input role-plan__input";
+    input.type = "text";
+    input.inputMode = "numeric";
+    input.autocomplete = "off";
+    input.maxLength = 4;
+    input.placeholder = TARGET_UNDECLARED;
+    const declared = draft.targets[role];
+    input.value = declared === undefined ? "" : String(declared);
+    input.setAttribute("aria-describedby", "role-plan-target-hint");
+    input.addEventListener("input", (e) => {
+      const parsed = parseTargetInput((e.target as HTMLInputElement).value);
+      if (parsed.kind === "rejected") {
+        // Si tiene visibile ciò che è stato digitato e si rifiuta solo di
+        // conservarlo: nessuna correzione d'ufficio del numero.
+        input.setAttribute("aria-invalid", "true");
+        feedback.textContent = TARGET_REJECTION_TEXT[parsed.reason];
+        return;
+      }
+      input.removeAttribute("aria-invalid");
+      // Nessun annuncio: la scheda del ruolo qui sopra cambia da sé, e un
+      // annuncio per tasto sarebbe rumore (vedi `feedback`).
+      commit(withTarget(draft, role, parsed), "");
+    });
+    field.appendChild(input);
+    inputs[role] = input;
+    fields.appendChild(field);
+  }
+
+  const versionField = document.createElement("label");
+  versionField.className = "role-plan__field role-plan__field--version";
+  const versionCaption = document.createElement("span");
+  versionCaption.className = "field-label";
+  versionCaption.textContent = PLAN_VERSION_FIELD_LABEL;
+  versionField.appendChild(versionCaption);
+  const versionInput = document.createElement("input");
+  versionInput.id = "role-plan-version";
+  versionInput.className = "field-input role-plan__input";
+  versionInput.type = "text";
+  versionInput.autocomplete = "off";
+  versionInput.maxLength = PLAN_VERSION_MAX;
+  versionInput.value = draft.planVersion;
+  versionInput.setAttribute("aria-describedby", "role-plan-version-hint");
+  versionInput.addEventListener("input", (e) => {
+    commit(withPlanVersion(draft, (e.target as HTMLInputElement).value), "");
+  });
+  versionField.appendChild(versionInput);
+  fields.appendChild(versionField);
+  form.appendChild(fields);
+
+  const versionHint = document.createElement("p");
+  versionHint.id = "role-plan-version-hint";
+  versionHint.className = "hint-text";
+  versionHint.textContent = PLAN_VERSION_HINT;
+  form.appendChild(versionHint);
+
+  form.appendChild(totalLine);
+
+  const actions = document.createElement("div");
+  actions.className = "role-plan__actions";
+  const clear = document.createElement("button");
+  clear.type = "button";
+  clear.id = "role-plan-clear";
+  clear.className = "btn btn--secondary";
+  // L'etichetta nomina anche la VERSIONE, perché il gesto la cancella: vedi
+  // ROLE_PLAN_CLEAR_LABEL in ./rolePlan.ts. Non c'è conferma e non c'è undo, e
+  // allora l'unico posto dove la verità arriva in tempo è il pulsante stesso.
+  clear.textContent = ROLE_PLAN_CLEAR_LABEL;
+  clear.addEventListener("click", () => {
+    for (const role of ROLES) {
+      const input = inputs[role];
+      if (input !== undefined) {
+        input.value = "";
+        input.removeAttribute("aria-invalid");
+      }
+    }
+    versionInput.value = "";
+    commit(EMPTY_ROLE_PLAN_DRAFT, ROLE_PLAN_CLEARED_ANNOUNCE);
+  });
+  actions.appendChild(clear);
+  form.appendChild(actions);
+  form.appendChild(feedback);
+
+  panel.appendChild(form);
+
+  const note = document.createElement("p");
+  note.className = "hint-text";
+  note.id = "role-plan-note";
+  note.textContent = ROLE_PLAN_NOTE;
+  panel.appendChild(note);
+
+  function paint(): void {
+    const reading = props.read(draft);
+    stateLine.textContent = planStateText(reading);
+    grid.innerHTML = rolePlanGridHtml(reading.rows);
+    if (reading.kind === "live") {
+      totals.innerHTML = planTotalsText(reading.live)
+        .map((line) => `<li>${escHtml(line)}</li>`)
+        .join("");
+      totals.hidden = false;
+    } else {
+      totals.innerHTML = "";
+      totals.hidden = true;
+    }
+    const declared = declaredTotal(draft);
+    totalLine.textContent = declaredTotalText(declared.total, declared.roles);
+  }
+
+  paint();
   return panel;
 }
 
