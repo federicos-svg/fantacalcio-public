@@ -46,11 +46,18 @@ describe("computeFantavoto", () => {
   // portiere. `Rf` resta ignorato, e la sua ragione non e' cambiata: un rigore
   // segnato e' gia' dentro `Gf`.
   it("Gs conta per il PORTIERE: -1 per gol subito", () => {
-    const keeper = record({ role: "P", Gs: 3 });
-    expect(computeFantavoto(keeper)).toBeCloseTo(6 + 3 * GS_MALUS_PER_GOAL_CONCEDED);
-    // Un portiere che para un rigore e ne subisce due: entrambi contano.
-    const busy = record({ role: "P", Gs: 2, Rp: 1 });
-    expect(computeFantavoto(busy)).toBeCloseTo(6 + 2 * GS_MALUS_PER_GOAL_CONCEDED + FANTAVOTO_TARIFF.Rp);
+    // NUMERI LETTERALI, NON LA COSTANTE. Scritto prima con
+    // `6 + 3 * GS_MALUS_PER_GOAL_CONCEDED`, e una mutazione l'ha smascherato:
+    // portando la costante a 0 il test restava VERDE, perche' asseriva contro
+    // se' stesso. Un test che si adegua alla tariffa che dovrebbe sorvegliare
+    // ha smesso di sorvegliarla. Il valore -1 viene dal regolamento
+    // (LEAGUE_RULES.md §12), quindi qui si scrive il risultato che il
+    // regolamento impone: 6 - 3 = 3.
+    expect(computeFantavoto(record({ role: "P", Gs: 3 }))).toBeCloseTo(3);
+    // Un portiere che para un rigore e ne subisce due: 6 - 2 + 3 = 7.
+    expect(computeFantavoto(record({ role: "P", Gs: 2, Rp: 1 }))).toBeCloseTo(7);
+    // La costante e' sorvegliata a parte, contro il regolamento.
+    expect(GS_MALUS_PER_GOAL_CONCEDED).toBe(-1);
   });
 
   it("Rf resta ignorato — un rigore segnato e' gia' dentro Gf", () => {
