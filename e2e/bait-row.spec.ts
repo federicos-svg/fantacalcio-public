@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { installSyntheticNetworkGuard } from "./helpers.js";
 import { PRECEDENT_POOL, seedPrecedents } from "./fixtures/synthetic-precedents.js";
+import { BAIT_TITLE, BAIT_TITLE_SHORT } from "../src/ui/baitRow.js";
 
 // LA RIGA DELL'ESCA SI CLICCA COME UNA RIGA DI LISTONE — il gesto, dal primo
 // tocco all'ultimo.
@@ -45,6 +46,25 @@ const THIRD_ROW = "Primo Difensore";
 /** La guardia di deriva, sul DOM VIVO. Gemella di src/ui/baitRow.test.ts §E14. */
 const DRIFT = /vuole|abbocc|aggressiv|tilt|preved|probabil|stima/i;
 
+/**
+ * La guardia di deriva su UNA STRINGA VUOTA sarebbe verde senza provare
+ * niente: `""` non corrisponde a nessuna regex. Prima di negare, si asserisce
+ * che c'è qualcosa da negare — il titolo del sottoblocco e una lunghezza
+ * minima. È la stessa classe di difetto che #41 ha corretto sul proprio
+ * `toHaveCount(0)` (e2e/listone-colonne-default.spec.ts §"le cinque celle di
+ * voto devono esistere per poterle negare").
+ */
+async function expectNoDrift(page: Page, where: string): Promise<void> {
+  const text = await page.locator("#bait-block").innerText();
+  expect(text, `${where}: il nome non c'è, la guardia non sta guardando il blocco giusto`)
+    .toContain(BAIT_TITLE_SHORT);
+  // Oltre al nome deve esserci del contenuto vero: il titolo da solo non è
+  // qualcosa da negare.
+  const beyondTitle = text.replace(BAIT_TITLE_SHORT, "").trim();
+  expect(beyondTitle.length, `${where}: oltre al nome il sottoblocco è vuoto`).toBeGreaterThan(40);
+  expect(text, where).not.toMatch(DRIFT);
+}
+
 async function boot(page: Page): Promise<void> {
   await page.goto("/");
   await page.evaluate(() => localStorage.clear());
@@ -88,6 +108,9 @@ test("il sottoblocco mostra i candidati attesi, in ordine, dentro GIOCATORE SUGG
   await expect(rows.nth(0)).toContainText("ha speso su ClubUno");
   await expect(rows.nth(0)).toContainText("dal 15% in su");
 
+  // Con le righe, l'occhiello è quello per esteso: dice CHE COSA sono.
+  await expect(page.locator("#bait-title")).toHaveText(BAIT_TITLE);
+
   // I tre parametri, ispezionabili accanto ai numeri che governano.
   const note = page.locator("#bait-note");
   await expect(note).toContainText("provenienza: storico d'asta misurato");
@@ -111,7 +134,7 @@ test("il sottoblocco mostra i candidati attesi, in ordine, dentro GIOCATORE SUGG
   );
 
   // GUARDIA DI DERIVA sul testo davvero renderizzato.
-  expect(await page.locator("#bait-block").innerText()).not.toMatch(DRIFT);
+  await expectNoDrift(page, "con le righe");
 
   expect(externalRequests).toEqual([]);
 });
@@ -273,8 +296,21 @@ test("senza storico il sottoblocco dice «non lo so», e non «nessuno»", async
   await expect(empty).toBeVisible();
   await expect(empty).toHaveAttribute("data-reason", "no-history");
   await expect(empty).toContainText("non lo so");
+  await expect(empty).toContainText("«non lo so» non è «nessuno»");
   await expect(page.locator("#bait-rows")).toHaveCount(0);
-  expect(await page.locator("#bait-block").innerText()).not.toMatch(DRIFT);
+
+  // SENZA POPOLAZIONE, IL BLOCCO NON RECITA PARAMETRI CHE NON HANNO GOVERNATO
+  // NIENTE: niente nota, e l'occhiello è il solo nome. Un blocco che non ha
+  // nulla da dire non si prende un quarto di schermata — vedi
+  // e2e/call-screen-order.spec.ts, che tiene la paginazione entro due schermate.
+  await expect(page.locator("#bait-note")).toHaveCount(0);
+  await expect(page.locator("#bait-title")).toHaveText(BAIT_TITLE_SHORT);
+  const emptyHeight = await page
+    .locator("#bait-block")
+    .evaluate((el) => el.getBoundingClientRect().height);
+  expect(emptyHeight, "il sottoblocco vuoto è tornato a costare mezza schermata").toBeLessThan(120);
+
+  await expectNoDrift(page, "senza storico");
 
   expect(externalRequests).toEqual([]);
 });

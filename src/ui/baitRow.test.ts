@@ -16,7 +16,10 @@ import { describe, it, expect } from "vitest";
 import {
   BAIT_SELECTED_MARK,
   BAIT_TITLE,
+  BAIT_TITLE_SHORT,
   BAIT_TOP_TIER_MARKER,
+  baitNoteApplies,
+  baitTitleFor,
   baitCountText,
   baitEmptyText,
   baitEvidenceLines,
@@ -172,13 +175,27 @@ describe("quando non compare, dice QUALE silenzio è", () => {
   it("no-history dice «non lo so», che è l'opposto di una risposta", () => {
     const text = baitEmptyText("no-history");
     expect(text).toContain("non lo so");
-    expect(text).toContain("niente di misurato");
+    // La distinzione LOAD-BEARING, e resta esplicita nel testo: «non lo so»
+    // non è «nessuno». È la frase che la guardia di deriva protegge.
+    expect(text).toContain("«non lo so» non è «nessuno»");
   });
 
   it("no-exposed nomina le tre condizioni insieme, perché una sola non basta", () => {
     expect(baitEmptyText("no-exposed")).toBe(
       "Nessun libero su cui un avversario abbia insieme un precedente misurato, lo slot e i crediti.",
     );
+  });
+
+  it("in nessuno dei sei silenzi il testo supera le due frasi", () => {
+    // Un blocco che NON HA NULLA DA DIRE non può prendersi un quarto di
+    // schermata: `e2e/call-screen-order.spec.ts` tiene la paginazione del
+    // listone entro due schermate dal campo di ricerca, e a 390px ogni frase in
+    // più del silenzio sono ~20px di quel margine. Misurato: il sottoblocco
+    // vuoto è passato da 218px a 71px.
+    for (const reason of EMPTY_REASONS) {
+      const sentences = baitEmptyText(reason).split(". ").length;
+      expect(sentences, `${reason}: ${baitEmptyText(reason)}`).toBeLessThanOrEqual(2);
+    }
   });
 
   it("below-sample non è assenza di precedenti, e lo dice", () => {
@@ -277,5 +294,51 @@ describe("il tetto di righe è quello dichiarato nell'esito", () => {
 
   it("un esito vuoto non mostra righe", () => {
     expect(baitShownCandidates(emptyReading("no-exposed"))).toEqual([]);
+  });
+});
+
+describe("il blocco vuoto non recita parametri che non hanno governato niente", () => {
+  it("senza popolazione (no-pool, no-history) la nota non compare", () => {
+    for (const reason of ["no-pool", "no-history"] as const) {
+      expect(baitNoteApplies(emptyReading(reason)), reason).toBe(false);
+      expect(baitSectionText(emptyReading(reason), LABELS)).not.toContain("apertura a");
+    }
+  });
+
+  it("negli altri quattro silenzi la nota resta per intero", () => {
+    for (const reason of ["no-open-role", "no-affordable-opening", "no-exposed", "below-sample"] as const) {
+      expect(baitNoteApplies(emptyReading(reason)), reason).toBe(true);
+      expect(baitSectionText(emptyReading(reason), LABELS), reason).toContain("apertura a 1 cr");
+      expect(baitSectionText(emptyReading(reason), LABELS), reason).toContain("provvisorio");
+    }
+  });
+
+  it("con le righe la nota c'è sempre", () => {
+    expect(baitNoteApplies(reading())).toBe(true);
+    expect(baitSectionText(reading(), LABELS)).toContain("al massimo 3 righe");
+  });
+
+  it("i parametri restano nel DATO anche dove la vista non li stampa", () => {
+    // La regola è «la soglia ispezionabile accanto al numero che lascia
+    // passare»: senza numero la vista tace, ma `BaitReading.parameters` li
+    // porta comunque — chi legge l'esito non perde niente.
+    expect(emptyReading("no-history").parameters).toEqual(BAIT_PARAMETERS);
+  });
+});
+
+describe("il NOME del blocco è uno solo, in tutti e due gli esiti", () => {
+  it("la forma breve è un prefisso letterale di quella estesa", () => {
+    // Costruzione, non disciplina: `BAIT_TITLE` è interpolato da
+    // `BAIT_TITLE_SHORT`. Il test lo rende osservabile.
+    expect(BAIT_TITLE.startsWith(BAIT_TITLE_SHORT)).toBe(true);
+    expect(BAIT_TITLE_SHORT).toBe("PER FAR SPENDERE GLI ALTRI");
+  });
+
+  it("con le righe l'occhiello è esteso, senza righe è il solo nome", () => {
+    expect(baitTitleFor(reading())).toBe(BAIT_TITLE);
+    expect(baitTitleFor(emptyReading("no-history"))).toBe(BAIT_TITLE_SHORT);
+    // La seconda metà descrive CHE COSA SONO LE RIGHE: senza righe non c'è
+    // niente da descrivere, e la frase del silenzio lo dice già per intero.
+    expect(baitTitleFor(emptyReading("no-history"))).not.toContain("liberi su cui");
   });
 });

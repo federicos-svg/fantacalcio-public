@@ -14,15 +14,18 @@
  * comunque due segnali. */
 
 .bait {
-  margin-top: 14px;
-  padding-top: 12px;
+  margin-top: 10px;
+  padding-top: 9px;
   border-top: 1px solid var(--border);
 }
 
+/* La spaziatura extra è la firma dell'occhiello, ma su tre righe a 390px costa
+   una riga intera di altezza: resta a 0.04em, che si legge ancora come occhiello
+   e sta in due righe invece che in tre. Misurato, non stimato. */
 .bait__title {
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   color: var(--text-sec);
   margin-bottom: 6px;
 }

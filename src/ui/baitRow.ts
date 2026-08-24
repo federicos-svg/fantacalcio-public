@@ -49,9 +49,35 @@ import type { PrecedentFact } from "../../packages/opponent-profiles/src/types.j
 import { precedentEvidence, precedentMotive, seasonsSpan } from "./liveFacts.js";
 import type { ListonePlayer } from "./listone.js";
 
-/** L'occhiello del sottoblocco. Nomina il contenuto, non l'intenzione. */
-export const BAIT_TITLE =
-  "PER FAR SPENDERE GLI ALTRI — liberi su cui più avversari hanno un precedente, lo slot e i crediti";
+/** Il NOME del sottoblocco. Nomina il contenuto, non l'intenzione. */
+export const BAIT_TITLE_SHORT = "PER FAR SPENDERE GLI ALTRI";
+
+/** L'occhiello per esteso: il nome più ciò che le righe SONO. */
+export const BAIT_TITLE = `${BAIT_TITLE_SHORT} — liberi su cui più avversari hanno un precedente, lo slot e i crediti`;
+
+/**
+ * Quale dei due va a schermo, e perché non è una scorciatoia di larghezza.
+ *
+ * La seconda metà dell'occhiello descrive CHE COSA SONO LE RIGHE. Senza righe
+ * non c'è niente da descrivere: la frase del silenzio, subito sotto, dice già
+ * per intero perché non ce ne sono, e ripetere «liberi su cui più avversari
+ * hanno un precedente, lo slot e i crediti» sopra un «non lo so» aggiunge tre
+ * righe di altezza e zero informazione.
+ *
+ * TRE RIGHE NON SONO UN DETTAGLIO SU QUESTA SCHERMATA. Misurato a 390px: 49,5px
+ * di occhiello contro 16,5. `e2e/call-screen-order.spec.ts` tiene la
+ * paginazione del listone entro due schermate dal campo di ricerca — una
+ * decisione di prodotto di Pico, non un budget inventato — e con 532 righe e le
+ * undici colonne di default di #41 quel margine è già quasi tutto speso. Un
+ * blocco che NON HA NULLA DA DIRE non può prendersene un quarto di schermata.
+ *
+ * IL NOME NON CAMBIA MAI: `BAIT_TITLE_SHORT` è un prefisso letterale di
+ * `BAIT_TITLE` per costruzione (il secondo è interpolato dal primo), e un test
+ * lo verifica — così i due non possono diventare due nomi diversi.
+ */
+export function baitTitleFor(reading: BaitReading): string {
+  return reading.kind === "candidates" ? BAIT_TITLE : BAIT_TITLE_SHORT;
+}
 
 /**
  * Il marcatore della prima fascia. Il fatto SI ACCOSTA, NON PESA: il candidato
@@ -80,29 +106,43 @@ export const BAIT_SELECTED_MARK = "✓ selezionato";
 export function baitEmptyText(reason: BaitEmptyReason): string {
   switch (reason) {
     case "no-pool":
-      return "Nessun listone caricato: senza righe non c'è nessuna popolazione da guardare.";
+      return "Nessun listone caricato: senza righe non c'è una popolazione da guardare.";
     case "no-history":
-      return (
-        "Nessuno storico d'asta caricato: non lo so. " +
-        "Senza storico non c'è niente di misurato da mostrare, e «niente di misurato» non è «nessuno»."
-      );
+      return "Nessuno storico d'asta caricato: non lo so — e «non lo so» non è «nessuno».";
     case "no-open-role":
-      return "Nessuno slot libero nei tuoi reparti: un acquisto non sarebbe nemmeno registrabile.";
+      return "Nessuno slot libero nei tuoi reparti: un acquisto non sarebbe registrabile.";
     case "no-affordable-opening":
-      return (
-        "Nemmeno l'apertura al prezzo base passa il cancello di ammissione: " +
-        "pagarla lascerebbe la rosa non completabile, e un'esca che non puoi comprare non è un'esca."
-      );
+      return "Nemmeno l'apertura al prezzo base passa il cancello: la pagheresti lasciando la rosa non completabile.";
     case "no-exposed":
-      return (
-        "Nessun libero su cui un avversario abbia insieme un precedente misurato, lo slot e i crediti."
-      );
+      return "Nessun libero su cui un avversario abbia insieme un precedente misurato, lo slot e i crediti.";
     case "below-sample":
-      return (
-        "I precedenti trovati poggiano su meno stagioni della soglia dichiarata: " +
-        "campione insufficiente, che non è assenza di precedenti."
-      );
+      return "I precedenti trovati poggiano su meno stagioni della soglia: campione insufficiente, non assenza di precedenti.";
   }
+}
+
+/**
+ * LA NOTA DEI PARAMETRI COMPARE SOLO DOVE UN PARAMETRO HA GOVERNATO QUALCOSA.
+ *
+ * La regola dichiarata è «la soglia in vigore ispezionabile ACCANTO AL NUMERO
+ * CHE LASCIA PASSARE». Con `no-pool` e `no-history` non c'è nessun numero: la
+ * popolazione non è mai esistita, nessun cancello ha girato, nessuna soglia ha
+ * morso. Recitare lì «apertura a 1 cr · almeno 1 stagione misurata · al massimo
+ * 3 righe» non è ispezionare una soglia accanto a un numero, è elencare
+ * parametri che non hanno governato niente — e costava 64px su 844 in uno stato
+ * in cui il blocco non ha nulla da dire (misurato a 390px).
+ *
+ * Negli altri quattro esiti la nota RESTA per intero, e sono esattamente quelli
+ * in cui un parametro ha deciso il silenzio: `no-affordable-opening` è il prezzo
+ * di apertura, `below-sample` è la soglia di stagioni, `no-open-role` e
+ * `no-exposed` hanno avuto una popolazione vera su cui le soglie erano in
+ * vigore.
+ *
+ * I PARAMETRI RESTANO ISPEZIONABILI NEL DATO in ogni caso: `BaitReading.
+ * parameters` li porta anche negli esiti vuoti, e `BAIT_PARAMETERS` è
+ * esportato. Qui cambia solo se la VISTA li stampa.
+ */
+export function baitNoteApplies(reading: BaitReading): boolean {
+  return reading.kind === "candidates" || (reading.reason !== "no-pool" && reading.reason !== "no-history");
 }
 
 /** «Nome (A · Inter)» — chi è, in una riga. */
@@ -189,10 +229,14 @@ export function baitSectionText(
   reading: BaitReading,
   teamLabels: Readonly<Record<string, string>>,
 ): string {
-  const out: string[] = [BAIT_TITLE];
+  const out: string[] = [baitTitleFor(reading)];
   if (reading.kind === "empty") {
     out.push(baitEmptyText(reading.reason));
-    out.push(baitNoteText(reading.parameters, reading.seasons, 0));
+    // Solo ciò che la vista mostra DAVVERO: una guardia di deriva che leggesse
+    // testo non renderizzato sorveglierebbe un'altra pagina.
+    if (baitNoteApplies(reading)) {
+      out.push(baitNoteText(reading.parameters, reading.seasons, 0));
+    }
     return out.join("\n");
   }
   for (const candidate of baitShownCandidates(reading)) {
@@ -249,7 +293,7 @@ export function renderBaitSection(
   const title = document.createElement("h3");
   title.id = "bait-title";
   title.className = "bait__title";
-  title.textContent = BAIT_TITLE;
+  title.textContent = baitTitleFor(reading);
   section.appendChild(title);
 
   if (reading.kind === "empty") {
@@ -296,15 +340,17 @@ export function renderBaitSection(
     section.appendChild(rows);
   }
 
-  const note = document.createElement("p");
-  note.id = "bait-note";
-  note.className = "bait__note";
-  note.textContent = baitNoteText(
-    reading.parameters,
-    reading.seasons,
-    reading.kind === "candidates" ? reading.withoutAppealIndex : 0,
-  );
-  section.appendChild(note);
+  if (baitNoteApplies(reading)) {
+    const note = document.createElement("p");
+    note.id = "bait-note";
+    note.className = "bait__note";
+    note.textContent = baitNoteText(
+      reading.parameters,
+      reading.seasons,
+      reading.kind === "candidates" ? reading.withoutAppealIndex : 0,
+    );
+    section.appendChild(note);
+  }
 
   return section;
 }
