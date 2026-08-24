@@ -365,7 +365,20 @@ describe("prezzo relativo — il debito verso la catena fair-to-me è dichiarato
     // senza approvarla, e diventa rosso se qualcuno la cancella.
     expect(SUPERSEDES_FAIR_TO_ME_IN_THE_RIQUADRO).toContain("relativePriceReading()");
     expect(SUPERSEDES_FAIR_TO_ME_IN_THE_RIQUADRO).toContain("fairToMeMaxEffective");
-    expect(SUPERSEDES_FAIR_TO_ME_IN_THE_RIQUADRO).toContain("marcato, non rimosso");
+    expect(SUPERSEDES_FAIR_TO_ME_IN_THE_RIQUADRO).toContain("Marcato, non rimosso");
+  });
+
+  it("e dice anche che la cella che lo consumava è uscita, con la data e la frase", () => {
+    // AGGIORNATA, NON CANCELLATA. La marcatura diceva «la sorgente dello slot 4
+    // è questa funzione»: vero il 2026-08-24 mattina, falso la sera, quando
+    // Pico ha tolto dal riquadro i due numeri in crediti. Una marcatura che
+    // sopravvive al fatto che descrive è peggio di nessuna marcatura, e questa
+    // misura è ciò che la tiene aggiornata invece che vera per modo di dire.
+    expect(SUPERSEDES_FAIR_TO_ME_IN_THE_RIQUADRO).toContain("2026-08-24");
+    expect(SUPERSEDES_FAIR_TO_ME_IN_THE_RIQUADRO).toContain(
+      "Leva il valore assoluto e il valore relativo",
+    );
+    expect(SUPERSEDES_FAIR_TO_ME_IN_THE_RIQUADRO).toContain("alimentano più una superficie");
   });
 });
 

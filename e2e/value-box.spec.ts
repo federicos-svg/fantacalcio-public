@@ -12,43 +12,36 @@ import {
 
 // IL RIQUADRO DEL VALORE ARRIVA SULLO SCHERMO, DENTRO LA SCHEDA DEL CHIAMATO.
 //
-// PERCHÉ QUESTA SPEC ESISTE, e perché un test di unità non basta.
-// `packages/engine/src/callScreen.ts` calcola `fairToMeMaxEffective` da prima
-// di questa corsia: è esportato, provato, e non aveva UN SOLO import in `src/`.
-// Un numero che nessuna schermata monta è un numero che non esiste per chi
-// compra. Questa spec percorre il giro vero — apri l'app, cerca un giocatore,
-// avvia l'asta — e verifica che il riquadro sia lì, con le sue quattro celle,
-// nel browser vero e non in una stringa HTML.
+// I DUE NUMERI IN CREDITI NON CI SONO PIÙ, ed è la decisione di Pico del
+// 2026-08-24, in modale, alla lettera: «Leva il valore assoluto e il valore
+// relativo». Il riquadro porta i DUE INDICI. Le asserzioni che provavano le
+// altre due celle non sono state cancellate: sono INVERTITE più sotto, nel
+// blocco «i due numeri in crediti non arrivano a schermo», con la frase che le
+// autorizza. La motivazione per esteso sta in src/valueBox.ts.
+//
+// PERCHÉ QUESTA SPEC ESISTE, e perché un test di unità non basta. Un numero che
+// nessuna schermata monta è un numero che non esiste per chi compra — ed è vero
+// nei due sensi: serve a provare che quello che deve esserci c'è, e che quello
+// che è stato tolto è tolto davvero nel browser, non solo in una stringa HTML.
+// Questa spec percorre il giro vero: apri l'app, cerca un giocatore, avvia
+// l'asta.
 //
 // LE QUATTRO COSE CHE ASSERISCE, ognuna rossa da sola:
 //
 //  a. IL RIQUADRO C'È e sta DENTRO la scheda del giocatore chiamato, sopra il
 //     gesto «ASSEGNA A»: è il posto che `docs/DECISIONS.md` nomina («il
 //     riquadro del valore della scheda del giocatore chiamato»);
-//  b. LE CELLE SONO QUATTRO, con i nomi decisi, ognuna con un numero oppure
-//     `n/d` PIÙ la riga che dice perché — mai una cella muta;
-//  c. I DUE NUMERI CHE L'APP SA DAVVERO CALCOLARE sono quelli veri: l'indice
-//     assoluto è il punteggio servito col listone, non un arrotondamento; e il
-//     VALORE RELATIVO è il prezzo del tavolo — a tavolo fresco 473 cr —,
-//     acceso nel giro vero e non solo in un test di unità;
+//  b. LE CELLE SONO DUE, con i nomi decisi, ognuna con un numero oppure `n/d`
+//     PIÙ la riga che dice perché — mai una cella muta;
+//  c. L'INDICE ASSOLUTO è il punteggio SERVITO col listone, non un
+//     arrotondamento, e la sua qualificazione viene dal dato;
 //  d. NIENTE DI DIRETTIVO si accende insieme: né le parole né i numeri di
 //     `target_band`/`stretch_cap`/«prendilo fino a», e il testo si legge (AA).
 //
-// LA CELLA DEL VALORE RELATIVO SI È ACCESA, ed è la novità del 2026-08-24:
-// `docs/DECISIONS.md` §"Il prezzo relativo si assesta su quanto mette il
-// secondo, non il più ricco" le ha dato una formula che non passa da nessuna
-// dichiarazione di Pico — il secondo max bid fra i rivali eleggibili, più uno,
-// con tetto al più ricco e a `max_safe`. I suoi ingredienti sono fatti duri
-// dell'event log, che l'app ha già: la cella porta quindi un numero fin dal
-// primo secondo dell'asta.
-//
-// COSA QUESTA SPEC NON PUÒ PROVARE, e va detto invece che nascosto: il VALORE
-// ASSOLUTO ha bisogno dei TARGET DI RUOLO che Pico dichiara nel piano rosa, e
-// in un giro appena avviato quel piano è vuoto. Nel giro vero quella cella dice
-// quindi `n/d` e nomina il target che manca; che porti il numero giusto quando
-// il target c'è è misurato in src/valueBox.test.ts sulla catena vera del
-// motore. Le due misure insieme coprono i quattro numeri; nessuna delle due, da
-// sola, mente sull'altra.
+// COSA QUESTA SPEC NON PROVA PIÙ, e va detto invece che lasciato intuire: che i
+// due numeri in crediti siano giusti. Non è più questo il posto — non hanno più
+// un posto —, e i due motori restano provati interi a casa loro
+// (packages/engine/tests/absoluteValue.test.ts e relativeValue.test.ts).
 //
 // Tutte le righe sono sintetiche — nomi, club, punteggi e ricetta — e il
 // network guard aborta qualunque altra richiesta.
@@ -60,14 +53,19 @@ const CALLED = "Attaccante Sintetico";
 const CALLED_SCORE = 73;
 
 /**
- * IL PREZZO RELATIVO A TAVOLO FRESCO, scritto invece che dedotto. Le otto
- * squadre della lega partono identiche a 500 crediti, quindi hanno tutte lo
- * stesso max bid vero — 500 meno i 27 slot obbligatori che restano da riempire
- * = 473 —; il secondo chiederebbe 474 e il tetto del più ricco lo riporta a
- * 473. È la regola letta fino in fondo: quando tutti possono tutto, vincere
- * costa tutto.
+ * IL PREZZO RELATIVO A TAVOLO FRESCO — e adesso è la cifra che NON deve
+ * comparire. Le otto squadre della lega partono identiche a 500 crediti, quindi
+ * hanno tutte lo stesso max bid vero (500 meno i 27 slot obbligatori residui =
+ * 473): il numero era 473 su OGNI scheda di OGNI ruolo nei primi minuti d'asta,
+ * affiancato a un «30 cr» senza niente che li mettesse in relazione. È metà
+ * della ragione per cui Pico li ha tolti, e resta scritto qui perché
+ * l'asserzione invertita sappia quale cifra cercare: un test che non sa che
+ * numero cercare non prova un'assenza.
  */
-const FRESH_TABLE_PRICE = "473 cr";
+const FRESH_TABLE_PRICE = "473";
+
+/** L'altra metà: 210 cr di target sul ruolo A / 7 slot = 30 cr. Fuori anche lui. */
+const ABSOLUTE_VALUE_A = "30 cr";
 
 const POOL: readonly ListonePlayer[] = [
   {
@@ -139,7 +137,7 @@ async function callPlayer(page: Page, name: string): Promise<void> {
   await expect(page.locator("#value-box")).toBeVisible();
 }
 
-test("il riquadro del valore rende quattro celle dentro la scheda del chiamato", async ({
+test("il riquadro del valore rende le sue due celle dentro la scheda del chiamato", async ({
   page,
 }) => {
   await boot(page);
@@ -163,8 +161,8 @@ test("il riquadro del valore rende quattro celle dentro la scheda del chiamato",
   expect(inCard!.inside).toBe(true);
   expect(inCard!.aboveGesture).toBe(true);
 
-  // b. quattro celle, quattro nomi, e nessuna muta.
-  await expect(page.locator("#value-box .value-box__cell")).toHaveCount(4);
+  // b. DUE celle, due nomi, e nessuna muta.
+  await expect(page.locator("#value-box .value-box__cell")).toHaveCount(2);
   for (const id of VALUE_SLOT_ORDER) {
     const cell = page.locator(`#value-box-cell-${id}`);
     await expect(cell).toBeVisible();
@@ -174,8 +172,8 @@ test("il riquadro del valore rende quattro celle dentro la scheda del chiamato",
     await expect(page.locator(`#value-box-why-${id}`)).not.toBeEmpty();
   }
 
-  // Le quattro celle stanno su UNA riga: è il vincolo di altezza che tiene il
-  // gesto principale sopra la piega (src/styles/asta.css).
+  // Le celle stanno su UNA riga: è il vincolo di altezza che tiene il gesto
+  // principale sopra la piega (src/styles/asta.css).
   const cellTops = await page.evaluate(() =>
     [...document.querySelectorAll("#value-box .value-box__cell")].map((el) =>
       Math.round(el.getBoundingClientRect().top),
@@ -192,59 +190,55 @@ test("il riquadro del valore rende quattro celle dentro la scheda del chiamato",
   await expect(page.locator("#value-box-note")).toContainText(QUALITY);
   await expect(page.locator("#value-box-note")).toContainText(RECIPE);
 
-  // Gli altri tre dicono `n/d` E dicono perché: l'indice relativo perché la
-  // formula non è decisa, i due in crediti perché manca una dichiarazione.
+  // L'altro dice `n/d` E dice perché: la formula dell'indice relativo non è
+  // decisa e nessun modulo del repository la calcola.
   await expect(page.locator("#value-box-number-indice-relativo")).toHaveText(VALUE_UNKNOWN);
   await expect(page.locator("#value-box-why-indice-relativo")).toContainText(
     "formula non decisa",
   );
-  // I DUE SLOT IN CREDITI NON SI SOMIGLIANO PIÙ, ed è la differenza congiunta
-  // delle due decisioni di Pico del 2026-08-24: il valore ASSOLUTO è derivato
-  // dal regolamento e dai target di ruolo (che l'app raccoglie nel piano rosa, e
-  // che in questo giro non sono dichiarati, quindi dice `n/d` e nomina il
-  // target); il valore RELATIVO è il prezzo del tavolo, che non aspetta nessuna
-  // dichiarazione e porta quindi un numero dal primo secondo.
-  await expect(page.locator("#value-box-number-valore-assoluto")).toHaveText(VALUE_UNKNOWN);
-  await expect(page.locator("#value-box-why-valore-assoluto")).toContainText(
-    "target di ruolo",
-  );
-  await expect(page.locator("#value-box-number-valore-relativo")).toHaveText(FRESH_TABLE_PRICE);
 
-  // LA RIGA SOTTO IL NUMERO DICE QUALE VINCOLO L'HA FISSATO, e in questa scena
-  // è il TETTO DEL TAVOLO: le otto squadre sono identiche, quindi nessuna
-  // arriva a «secondo + 1» e il numero non è ancora un prezzo di mercato. Se
-  // dicesse «il secondo max bid al tavolo, +1» starebbe chiamando prezzo un
-  // tetto strutturale — la distinzione che `RelativePriceChain.boundBy` porta
-  // fin qui.
-  await expect(page.locator("#value-box-why-valore-relativo")).toHaveText(
-    "il tetto del tavolo: nessuno arriva più in alto",
-  );
+  // ── I DUE NUMERI IN CREDITI NON ARRIVANO A SCHERMO ────────────────────────
+  // L'INVERSIONE, nel giro vero. Fino al 2026-08-24 queste righe asserivano il
+  // contrario — «il valore relativo porta 473 cr dal primo secondo», «la riga
+  // sotto il numero dice quale vincolo l'ha fissato» — ed erano vere. Sono
+  // girate, non cancellate, con la frase che le autorizza:
+  //
+  //     Pico, 2026-08-24, in modale: «Leva il valore assoluto e il valore
+  //     relativo».
+  //
+  // I due motori restano interi e i due numeri restano corretti: quello che è
+  // cambiato è che nessuno li mostra.
+  await expect(page.locator("#value-box-cell-valore-assoluto")).toHaveCount(0);
+  await expect(page.locator("#value-box-cell-valore-relativo")).toHaveCount(0);
+  const boxText = await page.locator("#value-box").innerText();
+  expect(boxText).not.toContain(FRESH_TABLE_PRICE);
+  expect(boxText).not.toContain(ABSOLUTE_VALUE_A);
+  expect(boxText).not.toContain("Valore assoluto");
+  expect(boxText).not.toContain("Valore relativo");
+  // E nemmeno le righe che accompagnavano i due numeri: la catena del valore
+  // assoluto e le tre frasi del vincolo del prezzo relativo.
+  expect(boxText).not.toContain("cr sul ruolo");
+  expect(boxText).not.toContain("il tetto del tavolo");
+  expect(boxText).not.toContain("il secondo max bid");
+  expect(boxText).not.toContain("il tuo max bid");
 
-  // E LA STESSA RIGA ARRIVA A CHI NON GUARDA. L'`aria-label` del riquadro è la
-  // sola forma in cui uno screen reader legge queste quattro celle: finché lo
-  // slot 4 diceva `n/d` non perdeva niente, adesso porta un numero che a tavolo
-  // fresco è identico su ogni scheda di ogni ruolo. Senza il vincolo, chi
-  // ascolta sentirebbe per minuti la stessa cifra senza sapere che misura il
-  // tavolo (src/ui/valueBox.ts, `valueBoxSpoken`).
-  const spoken = await page.locator("#value-box").getAttribute("aria-label");
-  expect(spoken).toContain(FRESH_TABLE_PRICE);
-  expect(spoken).toContain("il tetto del tavolo: nessuno arriva più in alto");
-
-  // NESSUNA NOTA CHE PROMETTA UNA CELLA SPENTA: dopo le due corsie nessuno dei
-  // quattro numeri aspetta una dichiarazione di Pico, quindi la testata non
-  // nomina più né i valori per giocatore né il profilo di rischio. Il perché
-  // sta nella cella, che è dove serve.
+  // NESSUNA NOTA CHE PROMETTA UNA CELLA SPENTA: la riga che nominava le
+  // dichiarazioni di Pico è uscita con le uniche due celle che potevano
+  // aspettarle.
   await expect(page.locator("#value-box-note")).not.toContainText("i tuoi valori per giocatore");
   await expect(page.locator("#value-box-note")).not.toContainText("il tuo profilo di rischio");
-  // E l'etichetta dei valori dichiarati è uscita dal riquadro: non c'è più un
-  // numero costruito su quei valori da qualificare.
+  await expect(page.locator("#value-box-note")).not.toContainText("ancora fuori dall'app");
   await expect(page.locator("#value-box")).not.toContainText("derivato dai tuoi valori");
 
-  // Le due righe del perché restano DIVERSE: se collassassero, il riquadro
-  // direbbe la stessa cosa di due numeri che vengono da due motori.
-  const whyAbsolute = await page.locator("#value-box-why-valore-assoluto").innerText();
-  const whyRelative = await page.locator("#value-box-why-valore-relativo").innerText();
-  expect(whyAbsolute).not.toBe(whyRelative);
+  // LA STESSA COSA ARRIVA A CHI NON GUARDA. L'`aria-label` del riquadro è la
+  // sola forma in cui uno screen reader legge queste celle: porta la riga del
+  // perché di ognuna — senza, «Indice relativo: n/d» sarebbe un silenzio invece
+  // di un'informazione — e non porta nessuna delle due cifre uscite.
+  const spoken = await page.locator("#value-box").getAttribute("aria-label");
+  expect(spoken).toContain("formula non decisa");
+  expect(spoken).toContain(String(CALLED_SCORE));
+  expect(spoken).not.toContain(FRESH_TABLE_PRICE);
+  expect(spoken).not.toContain(" cr");
 });
 
 test("il riquadro non accende nessun altro output direttivo", async ({ page }) => {
@@ -345,8 +339,12 @@ test("senza indice nel listone la prima cella tace anche lei, e lo dice", async 
   // Nessuna qualificazione: senza indice non c'è niente da qualificare, e il
   // riquadro non inventa un'etichetta di qualità che il dato non ha portato.
   await expect(page.locator("#value-box-note")).not.toContainText("ricetta");
-  // Quattro celle comunque: il riquadro non si accorcia quando non sa.
-  await expect(page.locator("#value-box .value-box__cell")).toHaveCount(4);
+  // Due celle comunque: il riquadro non si accorcia quando non sa. Erano
+  // quattro fino al 2026-08-24, quando Pico ha tolto i due numeri in crediti
+  // («Leva il valore assoluto e il valore relativo»): quello che questa riga
+  // misura non è cambiato — una cella `n/d` costa quanto una cella con un
+  // numero —, è cambiato quante celle il riquadro ha.
+  await expect(page.locator("#value-box .value-box__cell")).toHaveCount(2);
 });
 
 test("l'indice senza verdetto è un n/d diverso da «il listone non porta l'indice»", async ({

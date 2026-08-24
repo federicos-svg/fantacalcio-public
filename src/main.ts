@@ -115,11 +115,10 @@ import {
 } from "./postPurchaseProjection.js";
 import { executeVoidCommand, voidErrorText } from "./voidCommand.js";
 import { rolePriceFacts, roleTopPurchases } from "./nominationContext.js";
-import { buildTierBook, tierBandReading } from "./tierOrdering.js";
-// L'elenco DICHIARATO delle squadre di Serie A impegnate in una coppa europea
-// nel 2026/27 — la gamba «coppe e turnover» del valore assoluto. Costante
-// verificata, non un dato acquisito: src/serieACompetitions.ts.
-import { playsInEurope } from "./serieACompetitions.js";
+import { tierBandReading } from "./tierOrdering.js";
+// `playsInEurope` (src/serieACompetitions.ts) NON È PIÙ IMPORTATO QUI: era la
+// gamba «coppe e turnover» del valore assoluto, e quella cella è uscita dal
+// riquadro il 2026-08-24. L'elenco dichiarato resta dov'è, intero e provato.
 import {
   renderListoneSvincolati,
   renderPlayerInsightsBlock,
@@ -1765,8 +1764,8 @@ function tierBandProps(aState: AuctionState): TierBandProps {
 }
 
 /**
- * Ingressi del RIQUADRO DEL VALORE (views.ts `renderValueBoxBlock`): i quattro
- * numeri di `docs/DECISIONS.md` §"Il riquadro del valore porta quattro numeri",
+ * Ingressi del RIQUADRO DEL VALORE (views.ts `renderValueBoxBlock`): i DUE
+ * INDICI di `docs/DECISIONS.md` §"Il riquadro del valore porta quattro numeri",
  * per il giocatore chiamato adesso.
  *
  * Tutto il lavoro sta in `valueBoxReading` (src/valueBox.ts), che è puro e
@@ -1774,96 +1773,39 @@ function tierBandProps(aState: AuctionState): TierBandProps {
  * funzione non può conoscere. `listonePlayerKey` è la STESSA chiave con cui
  * l'event log registra un acquisto, come per `tierBandProps`.
  *
- * `call: null`, E ADESSO NON ALIMENTA PIÙ NIENTE. La schermata CHIAMATA del
- * motore (`callScreen()`, packages/engine/src/callScreen.ts) è scritta,
- * esportata e provata, ma pretende DUE dichiarazioni di Pico che il core
- * pubblico non ha ancora un posto dove raccogliere: il listino dei valori per
- * giocatore (`DeclaredValueBook`) e il profilo di rischio (`ValueProfile`).
- * Fino al 2026-08-24 quella era la ragione per cui i due numeri in crediti
- * tacevano; dopo le due corsie di quel giorno non lo è più, perché nessuno dei
- * due passa più di lì. `call` resta nella firma e resta `null`, e non si
- * fabbrica: inventare un valore dedotto dalla quotazione o un profilo «medio»
- * di default sarebbe far dire all'app che Pico ha dichiarato qualcosa che non
- * ha dichiarato (§D9, ingrediente 2).
+ * QUESTA FUNZIONE ERA IL PUNTO IN CUI L'APP CHIEDEVA I DUE NUMERI IN CREDITI,
+ * e non lo è più. Decisione di Pico del 2026-08-24, in modale, alla lettera:
+ * «Leva il valore assoluto e il valore relativo». Sono usciti con loro tutti
+ * gli ingressi che servivano soltanto a quelle due celle:
  *
- * LO SLOT 3 HA GIÀ TUTTI I SUOI INGRESSI. Il valore assoluto è DERIVATO
- * (packages/engine/src/absoluteValue.ts): budget del regolamento ripartito dai
- * TARGET DI RUOLO che Pico dichiara nel piano rosa (`state.rolePlan`, che una
- * sorgente ce l'ha), diviso per gli slot del ruolo, collocato dalla fascia del
- * libro. Le tre gambe arrivano da dove già vivono — la titolarità e la pagella
- * dalla scheda del Gruppo Esperti, la partecipazione alle coppe dall'elenco
- * dichiarato di src/serieACompetitions.ts — e oggi hanno tutte peso zero,
- * quindi la loro assenza non toglie il numero.
+ *  - `call: null` — la schermata CHIAMATA del motore (`callScreen()`) non
+ *    alimentava più nessuna cella dal 2026-08-24 mattina e adesso non è più
+ *    nemmeno nella firma del riquadro;
+ *  - `absolute` — target di ruolo dichiarati, libro delle fasce e le tre gambe
+ *    (titolarità e pagella dalla scheda del Gruppo Esperti, coppe dall'elenco
+ *    dichiarato di src/serieACompetitions.ts);
+ *  - `table` — lo stato d'asta e `SELF_ID`, che erano la serata dello slot 4;
+ *  - `missingDeclaredInputs` — la lista che alimentava la riga di testata.
  *
- * LO SLOT 4 SI ACCENDE DAL PRIMO SECONDO, e `table` è la ragione. Dal
- * 2026-08-24 quel numero è «quanto costa vincere adesso» — il secondo max bid
- * fra i rivali eleggibili, più uno — e i suoi ingredienti sono soltanto fatti
- * duri dell'event log che l'app HA GIÀ: `deriveAuctionState()` e `SELF_ID`,
- * cioè gli stessi due che alimentano la war board e il momento dell'asta.
+ * `aState` NON SERVE PIÙ, e la firma lo dice: serviva al censimento delle
+ * squadre dentro `buildTierBook` per lo slot 3 e per intero allo slot 4.
+ * Tenerlo come parametro inutilizzato lascerebbe credere che questo riquadro
+ * dipenda ancora dalla serata, che è esattamente ciò che ha smesso di fare.
  *
- * `aState` SERVE A DUE COSE DIVERSE, e vanno tenute distinte perché una sembra
- * contraddire l'altra: allo SLOT 3 serve solo per il censimento delle squadre
- * dentro `buildTierBook` — `AbsoluteValueInput` non ha un campo in cui uno
- * stato d'asta possa entrare, e il libro che ne esce è memoizzato su
- * `(pool, source, teamsCount)` e non conosce il log —, allo SLOT 4 serve per
- * intero, perché è la serata. Arriva come PARAMETRO e non da una seconda
- * `deriveAuctionState()`: il riquadro deve mostrare lo stesso tavolo della
- * scheda che lo circonda, e due derivazioni nello stesso render sono due
- * fotografie che possono divergere.
+ * LA CONSEGUENZA, DETTA QUI PERCHÉ È QUI CHE SI VEDE: `absoluteValue.ts` e
+ * `relativeValue.ts` restano interi e provati nel motore e da adesso non hanno
+ * un solo chiamante in `src/`. È scritto nelle loro intestazioni e in
+ * `CREDITI_FUORI_DAL_RIQUADRO` (src/valueBox.ts); non è un difetto da riparare
+ * in questa corsia, è un fatto da non far riscoprire al prossimo con un `grep`
+ * a vuoto.
  */
-function valueBoxProps(aState: AuctionState): ValueBoxProps {
+function valueBoxProps(): ValueBoxProps {
   const selected = state.call.selectedPlayer;
-  const book = buildTierBook(state.pool, state.poolSource, aState);
-  // La scheda del Gruppo Esperti del chiamato, risolta come la risolve il
-  // riquadro INSIGHT GIOCATORE: una sorgente sola per gli stessi fatti, così le
-  // due superfici non possono dire due cose diverse sullo stesso giocatore.
-  const target = playerInsightTarget();
-  const insight =
-    target === null
-      ? null
-      : resolveExpertInsight(
-          state.expertSchede,
-          target,
-          state.schedaLinks.get(schedaLinkRowKey(target)) ?? null,
-        );
-  const pagella = insight?.pagella;
   return {
     reading: valueBoxReading({
       called:
         selected === null ? null : { playerId: listonePlayerKey(selected), role: selected.role },
       appealIndex: selected?.appealIndex,
-      call: null,
-      // LISTA VUOTA, E NON PER DIMENTICANZA: nessuno dei quattro numeri
-      // aspetta più una dichiarazione di Pico, quindi la nota in testata
-      // («… ancora fuori dall'app») prometterebbe una cella spenta per una
-      // ragione che non è la sua. Ogni `n/d` nomina adesso la cosa che manca
-      // A QUELLA cella. `DECLARED_INPUTS_WITHOUT_SOURCE` resta dichiarata e
-      // provata in src/valueBox.ts, dove il fatto che descrive è ancora vero,
-      // e da qui NON è più nemmeno importata: un import che sopravvive al
-      // proprio ultimo uso è un aggancio che sembra vivo, e `strict` senza
-      // `noUnusedLocals` non lo segnala.
-      missingDeclaredInputs: [],
-      absolute: {
-        // I TARGET DICHIARATI, così come Pico li ha scritti: la forma parziale
-        // attraversa il confine intatta, e un ruolo non dichiarato resta una
-        // chiave assente invece di diventare uno zero (src/rolePlan.ts).
-        roleTargets: state.rolePlan?.targets ?? {},
-        book: book.kind === "book" ? book.book : null,
-        legs: {
-          titolarita: insight?.titolarita ?? null,
-          // `null` quando la riga non porta il club o quando il club non è fra
-          // quelli di Serie A 2026/27: un'assenza dichiarata al posto di una
-          // dedotta (src/serieACompetitions.ts).
-          inEurope: playsInEurope(selected?.club ?? state.call.club),
-          // SOLO PAGELLE COMPLETE, che è già la regola di src/pagellaEsperti.ts:
-          // `totaleRicalcolato` è `null` finché i cinque assi non ci sono tutti.
-          pagella:
-            pagella !== undefined && pagella.completa && pagella.totaleRicalcolato !== null
-              ? { totale: pagella.totaleRicalcolato, totaleMax: PAGELLA_TOTALE_MAX }
-              : null,
-        },
-      },
-      table: { state: aState, selfId: SELF_ID },
     }),
   };
 }
@@ -5895,7 +5837,7 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   // dettaglio: e2e/asta-gesto-principale.spec.ts asserisce che «ASSEGNA A»
   // resti entro 560px dal bordo del documento, ed è la ragione per cui le
   // quattro celle stanno su una riga sola (src/styles/asta.css).
-  card.appendChild(renderValueBoxBlock(valueBoxProps(aState)));
+  card.appendChild(renderValueBoxBlock(valueBoxProps()));
 
   // MOMENTO DELL'ASTA — ridotto al ruolo chiamato, dentro la scheda (#331
   // punto 2). Le altre tre celle di ruolo, il censimento MERCATO e la nota

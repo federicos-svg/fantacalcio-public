@@ -1,3 +1,29 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// QUESTO MODULO NON HA PIÙ UN CONSUMATORE NELL'APP. Va letto prima di tutto il
+// resto, perché tutto il resto descrive una cella che non c'è più.
+//
+// Decisione di Pico, 2026-08-24, in modale, alla lettera:
+//
+//     «Leva il valore assoluto e il valore relativo»
+//
+// I due numeri in crediti sono usciti dal riquadro del valore (src/valueBox.ts).
+// NON È STATO DETTO CHE QUESTO NUMERO SIA SBAGLIATO: la review fresh-eyes su
+// #47 lo ha verificato a fondo e il calcolo qui sotto resta intero, con la sua
+// suite intera (packages/engine/tests/relativeValue.test.ts). È stato detto che
+// non va in quel riquadro — il riquadro affiancava «30 cr» e «473 cr» senza
+// niente che li mettesse in relazione, e nei primi minuti d'asta questo numero
+// era 473 su ogni scheda di ogni ruolo.
+//
+// LA CONSEGUENZA SI DICHIARA INVECE DI NASCONDERLA: da adesso `src/` non ha un
+// solo import di questo file. È la stessa forma di difetto che il progetto sta
+// dando la caccia altrove — `opportunities.ts` è completo e non ha un
+// chiamante — e sta scritta qui, in `src/valueBox.ts`
+// (`CREDITI_FUORI_DAL_RIQUADRO`) e nel commit che porta la frase di Pico,
+// perché il prossimo che passa la TROVI invece di riscoprirla. Non è un difetto
+// da riparare di propria iniziativa: dove questo numero debba comparire, se
+// deve, è una decisione di prodotto che nessun record ha ancora preso.
+// ─────────────────────────────────────────────────────────────────────────────
+//
 // IL PREZZO RELATIVO — «quanto costa vincere adesso», e non è un consiglio.
 // Puro, deterministico, engine-only: nessun DOM, nessuno stato, nessun I/O.
 //
@@ -246,28 +272,36 @@ export function relativePriceReading(input: RelativePriceInput): RelativePriceRe
 }
 
 /**
- * IL DEBITO SALDATO, DICHIARATO DOVE IL PROSSIMO LO TROVA.
+ * IL DEBITO SALDATO, DICHIARATO DOVE IL PROSSIMO LO TROVA — e la cella che lo
+ * consumava, uscita il giorno dopo averlo saldato.
  *
- * Lo slot 4 del riquadro del valore (src/valueBox.ts) nasceva agganciato a
- * `DecisionNumbers.fairToMeMaxEffective` — la catena §4.2 costruita su
- * `declaredValue`, sull'α del profilo di rischio e sul costo opportunità del
- * piano B. Sono due formule diverse per lo stesso slot, e questa le separa: da
- * qui in avanti lo slot legge `relativePriceReading()`.
+ * COM'ERA. Lo slot 4 del riquadro del valore (src/valueBox.ts) nasceva
+ * agganciato a `DecisionNumbers.fairToMeMaxEffective` — la catena §4.2
+ * costruita su `declaredValue`, sull'α del profilo di rischio e sul costo
+ * opportunità del piano B. Sono due formule diverse per lo stesso slot, e
+ * questa corsia le ha separate: da lì in avanti lo slot leggeva
+ * `relativePriceReading()`.
  *
- * LA CATENA FTM NON SI CANCELLA — vale la regola «un'asserzione si aggiorna o
- * si inverte, mai si toglie», e vale per il codice come per i documenti.
- * `callScreen()` resta la commutazione target/occasione/spettatore, `chainOk`
- * resta l'invariante che tiene ogni numero sotto `max_safe`,
- * `opportunityQualityGate` resta il cancello della qualità del dato. Quello che
- * è cambiato è UNA SOLA COSA: da dove il riquadro prende il numero dello slot 4.
- * Il campo `fairToMeMaxEffective` è quindi, da adesso, senza consumatori sul
- * percorso del riquadro — è marcato come tale nell'intestazione di
- * ./callScreen.ts, stesso trattamento deciso il 2026-08-24 per
- * `nominationWindow.ts`, perché il prossimo che lo trova non lo scambi per un
- * pezzo da collegare.
+ * COM'È ADESSO, e la frase va tenuta accanto alla precedente invece di
+ * sostituirla in silenzio: lo SLOT 4 NON ESISTE PIÙ. Decisione di Pico del
+ * 2026-08-24, «Leva il valore assoluto e il valore relativo». Il riquadro non
+ * ha più celle in crediti, quindi `fairToMeMaxEffective` non è più senza
+ * consumatori «su quel percorso»: il percorso stesso è stato chiuso, e con lui
+ * il consumatore di questa funzione.
+ *
+ * NIENTE È STATO CANCELLATO, e vale la regola «un'asserzione si aggiorna o si
+ * inverte, mai si toglie», per il codice come per i documenti. `callScreen()`
+ * resta la commutazione target/occasione/spettatore, `chainOk` resta
+ * l'invariante che tiene ogni numero sotto `max_safe`,
+ * `opportunityQualityGate` resta il cancello della qualità del dato,
+ * `relativePriceReading()` resta questa funzione, intera e provata. Quello che
+ * è cambiato è UNA SOLA COSA per volta: prima da dove il riquadro prendeva il
+ * numero dello slot 4, poi il fatto che il riquadro quel numero non lo mostri
+ * più.
  */
 export const SUPERSEDES_FAIR_TO_ME_IN_THE_RIQUADRO =
-  "slot 4 (valore relativo): la sorgente è relativePriceReading() — secondo max bid " +
+  "slot 4 (valore relativo): la sorgente era relativePriceReading() — secondo max bid " +
   "fra i rivali eleggibili, +1, con tetto al più ricco e a maxSafe(io, ruolo). " +
-  "DecisionNumbers.fairToMeMaxEffective non alimenta più questo slot e resta senza " +
-  "consumatori su questo percorso: marcato, non rimosso.";
+  "Dal 2026-08-24 («Leva il valore assoluto e il valore relativo») quello slot non è " +
+  "più una cella del riquadro: né DecisionNumbers.fairToMeMaxEffective né questa " +
+  "funzione alimentano più una superficie. Marcato, non rimosso.";

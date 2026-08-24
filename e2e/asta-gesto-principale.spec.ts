@@ -121,14 +121,21 @@ interface NarrowViewport {
   readonly valueBoxColumns: number;
 }
 
-// Di qua e di là dal gradino dei 700px, entrambi sotto i 719px: le due soglie
-// sono esercitate tutte e due, e il test lo VERIFICA invece di fidarsi della
-// larghezza scelta qui. Senza quel controllo, spostare un breakpoint nel CSS
-// renderebbe questi due viewport identici al caso largo e il test resterebbe
-// verde misurando un'altra cosa — lo stesso difetto che PANELS_EXPECTED_PRESENT
-// impedisce alla spazzata dei riquadri.
+// Due larghezze sotto i 719px, la soglia della nota di testata, che il test
+// VERIFICA invece di fidarsi della larghezza scelta qui: spostare quel
+// breakpoint nel CSS renderebbe questi due viewport identici al caso largo e il
+// test resterebbe verde misurando un'altra cosa — lo stesso difetto che
+// PANELS_EXPECTED_PRESENT impedisce alla spazzata dei riquadri.
+//
+// IL GRADINO DEI 700px SULLA GRIGLIA NON C'È PIÙ, e le colonne attese sono due
+// a entrambe le larghezze. Non è una guardia ammorbidita: quel gradino esisteva
+// per non spremere QUATTRO celle in 700px, e le due in crediti sono uscite dal
+// riquadro il 2026-08-24 (Pico: «Leva il valore assoluto e il valore
+// relativo»). Due celle in 700px stanno su 350px l'una e restano su una riga —
+// mandarle a una colonna aggiungerebbe una riga proprio sotto il gesto, che è
+// il vincolo che questa spec misura tre righe più in basso.
 const NARROW_VIEWPORTS: readonly NarrowViewport[] = [
-  { width: 719, height: 900, valueBoxColumns: 4 },
+  { width: 719, height: 900, valueBoxColumns: 2 },
   { width: 700, height: 900, valueBoxColumns: 2 },
 ];
 
@@ -358,7 +365,7 @@ test("«ASSEGNA A» resta sopra la piega anche stretto, di qua e di là dai 700p
     expect(layout.present, `${where}: il riquadro del valore è nella scheda`).toBe(true);
     expect(
       layout.columns,
-      `${where}: la griglia del riquadro deve avere ${viewport.valueBoxColumns} colonne qui (soglia 700px)`,
+      `${where}: la griglia del riquadro deve avere ${viewport.valueBoxColumns} colonne qui`,
     ).toBe(viewport.valueBoxColumns);
     expect(
       layout.noteTextAlign,

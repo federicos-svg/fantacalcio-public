@@ -1,12 +1,22 @@
-// RIQUADRO DEL VALORE — costruttori puri della resa dei quattro numeri.
+// RIQUADRO DEL VALORE — costruttori puri della resa dei DUE INDICI.
 // Il calcolo sta in src/valueBox.ts; qui ci sono soltanto etichette, testo e
 // HTML, senza DOM e senza stato, come per src/ui/tierBand.ts.
 //
-// LE QUATTRO CELLE HANNO LA STESSA FORMA, sempre: nome dello slot, poi il
-// numero oppure `n/d`, poi UNA riga che dice da dove viene il numero oppure
-// perché non c'è. Una cella `n/d` non è mai muta e non è mai più corta delle
-// altre: «non lo so» è un'informazione, e a schermo deve costare quanto un
-// numero, altrimenti chi guarda legge una griglia rotta invece di una risposta.
+// I DUE NUMERI IN CREDITI NON SI RENDONO PIÙ. Decisione di Pico del 2026-08-24,
+// in modale, alla lettera: «Leva il valore assoluto e il valore relativo». Sono
+// uscite con loro tutte le stringhe che esistevano per accompagnarli — la riga
+// della catena del valore assoluto, le tre frasi del vincolo che fissava il
+// prezzo relativo, i quattordici motivi di `n/d` dei due motori, l'unità
+// «cr» e la riga di testata sulle dichiarazioni mancanti. La motivazione per
+// esteso, e la conseguenza sui due moduli del motore rimasti senza
+// consumatori, stanno nell'intestazione di src/valueBox.ts e in
+// `CREDITI_FUORI_DAL_RIQUADRO`.
+//
+// LE CELLE HANNO LA STESSA FORMA, sempre: nome dello slot, poi il numero
+// oppure `n/d`, poi UNA riga che dice da dove viene il numero oppure perché non
+// c'è. Una cella `n/d` non è mai muta e non è mai più corta delle altre: «non
+// lo so» è un'informazione, e a schermo deve costare quanto un numero,
+// altrimenti chi guarda legge una griglia rotta invece di una risposta.
 //
 // PERCHÉ IL PERCHÉ STA NELLA CELLA E NON IN UNA NOTA IN FONDO. Il riquadro sta
 // SOPRA il gesto principale della schermata d'asta, e
@@ -16,8 +26,7 @@
 // scelta è la stessa già presa per INSIGHT GIOCATORE (src/ui/views.ts,
 // renderPlayerInsightsBlock): le garanzie non spariscono, si spostano dove
 // costano meno — una riga per cella, che dice della SUA cella, più una riga
-// sola in testata. Tre motivi diversi in un paragrafo unico si leggono peggio
-// e costano di più.
+// sola in testata.
 //
 // NESSUNA PAROLA DIRETTIVA. Non compaiono «prendilo fino a», «mollalo a»,
 // `target_band`, `stretch_cap`, `fair-to-me`, «conviene», né un ranking:
@@ -29,15 +38,7 @@
 // display-only del 2026-08-12 impone che vengano dal dato. Se il dato non le
 // porta, il riquadro non le inventa.
 
-import type { NoTargetReason } from "../../packages/engine/src/callScreen.js";
-import type { RelativePriceBound } from "../../packages/engine/src/relativeValue.js";
-import type {
-  DeclaredInputId,
-  ValueBoxReading,
-  ValueMissingReason,
-  ValueSlot,
-  ValueSlotId,
-} from "../valueBox.js";
+import type { ValueBoxReading, ValueMissingReason, ValueSlot, ValueSlotId } from "../valueBox.js";
 import { VALUE_SLOT_ORDER } from "../valueBox.js";
 import { escHtml } from "./theme.js";
 
@@ -46,124 +47,48 @@ export const VALUE_BOX_TITLE = "VALORE";
 /** Il token di assenza del progetto. Mai un default, mai una cella vuota. */
 export const VALUE_UNKNOWN = "n/d";
 
-/** I nomi dei quattro slot, con le parole del record che li ha decisi. */
+/** I nomi dei due slot, con le parole del record che li ha decisi. */
 export const VALUE_SLOT_LABELS: Readonly<Record<ValueSlotId, string>> = {
   "indice-assoluto": "Indice assoluto",
   "indice-relativo": "Indice relativo",
-  "valore-assoluto": "Valore assoluto",
-  "valore-relativo": "Valore relativo",
 };
 
 /**
  * Da dove viene lo slot quando porta un numero. Una riga, mai una promessa.
  *
- * TRE VOCI E NON QUATTRO: LO SLOT 4 QUI NON HA UN RAMO, e il tipo lo dice
- * invece di lasciarlo credere. La riga del valore relativo è SEMPRE quella del
- * vincolo che ha fissato il numero (`RELATIVE_PRICE_BOUND_TEXT`), perché
- * `valueBoxReading()` produce il numero e il suo `boundBy` nello stesso gesto
- * (src/valueBox.ts, `relativeCreditSlot`) e non esiste uno stato in cui esca
- * l'uno senza l'altro. Qui c'era una quarta voce di ripiego — «quanto costa
- * vincere adesso» — che nessuna esecuzione poteva raggiungere: una review
- * avversariale l'ha sostituita con una frase DIRETTIVA e la suite è rimasta
- * verde. In un file in cui il testo È il prodotto, una stringa che nessun test
- * può rompere è un pezzo di prodotto senza guardia: tolta, non riscritta.
+ * UNA VOCE SOLA, E IL TIPO LO DICE. L'indice relativo non ha una riga di
+ * provenienza perché non ha un numero: la formula non è decisa e nessun modulo
+ * del repository la calcola, quindi quello slot esce SEMPRE come assenza e la
+ * sua riga è il motivo, non la provenienza. Una seconda voce qui sarebbe una
+ * frase che nessuna esecuzione può raggiungere e che nessun test può rompere —
+ * la stessa forma di testo morto che una review avversariale ha trovato nello
+ * slot 4 (vi aveva scritto «prendilo fino a qui» e la suite era rimasta verde).
+ * In un file in cui il testo È il prodotto, una stringa senza guardia è un
+ * pezzo di prodotto senza guardia: tolta, non riscritta. Il giorno in cui
+ * l'indice relativo avrà una formula, il compilatore chiederà la riga.
  */
 const VALUE_SLOT_SOURCE: Readonly<
-  Record<Exclude<ValueSlotId, "valore-relativo">, string>
+  Record<Exclude<ValueSlotId, "indice-relativo">, string>
 > = {
   "indice-assoluto": "dal listone, prima dell'asta",
-  "indice-relativo": "si muove durante la serata",
-  // Sovrascritta a runtime con la catena vera (budget → target → slot →
-  // fascia), così la riga dice DA DOVE viene il numero e non una promessa
-  // generica: vedi `valueSlotWhyText`.
-  "valore-assoluto": "dal regolamento e dai tuoi target di ruolo",
-};
-
-/**
- * LA RIGA DELLO SLOT 4, UNA PER VINCOLO. Tre frasi, non una, perché il numero
- * da solo confonde due cose che il motore tiene già separate
- * (`RelativePriceChain.boundBy`):
- *
- *  - `scala-dei-rivali` è un PREZZO CHE IL MERCATO STA FORMANDO: il secondo
- *    offerente è arrivato fin lì, e superarlo di un credito vince;
- *  - `tetto-del-piu-ricco` è un TETTO STRUTTURALE del tavolo, e non dice niente
- *    su quel giocatore: nessuno può arrivare più in alto, chiunque sia in asta.
- *    È il ramo che si vede nei primi minuti — a tavolo fresco le otto squadre
- *    sono identiche, quindi il numero è lo stesso per OGNI giocatore di OGNI
- *    ruolo. Senza questa riga la cella ripeterebbe la stessa cifra su ogni
- *    scheda senza dire perché, e chi guarda la leggerebbe come una misura del
- *    giocatore invece che del tavolo;
- *  - `tetto-max-safe` è il MIO tetto hard-safe: il tavolo chiede più di quanto
- *    io possa mettere. È un terzo fatto e non un doppione del secondo — quel
- *    tetto è del tavolo, questo è mio — e accorparli direbbe a chi legge che
- *    non può vincere quando invece è il tavolo a non poter salire.
- *
- * TRE E NON DUE, quindi, per la stessa ragione per cui i motivi di `n/d` sono
- * cinque e non uno: ognuno nomina un fatto diverso, e chi legge deve poter
- * sapere QUALE. Nessuna formula nuova, nessun peso, nessun coefficiente: è una
- * distinzione che `relativeValue.ts` calcola già e che finora restava nel
- * motore.
- */
-export const RELATIVE_PRICE_BOUND_TEXT: Readonly<Record<RelativePriceBound, string>> = {
-  "scala-dei-rivali": "il secondo max bid al tavolo, +1",
-  "tetto-del-piu-ricco": "il tetto del tavolo: nessuno arriva più in alto",
-  "tetto-max-safe": "il tuo max bid: il tavolo chiede di più",
 };
 
 /**
  * Perché una cella dice `n/d`. Ogni frase nomina la cosa che manca, così chi
- * legge sa se aspettare un dato, dichiarare un valore o attendere una
- * decisione — tre attese diverse che un «non disponibile» generico confonde.
+ * legge sa se aspettare un dato o attendere una decisione — due attese diverse
+ * che un «non disponibile» generico confonde.
+ *
+ * QUATTRO FRASI, ED È IL VOCABOLARIO INTERO: le quattordici uscite spiegavano i
+ * due numeri in crediti e sono uscite con loro il 2026-08-24. Non sono state
+ * accorpate in un `n/d` muto — sarebbe stata la perdita che questo file esiste
+ * per impedire —: sono state tolte insieme alle celle che spiegavano, e i
+ * vocabolari dei due motori restano interi e provati a casa loro.
  */
 export const VALUE_MISSING_TEXT: Readonly<Record<ValueMissingReason, string>> = {
   "nessun-chiamato": "nessun giocatore chiamato",
   "indice-assente": "il listone non porta l'indice",
   "indice-senza-verdetto": "l'indice non ha verdetto su di lui",
   "indice-relativo-non-calcolato": "formula non decisa: non si calcola",
-  "ingredienti-dichiarati-assenti": "manca una tua dichiarazione",
-  "motore-senza-numeri": "il motore non emette numeri qui",
-  // I motivi del valore assoluto derivato. Ognuno NOMINA LA COSA CHE MANCA:
-  // un «non disponibile» generico costringerebbe chi legge a indovinare se
-  // aspettare un dato, dichiarare un target o non aspettare niente.
-  // `ruolo-senza-target` È IL RAMO CHE SI VEDE OGGI SEMPRE — finché Pico non
-  // compila il piano rosa — quindi è anche il solo che paga il vincolo di
-  // altezza del riquadro: sta SOPRA il gesto principale, e
-  // e2e/asta-gesto-principale.spec.ts tiene «ASSEGNA A» entro 560px dal bordo.
-  // Una frase più lunga della più lunga già presente manderebbe la cella a due
-  // righe e il gesto sotto la piega. Corta e precisa, quindi: nomina comunque
-  // LA COSA CHE MANCA (il target, non «un dato»).
-  "ruolo-senza-target": "manca il tuo target di ruolo",
-  "target-non-valido": "il tuo target di ruolo non è un numero usabile",
-  "target-oltre-il-budget": "i tuoi target superano i 500 crediti",
-  "fascia-assente": "non ha una fascia: l'indice non lo ordina",
-  "oltre-gli-slot-del-ruolo": "oltre l'ultima fascia: nessuno slot è suo",
-  "gamba-concorrenza-assente": "manca la concorrenza, a cui hai dato peso",
-  "gamba-coppe-assente": "manca il dato coppe, a cui hai dato peso",
-  "gamba-pagella-assente": "manca la pagella completa, a cui hai dato peso",
-  // I motivi del prezzo relativo. Stessa regola: ognuno nomina il fatto del
-  // tavolo che manca, mai un «non disponibile» che costringa a indovinare.
-  "tavolo-senza-la-mia-squadra": "la tua squadra non è a questo tavolo",
-  "ruolo-pieno-per-me": "il tuo ruolo è pieno: non puoi comprarlo",
-  "non-posso-offrire": "il tuo budget è bloccato dalla riserva",
-  "nessun-rivale-eleggibile": "nessun rivale può ancora comprarlo",
-  "un-solo-rivale-eleggibile": "un solo rivale capiente: non c'è un secondo",
-};
-
-/** Il motivo del motore, quando è lui a non emettere numeri. */
-export const ENGINE_REASON_TEXT: Readonly<Record<NoTargetReason, string>> = {
-  "anchor-missing": "nessuna quotazione per lui nel listone",
-  "already-assigned": "è già assegnato: nessuna asta in corso",
-  "declared-value-missing": "non hai dichiarato un valore per lui",
-  "role-full": "il ruolo è pieno: non puoi comprarlo",
-  "not-biddable": "budget bloccato dalla riserva dura",
-  "below-cost-floor": "la catena finisce sotto il credito minimo",
-  "band-too-wide": "il margine è troppo largo per essere operativo",
-};
-
-/** Come si chiama, a schermo, un ingrediente dichiarato che manca. */
-export const DECLARED_INPUT_TEXT: Readonly<Record<DeclaredInputId, string>> = {
-  "valori-dichiarati": "i tuoi valori per giocatore",
-  "profilo-di-rischio": "il tuo profilo di rischio",
 };
 
 /**
@@ -174,37 +99,6 @@ export const DECLARED_INPUT_TEXT: Readonly<Record<DeclaredInputId, string>> = {
  */
 export const VALUE_BOX_CAVEAT =
   "Valori precisi, mai intervalli, nessun prezzo di mercato previsto. Nessun consiglio: il giudizio è tuo.";
-
-/**
- * La riga che dice quali dichiarazioni mancano, o stringa vuota quando non ne
- * manca nessuna. Nomina gli ingredienti uno per uno: «manca un dato» senza dire
- * quale è la stessa cella vuota travestita da frase.
- *
- * «IL VALORE RELATIVO» E NON PIÙ «I DUE VALORI IN CREDITI»: dalla decisione di
- * Pico del 2026-08-24 il valore ASSOLUTO non passa più dal listino per
- * giocatore né dal profilo di rischio — è derivato dal regolamento e dai target
- * di ruolo, e tace per un motivo suo, scritto nella sua cella. Lasciare qui la
- * vecchia frase significherebbe attribuire a queste due dichiarazioni un `n/d`
- * che non è più il loro.
- */
-export function missingDeclaredInputsText(reading: ValueBoxReading): string {
-  if (reading.missingDeclaredInputs.length === 0) return "";
-  const names = reading.missingDeclaredInputs.map((id) => DECLARED_INPUT_TEXT[id]);
-  const list =
-    names.length === 1
-      ? names[0]!
-      : `${names.slice(0, -1).join(", ")} e ${names[names.length - 1]!}`;
-  // NESSUNA DELLE DUE VERSIONI IN CONFLITTO È RIMASTA, e non è un compromesso:
-  // dopo le due corsie del 2026-08-24 nessuno dei due numeri in crediti aspetta
-  // più quelle dichiarazioni, quindi la frase non ha più un soggetto —
-  // «il valore assoluto» e «il valore relativo» sarebbero falsi tutti e due.
-  // La funzione resta, e resta provata, perché il giorno in cui una cella
-  // tornerà a dipendere da una dichiarazione di Pico questa è la riga che lo
-  // dirà; oggi `src/main.ts` non le passa niente e la nota non compare. Il
-  // soggetto viaggia adesso NELLA CELLA — «manca il tuo target di ruolo» —, che
-  // è più preciso di una riga in testata e non costa altezza sopra il gesto.
-  return `${list}: ancora fuori dall'app.`;
-}
 
 /**
  * La riga che qualifica l'indice, costruita SOLO con le stringhe portate dal
@@ -218,25 +112,29 @@ export function indexQualificationText(reading: ValueBoxReading): string {
 }
 
 /**
- * La riga di testata, per intero: qualificazione dell'indice (dal dato), che
- * cosa manca (quando manca), e la garanzia che vale per tutto il riquadro.
+ * La riga di testata, per intero: qualificazione dell'indice (dal dato) e la
+ * garanzia che vale per tutto il riquadro.
+ *
+ * LA TERZA PARTE È USCITA, E VA DETTO. Qui in mezzo passava
+ * `missingDeclaredInputsText()`, la riga che nominava le dichiarazioni di Pico
+ * ancora fuori dall'app. Non è stata ammorbidita: è stata tolta insieme alle
+ * uniche due celle che potevano aspettare una dichiarazione — i due numeri in
+ * crediti, usciti il 2026-08-24 —, perché una frase che promette una cella
+ * spenta quando nessuna cella è spenta da quella causa è una frase senza
+ * soggetto. Il fatto che quelle dichiarazioni una sorgente in `src/` non ce
+ * l'abbiano resta vero e resta scritto nel motore, dove nasce.
  */
 export function valueBoxNoteText(reading: ValueBoxReading): string {
-  return [indexQualificationText(reading), missingDeclaredInputsText(reading), VALUE_BOX_CAVEAT]
-    .filter((part) => part !== "")
-    .join(" ");
+  return [indexQualificationText(reading), VALUE_BOX_CAVEAT].filter((part) => part !== "").join(" ");
 }
 
 /**
  * IL NUMERO, RESO. Interi come interi, non interi con UN decimale.
  *
  * È una regola di RESA e non un arrotondamento del numero: il valore esatto
- * resta quello che il motore ha prodotto (`AbsoluteValueChain.total`), che non
- * viene toccato, clampato né arrotondato in nessun ramo. La quota di uno slot è
- * una divisione — 200 crediti su 9 difensori fanno 22,2222… — e stampare
- * diciassette cifre in un riquadro che si legge in due secondi durante un'asta
- * non è più onesto: è solo illeggibile. Un decimale è un decimo di credito,
- * cioè sotto la granularità di qualunque offerta al tavolo.
+ * resta quello che il dato ha portato, che non viene toccato, clampato né
+ * arrotondato in nessun ramo. Stampare diciassette cifre in un riquadro che si
+ * legge in due secondi durante un'asta non è più onesto: è solo illeggibile.
  *
  * La virgola e non il punto: è la scrittura italiana dei decimali, e il
  * riquadro parla italiano. Nessun `Intl`, nessuna locale del runtime — il
@@ -247,77 +145,35 @@ export function valueNumberText(value: number): string {
   return value.toFixed(1).replace(".", ",");
 }
 
-/** Il testo della cella: il numero con la sua unità, oppure `n/d`. */
+/**
+ * Il testo della cella: il numero, oppure `n/d`.
+ *
+ * NESSUNA UNITÀ ACCANTO AL NUMERO, e non è una dimenticanza: l'unico suffisso
+ * che questo riquadro abbia mai scritto era «cr», ed è uscito con i due numeri
+ * in crediti il 2026-08-24. Un indice non ha unità, e inventargliene una
+ * sarebbe una qualificazione che il dato non porta.
+ */
 export function valueSlotText(slot: ValueSlot): string {
   if (slot.kind === "assente") return VALUE_UNKNOWN;
-  const text = valueNumberText(slot.value);
-  return slot.unit === "crediti" ? `${text} cr` : text;
+  return valueNumberText(slot.value);
 }
 
 /**
- * LA CATENA DEL VALORE ASSOLUTO IN UNA RIGA, coi numeri veri e non con la
- * formula in astratto: «250 cr sul ruolo / 9 slot · fascia 3».
+ * La riga sotto il numero: la provenienza se c'è un numero, il motivo se no.
  *
- * Il budget del regolamento non compare in questa riga e non è una
- * dimenticanza: il target di ruolo È già la sua ripartizione, e ripetere «su
- * 500» accanto a un numero che quei 500 li ha già consumati aggiungerebbe una
- * cifra senza aggiungere un fatto. Il tetto resta nella catena esposta
- * (`AbsoluteValueChain.budget`), dove un revisore lo trova.
- *
- * QUANDO IL NUMERO STA SOTTO IL CREDITO MINIMO LO DICE, e non lo corregge: il
- * motore non clampa (sarebbe una scelta), quindi la sola cosa onesta che resta
- * a chi mostra è nominarlo.
+ * IL RAMO DELL'INDICE RELATIVO CON UN NUMERO È TOTALE E NON INVENTA NIENTE:
+ * `valueBoxReading()` non produce mai quello slot come numero, e una coppia
+ * incoerente costruita a mano riceve il token di assenza — «non lo so» — invece
+ * di una descrizione a parole della provenienza di un numero di cui non si
+ * conosce nessuna provenienza.
  */
-export function absoluteChainText(reading: ValueBoxReading): string {
-  const chain = reading.absoluteChain;
-  if (chain === null) return "";
-  const head =
-    `${valueNumberText(chain.roleTarget)} cr sul ruolo / ${chain.roleSlots} slot` +
-    ` · fascia ${chain.tier}`;
-  return reading.absoluteBelowCostFloor ? `${head} — sotto il credito minimo` : head;
+export function valueSlotWhyText(id: ValueSlotId, slot: ValueSlot): string {
+  if (slot.kind === "assente") return VALUE_MISSING_TEXT[slot.reason];
+  if (id === "indice-relativo") return VALUE_UNKNOWN;
+  return VALUE_SLOT_SOURCE[id];
 }
 
-/** La riga sotto il numero: la provenienza se c'è un numero, il motivo se no. */
-export function valueSlotWhyText(
-  id: ValueSlotId,
-  slot: ValueSlot,
-  reading: ValueBoxReading,
-): string {
-  // LO SLOT 4 SI DECIDE PRIMA DI TUTTO IL RESTO, e il ramo è totale: o c'è il
-  // vincolo che ha fissato il prezzo, o c'è il motivo per cui il prezzo non
-  // esiste, o la coppia che è arrivata qui è incoerente — e allora si dice
-  // `n/d`, che è il token di assenza del progetto, invece di descrivere a
-  // parole un numero di cui non si conosce la provenienza.
-  //
-  // Qui c'era l'etichetta di provenienza dei valori dichiarati: è uscita
-  // insieme all'ultimo numero che poteva qualificare, perché dopo le due corsie
-  // del 2026-08-24 nessuno dei quattro passa da quei valori (src/valueBox.ts,
-  // `SLOT_4_SOURCE_MOVED`). Al suo posto una distinzione che si vede a schermo
-  // — prezzo formato dal mercato contro tetto strutturale — e che il motore
-  // calcolava già.
-  if (id === "valore-relativo") {
-    if (reading.relativePriceBound !== null) {
-      return RELATIVE_PRICE_BOUND_TEXT[reading.relativePriceBound];
-    }
-    if (slot.kind === "assente") return VALUE_MISSING_TEXT[slot.reason];
-    return VALUE_UNKNOWN;
-  }
-  if (slot.kind === "numero") {
-    // LA CATENA, IN UNA RIGA. Non è decorazione: un numero derivato che non sa
-    // dire da dove viene si legge come un numero inventato, e questa cella è la
-    // sola superficie su cui la derivazione arriva sotto gli occhi di Pico.
-    if (id === "valore-assoluto" && reading.absoluteChain !== null) {
-      return absoluteChainText(reading);
-    }
-    return VALUE_SLOT_SOURCE[id];
-  }
-  if (slot.reason === "motore-senza-numeri" && reading.engineReason !== null) {
-    return ENGINE_REASON_TEXT[reading.engineReason];
-  }
-  return VALUE_MISSING_TEXT[slot.reason];
-}
-
-/** Le quattro celle, nell'ordine del record. */
+/** Le celle, nell'ordine del record. */
 export function valueBoxCellsHtml(reading: ValueBoxReading): string {
   return VALUE_SLOT_ORDER.map((id) => {
     const slot = reading.slots[id];
@@ -326,31 +182,26 @@ export function valueBoxCellsHtml(reading: ValueBoxReading): string {
       `<div class="value-box__cell${absent ? " value-box__cell--absent" : ""}" id="value-box-cell-${id}">` +
       `<em>${escHtml(VALUE_SLOT_LABELS[id])}</em>` +
       `<strong id="value-box-number-${id}">${escHtml(valueSlotText(slot))}</strong>` +
-      `<span id="value-box-why-${id}">${escHtml(valueSlotWhyText(id, slot, reading))}</span>` +
+      `<span id="value-box-why-${id}">${escHtml(valueSlotWhyText(id, slot))}</span>` +
       `</div>`
     );
   }).join("");
 }
 
-/** Il corpo del riquadro: la sola griglia delle quattro celle. */
+/** Il corpo del riquadro: la sola griglia delle celle. */
 export function valueBoxHtml(reading: ValueBoxReading): string {
   return `<div class="value-box__grid" id="value-box-grid">${valueBoxCellsHtml(reading)}</div>`;
 }
 
 /**
- * Forma parlata per l'aria-label: le quattro celle lette in fila, CON LA LORO
- * RIGA — nome, numero (o `n/d`), e da dove viene (o perché non c'è).
+ * Forma parlata per l'aria-label: le celle lette in fila, CON LA LORO RIGA —
+ * nome, numero (o `n/d`), e da dove viene (o perché non c'è).
  *
  * LA RIGA NON È UN ORNAMENTO VISIVO, quindi non può fermarsi allo schermo. È la
- * stessa regola che governa le celle: «una cella `n/d` non è mai muta», e vale
- * identica per chi la cella non la vede. Prima di questa corsia lo slot 4
- * recitava `n/d` e la lettura vocale non perdeva niente; adesso recita un
- * numero — a tavolo fresco lo stesso numero per ogni giocatore di ogni ruolo —
- * e senza la riga del vincolo chi ascolta sentirebbe per minuti la stessa cifra
- * su ogni scheda senza mai sapere che sta misurando il TAVOLO e non il
- * giocatore. È lo stesso difetto che `RELATIVE_PRICE_BOUND_TEXT` esiste per
- * rompere, e una superficie che lo ripara per gli occhi e non per l'udito lo
- * ripara a metà.
+ * stessa regola che governa le celle — «una cella `n/d` non è mai muta» — e
+ * vale identica per chi la cella non la vede: senza la riga, chi ascolta
+ * sentirebbe «Indice relativo: n/d» senza mai sapere che la formula non è
+ * decisa, cioè un silenzio al posto di un'informazione.
  *
  * NESSUNA FRASE NUOVA: ogni pezzo è la stessa stringa che la cella mostra, e
  * ogni voce parla della PROPRIA cella. Nessuna riga mette in relazione due
@@ -359,7 +210,7 @@ export function valueBoxHtml(reading: ValueBoxReading): string {
 export function valueBoxSpoken(reading: ValueBoxReading): string {
   const parts = VALUE_SLOT_ORDER.map((id) => {
     const slot = reading.slots[id];
-    return `${VALUE_SLOT_LABELS[id]}: ${valueSlotText(slot)}, ${valueSlotWhyText(id, slot, reading)}`;
+    return `${VALUE_SLOT_LABELS[id]}: ${valueSlotText(slot)}, ${valueSlotWhyText(id, slot)}`;
   });
   return `Valore del giocatore chiamato. ${parts.join("; ")}.`;
 }

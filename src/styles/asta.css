@@ -1347,14 +1347,20 @@
 @media (max-width: 719px) {
   .value-box__note { text-align: left; }
 }
+/* DUE COLONNE, A OGNI LARGHEZZA. Erano quattro, con un gradino a 700px che le
+   dimezzava; le due celle in crediti sono uscite dal riquadro il 2026-08-24
+   (Pico: «Leva il valore assoluto e il valore relativo») e con loro il gradino,
+   che serviva a non spremere quattro celle in 700px. Due celle in 700px stanno
+   su 350px l'una — più larghe di quanto le quattro fossero mai state — e
+   restano su UNA riga: è il vincolo di altezza che tiene «ASSEGNA A» sopra la
+   piega (e2e/asta-gesto-principale.spec.ts). Mandarle a una colonna sotto la
+   soglia aggiungerebbe una riga proprio dove il budget di altezza è più
+   stretto. */
 .value-box__grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin: 6px 0 0;
-}
-@media (max-width: 700px) {
-  .value-box__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .value-box__cell {
   display: grid;

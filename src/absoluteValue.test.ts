@@ -13,6 +13,15 @@ import { PAGELLA_ASSI, PAGELLA_TOTALE_MAX, PAGELLA_VOTO_MAX } from "./pagellaEsp
 import { buildTierBook } from "./tierOrdering.js";
 import { listonePlayerKey, type ListonePlayer } from "./ui/listone.js";
 
+// LA CATENA CHE QUESTO FILE MONTA NON È PIÙ MONTATA DALL'APP, e va detto prima
+// di leggere il resto: il 2026-08-24 Pico ha tolto dal riquadro i due numeri in
+// crediti («Leva il valore assoluto e il valore relativo»), quindi `src/` non
+// costruisce più `absoluteValueReading()` da nessuna parte. Le misure qui sotto
+// NON sono state tolte — provano che il numero non si muove con la serata, ed è
+// ancora vero —, ma provano adesso una catena che il prodotto non percorre.
+// Senza questa riga il commento qui sotto continuerebbe a dire «nell'app il
+// libro delle fasce si costruisce così» di un percorso che l'app non ha più.
+//
 // IL VALORE ASSOLUTO NON SI MUOVE DURANTE LA SERATA — la prova per ESECUZIONE,
 // col giro vero dell'app e non con la firma di un tipo.
 //

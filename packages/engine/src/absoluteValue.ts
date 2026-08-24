@@ -1,3 +1,28 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// QUESTO MODULO NON HA PIÙ UN CONSUMATORE NELL'APP. Va letto prima di tutto il
+// resto, perché tutto il resto descrive una cella che non c'è più.
+//
+// Decisione di Pico, 2026-08-24, in modale, alla lettera:
+//
+//     «Leva il valore assoluto e il valore relativo»
+//
+// I due numeri in crediti sono usciti dal riquadro del valore (src/valueBox.ts).
+// NON È STATO DETTO CHE QUESTO NUMERO SIA SBAGLIATO: la derivazione qui sotto
+// resta intera, con la sua suite intera
+// (packages/engine/tests/absoluteValue.test.ts). È stato detto che non va in
+// quel riquadro, dove stava affiancato al prezzo relativo con un rapporto di
+// ~16× e nessuna riga che mettesse i due numeri in relazione.
+//
+// LA CONSEGUENZA SI DICHIARA INVECE DI NASCONDERLA: da adesso `src/` non ha un
+// solo import di questo file. È la stessa forma di difetto che il progetto sta
+// dando la caccia altrove — `opportunities.ts` è completo e non ha un
+// chiamante — e sta scritta qui, in `src/valueBox.ts`
+// (`CREDITI_FUORI_DAL_RIQUADRO`) e nel commit che porta la frase di Pico,
+// perché il prossimo che passa la TROVI invece di riscoprirla. Non è un difetto
+// da riparare di propria iniziativa: dove questo numero debba comparire, se
+// deve, è una decisione di prodotto che nessun record ha ancora preso.
+// ─────────────────────────────────────────────────────────────────────────────
+//
 // IL VALORE ASSOLUTO IN CREDITI — la scala DERIVATA dal regolamento, e le tre
 // gambe che la spostano. Puro, deterministico, engine-only: nessuna UI,
 // nessun I/O, nessun dato reale, nessun orologio.
