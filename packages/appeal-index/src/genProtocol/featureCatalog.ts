@@ -240,9 +240,9 @@ export const GEN_FEATURE_CATALOG: readonly GenFeatureDefinition[] = [
     true,
     "formaUltime10Rolling3",
   ),
-  vote("bonusRate", "bonusRate", "(3·Gf + Ass) / presenze in s−1", ALL_ROLES, "season", true),
+  vote("bonusRate", "bonusRate", "(3·(Gf + Rf) + Ass) / presenze in s−1", ALL_ROLES, "season", true),
   vote("malusRate", "malusRate", "(0,5·Amm + Esp + 2·Au) / presenze in s−1", ALL_ROLES, "season", true),
-  vote("golLag1", "golLag1", "gol fatti in s−1", ALL_ROLES, "season", true, "golRolling3"),
+  vote("golLag1", "golLag1", "gol fatti (azione + rigore: Gf + Rf) in s−1", ALL_ROLES, "season", true, "golRolling3"),
   vote("assistLag1", "assistLag1", "assist in s−1", ALL_ROLES, "season", true, "assistRolling3"),
   vote(
     "rigoristaHist",
@@ -867,25 +867,29 @@ function voteSeasonValue(id: GenVoteFeatureId, row: GenPanelRow, role: GenRole):
       return row.presenze;
     case "formaUltime10":
       return formaUltime10(row, role);
-    // DOMANDA APERTA, registrata e non decisa qui (2026-08-24). Il `3` e' la
-    // tariffa del gol scritta a mano, e la formula e' quella dichiarata da
-    // §D.5 («(3·Gf + Ass) / presenze»), congelata da §C. Dopo la misura di
-    // campo privata del 2026-08-24 — `Gf` = gol su azione, `Rf` = rigori
-    // segnati, colonne disgiunte — questa formula ignora i gol su rigore: un
-    // rigorista puro ha `bonusRate` sistematicamente sottostimato. La forma
-    // coerente con la tariffa sarebbe `3·(Gf + Rf) + Ass`, ma cambiare la
-    // definizione di una feature preregistrata e' decisione di Pico
-    // (`protocol_id` 2.0.0), non di questo file: finche' non e' presa vale la
-    // lettera di §D.5. Stesso discorso per `golLag1` qui sotto.
+    // ALLINEATO il 2026-08-24, ratificato da Pico. §D.5 dichiarava
+    // «(3·Gf + Ass) / presenze», e il `3` e' la tariffa del gol scritta a mano.
+    // La formula fu preregistrata credendo che `Gf` contenesse anche i rigori
+    // segnati; la misura di campo privata del 2026-08-24 lo ha smentito, e
+    // finche' la somma restava `3·Gf` un rigorista puro aveva `bonusRate`
+    // sistematicamente sottostimato — la feature diceva «non produce bonus» di
+    // chi ne produceva. Ora il moltiplicatore 3 si applica ai GOL, tutti:
+    // `3·(Gf + Rf) + Ass`, coerente con la tariffa di `fantavoto.ts`.
     case "bonusRate":
-      return n > 0 ? (3 * totals.Gf + totals.Ass) / n : NaN;
+      return n > 0 ? (3 * (totals.Gf + totals.Rf) + totals.Ass) / n : NaN;
     case "malusRate":
       return n > 0 ? (0.5 * totals.Amm + totals.Esp + 2 * totals.Au) / n : NaN;
     // Gol e assist di una stagione senza presenze valgono 0, e 0 e' una misura:
     // il giocatore era nel panel e non ha segnato. E' la stessa lettura che
     // §A.3 fa di T1 con N = 0 («0 se `i` e' in popolazione di `s`»).
+    //
+    // «Gol fatti» = `Gf + Rf` dal 2026-08-24 (ratificato da Pico): i gol sono i
+    // gol, e il modo in cui sono stati segnati non ne toglie nessuno. La
+    // componente su azione non sparisce — resta leggibile separatamente in
+    // `totals.Gf`, e l'aggregato di stagione la dichiara come campo a se'
+    // (`golSuAzione` in `seasonAggregate.ts`).
     case "golLag1":
-      return totals.Gf;
+      return totals.Gf + totals.Rf;
     case "assistLag1":
       return totals.Ass;
     case "rigoristaHist":

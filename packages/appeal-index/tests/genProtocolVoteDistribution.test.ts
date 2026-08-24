@@ -80,19 +80,23 @@ describe("genProtocol/voteDistribution — i 9 bin di §A.3", () => {
     expect(distribution.counts).toEqual([0, 0, 0, 0, 2, 0, 0, 1, 0]);
   });
 
-  it("la congiunta A ha 18 bin e il flag e' gol ∨ assist ∨ rigore sbagliato", () => {
+  it("la congiunta A ha 18 bin e il flag e' gol (azione o rigore) ∨ assist ∨ rigore sbagliato", () => {
     expect(hasBonusFlag(vote(7, { Gf: 1 }))).toBe(true);
     expect(hasBonusFlag(vote(7, { Ass: 1 }))).toBe(true);
     expect(hasBonusFlag(vote(7, { Rs: 1 }))).toBe(true);
-    // `Rf` NON alza il flag, e dal 2026-08-24 questa riga sorveglia una
-    // tensione aperta invece di una verita': la tariffa ora paga il rigore
-    // segnato come un gol, ma §A.3 fissa il predicato alla lettera e §C lo
-    // congela. Il test tiene ferma la lettera del protocollo; la conseguenza
-    // (chi segna solo su rigore risulta «senza bonus» ed e' quindi eleggibile
-    // al modificatore attacco) e' scritta accanto a `hasBonusFlag` ed e'
-    // decisione di Pico, non di questo test.
-    expect(hasBonusFlag(vote(7, { Rf: 1 }))).toBe(false);
+    // ASSERZIONE INVERTITA il 2026-08-24, ratificata da Pico. Diceva `false`,
+    // fedele alla lettera preregistrata di §A.3, che pero' era stata scritta
+    // credendo `Rf` gia' dentro `Gf`. Chi segna SOLO su rigore ha preso un
+    // bonus, quindi il flag e' vero — e non e' un'etichetta: i «senza bonus»
+    // sono gli eleggibili al modificatore attacco di §21, e prima di oggi il
+    // predicato ce li faceva entrare per errore.
+    expect(hasBonusFlag(vote(7, { Rf: 1 }))).toBe(true);
+    // Un rigore segnato da solo basta, senza gol su azione ne' assist.
+    expect(hasBonusFlag(vote(7, { Gf: 0, Rf: 2, Ass: 0, Rs: 0 }))).toBe(true);
+    // L'ammonizione resta un malus, non un bonus: l'allineamento `Rf` non ha
+    // allargato il predicato a «e' successo qualcosa».
     expect(hasBonusFlag(vote(7, { Amm: 1 }))).toBe(false);
+    expect(hasBonusFlag(vote(7))).toBe(false);
 
     const joint = buildJointVoteDistribution([vote(7), vote(7, { Ass: 1 }), vote(6, { Gf: 2 })]);
     expect(joint.counts).toHaveLength(18);

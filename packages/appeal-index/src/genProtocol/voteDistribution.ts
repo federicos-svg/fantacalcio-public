@@ -3,7 +3,8 @@
 // Il bersaglio, per intero (§A.3): «`p(i,s)(·)` = distribuzione del voto base
 // sulle presenze valide, sui 9 bin `{≤4; 4,5; 5; 5,5; 6; 6,5; 7; 7,5; ≥8}`;
 // per ruolo A anche la distribuzione congiunta con `flag_bonus = (Gf>0 ∨ Ass>0
-// ∨ Rs>0)` (18 bin)».
+// ∨ Rs>0)` (18 bin)». Il predicato porta `∨ Rf>0` dal 2026-08-24: si veda
+// `hasBonusFlag` per il perche' la lettera preregistrata e' stata allineata.
 //
 // Perche' T-D esiste come bersaglio a se': e' l'INGREDIENTE PREDITTIVO dei tre
 // modificatori (§D.9). I modificatori non leggono una media, leggono una
@@ -63,26 +64,30 @@ export function voteBinIndex(votoBase: number): number | null {
 }
 
 /**
- * `flag_bonus` di §A.3 per la congiunta del ruolo A: gol, assist o rigore
- * sbagliato.
+ * `flag_bonus` di §A.3 per la congiunta del ruolo A: gol (su azione o su
+ * rigore), assist o rigore sbagliato.
  *
- * DOMANDA APERTA, registrata qui e non decisa qui (2026-08-24). §A.3 fissa il
- * predicato alla lettera — `(Gf>0 ∨ Ass>0 ∨ Rs>0)` — e §C lo congela: cambiarlo
- * invalida i confronti gia' fatti e richiede `protocol_id` 2.0.0. Il testo fu
- * pero' scritto quando si credeva che `Rf` fosse gia' dentro `Gf`, premessa che
- * la misura di campo privata del 2026-08-24 ha falsificato. Conseguenza
- * concreta: una giornata in cui l'attaccante segna SOLO su rigore (`Rf>0`,
- * `Gf=0`) qui risulta «senza bonus», e i «senza bonus» sono gli unici
- * eleggibili al modificatore attacco (§21) — cioe' il predicato sta oggi
- * dichiarando eleggibile chi un bonus lo ha preso.
+ * ALLINEATO il 2026-08-24, ratificato da Pico. Il predicato di §A.3 era scritto
+ * `(Gf>0 ∨ Ass>0 ∨ Rs>0)` — senza `Rf` — perche' al momento della
+ * preregistrazione si credeva che i rigori segnati fossero gia' dentro `Gf`.
+ * La misura di campo privata del 2026-08-24 ha falsificato quella premessa
+ * (`Gf`, `Rf`, `Rs` sono colonne disgiunte), e senza `Rf` il predicato
+ * classificava «senza bonus» un attaccante che ha segnato SOLO su rigore.
  *
- * Il comportamento NON viene cambiato di iniziativa: aggiungere `Rf` qui e' una
- * modifica al protocollo preregistrato, non alla tariffa, e la decisione e' di
- * Pico. Finche' non e' presa, la lettera di §A.3 vince e la sua conseguenza sta
- * scritta sopra invece che scoperta a valle.
+ * Non era un dettaglio di etichetta: i «senza bonus» sono esattamente gli
+ * eleggibili al modificatore attacco (§21, «voto sufficiente E nessun bonus»),
+ * quindi il predicato dichiarava eleggibile chi un bonus lo aveva preso — e il
+ * valore del modificatore ne usciva gonfiato proprio sui rigoristi.
+ *
+ * La correzione ricongiunge il predicato alla sua INTENZIONE («ha preso un
+ * bonus?»), che non e' mai cambiata: e' cambiato cio' che sappiamo su quali
+ * colonne portano i gol. Nota di protocollo: questo e' un cambiamento a una
+ * definizione congelata da §C, quindi i confronti prodotti prima di oggi non
+ * sono paragonabili a quelli prodotti dopo e vanno rigenerati — stessa regola
+ * dei bump di tariffa.
  */
 export function hasBonusFlag(row: MatchdayVote): boolean {
-  return row.Gf > 0 || row.Ass > 0 || row.Rs > 0;
+  return row.Gf > 0 || row.Rf > 0 || row.Ass > 0 || row.Rs > 0;
 }
 
 export interface VoteDistributionCounts {

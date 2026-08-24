@@ -291,6 +291,34 @@ describe("genProtocol/featureCatalog — la riparazione della situazione B", () 
     expect(rows[0]!.features.formaUltime10).toBeCloseTo(7.5, 12);
   });
 
+  it("bonusRate e golLag1 contano anche i gol su rigore (allineamento 2026-08-24)", () => {
+    // Un rigorista PURO: due rigori segnati, nessun gol su azione, nessun
+    // assist. Prima dell'allineamento `bonusRate` valeva 0 e `golLag1` 0 —
+    // la feature diceva «non produce bonus» di chi ne produceva due.
+    const rigorista = [
+      panelRow("P_RIG", "A", "2017_18", [
+        md("2017_18", 1, 6, { Rf: 1 }),
+        md("2017_18", 2, 6, { Rf: 1 }),
+      ]),
+    ];
+    const row = buildGenFeatureRows(rigorista, "S1", "2018_19")[0]!;
+    // (3·(0 + 2) + 0) / 2 presenze = 3.
+    expect(row.features.bonusRate).toBeCloseTo(3, 12);
+    expect(row.features.golLag1).toBe(2);
+
+    // E un gol su azione vale esattamente quanto uno su rigore: stesso
+    // bonusRate, stesso golLag1.
+    const suAzione = [
+      panelRow("P_AZ", "A", "2017_18", [
+        md("2017_18", 1, 6, { Gf: 1 }),
+        md("2017_18", 2, 6, { Gf: 1 }),
+      ]),
+    ];
+    const rowAzione = buildGenFeatureRows(suAzione, "S1", "2018_19")[0]!;
+    expect(rowAzione.features.bonusRate).toBeCloseTo(row.features.bonusRate!, 12);
+    expect(rowAzione.features.golLag1).toBe(row.features.golLag1);
+  });
+
   it("teamChangedFlag e' NaN quando la squadra non e' nota: mai uno 0 di comodo", () => {
     const senzaSquadra = [
       panelRow("P_NT", "C", "2016_17", [md("2016_17", 1, 6)]),
