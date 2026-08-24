@@ -764,6 +764,30 @@ function toCandidate(group: SchedaGroup): ExpertSchedaCandidate {
  * `percentuale` sopravvive solo insieme a una titolarità: una percentuale da
  * sola non è un ballottaggio, è un numero senza soggetto.
  */
+/**
+ * Il deposito porta ALMENO UNA pagella con dei voti dentro?
+ *
+ * Serve a una decisione di costo, non di prodotto: la nota sotto il listone
+ * conta righe complete, parziali, totali divergenti e assi incoerenti, e per
+ * contarle deve risolvere l'aggancio nome+squadra di OGNI riga del pool. Oggi
+ * quel conto varrebbe zero su ogni riga — l'estrazione privata non esiste
+ * ancora — e sarebbe una passata su ~500 righe a ogni tasto premuto, cioè
+ * esattamente il costo che la memoizzazione di #40 è appena andata a togliere.
+ *
+ * Con questa domanda, che costa quanto il deposito (~200 schede) e non quanto
+ * il pool, la passata comincerà a girare il giorno in cui ci sarà davvero
+ * qualcosa da contare, senza che nessuno debba ricordarsi di riaccenderla.
+ */
+export function expertSchedeHavePagella(store: ExpertSchedaStore): boolean {
+  if (!store.ok) return false;
+  for (const schede of store.byPlayerKey.values()) {
+    for (const scheda of schede) {
+      if (scheda.pagella !== undefined && pagellaHasContent(scheda.pagella)) return true;
+    }
+  }
+  return false;
+}
+
 export function resolveExpertInsight(
   store: ExpertSchedaStore,
   target: SchedaTarget | null,
