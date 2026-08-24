@@ -96,8 +96,15 @@ export interface PrecedentsInput {
  * «Inter» e « inter » sono lo stesso club; se un giorno servisse una
  * riconciliazione vera (alias, denominazioni storiche) è il layer privato a
  * doverla fare a monte, perché è lui ad avere le fonti.
+ *
+ * ESPORTATA per la stessa ragione di `personHistories`: chi pre-filtra i
+ * candidati su un insieme di club (src/baitCandidates.ts) deve usare LA STESSA
+ * regola di confronto che qui decide se una spesa è «su quel club». Due
+ * normalizzazioni che divergono producono un pre-filtro che scarta in silenzio
+ * righe che il fatto avrebbe ammesso — un falso negativo invisibile, che è il
+ * guasto peggiore possibile per un pre-filtro.
  */
-function clubKey(label: string): string {
+export function clubIdentityKey(label: string): string {
   return label.normalize("NFKC").trim().toLocaleLowerCase("it");
 }
 
@@ -125,16 +132,39 @@ export function medianPrice(prices: readonly number[]): number | null {
 // Proiezioni dello storico
 // ---------------------------------------------------------------------------
 
-interface PersonHistory {
+export interface PersonHistory {
+  /** La persona a cui questa proiezione appartiene. */
+  readonly personId: string;
   /** Solo acquisti all'asta, per stagione crescente. */
   readonly auctionsBySeason: ReadonlyMap<string, readonly PastAuctionPurchase[]>;
   /** Tutte le stagioni in cui la persona ha comprato all'asta, crescenti. */
   readonly seasons: readonly string[];
   readonly auctions: readonly PastAuctionPurchase[];
   readonly renewals: readonly PastAuctionPurchase[];
+  /**
+   * I suoi acquisti ALL'ASTA indicizzati per giocatore, nello stesso ordine di
+   * `auctions`. Non è un dato nuovo: è la stessa lista, letta per chiave invece
+   * che a scansione. Serve a `repeatPurchaseFact`, che altrimenti ripasserebbe
+   * l'intero elenco degli acquisti di quella persona UNA VOLTA PER CANDIDATO —
+   * con un listone da 532 righe e sette rivali sono milioni di confronti per
+   * una domanda che è una ricerca in una mappa.
+   */
+  readonly auctionsByPlayer: ReadonlyMap<string, readonly PastAuctionPurchase[]>;
+  /** I suoi RINNOVI per giocatore, per la stessa ragione e con la stessa forma. */
+  readonly renewalsByPlayer: ReadonlyMap<string, readonly PastAuctionPurchase[]>;
 }
 
-function personHistories(
+/**
+ * Lo storico raggruppato per persona, una volta sola.
+ *
+ * ESPORTATA perché è la passata COSTOSA di questo file e perché un secondo
+ * consumatore dello storico (src/baitCandidates.ts) deve poterla RIUSARE
+ * tale e quale invece di scriversene una copia: due raggruppamenti dello
+ * stesso storico sono due cose che divergono, e il giorno in cui divergono
+ * nessuno se ne accorge — i numeri restano plausibili, sono solo di un altro
+ * calcolo. Pura e deterministica come tutto il resto del file.
+ */
+export function personHistories(
   history: readonly PastAuctionPurchase[],
 ): ReadonlyMap<string, PersonHistory> {
   const byPerson = new Map<string, PastAuctionPurchase[]>();
@@ -159,22 +189,38 @@ function personHistories(
       else bucket.push(row);
     }
     out.set(personId, {
+      personId,
       auctions,
       renewals,
       auctionsBySeason,
       seasons: [...auctionsBySeason.keys()].sort(),
+      auctionsByPlayer: byPlayer(auctions),
+      renewalsByPlayer: byPlayer(renewals),
     });
+  }
+  return out;
+}
+
+/** Righe indicizzate per giocatore, preservando l'ordine della lista d'origine. */
+function byPlayer(
+  rows: readonly PastAuctionPurchase[],
+): ReadonlyMap<string, readonly PastAuctionPurchase[]> {
+  const out = new Map<string, PastAuctionPurchase[]>();
+  for (const row of rows) {
+    const bucket = out.get(row.playerId);
+    if (bucket === undefined) out.set(row.playerId, [row]);
+    else bucket.push(row);
   }
   return out;
 }
 
 /** Quota di spesa su un club, stagione per stagione. Mai una media sola. */
 function clubShares(person: PersonHistory, club: string): readonly SeasonShare[] {
-  const key = clubKey(club);
+  const key = clubIdentityKey(club);
   return person.seasons.map((season) => {
     const rows = person.auctionsBySeason.get(season) ?? [];
     const total = rows.reduce((sum, r) => sum + r.price, 0);
-    const amount = rows.reduce((sum, r) => (clubKey(r.club) === key ? sum + r.price : sum), 0);
+    const amount = rows.reduce((sum, r) => (clubIdentityKey(r.club) === key ? sum + r.price : sum), 0);
     return { season, amount, total, share: share(amount, total) };
   });
 }
@@ -205,7 +251,7 @@ function repeatPurchaseFact(
   person: PersonHistory,
   called: CalledPlayer,
 ): RepeatPurchaseFact | null {
-  const bought = person.auctions.filter((r) => r.playerId === called.playerId);
+  const bought = person.auctionsByPlayer.get(called.playerId) ?? [];
   if (bought.length === 0) return null;
   const prices: readonly SeasonPrice[] = bought.map((r) => ({ season: r.season, price: r.price }));
   return {
@@ -215,7 +261,7 @@ function repeatPurchaseFact(
     auctionPurchases: bought.length,
     purchaseSeasons: bought.map((r) => r.season),
     prices,
-    renewalsExcluded: person.renewals.filter((r) => r.playerId === called.playerId).length,
+    renewalsExcluded: (person.renewalsByPlayer.get(called.playerId) ?? []).length,
   };
 }
 
@@ -301,8 +347,8 @@ function supportedClubNote(
   // prior proprio perché il chiamante non possa confonderle.
   const prior = confirmedPrior(profile);
   const clubs = prior.affinityClubs ?? [];
-  const key = clubKey(called.club);
-  const match = clubs.find((c) => clubKey(c) === key);
+  const key = clubIdentityKey(called.club);
+  const match = clubs.find((c) => clubIdentityKey(c) === key);
   if (match === undefined) return null;
   const perSeason = clubShares(person, called.club);
   return {
@@ -318,12 +364,109 @@ function supportedClubNote(
 // L'esito
 // ---------------------------------------------------------------------------
 
+/** Ricerca-o-calcola su una mappa opzionale. Senza mappa, calcola e basta. */
+function memoized<T>(store: Map<string, T> | undefined, key: string, compute: () => T): T {
+  if (store === undefined) return compute();
+  const hit = store.get(key);
+  if (hit !== undefined || store.has(key)) return hit as T;
+  const value = compute();
+  store.set(key, value);
+  return value;
+}
+
 const FACT_ORDER: Readonly<Record<string, number>> = Object.fromEntries(
   PRECEDENT_FACT_IDS.map((id, index) => [id, index]),
 );
 
 function strongestFactRank(entry: OpponentPrecedents): number {
   return Math.min(...entry.facts.map((f) => FACT_ORDER[f.id] as number));
+}
+
+/**
+ * LA MEMORIA DI LAVORO dei due fatti che NON dipendono dall'identità del
+ * giocatore chiamato ma solo dal suo CLUB (o da niente).
+ *
+ * PERCHÉ ESISTE. `clubConcentrationFact` dipende da (persona, club, soglia) e
+ * `topSpendFact` da (persona, soglie): su un listone da 532 righe con quindici
+ * club e sette rivali, le stesse cento risposte verrebbero ricalcolate qualche
+ * migliaio di volte — misurato: 154 ms per giro, contro 5 con questa mappa.
+ * `repeatPurchaseFact` invece dipende davvero dal giocatore e non entra qui: è
+ * già una ricerca in `PersonHistory.auctionsByPlayer`.
+ *
+ * È UN PARAMETRO, NON UNO STATO DI MODULO, e la differenza è la falsificabilità:
+ * la memoria appartiene al chiamante, vive quanto il suo giro e non può
+ * sopravvivere a un cambio di storico. Omettila e `precedentFactsFor` calcola
+ * tutto ogni volta, con lo stesso risultato — `baitCandidates.test.ts` confronta
+ * le due vie riga per riga.
+ *
+ * UNA MEMORIA PER SOGLIE. Le chiavi non portano le soglie: una memoria va usata
+ * con le stesse `clubShare`/`topPurchases`/`topShare` con cui è stata riempita.
+ * `minSeasonsMeasured` è invece innocua — nessuno dei due fatti la legge, il
+ * filtro di campione è applicato dopo — ed è per questo che lo stesso oggetto
+ * serve anche il giro col pavimento a zero.
+ */
+export interface PrecedentFactCache {
+  /** `${personId}|${clubIdentityKey(club)}` → il fatto, o `null` se non c'è. */
+  readonly clubFacts: Map<string, ClubConcentrationFact | null>;
+  /** `personId` → il fatto sui propri più cari, o `null` se non c'è. */
+  readonly topFacts: Map<string, TopSpendFact | null>;
+}
+
+/** Una memoria di lavoro vuota. Vedi `PrecedentFactCache`. */
+export function newPrecedentFactCache(): PrecedentFactCache {
+  return { clubFacts: new Map(), topFacts: new Map() };
+}
+
+/**
+ * I FATTI MISURATI di UNA persona sul giocatore chiamato, nell'ordine
+ * dichiarato dei tipi (`PRECEDENT_FACT_IDS`). Lista vuota = nessun fatto, che
+ * è un esito e non un errore.
+ *
+ * ESTRATTA DAL GIRO di `auctionPrecedents()` — che la chiama, e resta l'unico
+ * posto in cui questi tre fatti si costruiscono — perché un secondo
+ * consumatore (src/baitCandidates.ts) deve poter chiedere gli stessi fatti su
+ * un giocatore DIVERSO da quello chiamato senza rifare la validazione zod
+ * dell'intero storico a ogni domanda. Stessa funzione, stessi fatti, stesso
+ * ordine: non c'è una seconda ricetta che possa divergere.
+ *
+ * LA SOGLIA DI CAMPIONE È QUI, ED È UN INTERRUTTORE. Un fatto misurato su meno
+ * di `thresholds.minSeasonsMeasured` stagioni non entra nella lista: non entra
+ * con meno peso, non entra affatto. Al valore dichiarato da Pico (1) la soglia
+ * non morde per costruzione — una persona senza stagioni d'asta misurate non
+ * produce nessuno dei tre fatti — e `precedents.test.ts` lo verifica; sopra 1
+ * diventa il gate che `below-sample` nomina.
+ *
+ * `expensive` non è ricalcolato qui: è la pertinenza del fatto `piu-cari`
+ * (vedi `calledPlayerIsExpensive`) e il chiamante la porta già decisa, perché
+ * è una proprietà del GIOCATORE e non della persona — ricalcolarla per ogni
+ * persona significherebbe rileggere l'intero storico N volte per la stessa
+ * risposta.
+ */
+export function precedentFactsFor(
+  person: PersonHistory,
+  called: CalledPlayer,
+  thresholds: PrecedentThresholds,
+  expensive: boolean,
+  cache?: PrecedentFactCache,
+): readonly PrecedentFact[] {
+  const facts: PrecedentFact[] = [];
+  const repeat = repeatPurchaseFact(person, called);
+  if (repeat !== null) facts.push(repeat);
+  const club = memoized(
+    cache?.clubFacts,
+    `${person.personId}|${clubIdentityKey(called.club)}`,
+    () => clubConcentrationFact(person, called, thresholds.clubShare),
+  );
+  if (club !== null) facts.push(club);
+  if (expensive) {
+    const top = memoized(cache?.topFacts, person.personId, () =>
+      topSpendFact(person, thresholds),
+    );
+    if (top !== null) facts.push(top);
+  }
+  const measured = facts.filter((f) => f.seasonsMeasured >= thresholds.minSeasonsMeasured);
+  measured.sort((a, b) => (FACT_ORDER[a.id] as number) - (FACT_ORDER[b.id] as number));
+  return measured;
 }
 
 /**
@@ -384,22 +527,13 @@ export function auctionPrecedents(input: PrecedentsInput): PrecedentsReading {
     const person = histories.get(personId);
     if (person === undefined) continue;
 
-    const facts: PrecedentFact[] = [];
-    const repeat = repeatPurchaseFact(person, called);
-    if (repeat !== null) facts.push(repeat);
-    const club = clubConcentrationFact(person, called, thresholds.clubShare);
-    if (club !== null) facts.push(club);
-    if (expensive) {
-      const top = topSpendFact(person, thresholds);
-      if (top !== null) facts.push(top);
-    }
     // LA RIGA NASCE DAL FATTO MISURATO, MAI DAL TIFO. Senza `facts` non c'è
-    // voce, e il tifo — che qui sotto verrebbe comunque calcolato — non ha
-    // modo di crearne una: è questa riga a rendere impossibile la frase «lo
-    // vuole perché è della sua squadra».
+    // voce, e il tifo — che `supportedClubNote` qui sotto calcola comunque —
+    // non ha modo di crearne una: è questa riga a rendere impossibile la
+    // frase «lo vuole perché è della sua squadra».
+    const facts = precedentFactsFor(person, called, thresholds, expensive);
     if (facts.length === 0) continue;
 
-    facts.sort((a, b) => (FACT_ORDER[a.id] as number) - (FACT_ORDER[b.id] as number));
     opponents.push({
       fantaTeamId,
       personId,

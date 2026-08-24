@@ -605,6 +605,22 @@ export interface PrecedentThresholds {
    * legge, e che il pannello live non deriva — docs/AUCTION_2026_EXECUTION_PLAN.md §3).
    */
   readonly expensiveFrom: number;
+  /**
+   * Su quante stagioni MISURATE un fatto deve poggiare perché conti come
+   * precedente. È un INTERRUTTORE, non un peso: un fatto sotto la soglia non
+   * pesa di meno, semplicemente non c'è ancora — e chi legge vede scritto
+   * `below-sample` invece di un numero fabbricato su un campione che non
+   * regge. Stessa disciplina di `CounterResult.insufficient-sample`
+   * (counters.ts), dove sotto soglia NON esiste proprio un `value` da leggere.
+   *
+   * DICHIARATA DA PICO il 2026-08-24: 1, cioè il pavimento a cui il fatto
+   * esiste. A questo valore la soglia non morde — un fatto è emesso solo da
+   * una persona che ha almeno una stagione d'asta misurata, quindi
+   * `seasonsMeasured >= 1` è vero per costruzione — ed è esattamente ciò che
+   * il primo giro deve fare: dichiarare l'interruttore dove si vede, senza
+   * cambiare in silenzio quello che il pannello dice oggi.
+   */
+  readonly minSeasonsMeasured: number;
 }
 
 export const DEFAULT_PRECEDENT_THRESHOLDS: PrecedentThresholds = {
@@ -612,4 +628,7 @@ export const DEFAULT_PRECEDENT_THRESHOLDS: PrecedentThresholds = {
   topPurchases: 3,
   topShare: 0.5,
   expensiveFrom: 50,
+  // Dichiarata da Pico il 2026-08-24. Le altre quattro restano provvisorie
+  // (vedi il commento del tipo qui sopra): questa no.
+  minSeasonsMeasured: 1,
 };

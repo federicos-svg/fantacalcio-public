@@ -122,6 +122,8 @@ import {
   tierPricesHtml,
   tierProvenanceText,
 } from "./tierBand.js";
+import type { ValueBoxReading } from "../valueBox.js";
+import { VALUE_BOX_TITLE, valueBoxHtml, valueBoxNoteText, valueBoxSpoken } from "./valueBox.js";
 
 export interface ListonePanelState {
   /** Full loaded listone, unfiltered — drives column discovery and the "N giocatori caricati" note. */
@@ -2728,6 +2730,74 @@ export function renderLateAnswerBlock(props: LateAnswerProps): HTMLElement {
   note.id = "late-answer-note";
   note.textContent = LATE_ANSWER_NOTE;
   panel.appendChild(note);
+
+  return panel;
+}
+
+// ── RIQUADRO DEL VALORE (momento asta, dentro la scheda del chiamato) ────────
+// Montaggio nel DOM dei quattro numeri di `docs/DECISIONS.md` §"Il riquadro del
+// valore porta quattro numeri". Wrapper SOTTILE, come renderTierBandBlock e
+// renderRoleDepletionBlock: ogni scelta di resa — quale numero si mostra, con
+// quale unità, e quale frase si dice quando un numero non c'è — vive nei
+// costruttori puri di ./valueBox.ts, verificati senza DOM; il calcolo vive in
+// src/valueBox.ts, che riceve la schermata CHIAMATA già costruita dal motore.
+//
+// Questo file non deriva nessun numero suo, non ricalcola nessuna catena e non
+// legge nessun gate: riceve una lettura già fatta e la appende.
+//
+// PERCHÉ È UNA SEZIONE «INLINE» E NON UN PANNELLO A SÉ. Sta DENTRO la scheda
+// del giocatore chiamato — è lì che il record lo colloca — e una scatola dentro
+// la scatola aggiungerebbe cromo senza aggiungere informazione, esattamente
+// come per MOMENTO DELL'ASTA (.moment-facts--inline). Stessa classe `.panel`
+// per l'aspetto tipografico, stesso filetto di separazione.
+
+export interface ValueBoxProps {
+  readonly reading: ValueBoxReading;
+}
+
+/**
+ * Il riquadro sta SEMPRE sulla schermata live, anche quando nessuno dei quattro
+ * numeri è calcolabile: è la resa della regola per cui «quando il dato non c'è,
+ * il pannello lo dice». Nasconderlo quando i numeri mancano trasformerebbe
+ * un'assenza dichiarata in un silenzio, che è il difetto che le frasi di
+ * ./valueBox.ts esistono per rompere.
+ *
+ * TITOLO E NOTA SU UNA RIGA SOLA, come .assign-block__head: il riquadro sta
+ * sopra il gesto principale e ogni riga in più qui è una riga in meno di
+ * margine per «ASSEGNA A» (e2e/asta-gesto-principale.spec.ts). La nota non è
+ * stata accorciata per estetica — dice tutto quello che deve —, è stata messa
+ * dove non costa una riga sua.
+ */
+export function renderValueBoxBlock(props: ValueBoxProps): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "value-box";
+  panel.className = "panel value-box value-box--inline";
+  panel.setAttribute("aria-label", valueBoxSpoken(props.reading));
+
+  const head = document.createElement("div");
+  head.className = "value-box__head";
+
+  const title = document.createElement("div");
+  title.className = "panel-title";
+  title.textContent = VALUE_BOX_TITLE;
+  head.appendChild(title);
+
+  const note = document.createElement("p");
+  note.className = "hint-text value-box__note";
+  note.id = "value-box-note";
+  note.textContent = valueBoxNoteText(props.reading);
+  head.appendChild(note);
+
+  panel.appendChild(head);
+
+  const body = document.createElement("div");
+  body.id = "value-box-body";
+  // aria-live: i quattro numeri cambiano significato — non solo contenuto —
+  // quando cambia il giocatore chiamato o quando l'asta muove gli ingredienti.
+  body.setAttribute("role", "status");
+  body.setAttribute("aria-live", "polite");
+  body.innerHTML = valueBoxHtml(props.reading);
+  panel.appendChild(body);
 
   return panel;
 }
