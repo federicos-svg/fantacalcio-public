@@ -154,7 +154,7 @@ import {
   renderValueBoxBlock,
   type ValueBoxProps,
 } from "./ui/views.js";
-import { DECLARED_INPUTS_WITHOUT_SOURCE, valueBoxReading } from "./valueBox.js";
+import { valueBoxReading } from "./valueBox.js";
 import {
   INTEREST_FLAG_NOT_PERSISTED_NOTICE,
   enqueueInterestFlag,
@@ -1775,22 +1775,19 @@ function tierBandProps(aState: AuctionState): TierBandProps {
  * funzione non può conoscere. `listonePlayerKey` è la STESSA chiave con cui
  * l'event log registra un acquisto, come per `tierBandProps`.
  *
- * `call: null`, E PERCHÉ NON È UNA SCORCIATOIA. La schermata CHIAMATA del
+ * `call: null`, E ADESSO NON ALIMENTA PIÙ NIENTE. La schermata CHIAMATA del
  * motore (`callScreen()`, packages/engine/src/callScreen.ts) è scritta,
  * esportata e provata, ma pretende DUE dichiarazioni di Pico che il core
  * pubblico non ha ancora un posto dove raccogliere: il listino dei valori per
- * giocatore (`DeclaredValueBook`) e il profilo di rischio (`ValueProfile`, che
- * sceglie l'α preregistrato di §4.2). Nessuna delle due ha una sorgente in
- * `src/`. Fabbricarne una qui — un valore dedotto dalla quotazione, un profilo
- * «medio» di default — sarebbe inventare esattamente l'ingrediente 2 della
- * regola dei tre ingredienti (§D9), cioè far dire all'app che Pico ha
- * dichiarato qualcosa che non ha dichiarato. Il riquadro dice invece `n/d` e
- * dice quale dichiarazione manca; il giorno in cui quelle due entrano nell'app,
- * questa funzione passa un `CallScreen` vero e lo SLOT 4 si accende senza
- * toccare né la lettura né la vista.
+ * giocatore (`DeclaredValueBook`) e il profilo di rischio (`ValueProfile`).
+ * Fino al 2026-08-24 quella era la ragione per cui i due numeri in crediti
+ * tacevano; dopo le due corsie di quel giorno non lo è più, perché nessuno dei
+ * due passa più di lì. `call` resta nella firma e resta `null`, e non si
+ * fabbrica: inventare un valore dedotto dalla quotazione o un profilo «medio»
+ * di default sarebbe far dire all'app che Pico ha dichiarato qualcosa che non
+ * ha dichiarato (§D9, ingrediente 2).
  *
- * LO SLOT 3, INVECE, HA GIÀ TUTTI I SUOI INGRESSI, e da questa corsia in poi
- * non passa più di lì. Il valore assoluto è DERIVATO
+ * LO SLOT 3 HA GIÀ TUTTI I SUOI INGRESSI. Il valore assoluto è DERIVATO
  * (packages/engine/src/absoluteValue.ts): budget del regolamento ripartito dai
  * TARGET DI RUOLO che Pico dichiara nel piano rosa (`state.rolePlan`, che una
  * sorgente ce l'ha), diviso per gli slot del ruolo, collocato dalla fascia del
@@ -1799,12 +1796,21 @@ function tierBandProps(aState: AuctionState): TierBandProps {
  * dichiarato di src/serieACompetitions.ts — e oggi hanno tutte peso zero,
  * quindi la loro assenza non toglie il numero.
  *
- * NIENTE DI QUESTO SI MUOVE DURANTE LA SERATA, ed è vero per costruzione e non
- * per attenzione: `AbsoluteValueInput` non ha un campo in cui uno stato d'asta
- * possa entrare. `aState` serve a UNA cosa sola — derivare il censimento delle
- * squadre al tavolo dentro `buildTierBook` — ed è la stessa cosa che il
- * riquadro FASCIA fa già; il libro che ne esce è memoizzato su
- * `(pool, source, teamsCount)` e non conosce il log.
+ * LO SLOT 4 SI ACCENDE DAL PRIMO SECONDO, e `table` è la ragione. Dal
+ * 2026-08-24 quel numero è «quanto costa vincere adesso» — il secondo max bid
+ * fra i rivali eleggibili, più uno — e i suoi ingredienti sono soltanto fatti
+ * duri dell'event log che l'app HA GIÀ: `deriveAuctionState()` e `SELF_ID`,
+ * cioè gli stessi due che alimentano la war board e il momento dell'asta.
+ *
+ * `aState` SERVE A DUE COSE DIVERSE, e vanno tenute distinte perché una sembra
+ * contraddire l'altra: allo SLOT 3 serve solo per il censimento delle squadre
+ * dentro `buildTierBook` — `AbsoluteValueInput` non ha un campo in cui uno
+ * stato d'asta possa entrare, e il libro che ne esce è memoizzato su
+ * `(pool, source, teamsCount)` e non conosce il log —, allo SLOT 4 serve per
+ * intero, perché è la serata. Arriva come PARAMETRO e non da una seconda
+ * `deriveAuctionState()`: il riquadro deve mostrare lo stesso tavolo della
+ * scheda che lo circonda, e due derivazioni nello stesso render sono due
+ * fotografie che possono divergere.
  */
 function valueBoxProps(aState: AuctionState): ValueBoxProps {
   const selected = state.call.selectedPlayer;
@@ -1828,7 +1834,16 @@ function valueBoxProps(aState: AuctionState): ValueBoxProps {
         selected === null ? null : { playerId: listonePlayerKey(selected), role: selected.role },
       appealIndex: selected?.appealIndex,
       call: null,
-      missingDeclaredInputs: DECLARED_INPUTS_WITHOUT_SOURCE,
+      // LISTA VUOTA, E NON PER DIMENTICANZA: nessuno dei quattro numeri
+      // aspetta più una dichiarazione di Pico, quindi la nota in testata
+      // («… ancora fuori dall'app») prometterebbe una cella spenta per una
+      // ragione che non è la sua. Ogni `n/d` nomina adesso la cosa che manca
+      // A QUELLA cella. `DECLARED_INPUTS_WITHOUT_SOURCE` resta dichiarata e
+      // provata in src/valueBox.ts, dove il fatto che descrive è ancora vero,
+      // e da qui NON è più nemmeno importata: un import che sopravvive al
+      // proprio ultimo uso è un aggancio che sembra vivo, e `strict` senza
+      // `noUnusedLocals` non lo segnala.
+      missingDeclaredInputs: [],
       absolute: {
         // I TARGET DICHIARATI, così come Pico li ha scritti: la forma parziale
         // attraversa il confine intatta, e un ruolo non dichiarato resta una
@@ -1849,6 +1864,7 @@ function valueBoxProps(aState: AuctionState): ValueBoxProps {
               : null,
         },
       },
+      table: { state: aState, selfId: SELF_ID },
     }),
   };
 }

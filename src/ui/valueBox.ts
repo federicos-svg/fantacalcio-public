@@ -30,6 +30,7 @@
 // porta, il riquadro non le inventa.
 
 import type { NoTargetReason } from "../../packages/engine/src/callScreen.js";
+import type { RelativePriceBound } from "../../packages/engine/src/relativeValue.js";
 import type {
   DeclaredInputId,
   ValueBoxReading,
@@ -53,18 +54,60 @@ export const VALUE_SLOT_LABELS: Readonly<Record<ValueSlotId, string>> = {
   "valore-relativo": "Valore relativo",
 };
 
-/** Da dove viene lo slot quando porta un numero. Una riga, mai una promessa. */
-const VALUE_SLOT_SOURCE: Readonly<Record<ValueSlotId, string>> = {
+/**
+ * Da dove viene lo slot quando porta un numero. Una riga, mai una promessa.
+ *
+ * TRE VOCI E NON QUATTRO: LO SLOT 4 QUI NON HA UN RAMO, e il tipo lo dice
+ * invece di lasciarlo credere. La riga del valore relativo è SEMPRE quella del
+ * vincolo che ha fissato il numero (`RELATIVE_PRICE_BOUND_TEXT`), perché
+ * `valueBoxReading()` produce il numero e il suo `boundBy` nello stesso gesto
+ * (src/valueBox.ts, `relativeCreditSlot`) e non esiste uno stato in cui esca
+ * l'uno senza l'altro. Qui c'era una quarta voce di ripiego — «quanto costa
+ * vincere adesso» — che nessuna esecuzione poteva raggiungere: una review
+ * avversariale l'ha sostituita con una frase DIRETTIVA e la suite è rimasta
+ * verde. In un file in cui il testo È il prodotto, una stringa che nessun test
+ * può rompere è un pezzo di prodotto senza guardia: tolta, non riscritta.
+ */
+const VALUE_SLOT_SOURCE: Readonly<
+  Record<Exclude<ValueSlotId, "valore-relativo">, string>
+> = {
   "indice-assoluto": "dal listone, prima dell'asta",
   "indice-relativo": "si muove durante la serata",
   // Sovrascritta a runtime con la catena vera (budget → target → slot →
   // fascia), così la riga dice DA DOVE viene il numero e non una promessa
   // generica: vedi `valueSlotWhyText`.
   "valore-assoluto": "dal regolamento e dai tuoi target di ruolo",
-  // Sovrascritta a runtime con l'etichetta che il motore impone
-  // (`DECLARED_VALUE_PROVENANCE`), così la parola non può divergere dalla
-  // costante: vedi `valueSlotWhyText`.
-  "valore-relativo": "derivato dai tuoi valori, adesso",
+};
+
+/**
+ * LA RIGA DELLO SLOT 4, UNA PER VINCOLO. Tre frasi, non una, perché il numero
+ * da solo confonde due cose che il motore tiene già separate
+ * (`RelativePriceChain.boundBy`):
+ *
+ *  - `scala-dei-rivali` è un PREZZO CHE IL MERCATO STA FORMANDO: il secondo
+ *    offerente è arrivato fin lì, e superarlo di un credito vince;
+ *  - `tetto-del-piu-ricco` è un TETTO STRUTTURALE del tavolo, e non dice niente
+ *    su quel giocatore: nessuno può arrivare più in alto, chiunque sia in asta.
+ *    È il ramo che si vede nei primi minuti — a tavolo fresco le otto squadre
+ *    sono identiche, quindi il numero è lo stesso per OGNI giocatore di OGNI
+ *    ruolo. Senza questa riga la cella ripeterebbe la stessa cifra su ogni
+ *    scheda senza dire perché, e chi guarda la leggerebbe come una misura del
+ *    giocatore invece che del tavolo;
+ *  - `tetto-max-safe` è il MIO tetto hard-safe: il tavolo chiede più di quanto
+ *    io possa mettere. È un terzo fatto e non un doppione del secondo — quel
+ *    tetto è del tavolo, questo è mio — e accorparli direbbe a chi legge che
+ *    non può vincere quando invece è il tavolo a non poter salire.
+ *
+ * TRE E NON DUE, quindi, per la stessa ragione per cui i motivi di `n/d` sono
+ * cinque e non uno: ognuno nomina un fatto diverso, e chi legge deve poter
+ * sapere QUALE. Nessuna formula nuova, nessun peso, nessun coefficiente: è una
+ * distinzione che `relativeValue.ts` calcola già e che finora restava nel
+ * motore.
+ */
+export const RELATIVE_PRICE_BOUND_TEXT: Readonly<Record<RelativePriceBound, string>> = {
+  "scala-dei-rivali": "il secondo max bid al tavolo, +1",
+  "tetto-del-piu-ricco": "il tetto del tavolo: nessuno arriva più in alto",
+  "tetto-max-safe": "il tuo max bid: il tavolo chiede di più",
 };
 
 /**
@@ -97,6 +140,13 @@ export const VALUE_MISSING_TEXT: Readonly<Record<ValueMissingReason, string>> = 
   "gamba-concorrenza-assente": "manca la concorrenza, a cui hai dato peso",
   "gamba-coppe-assente": "manca il dato coppe, a cui hai dato peso",
   "gamba-pagella-assente": "manca la pagella completa, a cui hai dato peso",
+  // I motivi del prezzo relativo. Stessa regola: ognuno nomina il fatto del
+  // tavolo che manca, mai un «non disponibile» che costringa a indovinare.
+  "tavolo-senza-la-mia-squadra": "la tua squadra non è a questo tavolo",
+  "ruolo-pieno-per-me": "il tuo ruolo è pieno: non puoi comprarlo",
+  "non-posso-offrire": "il tuo budget è bloccato dalla riserva",
+  "nessun-rivale-eleggibile": "nessun rivale può ancora comprarlo",
+  "un-solo-rivale-eleggibile": "un solo rivale capiente: non c'è un secondo",
 };
 
 /** Il motivo del motore, quando è lui a non emettere numeri. */
@@ -144,7 +194,16 @@ export function missingDeclaredInputsText(reading: ValueBoxReading): string {
     names.length === 1
       ? names[0]!
       : `${names.slice(0, -1).join(", ")} e ${names[names.length - 1]!}`;
-  return `Il valore relativo resta n/d finché ${list} non entrano nell'app.`;
+  // NESSUNA DELLE DUE VERSIONI IN CONFLITTO È RIMASTA, e non è un compromesso:
+  // dopo le due corsie del 2026-08-24 nessuno dei due numeri in crediti aspetta
+  // più quelle dichiarazioni, quindi la frase non ha più un soggetto —
+  // «il valore assoluto» e «il valore relativo» sarebbero falsi tutti e due.
+  // La funzione resta, e resta provata, perché il giorno in cui una cella
+  // tornerà a dipendere da una dichiarazione di Pico questa è la riga che lo
+  // dirà; oggi `src/main.ts` non le passa niente e la nota non compare. Il
+  // soggetto viaggia adesso NELLA CELLA — «manca il tuo target di ruolo» —, che
+  // è più preciso di una riga in testata e non costa altezza sopra il gesto.
+  return `${list}: ancora fuori dall'app.`;
 }
 
 /**
@@ -224,12 +283,26 @@ export function valueSlotWhyText(
   slot: ValueSlot,
   reading: ValueBoxReading,
 ): string {
-  if (slot.kind === "numero") {
-    // Il tetto derivato porta l'etichetta di provenienza che il motore impone,
-    // presa dalla lettura e non riscritta qui: `DECLARED_VALUE_PROVENANCE`.
-    if (id === "valore-relativo" && reading.creditsProvenance !== null) {
-      return `${reading.creditsProvenance}, adesso`;
+  // LO SLOT 4 SI DECIDE PRIMA DI TUTTO IL RESTO, e il ramo è totale: o c'è il
+  // vincolo che ha fissato il prezzo, o c'è il motivo per cui il prezzo non
+  // esiste, o la coppia che è arrivata qui è incoerente — e allora si dice
+  // `n/d`, che è il token di assenza del progetto, invece di descrivere a
+  // parole un numero di cui non si conosce la provenienza.
+  //
+  // Qui c'era l'etichetta di provenienza dei valori dichiarati: è uscita
+  // insieme all'ultimo numero che poteva qualificare, perché dopo le due corsie
+  // del 2026-08-24 nessuno dei quattro passa da quei valori (src/valueBox.ts,
+  // `SLOT_4_SOURCE_MOVED`). Al suo posto una distinzione che si vede a schermo
+  // — prezzo formato dal mercato contro tetto strutturale — e che il motore
+  // calcolava già.
+  if (id === "valore-relativo") {
+    if (reading.relativePriceBound !== null) {
+      return RELATIVE_PRICE_BOUND_TEXT[reading.relativePriceBound];
     }
+    if (slot.kind === "assente") return VALUE_MISSING_TEXT[slot.reason];
+    return VALUE_UNKNOWN;
+  }
+  if (slot.kind === "numero") {
     // LA CATENA, IN UNA RIGA. Non è decorazione: un numero derivato che non sa
     // dire da dove viene si legge come un numero inventato, e questa cella è la
     // sola superficie su cui la derivazione arriva sotto gli occhi di Pico.
@@ -264,10 +337,29 @@ export function valueBoxHtml(reading: ValueBoxReading): string {
   return `<div class="value-box__grid" id="value-box-grid">${valueBoxCellsHtml(reading)}</div>`;
 }
 
-/** Forma parlata per l'aria-label: i quattro numeri letti in fila. */
+/**
+ * Forma parlata per l'aria-label: le quattro celle lette in fila, CON LA LORO
+ * RIGA — nome, numero (o `n/d`), e da dove viene (o perché non c'è).
+ *
+ * LA RIGA NON È UN ORNAMENTO VISIVO, quindi non può fermarsi allo schermo. È la
+ * stessa regola che governa le celle: «una cella `n/d` non è mai muta», e vale
+ * identica per chi la cella non la vede. Prima di questa corsia lo slot 4
+ * recitava `n/d` e la lettura vocale non perdeva niente; adesso recita un
+ * numero — a tavolo fresco lo stesso numero per ogni giocatore di ogni ruolo —
+ * e senza la riga del vincolo chi ascolta sentirebbe per minuti la stessa cifra
+ * su ogni scheda senza mai sapere che sta misurando il TAVOLO e non il
+ * giocatore. È lo stesso difetto che `RELATIVE_PRICE_BOUND_TEXT` esiste per
+ * rompere, e una superficie che lo ripara per gli occhi e non per l'udito lo
+ * ripara a metà.
+ *
+ * NESSUNA FRASE NUOVA: ogni pezzo è la stessa stringa che la cella mostra, e
+ * ogni voce parla della PROPRIA cella. Nessuna riga mette in relazione due
+ * numeri fra loro, qui come a schermo.
+ */
 export function valueBoxSpoken(reading: ValueBoxReading): string {
-  const parts = VALUE_SLOT_ORDER.map(
-    (id) => `${VALUE_SLOT_LABELS[id]}: ${valueSlotText(reading.slots[id])}`,
-  );
+  const parts = VALUE_SLOT_ORDER.map((id) => {
+    const slot = reading.slots[id];
+    return `${VALUE_SLOT_LABELS[id]}: ${valueSlotText(slot)}, ${valueSlotWhyText(id, slot, reading)}`;
+  });
   return `Valore del giocatore chiamato. ${parts.join("; ")}.`;
 }
