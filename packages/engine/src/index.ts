@@ -28,6 +28,11 @@ export * from "./declaredValues.js";
 export * from "./livePlan.js";
 export * from "./opportunities.js";
 export * from "./callScreen.js";
+// Il PREZZO RELATIVO — «quanto costa vincere adesso»: il secondo max bid fra i
+// rivali eleggibili, più uno, con tetto al più ricco e a `maxSafe(io, ruolo)`.
+// Vedi packages/engine/src/relativeValue.ts e `docs/DECISIONS.md` §"Il prezzo
+// relativo si assesta su quanto mette il secondo, non il più ricco" (2026-08-24).
+export * from "./relativeValue.js";
 export * from "./identityName.js";
 // Fasce d'asta — l'ordinamento arriva INIETTATO col proprio contratto di
 // provenienza (mai calcolato né cablato qui) e il motore ne ricava la fascia

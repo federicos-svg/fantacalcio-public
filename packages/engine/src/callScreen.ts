@@ -2,6 +2,27 @@
 // target / occasione / spettatore (docs/AUCTION_COPILOT_STRATEGY_DESIGN.md
 // §4.1, riga 3 di §8). Puro, deterministico, engine-only.
 //
+// UN CAMPO DI QUESTO FILE È RIMASTO SENZA CONSUMATORI, E VA DETTO QUI INVECE
+// CHE SCOPERTO FRA SEI MESI: `DecisionNumbers.fairToMeMaxEffective`.
+// Alimentava lo slot 4 del riquadro del valore (src/valueBox.ts) fino al
+// 2026-08-24; quel giorno `docs/DECISIONS.md` §"Il prezzo relativo si assesta
+// su quanto mette il secondo, non il più ricco" ha dato al PREZZO RELATIVO una
+// formula diversa — il secondo max bid fra i rivali eleggibili, più uno, con
+// tetto al più ricco e a `max_safe` — e la sorgente dello slot è passata a
+// ./relativeValue.ts. Le due formule non si somigliano: questa parte dai valori
+// dichiarati di Owner, quella dai soli vincoli duri del tavolo.
+//
+// NON SI CANCELLA NIENTE, e non è pigrizia: vale la regola «un'asserzione si
+// aggiorna o si inverte, mai si toglie», ed è lo stesso trattamento deciso il
+// 2026-08-24 per `nominationWindow.ts`. `callScreen()` resta la commutazione
+// target/occasione/spettatore, `chainOk` resta l'invariante che tiene ogni
+// numero sotto `max_safe`, `opportunityQualityGate` resta il cancello sulla
+// qualità del dato, `fairToMeMaxRaw` resta diagnostico e non renderizzabile. È
+// il solo `fairToMeMaxEffective` a non avere più, su quel percorso, chi lo
+// legga — marcato, non rimosso, perché il prossimo che lo trova non lo scambi
+// per un pezzo da collegare. La marcatura pinnata sta in
+// ./relativeValue.ts, `SUPERSEDES_FAIR_TO_ME_IN_THE_RIQUADRO`.
+//
 // DA DOVE VIENE L'AUTORITÀ DI QUESTI NUMERI. `docs/DECISIONS.md` §D9 perimetro
 // 1 e la matrice UI di `docs/AUCTION_2026_EXECUTION_PLAN.md` §3: «`fair_to_me`,
 // `target_band`, `stretch_cap`, STOP **derivati dai valori dichiarati di
