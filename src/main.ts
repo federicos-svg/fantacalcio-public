@@ -25,6 +25,7 @@ import "./styles/components.css";
 import "./styles/asta.css";
 import "./styles/listone.css";
 import "./styles/bait.css";
+import "./styles/perMe.css";
 import {
   type AuctionEvent,
   type AuctionState,
@@ -53,6 +54,8 @@ import {
 } from "../packages/opponent-profiles/src/index.js";
 import { baitCandidates, exposureBook } from "./baitCandidates.js";
 import { renderBaitSection, type BaitSectionProps } from "./ui/baitRow.js";
+import { perMeCandidates } from "./perMeCandidates.js";
+import { renderPerMeSection, type PerMeSectionProps } from "./ui/perMeRow.js";
 import {
   applyAuctionHistoryText,
   applyOpponentProfilesText,
@@ -1669,6 +1672,57 @@ function baitSectionProps(aState: AuctionState): BaitSectionProps {
       logLength: state.log.length,
     }),
     teamLabels: seatLabelMap(),
+    selectedKey: selected === null ? null : listonePlayerKey(selected),
+  };
+}
+
+/**
+ * Ingressi della PRIMA metà del blocco «giocatore suggerito»: i liberi che il
+ * piano rosa dichiarato copre, che il max bid hard-safe regge, nell'ordine di
+ * appetibilità dichiarato del ruolo.
+ *
+ * L'ORDINE È QUELLO DECISO DA PICO IL 2026-08-25 (in sessione): «deve essere un
+ * mix tra le due cose. Il numero uno è il filtro a monte ma il due è quello
+ * successivo» — il piano rosa FILTRA, il surplus ORDINA chi ha passato il
+ * filtro. La lettura è tutta in src/perMeCandidates.ts.
+ *
+ * `values: null`, E PERCHÉ NON È UNA DIMENTICANZA. Il surplus ha per primo
+ * ingrediente il listino dei valori DICHIARATI da Pico (`DeclaredValueBook`,
+ * packages/engine/src/declaredValues.js), e quel listino **non ha ancora una
+ * sorgente in `src/`** — è la stessa mancanza per cui `valueBoxProps` passa
+ * `call: null` e lo slot 4 del riquadro del valore dice `n/d`. Fabbricarne uno
+ * qui (un valore dedotto dalla Qt.A, una media di ruolo) sarebbe inventare
+ * l'ingrediente 2 di §D9, cioè far dire all'app che Pico ha dichiarato
+ * qualcosa che non ha dichiarato. Il campo è OBBLIGATORIO nel contratto proprio
+ * perché questa scelta sia scritta a ogni chiamata invece che dimenticata: con
+ * `null` nessuna riga ha un surplus, il sottoblocco lo DICE riga per riga
+ * («valore non dichiarato») e le conta nella nota, e l'ordine cade sui criteri
+ * che restano. Il giorno in cui quel listino entra nell'app, questa riga passa
+ * un libro vero e il criterio 2 si accende senza toccare né la lettura né la
+ * vista.
+ *
+ * Le tre memorie che legge sono quelle che l'app ha già: le righe del listone
+ * (con la loro Qt.A e il loro indice di appetibilità), il log d'asta (da cui
+ * l'inflazione misurata) e la dichiarazione di piano rosa conservata in
+ * `state.rolePlan`. Nessuna sorgente nuova, nessun dato inventato.
+ *
+ * `state.rolePlan` attraversa il confine COSÌ COM'È, nella sua forma parziale:
+ * un ruolo non dichiarato resta una chiave assente e non diventa uno zero
+ * (src/rolePlan.ts), e il sottoblocco lo dice invece di ordinare su un piano
+ * che Pico non ha scritto.
+ */
+function perMeSectionProps(aState: AuctionState): PerMeSectionProps {
+  const selected = state.call.selectedPlayer;
+  return {
+    reading: perMeCandidates({
+      pool: state.pool,
+      source: state.poolSource,
+      state: aState,
+      log: state.log,
+      selfId: SELF_ID,
+      planDraft: state.rolePlan,
+      values: null,
+    }),
     selectedKey: selected === null ? null : listonePlayerKey(selected),
   };
 }
@@ -5308,9 +5362,14 @@ function renderZona1(
  *   4. INSERIMENTO RAPIDO — è un'azione (registra un acquisto già concluso),
  *      non una risposta: scende sotto la coppia ricerca/listone, ma resta un
  *      pannello pieno e visibile perché lo si usa a ogni aggiudicazione.
- *   5. GIOCATORE SUGGERITO — vuoto per costruzione (nessun motore di
- *      suggerimento è abilitato) e non risponde a nessuna delle quattro: va in
- *      fondo. Non è stato rimosso: rimuoverlo è una decisione di Pico.
+ *   5. GIOCATORE SUGGERITO — stava in fondo perché era vuoto per costruzione
+ *      («nessun motore di suggerimento è abilitato»). Adesso le due metà sono
+ *      costruite entrambe — PER ME e PER FAR SPENDERE GLI ALTRI — e nessuna
+ *      delle due è una predizione: sono fatti misurati messi in un ordine
+ *      dichiarato. La POSIZIONE però non cambia in questa tranche: spostarlo
+ *      più in alto è una decisione di prodotto di Pico, non una conseguenza
+ *      dell'averlo riempito, e `e2e/call-screen-order.spec.ts` pinna l'ordine
+ *      verticale che lui ha deciso.
  * Il tavolo (scarsità, war board, squadre) non è più qui in mezzo: sta dietro
  * un gesto solo, fuori da questo pannello — vedi renderTableDetail().
  */
@@ -5523,20 +5582,30 @@ function renderMomentoChiamata(
   const suggested = document.createElement("div");
   suggested.id = "suggested-player";
   suggested.style.cssText = `background:${C.panelInner};border:1px solid ${C.border};border-radius:8px;padding:12px 16px;margin-top:18px;`;
-  // PRIMA METÀ — «chi chiamare per me». Resta il SEGNAPOSTO ONESTO che era qui:
-  // poggerà su packages/engine/src/opportunities.ts e sui valori dichiarati da
-  // Pico, che non esistono ancora. Il contenitore ospita due <section>, così la
-  // seconda metà non deve spostare la prima quando arriverà.
+  // PRIMA METÀ — «chi chiamare per me». Il segnaposto onesto che stava qui non
+  // c'è più: al suo posto c'è il sottoblocco vero, e il segnaposto diceva «il
+  // motore richiede dati reali, non ancora abilitati» di una cosa che adesso i
+  // dati ce li ha — Qt.A del listone, log d'asta, piano rosa dichiarato.
+  //
+  // NON È IL RADAR OCCASIONI DEL MOTORE, e la differenza non è di aritmetica ma
+  // di domanda. La sottrazione è la STESSA (`surplusOverAnchor`,
+  // packages/engine/src/opportunities.ts, condivisa e non copiata), ma il radar
+  // ne fa una condizione d'ingresso — chi non ha surplus positivo non è
+  // un'occasione — mentre qui il surplus ORDINA e non ESCLUDE: la domanda è
+  // «chi chiamare adesso», e un giocatore che il piano copre resta chiamabile
+  // anche se costa quanto vale. L'ordine dichiarato sta in
+  // src/perMeCandidates.ts, scritto criterio per criterio nella nota che il
+  // sottoblocco stampa.
+  //
+  // `onSelect` è `selectListonePlayer`, come per la seconda metà: L'UNICA via
+  // che arma la CTA «Avvia», riusata e non duplicata.
   const suggestedFirst = document.createElement("section");
   suggestedFirst.id = "suggested-player-mine";
   const suggestedEyebrow = document.createElement("div");
   suggestedEyebrow.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.06em;color:${C.textSec};margin-bottom:4px;`;
   suggestedEyebrow.textContent = "GIOCATORE SUGGERITO — CHI CHIAMARE ORA";
-  const suggestedBody = document.createElement("div");
-  suggestedBody.style.cssText = `font-size:13px;line-height:1.5;color:${C.textMid};`;
-  suggestedBody.textContent = "Nessun suggerimento automatico attivo: il motore richiede dati reali, non ancora abilitati. Inserisci manualmente il giocatore chiamato nella ricerca qui sopra. (Non è una predizione.)";
   suggestedFirst.appendChild(suggestedEyebrow);
-  suggestedFirst.appendChild(suggestedBody);
+  suggestedFirst.appendChild(renderPerMeSection(perMeSectionProps(aState), selectListonePlayer));
   suggested.appendChild(suggestedFirst);
   // SECONDA METÀ — «chi chiamare per far spendere gli altri». `onSelect` è
   // `selectListonePlayer`, cioè L'UNICA via che arma la CTA «Avvia»: il

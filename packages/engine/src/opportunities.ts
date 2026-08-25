@@ -202,6 +202,35 @@ export function opportunityQualityGate(
   };
 }
 
+/**
+ * L'ARITMETICA DEL SURPLUS, IN UN POSTO SOLO — la sottrazione che
+ * l'intestazione di questo file dichiara:
+ *
+ *     surplus = valore DICHIARATO da Owner − ancora corrente MISURATA
+ *
+ * Esiste come funzione, e non come espressione ripetuta, perché adesso la
+ * usano TRE superfici: il radar qui sotto, la schermata CHIAMATA
+ * (callScreen.ts) e il sottoblocco «PER ME» del riquadro «chi chiamare ora»
+ * (src/perMeCandidates.ts, codice d'app). Tre copie della stessa sottrazione
+ * sono tre occasioni di divergere su quale ancora sottrarre — la Qt.A nuda o
+ * quella corretta — e la risposta è UNA: `correctedAnchor`, la misurata.
+ *
+ * NON DECIDE NIENTE E NON AMMETTE NIENTE. Restituisce un numero con segno:
+ * chi la chiama sceglie che cosa farne. Il radar ne fa una CONDIZIONE
+ * D'INGRESSO (`> 0`, quinta condizione); il sottoblocco «PER ME» ne fa solo un
+ * CRITERIO D'ORDINE, perché lì una riga sopra il valore dichiarato resta una
+ * riga che Owner deve poter vedere in asta. Due letture diverse dello stesso
+ * numero, non due numeri diversi.
+ *
+ * IL VALORE DICHIARATO NON HA UN DEFAULT: chi non ce l'ha non chiama questa
+ * funzione con uno zero, non la chiama affatto — «vale zero per me» e «non
+ * l'ho dichiarato» sono due fatti diversi (`declaredValueOf` risponde `null`
+ * al secondo, mai `0`).
+ */
+export function surplusOverAnchor(declaredValue: number, anchor: CurrentAnchor): number {
+  return declaredValue - anchor.correctedAnchor;
+}
+
 /** Indicizza le etichette dichiarate; l'ultima dichiarazione per un id vince. */
 export function dataQualityIndex(
   declared: readonly DeclaredDataQuality[],
@@ -356,7 +385,7 @@ export function opportunityRadar(input: OpportunityRadarInput): readonly Opportu
     if (team.slotsRemaining[role] <= 0) continue;
     const maxBid = maxBidByRole[role];
     if (maxBid < anchor.correctedAnchor) continue;
-    const surplus = declared.declaredValue - anchor.correctedAnchor;
+    const surplus = surplusOverAnchor(declared.declaredValue, anchor);
     if (surplus <= 0) continue;
 
     ladder ??= cliffLadder(book, state);
