@@ -22,7 +22,11 @@ import {
   fillRole,
   stateOf,
 } from "../packages/engine/tests/layer2Fixtures.js";
-import { plan, value, valueBookOf } from "../packages/engine/tests/layer3Fixtures.js";
+import {
+  plan,
+  value,
+  valueBookOf,
+} from "../packages/engine/tests/layer3Fixtures.js";
 import {
   APPEAL_ORDER_TIE_BREAK,
   tierBook,
@@ -32,6 +36,11 @@ import {
   NO_LEG_INPUTS,
   type AbsoluteValueInput,
 } from "../packages/engine/src/absoluteValue.js";
+import {
+  freeLadder,
+  relativeIndexReading,
+  type RelativeIndexInput,
+} from "../packages/engine/src/relativeIndex.js";
 import type { ListoneAppealIndex } from "./ui/listone.js";
 import {
   DECLARED_INPUTS_WITHOUT_SOURCE,
@@ -49,6 +58,7 @@ import {
   missingDeclaredInputsText,
   valueBoxNoteText,
   valueBoxSpoken,
+  valueNumberText,
   valueSlotText,
   valueSlotWhyText,
   RELATIVE_PRICE_BOUND_TEXT,
@@ -102,7 +112,12 @@ const RECIPE = "APPEAL-INDEX-RECIPE@0.0.0-sintetica";
 const QUALITY = "sperimentale — fixture sintetica, non validato";
 
 function index(score: number | null): ListoneAppealIndex {
-  return { score, quality: QUALITY, recipe: RECIPE, components: { appetibilitaBase: score } };
+  return {
+    score,
+    quality: QUALITY,
+    recipe: RECIPE,
+    components: { appetibilitaBase: score },
+  };
 }
 
 /** La schermata CHIAMATA vera del motore, su uno stato prodotto dal reducer. */
@@ -157,7 +172,10 @@ function engineCallWith(
  * `fairToMeMaxRaw` da `fairToMeMaxEffective`, che su un tavolo fresco
  * coincidono e non proverebbero niente.
  */
-const DRAINED_LOG = buildLog([...fillRole(SELF, "D", 9, 25), ...fillRole(SELF, "C", 9, 25)]);
+const DRAINED_LOG = buildLog([
+  ...fillRole(SELF, "D", 9, 25),
+  ...fillRole(SELF, "C", 9, 25),
+]);
 
 // ── GLI INGRESSI DEL VALORE ASSOLUTO ────────────────────────────────────────
 // Dalla decisione di Pico del 2026-08-24 lo slot 3 non è più una dichiarazione
@@ -176,7 +194,14 @@ const TIER_BOOK: TierBook = tierBook(
     roles: [
       {
         role: "A",
-        playerIds: ["a_uno", "a_due", "a_tre", "a_non_valutato", "a_zero", "a_muto"],
+        playerIds: [
+          "a_uno",
+          "a_due",
+          "a_tre",
+          "a_non_valutato",
+          "a_zero",
+          "a_muto",
+        ],
       },
     ],
   },
@@ -224,12 +249,50 @@ function tableOf(log = buildLog([])): { state: AuctionState; selfId: string } {
  */
 const FRESH_TABLE_PRICE = 473;
 
-function readingWithEngine(playerId: string, appealIndex?: ListoneAppealIndex): ValueBoxReading {
+// ── GLI INGRESSI DELL'INDICE RELATIVO ───────────────────────────────────────
+// Lo slot 2 è un PUNTEGGIO DA 0 A 100 (decisione di Pico, 2026-08-24) misurato
+// sullo stesso ordine che costruisce le fasce (`TIER_BOOK`): la quota degli
+// altri liberi ordinati del ruolo che il chiamato precede. Le righe di listone
+// che entrano nella scala sono gli stessi sei `a_*` dell'ordine più un
+// centrocampista, così il conteggio per ruolo non è degenere — e con sei
+// ordinati liberi la scala si legge a occhio: 100, 80, 60, 40, 20, 0.
+
+const RELATIVE_POOL = [
+  { playerId: "a_uno", role: "A" },
+  { playerId: "a_due", role: "A" },
+  { playerId: "a_tre", role: "A" },
+  { playerId: "a_non_valutato", role: "A" },
+  { playerId: "a_zero", role: "A" },
+  { playerId: "a_muto", role: "A" },
+  { playerId: "c_uno", role: "C" },
+] as const;
+
+/** La scala dei liberi su un tavolo fresco: nessuno è ancora stato preso. */
+function relativeOn(log = buildLog([])): Omit<RelativeIndexInput, "called"> {
+  const state: AuctionState = stateOf(log);
+  return {
+    ladder: freeLadder({
+      pool: [...RELATIVE_POOL],
+      book: TIER_BOOK,
+      purchasedPlayerIds: state.purchasedPlayerIds,
+    }),
+    state,
+    selfId: SELF,
+  };
+}
+
+const RELATIVE = relativeOn();
+
+function readingWithEngine(
+  playerId: string,
+  appealIndex?: ListoneAppealIndex,
+): ValueBoxReading {
   return valueBoxReading({
     called: { playerId, role: "A" },
     appealIndex,
     call: engineCall(playerId),
     missingDeclaredInputs: [],
+    relative: RELATIVE,
     absolute: ABSOLUTE,
     table: tableOf(),
   });
@@ -245,6 +308,7 @@ function readingAsShipped(appealIndex?: ListoneAppealIndex): ValueBoxReading {
     // dichiarazione di Pico. `DECLARED_INPUTS_WITHOUT_SOURCE` resta importata e
     // provata qui sotto, dove il fatto che descrive è ancora vero.
     missingDeclaredInputs: [],
+    relative: RELATIVE,
     absolute: ABSOLUTE_UNDECLARED,
     table: tableOf(),
   });
@@ -259,7 +323,9 @@ describe("riquadro del valore — i quattro numeri", () => {
       "valore-relativo",
     ]);
     const reading = readingWithEngine("a_uno", index(72));
-    expect(Object.keys(reading.slots).sort()).toEqual([...VALUE_SLOT_ORDER].sort());
+    expect(Object.keys(reading.slots).sort()).toEqual(
+      [...VALUE_SLOT_ORDER].sort(),
+    );
   });
 
   it("il valore relativo è il prezzo del tavolo, NON più fairToMeMaxEffective", () => {
@@ -271,13 +337,18 @@ describe("riquadro del valore — i quattro numeri", () => {
       appealIndex: index(72),
       call,
       missingDeclaredInputs: [],
+      relative: RELATIVE,
       absolute: ABSOLUTE,
       table,
     });
 
     // È esattamente ciò che `relativePriceReading()` risponde su QUESTO tavolo,
     // non un suo parente arrotondato e non un numero riscritto qui.
-    const price = relativePriceReading({ state: table.state, role: "A", selfId: SELF });
+    const price = relativePriceReading({
+      state: table.state,
+      role: "A",
+      selfId: SELF,
+    });
     expect(price.kind).toBe("prezzo");
     expect(reading.slots["valore-relativo"]).toEqual({
       kind: "numero",
@@ -317,6 +388,7 @@ describe("riquadro del valore — i quattro numeri", () => {
       appealIndex: index(72),
       call,
       missingDeclaredInputs: [],
+      relative: RELATIVE,
       absolute: ABSOLUTE,
       table: tableOf(),
     });
@@ -359,18 +431,238 @@ describe("riquadro del valore — i quattro numeri", () => {
 
   it("l'indice assoluto è il punteggio servito, con qualità e ricetta portate dal dato", () => {
     const reading = readingWithEngine("a_uno", index(72));
-    expect(reading.slots["indice-assoluto"]).toEqual({ kind: "numero", value: 72, unit: "indice" });
+    expect(reading.slots["indice-assoluto"]).toEqual({
+      kind: "numero",
+      value: 72,
+      unit: "indice",
+    });
     expect(reading.indexQuality).toBe(QUALITY);
     expect(reading.indexRecipe).toBe(RECIPE);
   });
 
-  it("l'indice relativo è n/d e dice che la formula non è decisa: nessuno lo calcola", () => {
+  it("l'indice relativo è un PUNTEGGIO 0–100, nella stessa unità dello slot 1", () => {
+    // `a_uno` è il primo dell'ordine e nessuno è stato preso: precede tutti e
+    // cinque gli altri liberi ordinati, quindi 100. L'unità è `indice`, come lo
+    // slot 1: il record del 2026-08-21 dichiara DUE unità e questo riquadro non
+    // ne inventa una terza (fino al 2026-08-24 ne aveva una, `posizione`, ed è
+    // uscita insieme alla forma che la chiedeva).
     const reading = readingWithEngine("a_uno", index(72));
     expect(reading.slots["indice-relativo"]).toEqual({
-      kind: "assente",
-      reason: "indice-relativo-non-calcolato",
+      kind: "numero",
+      value: 100,
+      unit: "indice",
     });
-    expect(valueBoxHtml(reading)).toContain("formula non decisa");
+    expect(valueSlotText(reading.slots["indice-relativo"])).toBe("100");
+    expect(reading.relativePopulation).toMatchObject({
+      role: "A",
+      freeInRole: 6,
+      poolInRole: 6,
+      freeRankedInRole: 6,
+    });
+    // La popolazione arriva a schermo: «100» senza «su quanti» non dice se vale
+    // su due giocatori o su quaranta. Ed è «ALTRI», perché il confronto esclude
+    // lui: il denominatore del rapporto è 5, non 6.
+    expect(valueBoxHtml(reading)).toContain("su 5 altri liberi ordinati");
+  });
+
+  it("i sei ordinati liberi occupano la scala intera, capi compresi", () => {
+    // «Un punteggio da 0 a 100» non è una promessa se nessuno arriva ai capi.
+    const atteso: Readonly<Record<string, number>> = {
+      a_uno: 100,
+      a_due: 80,
+      a_tre: 60,
+      a_non_valutato: 40,
+      a_zero: 20,
+      a_muto: 0,
+    };
+    for (const [playerId, value] of Object.entries(atteso)) {
+      const reading = valueBoxReading({
+        called: { playerId, role: "A" },
+        appealIndex: index(50),
+        call: null,
+        missingDeclaredInputs: [],
+        relative: RELATIVE,
+        absolute: ABSOLUTE,
+        table: tableOf(),
+      });
+      expect(reading.slots["indice-relativo"], playerId).toEqual({
+        kind: "numero",
+        value,
+        unit: "indice",
+      });
+    }
+  });
+
+  it("l'indice relativo SALE quando comprano qualcuno sopra di lui", () => {
+    // `a_tre` precede tre dei cinque altri liberi ordinati: 60. Comprato
+    // `a_uno`, che gli sta sopra, ne precede ancora tre ma gli altri sono
+    // quattro: 75. Nessuna formula in mezzo — uno in meno al denominatore.
+    const before = valueBoxReading({
+      called: { playerId: "a_tre", role: "A" },
+      appealIndex: index(50),
+      call: null,
+      missingDeclaredInputs: [],
+      relative: relativeOn(),
+      absolute: ABSOLUTE,
+      table: tableOf(),
+    });
+    const after = valueBoxReading({
+      called: { playerId: "a_tre", role: "A" },
+      appealIndex: index(50),
+      call: null,
+      missingDeclaredInputs: [],
+      relative: relativeOn(buildLog([buy("a_uno", "A", TEAMS[1]!, 30)])),
+      absolute: ABSOLUTE,
+      table: tableOf(),
+    });
+
+    expect(before.slots["indice-relativo"]).toEqual({
+      kind: "numero",
+      value: 60,
+      unit: "indice",
+    });
+    expect(after.slots["indice-relativo"]).toEqual({
+      kind: "numero",
+      value: 75,
+      unit: "indice",
+    });
+    // La riga sotto il numero segue la popolazione: cinque altri, poi quattro.
+    expect(valueBoxHtml(before)).toContain("su 5 altri liberi ordinati");
+    expect(valueBoxHtml(after)).toContain("su 4 altri liberi ordinati");
+    // E il VALORE ASSOLUTO non si è mosso di un credito: è la differenza fra i
+    // due slot, e se sparisse uno dei due numeri starebbe mentendo.
+    expect(after.slots["valore-assoluto"]).toEqual(
+      before.slots["valore-assoluto"],
+    );
+  });
+
+  it("UNICO LIBERO ORDINATO: `n/d` col motivo, mai 0 e mai 100", () => {
+    // IL CASO LIMITE, dal lato di chi guarda. Presi cinque dei sei ordinati,
+    // l'ultimo è primo E ultimo: la stessa regola gli imporrebbe 100 e 0. La
+    // cella dice `n/d` e dice perché, invece di scegliere uno dei due.
+    const log = buildLog([
+      buy("a_uno", "A", TEAMS[1]!, 30),
+      buy("a_due", "A", TEAMS[2]!, 20),
+      buy("a_tre", "A", TEAMS[3]!, 15),
+      buy("a_non_valutato", "A", TEAMS[4]!, 10),
+      buy("a_zero", "A", TEAMS[5]!, 5),
+    ]);
+    const reading = valueBoxReading({
+      called: { playerId: "a_muto", role: "A" },
+      appealIndex: index(50),
+      call: null,
+      missingDeclaredInputs: [],
+      relative: relativeOn(log),
+      absolute: ABSOLUTE,
+      table: tableOf(),
+    });
+    expect(reading.slots["indice-relativo"]).toEqual({
+      kind: "assente",
+      reason: "indice-relativo-unico-libero",
+    });
+    expect(valueSlotText(reading.slots["indice-relativo"])).toBe(VALUE_UNKNOWN);
+    expect(valueBoxHtml(reading)).toContain("unico libero ordinato");
+    // ...e la metà misurabile resta: uno solo, ed è la ragione del `n/d`.
+    expect(reading.relativePopulation).toMatchObject({ freeRankedInRole: 1 });
+  });
+
+  it("senza ordine la cella nomina L'ORDINE, non una causa che non conosce", () => {
+    // IL MOTIVO A MONTE NON ARRIVA FIN QUI, e la cella non finge di averlo. Il
+    // libro delle fasce può mancare per CINQUE ragioni (src/tierOrdering.ts,
+    // `TierBandUnavailable`); di là dal confine il motore riceve `book: null` e
+    // può dire una cosa sola. Prima questa cella diceva «il listone non porta
+    // l'indice», che è vero in due casi su cinque: con l'ordine rifiutato, con
+    // due ricette o senza squadre al tavolo il listone l'indice ce l'ha, e sulla
+    // stessa scheda il pannello FASCIA avrebbe detto il contrario. Questo test è
+    // il posto in cui quella frase non può tornare in silenzio.
+    const state: AuctionState = stateOf(buildLog([]));
+    const reading = valueBoxReading({
+      called: { playerId: "a_tre", role: "A" },
+      appealIndex: index(50),
+      call: null,
+      missingDeclaredInputs: [],
+      relative: {
+        ladder: freeLadder({
+          pool: [...RELATIVE_POOL],
+          book: null,
+          purchasedPlayerIds: state.purchasedPlayerIds,
+        }),
+        state,
+        selfId: SELF,
+      },
+      absolute: ABSOLUTE,
+      table: tableOf(),
+    });
+    expect(reading.slots["indice-relativo"]).toEqual({
+      kind: "assente",
+      reason: "indice-relativo-senza-ordine",
+    });
+    const html = valueBoxHtml(reading);
+    expect(html).toContain("nessun ordine dichiarato");
+    // La cella dello slot 2 non afferma nulla sul listone. La prima cella sì —
+    // e lì è un fatto suo, perché l'indice della riga chiamata lo vede.
+    expect(
+      valueSlotWhyText(
+        "indice-relativo",
+        reading.slots["indice-relativo"],
+        reading,
+      ),
+    ).not.toContain("non porta l'indice");
+    // ...e la popolazione resta misurata: contare righe non ha bisogno di ordine.
+    expect(reading.relativePopulation).toMatchObject({
+      poolInRole: 6,
+      freeInRole: 6,
+    });
+  });
+
+  it("il denominatore conta i liberi ORDINATI, non i liberi: sostituirlo cambia il numero", () => {
+    // LA SCELTA DEL DENOMINATORE, PINNATA. Nel listone del ruolo entrano due
+    // righe che l'ordine NON contiene (nessun verdetto): i liberi diventano
+    // otto, gli ordinati restano sei. Se il numero usasse `freeInRole` il
+    // punteggio di `a_tre` sarebbe 100 x 5/7 = 71,43; con `freeRankedInRole` è
+    // 60. I due numeri sono diversi, quindi questo test muore se qualcuno
+    // sostituisce la popolazione — che è precisamente ciò che prima nessun test
+    // faceva.
+    const conMuti = [
+      ...RELATIVE_POOL,
+      { playerId: "a_senza_verdetto_1", role: "A" as Role },
+      { playerId: "a_senza_verdetto_2", role: "A" as Role },
+    ];
+    const state: AuctionState = stateOf(buildLog([]));
+    const reading = valueBoxReading({
+      called: { playerId: "a_tre", role: "A" },
+      appealIndex: index(50),
+      call: null,
+      missingDeclaredInputs: [],
+      relative: {
+        ladder: freeLadder({
+          pool: conMuti,
+          book: TIER_BOOK,
+          purchasedPlayerIds: state.purchasedPlayerIds,
+        }),
+        state,
+        selfId: SELF,
+      },
+      absolute: ABSOLUTE,
+      table: tableOf(),
+    });
+    expect(reading.relativePopulation).toMatchObject({
+      freeInRole: 8,
+      freeRankedInRole: 6,
+    });
+    expect(reading.slots["indice-relativo"]).toEqual({
+      kind: "numero",
+      value: 60,
+      unit: "indice",
+    });
+    expect(reading.slots["indice-relativo"]).not.toEqual({
+      kind: "numero",
+      value: (100 * 5) / 7,
+      unit: "indice",
+    });
+    // ...e la riga a schermo conta la stessa popolazione del numero: se dicesse
+    // «su 7 altri liberi» la frazione mostrata non sarebbe quella calcolata.
+    expect(valueBoxHtml(reading)).toContain("su 5 altri liberi ordinati");
   });
 
   it("il valore relativo si muove con la serata, il valore assoluto no", () => {
@@ -380,7 +672,10 @@ describe("riquadro del valore — i quattro numeri", () => {
     const fresh = engineCall("a_uno", buildLog([]), "prudente");
     const afterMarket = engineCall(
       "a_uno",
-      buildLog([buy("a_due", "A", TEAMS[1]!, 20), buy("a_tre", "A", TEAMS[2]!, 8)]),
+      buildLog([
+        buy("a_due", "A", TEAMS[1]!, 20),
+        buy("a_tre", "A", TEAMS[2]!, 8),
+      ]),
       "prudente",
     );
     expect(fresh.declaredValue).toBe(afterMarket.declaredValue);
@@ -403,12 +698,17 @@ describe("riquadro del valore — i quattro numeri", () => {
     expect(call.numbers!.fairToMeMaxEffective).toBe(call.declaredValue);
 
     const tight = engineCall("a_uno", DRAINED_LOG, "media");
-    expect(tight.numbers!.fairToMeMaxEffective).toBeLessThan(tight.declaredValue!);
+    expect(tight.numbers!.fairToMeMaxEffective).toBeLessThan(
+      tight.declaredValue!,
+    );
     expect(tight.numbers!.fairToMeMaxEffective).toBe(tight.numbers!.maxSafe);
   });
 
   it("IL TETTO DEL TAVOLO è rispettato per costruzione: il valore relativo non supera il massimo dei max bid veri", () => {
-    const scenarios: readonly (readonly [string, ReturnType<typeof buildLog>])[] = [
+    const scenarios: readonly (readonly [
+      string,
+      ReturnType<typeof buildLog>,
+    ])[] = [
       ["tavolo fresco", buildLog([])],
       ["mercato avviato", buildLog([buy("a_due", "A", TEAMS[1]!, 20)])],
       [
@@ -435,7 +735,9 @@ describe("riquadro del valore — i quattro numeri", () => {
           return safe.biddable ? safe.maxSafe : 0;
         }),
       );
-      expect(call.numbers!.fairToMeMaxEffective, label).toBeLessThanOrEqual(tableCapacity);
+      expect(call.numbers!.fairToMeMaxEffective, label).toBeLessThanOrEqual(
+        tableCapacity,
+      );
       // E la catena del motore resta intera sotto max_safe, che è la ragione
       // per cui il tetto sopra vale senza un secondo clamp nella vista.
       expect(call.numbers!.chainOk, label).toBe(true);
@@ -450,11 +752,15 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       appealIndex: undefined,
       call: null,
       missingDeclaredInputs: DECLARED_INPUTS_WITHOUT_SOURCE,
+      relative: RELATIVE,
       absolute: ABSOLUTE,
       table: tableOf(),
     });
     for (const id of VALUE_SLOT_ORDER) {
-      expect(reading.slots[id]).toEqual({ kind: "assente", reason: "nessun-chiamato" });
+      expect(reading.slots[id]).toEqual({
+        kind: "assente",
+        reason: "nessun-chiamato",
+      });
       expect(valueSlotText(reading.slots[id])).toBe(VALUE_UNKNOWN);
     }
     // Nessun vincolo del prezzo relativo senza il suo numero: un vincolo che
@@ -464,7 +770,10 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
 
   it("listone senza indice: n/d col motivo, mai uno zero e mai un punto medio", () => {
     const reading = readingWithEngine("a_uno", undefined);
-    expect(reading.slots["indice-assoluto"]).toEqual({ kind: "assente", reason: "indice-assente" });
+    expect(reading.slots["indice-assoluto"]).toEqual({
+      kind: "assente",
+      reason: "indice-assente",
+    });
     expect(reading.indexQuality).toBeNull();
     expect(reading.indexRecipe).toBeNull();
     expect(valueBoxNoteText(reading)).not.toContain("ricetta");
@@ -492,6 +801,7 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       appealIndex: index(50),
       call,
       missingDeclaredInputs: [],
+      relative: RELATIVE,
       absolute: ABSOLUTE,
       table: tableOf(),
     });
@@ -524,14 +834,21 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
   // test che diventasse rosso cambiandola. Ora ce l'hanno.
 
   /** Quotato nel listone, mai valutato da Pico: l'ancora c'è, la dichiarazione no. */
-  const BOOK_CON_NON_VALUTATO = anchorBook([...ANCHORS, anchor("a_non_valutato", "A", 18)]);
+  const BOOK_CON_NON_VALUTATO = anchorBook([
+    ...ANCHORS,
+    anchor("a_non_valutato", "A", 18),
+  ]);
 
   /** Valutato ZERO: una dichiarazione a tutti gli effetti, non un buco. */
   const BOOK_CON_ZERO = anchorBook([...ANCHORS, anchor("a_zero", "A", 18)]);
   const VALUES_CON_ZERO = valueBookOf([...VALUES.all, value("a_zero", 0)]);
 
   it("NON DICHIARATO: quotato ma mai valutato — n/d, e il motivo è «non hai dichiarato un valore»", () => {
-    const call = engineCallWith("a_non_valutato", BOOK_CON_NON_VALUTATO, VALUES);
+    const call = engineCallWith(
+      "a_non_valutato",
+      BOOK_CON_NON_VALUTATO,
+      VALUES,
+    );
     // La quotazione C'È: non stiamo rimisurando `anchor-missing` sotto un altro
     // nome. È esattamente il ramo che nessun test toccava.
     expect(call.anchor).not.toBeNull();
@@ -543,6 +860,7 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       appealIndex: index(64),
       call,
       missingDeclaredInputs: [],
+      relative: RELATIVE,
       absolute: ABSOLUTE,
       table: tableOf(),
     });
@@ -585,6 +903,7 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       appealIndex: index(64),
       call,
       missingDeclaredInputs: [],
+      relative: RELATIVE,
       absolute: ABSOLUTE,
       table: tableOf(),
     });
@@ -597,6 +916,7 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       appealIndex: index(64),
       call: engineCallWith("a_non_valutato", BOOK_CON_NON_VALUTATO, VALUES),
       missingDeclaredInputs: [],
+      relative: RELATIVE,
       absolute: ABSOLUTE,
       table: tableOf(),
     });
@@ -616,6 +936,7 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       appealIndex: index(72),
       call: engineCall("a_uno"),
       missingDeclaredInputs: [],
+      relative: RELATIVE,
       absolute: ABSOLUTE_UNDECLARED,
       table: tableOf(),
     });
@@ -639,6 +960,7 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       appealIndex: index(72),
       call: engineCall("a_uno"),
       missingDeclaredInputs: [],
+      relative: RELATIVE,
       absolute: { ...ABSOLUTE, roleTargets: { ...ABSOLUTE_TARGETS, A: 0 } },
       table: tableOf(),
     });
@@ -687,8 +1009,12 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
     const shipped = readingAsShipped(index(72));
     expect(shipped.missingDeclaredInputs).toEqual([]);
     expect(missingDeclaredInputsText(shipped)).toBe("");
-    expect(valueBoxNoteText(shipped)).not.toContain("i tuoi valori per giocatore");
-    expect(valueBoxNoteText(shipped)).not.toContain("il tuo profilo di rischio");
+    expect(valueBoxNoteText(shipped)).not.toContain(
+      "i tuoi valori per giocatore",
+    );
+    expect(valueBoxNoteText(shipped)).not.toContain(
+      "il tuo profilo di rischio",
+    );
   });
 });
 
@@ -698,7 +1024,10 @@ describe("riquadro del valore — lo SLOT 4 è il prezzo del tavolo, e le sue as
   // che `relativeValue.ts` dichiara: qui si prova che il riquadro le TRADUCE
   // una a una invece di accorparle in un `n/d` muto.
 
-  function slot4(log: ReturnType<typeof buildLog>, selfId = SELF): ValueBoxReading {
+  function slot4(
+    log: ReturnType<typeof buildLog>,
+    selfId = SELF,
+  ): ValueBoxReading {
     return valueBoxReading({
       called: { playerId: "a_uno", role: "A" },
       appealIndex: index(72),
@@ -706,6 +1035,7 @@ describe("riquadro del valore — lo SLOT 4 è il prezzo del tavolo, e le sue as
       missingDeclaredInputs: [],
       absolute: ABSOLUTE,
       table: { state: stateOf(log), selfId },
+      relative: RELATIVE,
     });
   }
 
@@ -731,7 +1061,9 @@ describe("riquadro del valore — lo SLOT 4 è il prezzo del tavolo, e le sue as
   });
 
   it("UN SOLO rivale capiente: il secondo non esiste, e non si sostituisce col primo", () => {
-    const log = buildLog(TEAMS.slice(1, 7).flatMap((team) => fillRole(team, "A", 7, 1)));
+    const log = buildLog(
+      TEAMS.slice(1, 7).flatMap((team) => fillRole(team, "A", 7, 1)),
+    );
     const reading = slot4(log);
     expect(reading.slots["valore-relativo"]).toEqual({
       kind: "assente",
@@ -741,13 +1073,17 @@ describe("riquadro del valore — lo SLOT 4 è il prezzo del tavolo, e le sue as
   });
 
   it("NESSUN rivale capiente: non c'è nessuna asta da vincere", () => {
-    const log = buildLog(TEAMS.slice(1).flatMap((team) => fillRole(team, "A", 7, 1)));
+    const log = buildLog(
+      TEAMS.slice(1).flatMap((team) => fillRole(team, "A", 7, 1)),
+    );
     const reading = slot4(log);
     expect(reading.slots["valore-relativo"]).toEqual({
       kind: "assente",
       reason: "nessun-rivale-eleggibile",
     });
-    expect(valueBoxHtml(reading)).toContain("nessun rivale può ancora comprarlo");
+    expect(valueBoxHtml(reading)).toContain(
+      "nessun rivale può ancora comprarlo",
+    );
   });
 
   it("LA MIA SQUADRA NON È A QUESTO TAVOLO: non si sceglie una squadra a caso", () => {
@@ -776,9 +1112,13 @@ describe("riquadro del valore — lo SLOT 4 è il prezzo del tavolo, e le sue as
       unit: "crediti",
     });
     expect(reading.relativePriceBound).toBe("tetto-del-piu-ricco");
-    expect(valueSlotWhyText("valore-relativo", reading.slots["valore-relativo"], reading)).toBe(
-      "il tetto del tavolo: nessuno arriva più in alto",
-    );
+    expect(
+      valueSlotWhyText(
+        "valore-relativo",
+        reading.slots["valore-relativo"],
+        reading,
+      ),
+    ).toBe("il tetto del tavolo: nessuno arriva più in alto");
 
     // LA PROVA CHE IL NUMERO NON DISTINGUE, e la riga sì: gli altri tre ruoli
     // danno lo stesso identico numero, e la stessa identica riga.
@@ -790,6 +1130,7 @@ describe("riquadro del valore — lo SLOT 4 è il prezzo del tavolo, e le sue as
         missingDeclaredInputs: [],
         absolute: ABSOLUTE,
         table: tableOf(),
+        relative: RELATIVE,
       });
       expect(other.slots["valore-relativo"], role).toEqual({
         kind: "numero",
@@ -803,7 +1144,9 @@ describe("riquadro del valore — lo SLOT 4 è il prezzo del tavolo, e le sue as
   it("SCALA DEI RIVALI: quando il mercato differenzia, la riga lo dice", () => {
     // Sei rivali su sette hanno speso: il secondo è a 274 e «secondo + 1» sta
     // sotto il tetto del più ricco, quindi il numero è un prezzo vero.
-    const log = buildLog(TEAMS.slice(1, 7).flatMap((team) => fillRole(team, "A", 1, 200)));
+    const log = buildLog(
+      TEAMS.slice(1, 7).flatMap((team) => fillRole(team, "A", 1, 200)),
+    );
     const reading = slot4(log);
     expect(reading.slots["valore-relativo"]).toEqual({
       kind: "numero",
@@ -811,9 +1154,13 @@ describe("riquadro del valore — lo SLOT 4 è il prezzo del tavolo, e le sue as
       unit: "crediti",
     });
     expect(reading.relativePriceBound).toBe("scala-dei-rivali");
-    expect(valueSlotWhyText("valore-relativo", reading.slots["valore-relativo"], reading)).toBe(
-      "il secondo max bid al tavolo, +1",
-    );
+    expect(
+      valueSlotWhyText(
+        "valore-relativo",
+        reading.slots["valore-relativo"],
+        reading,
+      ),
+    ).toBe("il secondo max bid al tavolo, +1");
   });
 
   it("TETTO MAX_SAFE: la riga dice che il tetto è il MIO, non quello del tavolo", () => {
@@ -821,9 +1168,13 @@ describe("riquadro del valore — lo SLOT 4 è il prezzo del tavolo, e le sue as
     // legge che nessuno può salire, mentre è lui a non poter salire.
     const reading = slot4(DRAINED_LOG);
     expect(reading.relativePriceBound).toBe("tetto-max-safe");
-    expect(valueSlotWhyText("valore-relativo", reading.slots["valore-relativo"], reading)).toBe(
-      "il tuo max bid: il tavolo chiede di più",
-    );
+    expect(
+      valueSlotWhyText(
+        "valore-relativo",
+        reading.slots["valore-relativo"],
+        reading,
+      ),
+    ).toBe("il tuo max bid: il tavolo chiede di più");
     // Le tre frasi sono tre, e nessuna coppia collassa.
     expect(new Set(Object.values(RELATIVE_PRICE_BOUND_TEXT)).size).toBe(3);
   });
@@ -831,10 +1182,16 @@ describe("riquadro del valore — lo SLOT 4 è il prezzo del tavolo, e le sue as
   it("il numero si muove quando deve: stesso giocatore, tavolo diverso, prezzo diverso", () => {
     const fresh = slot4(buildLog([]));
     const later = slot4(
-      buildLog(TEAMS.slice(1, 7).flatMap((team) => fillRole(team, "A", 1, 200))),
+      buildLog(
+        TEAMS.slice(1, 7).flatMap((team) => fillRole(team, "A", 1, 200)),
+      ),
     );
-    expect(fresh.slots["valore-assoluto"]).toEqual(later.slots["valore-assoluto"]);
-    expect(later.slots["valore-relativo"]).not.toEqual(fresh.slots["valore-relativo"]);
+    expect(fresh.slots["valore-assoluto"]).toEqual(
+      later.slots["valore-assoluto"],
+    );
+    expect(later.slots["valore-relativo"]).not.toEqual(
+      fresh.slots["valore-relativo"],
+    );
   });
 
   it("lo slot 4 non dipende dalla schermata CHIAMATA: stesso tavolo, stesso numero", () => {
@@ -847,12 +1204,17 @@ describe("riquadro del valore — lo SLOT 4 è il prezzo del tavolo, e le sue as
       appealIndex: index(72),
       missingDeclaredInputs: [],
       absolute: ABSOLUTE,
+      relative: RELATIVE,
       table,
     };
     const senzaCall = valueBoxReading({ ...common, call: null });
     const conCall = valueBoxReading({ ...common, call: engineCall("a_uno") });
-    expect(conCall.slots["valore-relativo"]).toEqual(senzaCall.slots["valore-relativo"]);
-    expect(conCall.slots["valore-assoluto"]).toEqual(senzaCall.slots["valore-assoluto"]);
+    expect(conCall.slots["valore-relativo"]).toEqual(
+      senzaCall.slots["valore-relativo"],
+    );
+    expect(conCall.slots["valore-assoluto"]).toEqual(
+      senzaCall.slots["valore-assoluto"],
+    );
   });
 });
 
@@ -870,6 +1232,7 @@ describe("riquadro del valore — la resa non accende nient'altro", () => {
         appealIndex: undefined,
         call: null,
         missingDeclaredInputs: [],
+        relative: RELATIVE,
         absolute: ABSOLUTE,
         table: tableOf(),
       }),
@@ -877,9 +1240,10 @@ describe("riquadro del valore — la resa non accende nient'altro", () => {
     for (const reading of readings) {
       // «Nessun consiglio» è la resa a schermo del divieto, non la sua
       // violazione: si toglie prima di misurare, come fa e2e/tier-band.spec.ts.
-      const text = `${valueBoxHtml(reading)} ${valueBoxNoteText(reading)} ${valueBoxSpoken(reading)}`
-        .replace(/nessun consiglio/gi, "")
-        .replace(/nessun prezzo di mercato previsto/gi, "");
+      const text =
+        `${valueBoxHtml(reading)} ${valueBoxNoteText(reading)} ${valueBoxSpoken(reading)}`
+          .replace(/nessun consiglio/gi, "")
+          .replace(/nessun prezzo di mercato previsto/gi, "");
       expect(text).not.toMatch(DIRECTIVE);
     }
   });
@@ -898,6 +1262,7 @@ describe("riquadro del valore — la resa non accende nient'altro", () => {
       appealIndex: index(72),
       call,
       missingDeclaredInputs: [],
+      relative: RELATIVE,
       absolute: ABSOLUTE,
       // Lo stesso momento della catena qui sopra: il riquadro non mostra due
       // fotografie diverse dello stesso tavolo.
@@ -916,8 +1281,8 @@ describe("riquadro del valore — la resa non accende nient'altro", () => {
       unit: "crediti",
     });
     expect(reading.relativePriceBound).toBe("tetto-max-safe");
-    const numbers = VALUE_SLOT_ORDER.map((id) => reading.slots[id]).flatMap((slot) =>
-      slot.kind === "numero" ? [slot.value] : [],
+    const numbers = VALUE_SLOT_ORDER.map((id) => reading.slots[id]).flatMap(
+      (slot) => (slot.kind === "numero" ? [slot.value] : []),
     );
     expect(numbers).not.toContain(raw);
     expect(valueBoxHtml(reading)).not.toContain(`>${raw}<`);
@@ -929,8 +1294,10 @@ describe("riquadro del valore — la resa non accende nient'altro", () => {
       const slot = reading.slots[id];
       if (slot.kind !== "numero") continue;
       expect(Number.isFinite(slot.value)).toBe(true);
-      // Uno scalare secco, con la virgola italiana quando la quota di uno slot
-      // non è intera (210/7 lo è, 200/9 no). Mai «fra 55 e 70».
+      // Uno scalare secco, con la virgola italiana quando il numero non è
+      // intero (210/7 lo è, 200/9 no; il punteggio relativo quasi mai). Mai
+      // «fra 55 e 70», e nessun segno di forma oltre `cr`: dal 2026-08-24 lo
+      // slot 2 è un punteggio e non porta più l'ordinale che portava il rango.
       expect(valueSlotText(slot)).toMatch(/^-?\d+(,\d)?( cr)?$/);
     }
   });
@@ -951,7 +1318,9 @@ describe("riquadro del valore — la riga che manca, quando manca davvero", () =
   // `called` c'è, `call` è `null`, e in quel ramo `valueBoxReading()` porta la
   // lista fino a `ValueBoxReading.missingDeclaredInputs` (src/valueBox.ts).
 
-  function readingWithMissing(missing: readonly ("valori-dichiarati" | "profilo-di-rischio")[]) {
+  function readingWithMissing(
+    missing: readonly ("valori-dichiarati" | "profilo-di-rischio")[],
+  ) {
     return valueBoxReading({
       called: { playerId: "a_uno", role: "A" },
       appealIndex: index(72),
@@ -959,24 +1328,36 @@ describe("riquadro del valore — la riga che manca, quando manca davvero", () =
       missingDeclaredInputs: missing,
       absolute: ABSOLUTE,
       table: tableOf(),
+      relative: RELATIVE,
     });
   }
 
   it("DUE dichiarazioni mancanti: le nomina tutte e due, e le lega con «e»", () => {
-    const reading = readingWithMissing(DECLARED_INPUTS_WITHOUT_SOURCE as readonly (
-      | "valori-dichiarati"
-      | "profilo-di-rischio"
-    )[]);
-    expect(reading.missingDeclaredInputs).toEqual(["valori-dichiarati", "profilo-di-rischio"]);
+    const reading = readingWithMissing(
+      DECLARED_INPUTS_WITHOUT_SOURCE as readonly (
+        | "valori-dichiarati"
+        | "profilo-di-rischio"
+      )[],
+    );
+    expect(reading.missingDeclaredInputs).toEqual([
+      "valori-dichiarati",
+      "profilo-di-rischio",
+    ]);
     expect(missingDeclaredInputsText(reading)).toBe(
       "i tuoi valori per giocatore e il tuo profilo di rischio: ancora fuori dall'app.",
     );
     // NOMINA LA COSA CHE MANCA, una per una: «manca un dato» sarebbe la cella
     // vuota travestita da frase, ed è la mutazione che restava verde.
-    expect(missingDeclaredInputsText(reading)).toContain(DECLARED_INPUT_TEXT["valori-dichiarati"]);
-    expect(missingDeclaredInputsText(reading)).toContain(DECLARED_INPUT_TEXT["profilo-di-rischio"]);
+    expect(missingDeclaredInputsText(reading)).toContain(
+      DECLARED_INPUT_TEXT["valori-dichiarati"],
+    );
+    expect(missingDeclaredInputsText(reading)).toContain(
+      DECLARED_INPUT_TEXT["profilo-di-rischio"],
+    );
     // E arriva in testata, che è dove la riga si legge.
-    expect(valueBoxNoteText(reading)).toContain(missingDeclaredInputsText(reading));
+    expect(valueBoxNoteText(reading)).toContain(
+      missingDeclaredInputsText(reading),
+    );
   });
 
   it("UNA sola dichiarazione mancante: la nomina, e non aggiunge una «e» senza secondo", () => {
@@ -1012,6 +1393,7 @@ describe("riquadro del valore — chi ascolta sente quello che chi guarda legge"
         missingDeclaredInputs: [],
         absolute: ABSOLUTE,
         table: tableOf(log),
+        relative: RELATIVE,
       }),
     );
   }
@@ -1023,10 +1405,14 @@ describe("riquadro del valore — chi ascolta sente quello che chi guarda legge"
   });
 
   it("SCALA DEI RIVALI: cambia il tavolo, cambia la frase che si sente", () => {
-    const spoken = spokenOf(buildLog(TEAMS.slice(1, 7).flatMap((t) => fillRole(t, "A", 1, 200))));
+    const spoken = spokenOf(
+      buildLog(TEAMS.slice(1, 7).flatMap((t) => fillRole(t, "A", 1, 200))),
+    );
     expect(spoken).toContain("275 cr");
     expect(spoken).toContain(RELATIVE_PRICE_BOUND_TEXT["scala-dei-rivali"]);
-    expect(spoken).not.toContain(RELATIVE_PRICE_BOUND_TEXT["tetto-del-piu-ricco"]);
+    expect(spoken).not.toContain(
+      RELATIVE_PRICE_BOUND_TEXT["tetto-del-piu-ricco"],
+    );
   });
 
   it("ogni cella parlata dice nome, numero e riga: nessuna resta muta", () => {
@@ -1039,6 +1425,7 @@ describe("riquadro del valore — chi ascolta sente quello che chi guarda legge"
       missingDeclaredInputs: [],
       absolute: ABSOLUTE_UNDECLARED,
       table: tableOf(),
+      relative: RELATIVE,
     });
     const spoken = valueBoxSpoken(reading);
     for (const id of VALUE_SLOT_ORDER) {
@@ -1073,7 +1460,10 @@ describe("riquadro del valore — lo slot 4 non ha una riga generica, e non ne h
     ...Object.values(VALUE_MISSING_TEXT),
   ]);
 
-  function readingOf(log: ReturnType<typeof buildLog>, selfId = SELF): ValueBoxReading {
+  function readingOf(
+    log: ReturnType<typeof buildLog>,
+    selfId = SELF,
+  ): ValueBoxReading {
     return valueBoxReading({
       called: { playerId: "a_uno", role: "A" },
       appealIndex: index(72),
@@ -1081,22 +1471,45 @@ describe("riquadro del valore — lo slot 4 non ha una riga generica, e non ne h
       missingDeclaredInputs: [],
       absolute: ABSOLUTE,
       table: { state: stateOf(log), selfId },
+      relative: RELATIVE,
     });
   }
 
   it("la riga dello slot 4 esce SEMPRE dal vocabolario chiuso, in ogni suo stato", () => {
     const scenes: readonly (readonly [string, ValueBoxReading])[] = [
       ["tavolo fresco", readingOf(buildLog([]))],
-      ["mercato differenziato", readingOf(buildLog(TEAMS.slice(1, 7).flatMap((t) => fillRole(t, "A", 1, 200))))],
+      [
+        "mercato differenziato",
+        readingOf(
+          buildLog(TEAMS.slice(1, 7).flatMap((t) => fillRole(t, "A", 1, 200))),
+        ),
+      ],
       ["il mio tetto morde", readingOf(DRAINED_LOG)],
       ["ruolo pieno per me", readingOf(buildLog(fillRole(SELF, "A", 7, 1)))],
-      ["nessun rivale", readingOf(buildLog(TEAMS.slice(1).flatMap((t) => fillRole(t, "A", 7, 1))))],
-      ["un solo rivale", readingOf(buildLog(TEAMS.slice(1, 7).flatMap((t) => fillRole(t, "A", 7, 1))))],
+      [
+        "nessun rivale",
+        readingOf(
+          buildLog(TEAMS.slice(1).flatMap((t) => fillRole(t, "A", 7, 1))),
+        ),
+      ],
+      [
+        "un solo rivale",
+        readingOf(
+          buildLog(TEAMS.slice(1, 7).flatMap((t) => fillRole(t, "A", 7, 1))),
+        ),
+      ],
       ["non sono al tavolo", readingOf(buildLog([]), "squadra_che_non_esiste")],
     ];
     for (const [label, reading] of scenes) {
-      const why = valueSlotWhyText("valore-relativo", reading.slots["valore-relativo"], reading);
-      expect(SLOT_4_VOCABULARY.has(why), `${label}: «${why}» fuori dal vocabolario`).toBe(true);
+      const why = valueSlotWhyText(
+        "valore-relativo",
+        reading.slots["valore-relativo"],
+        reading,
+      );
+      expect(
+        SLOT_4_VOCABULARY.has(why),
+        `${label}: «${why}» fuori dal vocabolario`,
+      ).toBe(true);
     }
   });
 
@@ -1107,9 +1520,105 @@ describe("riquadro del valore — lo slot 4 non ha una riga generica, e non ne h
     // una descrizione a parole di un numero di cui non si conosce la
     // provenienza. È il ramo che prima ospitava la voce irraggiungibile.
     const reading = readingOf(buildLog([]));
-    const senzaVincolo: ValueBoxReading = { ...reading, relativePriceBound: null };
+    const senzaVincolo: ValueBoxReading = {
+      ...reading,
+      relativePriceBound: null,
+    };
     expect(
-      valueSlotWhyText("valore-relativo", reading.slots["valore-relativo"], senzaVincolo),
+      valueSlotWhyText(
+        "valore-relativo",
+        reading.slots["valore-relativo"],
+        senzaVincolo,
+      ),
     ).toBe(VALUE_UNKNOWN);
+  });
+});
+
+// ── L'ARROTONDAMENTO DELLA RESA, E I PAREGGI CHE PUÒ CREARE ─────────────────
+//
+// IL CASO LIMITE CHE NESSUNO AVEVA CHIUSO. Il punteggio relativo è una quota
+// fra conteggi, quindi non è intero quasi mai; la resa ne stampa UN decimale
+// (`valueNumberText`, regola già in casa per i crediti). Un arrotondamento può
+// far mostrare lo STESSO numero a due giocatori distinti — un pareggio che
+// l'ordine sotto non aveva — e la domanda «da quando?» ha una risposta
+// misurabile: due punteggi adiacenti distano `100/(ordinati liberi − 1)`,
+// quindi collidono a un decimale solo oltre 1001.
+//
+// I due test qui sotto sono la coppia che tiene onesta quella riga: il primo
+// prova che al massimo che questo progetto può produrre (532 righe di listone,
+// tutte nello stesso ruolo) NESSUNA coppia collide; il secondo ESIBISCE la
+// collisione appena sopra la soglia. Il secondo non approva niente: documenta
+// il confine, come fanno le letture aperte
+// (`RELATIVE_SCORE_TIES_ONLY_FROM_RENDERING`).
+
+/** I punteggi relativi di `n` attaccanti ordinati su un tavolo fresco, resi
+ *  come li vedrebbe Pico. Nessuna scorciatoia: si costruiscono l'ordine vero,
+ *  la scala vera e la lettura vera, e si rende con la funzione dell'app. */
+function renderedScores(n: number): readonly string[] {
+  const playerIds = Array.from(
+    { length: n },
+    (_, i) => `a_${String(i).padStart(5, "0")}`,
+  );
+  const book = tierBook(
+    {
+      provenance: {
+        source: "listone sintetico di test",
+        recipe: RECIPE,
+        tieBreak: APPEAL_ORDER_TIE_BREAK,
+      },
+      roles: [{ role: "A", playerIds }],
+    },
+    { teamsCount: 8 },
+  );
+  const ladder = freeLadder({
+    pool: playerIds.map((playerId) => ({ playerId, role: "A" as Role })),
+    book,
+    purchasedPlayerIds: [],
+  });
+  const state: AuctionState = stateOf(buildLog([]));
+  return playerIds.map((playerId) => {
+    const reading = relativeIndexReading({
+      called: { playerId, role: "A" },
+      ladder,
+      state,
+      selfId: SELF,
+    });
+    if (reading.kind !== "punteggio")
+      throw new Error(`punteggio atteso per ${playerId}`);
+    return valueNumberText(reading.score);
+  });
+}
+
+describe("riquadro del valore — l'arrotondamento della resa e i pareggi", () => {
+  it("su 532 ordinati liberi — il massimo che il listone può portare — nessuna coppia collide", () => {
+    // 532 è l'intero listone in un ruolo solo, cioè il caso peggiore possibile
+    // e non uno realistico: nella stagione vera gli attaccanti sono una frazione
+    // di quel numero. Se qui non ci sono pareggi, non ce ne sono da nessuna
+    // parte nell'app.
+    const resi = renderedScores(532);
+    expect(resi.length).toBe(532);
+    expect(new Set(resi).size).toBe(532);
+    // I due capi si vedono, e si vedono INTERI: la regola di resa stampa i
+    // decimali solo dove ci sono.
+    expect(resi[0]).toBe("100");
+    expect(resi[531]).toBe("0");
+    // ...e in mezzo la virgola italiana, non il punto.
+    expect(resi[1]).toBe("99,8");
+  });
+
+  it("a 1002 la collisione esiste, ed è esibita invece che taciuta", () => {
+    // IL CONFINE, MISURATO. Con 1002 ordinati liberi il passo fra due punteggi
+    // adiacenti scende sotto 0,1 e due giocatori DISTINTI mostrano lo stesso
+    // numero. Il progetto non ci arriva — 532 righe in tutto, quattro ruoli —
+    // ma il fatto è del numero, non della stagione, e va scritto.
+    const resi = renderedScores(1002);
+    expect(new Set(resi).size).toBeLessThan(resi.length);
+    // La prima collisione è al centro esatto della scala: due giocatori diversi,
+    // lo stesso «50,0» a schermo.
+    expect(resi[500]).toBe("50,0");
+    expect(resi[501]).toBe("50,0");
+    // ...mentre a 1001, un solo giocatore in meno, ancora nessuna.
+    const alConfine = renderedScores(1001);
+    expect(new Set(alConfine).size).toBe(1001);
   });
 });

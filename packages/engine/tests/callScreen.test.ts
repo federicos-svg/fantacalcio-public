@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   ABSOLUTE_VALUE_UNRATIFIED_CHOICES,
+  RELATIVE_INDEX_UNRATIFIED_CHOICES,
   ALPHA_BY_PROFILE,
   COST_FLOOR,
   DECLARED_VALUE_PROVENANCE,
@@ -21,7 +22,14 @@ import {
   type UnratifiedChoiceId,
   type ValueProfile,
 } from "../src/index.js";
-import { TEAMS, anchor, buildLog, buy, fillRole, stateOf } from "./layer2Fixtures.js";
+import {
+  TEAMS,
+  anchor,
+  buildLog,
+  buy,
+  fillRole,
+  stateOf,
+} from "./layer2Fixtures.js";
 import { plan, value, valueBookOf } from "./layer3Fixtures.js";
 
 const SELF = TEAMS[0]!;
@@ -77,7 +85,11 @@ const DENSE_BOOK = anchorBook([
   anchor("b2", "A", 45),
   anchor("b3", "A", 40),
 ]);
-const DENSE_VALUES = valueBookOf([value("b1", 60), value("b2", 60), value("b3", 40)]);
+const DENSE_VALUES = valueBookOf([
+  value("b1", 60),
+  value("b2", 60),
+  value("b3", 40),
+]);
 
 function screen(
   overrides: Partial<CallScreenInput> & Pick<CallScreenInput, "playerId">,
@@ -155,7 +167,10 @@ describe("callScreen — commutazione automatica della schermata", () => {
   });
 
   it("SPETTATORE con il ruolo pieno", () => {
-    const result = screen({ playerId: "c_occ" }, buildLog(fillRole(SELF, "C", 9, 1)));
+    const result = screen(
+      { playerId: "c_occ" },
+      buildLog(fillRole(SELF, "C", 9, 1)),
+    );
     expect(result.mode).toBe("spettatore");
     expect(result.noTargetReason).toBe("role-full");
   });
@@ -181,7 +196,10 @@ describe("callScreen — commutazione automatica della schermata", () => {
   });
 
   it("SPETTATORE su un giocatore già assegnato: nessun numero per un'asta che non c'è", () => {
-    const result = screen({ playerId: "a_occ" }, buildLog([buy("a_occ", "A", RIVAL, 31)]));
+    const result = screen(
+      { playerId: "a_occ" },
+      buildLog([buy("a_occ", "A", RIVAL, 31)]),
+    );
     expect(result.mode).toBe("spettatore");
     expect(result.noTargetReason).toBe("already-assigned");
     expect(result.numbers).toBeNull();
@@ -190,7 +208,10 @@ describe("callScreen — commutazione automatica della schermata", () => {
   });
 
   it("SPETTATORE anche su un riconfermato: è fuori mercato allo stesso modo", () => {
-    const state = stateOf([], [{ fantaTeamId: RIVAL, playerId: "a_occ", role: "A", price: 28 }]);
+    const state = stateOf(
+      [],
+      [{ fantaTeamId: RIVAL, playerId: "a_occ", role: "A", price: 28 }],
+    );
     const result = callScreen({
       playerId: "a_occ",
       book: BOOK,
@@ -233,11 +254,14 @@ describe("callScreen — i tre numeri decisionali, derivati dai valori di Owner"
     expect(result.planB!.alternative!.playerId).toBe("a_low");
   });
 
-  it.each(VALUE_PROFILES)("il profilo dichiarato «%s» usa l'α preregistrato del piano", (profile) => {
-    const withProfile = screen({ playerId: "a_occ", profile });
-    expect(withProfile.numbers!.alpha).toBe(ALPHA_BY_PROFILE[profile]);
-    expect(withProfile.numbers!.profile).toBe(profile);
-  });
+  it.each(VALUE_PROFILES)(
+    "il profilo dichiarato «%s» usa l'α preregistrato del piano",
+    (profile) => {
+      const withProfile = screen({ playerId: "a_occ", profile });
+      expect(withProfile.numbers!.alpha).toBe(ALPHA_BY_PROFILE[profile]);
+      expect(withProfile.numbers!.profile).toBe(profile);
+    },
+  );
 
   it("prudente ≤ media ≤ aggressiva quando c'è un'alternativa che rende", () => {
     const ftm = (profile: ValueProfile) =>
@@ -250,7 +274,8 @@ describe("callScreen — i tre numeri decisionali, derivati dai valori di Owner"
   it("senza alternativa comprabile l'opportunity cost è 0 e i tre α coincidono", () => {
     // Unico centrocampista ancorato: non resta nessun ripiego nel ruolo.
     const values = VALUE_PROFILES.map(
-      (profile) => screen({ playerId: "c_occ", profile }).numbers!.fairToMeMaxEffective,
+      (profile) =>
+        screen({ playerId: "c_occ", profile }).numbers!.fairToMeMaxEffective,
     );
     expect(screen({ playerId: "c_occ" }).numbers!.opportunityCost).toBe(0);
     expect(new Set(values).size).toBe(1);
@@ -265,14 +290,18 @@ describe("callScreen — i tre numeri decisionali, derivati dai valori di Owner"
   });
 
   it("rifiuta un margine non finito o negativo invece di ignorarlo", () => {
-    expect(() => screen({ playerId: "a_occ", bandMargin: -1 })).toThrow(/bandMargin/);
-    expect(() => screen({ playerId: "a_occ", bandMargin: Number.NaN })).toThrow(/bandMargin/);
+    expect(() => screen({ playerId: "a_occ", bandMargin: -1 })).toThrow(
+      /bandMargin/,
+    );
+    expect(() => screen({ playerId: "a_occ", bandMargin: Number.NaN })).toThrow(
+      /bandMargin/,
+    );
   });
 
   it("lancia su un selfId che non è al tavolo", () => {
-    expect(() => screen({ playerId: "a_occ", selfId: "squadra_fantasma" })).toThrow(
-      /unknown selfId/,
-    );
+    expect(() =>
+      screen({ playerId: "a_occ", selfId: "squadra_fantasma" }),
+    ).toThrow(/unknown selfId/);
   });
 
   it("il troncamento non perde un credito per errore di virgola mobile", () => {
@@ -305,7 +334,9 @@ describe("callScreen — width gate §4.2", () => {
     // Il motivo resta ispezionabile: «niente numeri» senza il perché non basta.
     expect(result.widthGate!.verdict).toBe("no_target");
     expect(result.widthGate!.width).toBe(400 - 12);
-    expect(result.widthGate!.widthOverBudget).toBeGreaterThan(WIDTH_NO_TARGET_OVER_BUDGET);
+    expect(result.widthGate!.widthOverBudget).toBeGreaterThan(
+      WIDTH_NO_TARGET_OVER_BUDGET,
+    );
   });
 
   it("banda stretta ⇒ useful, e i numeri escono", () => {
@@ -319,7 +350,10 @@ describe("callScreen — width gate §4.2", () => {
 
   it("fra le due soglie ⇒ cautious, senza togliere i numeri", () => {
     // width/budget fra 15% e 25%: valore 130 su ancora 30 ⇒ width 100 su 500.
-    const result = screen({ playerId: "a_occ", values: valueBookOf([value("a_occ", 130)]) });
+    const result = screen({
+      playerId: "a_occ",
+      values: valueBookOf([value("a_occ", 130)]),
+    });
     expect(result.widthGate!.widthOverBudget).toBeCloseTo(0.2, 10);
     expect(result.widthGate!.verdict).toBe("cautious");
     expect(result.numbers).not.toBeNull();
@@ -352,15 +386,23 @@ describe("callScreen — scelte del motore non ratificate, dichiarate nel dato",
   it("il piano B dichiara aperte sia la fascia sia la soglia del cliff", () => {
     const planB = screen({ playerId: "a_occ" }).planB!;
     expect(planB.ratification.ratified).toBe(false);
-    expect(planB.ratification.unratifiedChoices).toEqual(["REGRET_BAND_LEVELS", "CLIFF_GAP_RATIO"]);
+    expect(planB.ratification.unratifiedChoices).toEqual([
+      "REGRET_BAND_LEVELS",
+      "CLIFF_GAP_RATIO",
+    ]);
   });
 
   it("il width gate dichiara aperta la dimensione midpoint che non chiude", () => {
     const gate = screen({ playerId: "a_occ" }).widthGate!;
     expect(gate.ratification.ratified).toBe(false);
-    expect(gate.ratification.unratifiedChoices).toEqual(["WIDTH_GATE_MIDPOINT_DIMENSION_OFF"]);
+    expect(gate.ratification.unratifiedChoices).toEqual([
+      "WIDTH_GATE_MIDPOINT_DIMENSION_OFF",
+    ]);
     // Anche quando è il gate a togliere i numeri, la scelta aperta viaggia.
-    const wide = screen({ playerId: "a_low", values: valueBookOf([value("a_low", 400)]) });
+    const wide = screen({
+      playerId: "a_low",
+      values: valueBookOf([value("a_low", 400)]),
+    });
     expect(wide.noTargetReason).toBe("band-too-wide");
     expect(wide.widthGate!.ratification.ratified).toBe(false);
   });
@@ -401,17 +443,30 @@ describe("callScreen — scelte del motore non ratificate, dichiarate nel dato",
       // non può gonfiarsi in silenzio per far passare questo confronto.
       ...ABSOLUTE_VALUE_UNRATIFIED_CHOICES,
       ...CARRIED_OUTSIDE_THE_ENGINE,
+      // LA TERZA SUPERFICIE: l'indice relativo (../src/relativeIndex.ts).
+      // Entra per elenco dichiarato e per la stessa ragione dell'assoluto — la
+      // lista che quella lettura porta è la stessa su ogni ramo — e il suo
+      // contenuto è a sua volta pinnato in
+      // packages/engine/tests/relativeIndex.test.ts.
+      ...RELATIVE_INDEX_UNRATIFIED_CHOICES,
     ];
-    for (const id of used) expect(UNRATIFIED_CHOICES[id].length).toBeGreaterThan(0);
+    for (const id of used)
+      expect(UNRATIFIED_CHOICES[id].length).toBeGreaterThan(0);
     // Nessun identificatore del vocabolario resta orfano: se se ne aggiunge uno
     // e nessuna superficie lo porta, o è morto o qualcuno se l'è dimenticato.
-    expect([...new Set(used)].sort()).toEqual(Object.keys(UNRATIFIED_CHOICES).sort());
+    expect([...new Set(used)].sort()).toEqual(
+      Object.keys(UNRATIFIED_CHOICES).sort(),
+    );
   });
 
   it("il piano B porta le grandezze CONTINUE sotto la fascia", () => {
     // Chi non vuole l'etichetta non ratificata mostra questi due numeri: sono
     // gli ingredienti della banda, non una seconda derivazione.
-    const result = screen({ playerId: "b2", book: DENSE_BOOK, values: DENSE_VALUES });
+    const result = screen({
+      playerId: "b2",
+      book: DENSE_BOOK,
+      values: DENSE_VALUES,
+    });
     const planB = result.planB!;
     expect(planB.regret).toBe("medio");
     expect(planB.surplusGap).toBe(result.surplus! - planB.alternative!.surplus);
@@ -427,8 +482,11 @@ describe("callScreen — scelte del motore non ratificate, dichiarate nel dato",
     // quindi non può cambiare per sbaglio.
     const values = valueBookOf([value("a_occ", 40), value("a_low", 32)]);
     const ftm = (profile: ValueProfile) =>
-      screen({ playerId: "a_occ", profile, values }).numbers!.fairToMeMaxEffective;
-    expect(screen({ playerId: "a_occ", values }).numbers!.opportunityCost).toBe(20);
+      screen({ playerId: "a_occ", profile, values }).numbers!
+        .fairToMeMaxEffective;
+    expect(screen({ playerId: "a_occ", values }).numbers!.opportunityCost).toBe(
+      20,
+    );
     expect(ftm("prudente")).toBe(37); // ⌊40 − 20 × 0,15⌋ — segno atteso
     expect(ftm("media")).toBe(40);
     expect(ftm("aggressiva")).toBe(43); // 43 > 40: il tetto SUPERA il valore dichiarato
@@ -447,25 +505,34 @@ describe("callScreen — scelte del motore non ratificate, dichiarate nel dato",
 describe("callScreen — ACCEPTANCE #233: i tre numeri sono sempre ≤ max_safe (D4)", () => {
   const SCENARIOS: readonly (readonly [string, readonly AuctionEvent[]])[] = [
     ["tavolo intatto", buildLog([])],
-    ["mercato caldo", buildLog([
-      buy("a_pari", "A", RIVAL, 70),
-      buy("a_caro", "A", TEAMS[2]!, 80),
-      buy("a_muto", "A", TEAMS[3]!, 25),
-      buy("c_occ", "C", TEAMS[4]!, 40),
-      buy("p_zero", "P", TEAMS[5]!, 9),
-    ])],
-    ["io quasi a secco", buildLog([
-      ...fillRole(SELF, "P", 3, 30),
-      ...fillRole(SELF, "D", 9, 30),
-      ...fillRole(SELF, "C", 4, 30),
-    ])],
+    [
+      "mercato caldo",
+      buildLog([
+        buy("a_pari", "A", RIVAL, 70),
+        buy("a_caro", "A", TEAMS[2]!, 80),
+        buy("a_muto", "A", TEAMS[3]!, 25),
+        buy("c_occ", "C", TEAMS[4]!, 40),
+        buy("p_zero", "P", TEAMS[5]!, 9),
+      ]),
+    ],
+    [
+      "io quasi a secco",
+      buildLog([
+        ...fillRole(SELF, "P", 3, 30),
+        ...fillRole(SELF, "D", 9, 30),
+        ...fillRole(SELF, "C", 4, 30),
+      ]),
+    ],
     ["io con un big preso", buildLog([buy("a_caro", "A", SELF, 300)])],
-    ["ruoli quasi chiusi", buildLog([
-      ...fillRole(SELF, "P", 3, 2),
-      ...fillRole(SELF, "D", 9, 2),
-      ...fillRole(SELF, "C", 9, 2),
-      ...fillRole(SELF, "A", 6, 2),
-    ])],
+    [
+      "ruoli quasi chiusi",
+      buildLog([
+        ...fillRole(SELF, "P", 3, 2),
+        ...fillRole(SELF, "D", 9, 2),
+        ...fillRole(SELF, "C", 9, 2),
+        ...fillRole(SELF, "A", 6, 2),
+      ]),
+    ],
   ];
   const CALLED = ["a_occ", "a_pari", "a_low", "c_occ", "a_caro"] as const;
   const RICH_VALUES = valueBookOf([
@@ -511,11 +578,14 @@ describe("callScreen — ACCEPTANCE #233: i tre numeri sono sempre ≤ max_safe 
   }
 
   it("un valore dichiarato enorme viene tagliato dal tetto contabile, non lo sfonda", () => {
-    const result = screen({ playerId: "a_caro", values: RICH_VALUES }, buildLog([
-      ...fillRole(SELF, "P", 3, 30),
-      ...fillRole(SELF, "D", 9, 30),
-      ...fillRole(SELF, "C", 4, 30),
-    ]));
+    const result = screen(
+      { playerId: "a_caro", values: RICH_VALUES },
+      buildLog([
+        ...fillRole(SELF, "P", 3, 30),
+        ...fillRole(SELF, "D", 9, 30),
+        ...fillRole(SELF, "C", 4, 30),
+      ]),
+    );
     const n = result.numbers!;
     expect(n.fairToMeMaxRaw).toBeGreaterThan(n.maxSafe);
     expect(n.fairToMeMaxEffective).toBe(n.maxSafe);
@@ -539,21 +609,32 @@ describe("callScreen — piano B e costo del rimpianto", () => {
   });
 
   it("rimpianto BASSO quando l'alternativa rende almeno quanto lui", () => {
-    const result = screen({ playerId: "b1", book: DENSE_BOOK, values: DENSE_VALUES });
+    const result = screen({
+      playerId: "b1",
+      book: DENSE_BOOK,
+      values: DENSE_VALUES,
+    });
     expect(result.cliff!.isCliff).toBe(false);
     expect(result.planB!.alternative!.playerId).toBe("b2"); // surplus 15 ≥ 10
     expect(result.planB!.regret).toBe("basso");
   });
 
   it("rimpianto MEDIO quando l'alternativa rende meno di lui", () => {
-    const result = screen({ playerId: "b2", book: DENSE_BOOK, values: DENSE_VALUES });
+    const result = screen({
+      playerId: "b2",
+      book: DENSE_BOOK,
+      values: DENSE_VALUES,
+    });
     expect(result.planB!.alternative!.playerId).toBe("b1"); // surplus 10 < 15
     expect(result.planB!.regret).toBe("medio");
     expect(result.planB!.drivers).toEqual(["alternative-surplus-lower"]);
   });
 
   it("il piano B non propone un giocatore già assegnato", () => {
-    const result = screen({ playerId: "a_occ" }, buildLog([buy("a_low", "A", RIVAL, 13)]));
+    const result = screen(
+      { playerId: "a_occ" },
+      buildLog([buy("a_low", "A", RIVAL, 13)]),
+    );
     expect(result.planB!.alternative?.playerId).not.toBe("a_low");
   });
 
@@ -603,20 +684,31 @@ describe("callScreen — barra live prezzo corrente vs atteso", () => {
   it.each(cases)("prezzo %i ⇒ %s", (currentPrice, status) => {
     const result = screen({ playerId: "a_occ", currentPrice });
     expect(result.livePrice!.status).toBe(status);
-    expect(result.livePrice!.vsCurrentAnchor).toBe(currentPrice - result.anchor!.correctedAnchor);
+    expect(result.livePrice!.vsCurrentAnchor).toBe(
+      currentPrice - result.anchor!.correctedAnchor,
+    );
   });
 
   it("senza prezzo corrente, o con un prezzo che non è un prezzo, non inventa una barra", () => {
     expect(screen({ playerId: "a_occ" }).livePrice).toBeNull();
-    expect(screen({ playerId: "a_occ", currentPrice: Number.NaN }).livePrice).toBeNull();
-    expect(screen({ playerId: "a_occ", currentPrice: Number.POSITIVE_INFINITY }).livePrice).toBeNull();
-    expect(screen({ playerId: "a_occ", currentPrice: -1 }).livePrice).toBeNull();
+    expect(
+      screen({ playerId: "a_occ", currentPrice: Number.NaN }).livePrice,
+    ).toBeNull();
+    expect(
+      screen({ playerId: "a_occ", currentPrice: Number.POSITIVE_INFINITY })
+        .livePrice,
+    ).toBeNull();
+    expect(
+      screen({ playerId: "a_occ", currentPrice: -1 }).livePrice,
+    ).toBeNull();
   });
 });
 
 describe("callScreen — determinismo e riuso dello strato 2", () => {
   it("stesso stato e stessi listini ⇒ stessa schermata", () => {
-    expect(screen({ playerId: "a_occ" })).toEqual(screen({ playerId: "a_occ" }));
+    expect(screen({ playerId: "a_occ" })).toEqual(
+      screen({ playerId: "a_occ" }),
+    );
   });
 
   it("porta tensione, insieme eleggibile e cliff dello strato 2, non copie locali", () => {
@@ -630,7 +722,13 @@ describe("callScreen — determinismo e riuso dello strato 2", () => {
   it("non produce nessun campo di intervallo di prezzo (divieto di forma §D9)", () => {
     const numbers = screen({ playerId: "a_occ" }).numbers!;
     const keys = Object.keys(numbers as unknown as Record<string, unknown>);
-    for (const forbidden of ["priceRange", "bandLower", "priceLow", "priceHigh", "predictedPrice"]) {
+    for (const forbidden of [
+      "priceRange",
+      "bandLower",
+      "priceLow",
+      "priceHigh",
+      "predictedPrice",
+    ]) {
       expect(keys).not.toContain(forbidden);
     }
   });
