@@ -74,14 +74,21 @@ import {
   type CopyOutcome,
 } from "./personIdClipboard.js";
 import { budgetPlan } from "../packages/engine/src/budget.js";
-import { purchaseFeasibility, recordPurchase, type ProposedPurchase } from "../packages/engine/src/feasibility.js";
+import {
+  purchaseFeasibility,
+  recordPurchase,
+  type ProposedPurchase,
+} from "../packages/engine/src/feasibility.js";
 import type { ConfirmationInput } from "../packages/engine/src/confirmations.js";
 import { C, escHtml, roleChipHtml, renderRoleChip } from "./ui/theme.js";
 import { ROLE_LABELS, ROLE_LABEL_SING } from "./ui/labels.js";
 // #333 §A — un nome solo per grandezza, e viene da qui. Le due superfici di
 // questo file che stampavano una formulazione propria (la metrica della fascia
 // critica e la nota sotto «Prezzo da pagare») leggono adesso la costante.
-import { MAX_BID_LABEL_LONG, MAX_BID_LABEL_LONG_SENTENCE } from "./ui/budgetLabels.js";
+import {
+  MAX_BID_LABEL_LONG,
+  MAX_BID_LABEL_LONG_SENTENCE,
+} from "./ui/budgetLabels.js";
 import {
   addPerson,
   assignSeat,
@@ -118,6 +125,7 @@ import {
 } from "./postPurchaseProjection.js";
 import { executeVoidCommand, voidErrorText } from "./voidCommand.js";
 import { rolePriceFacts, roleTopPurchases } from "./nominationContext.js";
+import { buildFreeLadder } from "./relativeIndex.js";
 import { buildTierBook, tierBandReading } from "./tierOrdering.js";
 // L'elenco DICHIARATO delle squadre di Serie A impegnate in una coppa europea
 // nel 2026/27 — la gamba «coppe e turnover» del valore assoluto. Costante
@@ -164,10 +172,7 @@ import {
   loadInterestFlags,
   type InterestFlag,
 } from "./interestFlags.js";
-import {
-  createLateAnswerSlot,
-  type LateAnswerProducer,
-} from "./lateAnswer.js";
+import { createLateAnswerSlot, type LateAnswerProducer } from "./lateAnswer.js";
 import { roleDepletionReading } from "./roleDepletion.js";
 import {
   loadAuctionLog,
@@ -333,7 +338,14 @@ const EXPERT_SCHEDE_TIMEOUT_MS = 3000;
 // ── League config (MVP: fixed roster, no editing UI) ───────────────────────────
 const SELF_ID = "Io";
 const FANTA_TEAM_IDS: readonly string[] = [
-  "Io", "Squadra2", "Squadra3", "Squadra4", "Squadra5", "Squadra6", "Squadra7", "Squadra8",
+  "Io",
+  "Squadra2",
+  "Squadra3",
+  "Squadra4",
+  "Squadra5",
+  "Squadra6",
+  "Squadra7",
+  "Squadra8",
 ];
 
 // ── Storage keys ───────────────────────────────────────────────────────────────
@@ -389,16 +401,34 @@ interface MockModal {
 // renderRecoveryBlockedScreen) until resolved.
 type RecoveryState =
   | { readonly kind: "none" }
-  | { readonly kind: "recovered"; readonly quarantinedRaw: string; readonly quarantineStored: boolean }
-  | { readonly kind: "started-new"; readonly quarantinedRaw: string; readonly quarantineStored: boolean }
-  | { readonly kind: "blocked"; readonly quarantinedRaw: string; readonly quarantineStored: boolean; readonly confirmingNewLog: boolean }
+  | {
+      readonly kind: "recovered";
+      readonly quarantinedRaw: string;
+      readonly quarantineStored: boolean;
+    }
+  | {
+      readonly kind: "started-new";
+      readonly quarantinedRaw: string;
+      readonly quarantineStored: boolean;
+    }
+  | {
+      readonly kind: "blocked";
+      readonly quarantinedRaw: string;
+      readonly quarantineStored: boolean;
+      readonly confirmingNewLog: boolean;
+    }
   // quarantinedRaw is non-null only when a corrupted canonical was already
   // read and quarantined before this state was reached: from "blocked" (a
   // write failure while confirming a new log), or at boot when the recovery
   // re-persist of the last-known-good copy could not be written/verified.
   // A boot storage-error where the canonical couldn't even be read has
   // nothing to quarantine yet, and carries null.
-  | { readonly kind: "storage-error"; readonly message: string; readonly quarantinedRaw: string | null; readonly quarantineStored: boolean };
+  | {
+      readonly kind: "storage-error";
+      readonly message: string;
+      readonly quarantinedRaw: string | null;
+      readonly quarantineStored: boolean;
+    };
 
 // ── Riconferme recovery UI state (tranche 2b, #231) ────────────────────
 // Mirrors loadConfirmations()'s outcomes (./confirmationsStore.ts) — a
@@ -425,8 +455,20 @@ type RecoveryState =
 // dismissible notice.
 type ConfirmationsRecoveryState =
   | { readonly kind: "none" }
-  | { readonly kind: "banner"; readonly reason: "quarantined-empty-log" | "restarted-without-confirmations"; readonly quarantinedRaw: string; readonly quarantineStored: boolean }
-  | { readonly kind: "blocked"; readonly quarantinedRaw: string; readonly quarantineStored: boolean; readonly confirmingRestart: boolean }
+  | {
+      readonly kind: "banner";
+      readonly reason:
+        | "quarantined-empty-log"
+        | "restarted-without-confirmations";
+      readonly quarantinedRaw: string;
+      readonly quarantineStored: boolean;
+    }
+  | {
+      readonly kind: "blocked";
+      readonly quarantinedRaw: string;
+      readonly quarantineStored: boolean;
+      readonly confirmingRestart: boolean;
+    }
   | { readonly kind: "storage-error"; readonly message: string };
 
 interface AppState {
@@ -673,7 +715,10 @@ interface AppState {
    * identici, e senza il nome due clic ravvicinati non si distinguono. Non è
    * mai persistito — è il racconto di un gesto, non un fatto del registro.
    */
-  personIdCopy: { readonly personName: string; readonly outcome: CopyOutcome } | null;
+  personIdCopy: {
+    readonly personName: string;
+    readonly outcome: CopyOutcome;
+  } | null;
   settingsArea: string;
 }
 
@@ -692,9 +737,18 @@ function recoveryFromLoadResult(result: LoadLogResult): RecoveryState {
     case "valid":
       return { kind: "none" };
     case "recovered":
-      return { kind: "recovered", quarantinedRaw: result.quarantinedRaw, quarantineStored: result.quarantineStored };
+      return {
+        kind: "recovered",
+        quarantinedRaw: result.quarantinedRaw,
+        quarantineStored: result.quarantineStored,
+      };
     case "unrecoverable":
-      return { kind: "blocked", quarantinedRaw: result.quarantinedRaw, quarantineStored: result.quarantineStored, confirmingNewLog: false };
+      return {
+        kind: "blocked",
+        quarantinedRaw: result.quarantinedRaw,
+        quarantineStored: result.quarantineStored,
+        confirmingNewLog: false,
+      };
     case "storage-error":
       // quarantinedRaw is non-null only for the one storage-error the loader
       // can raise AFTER quarantining a corrupted canonical (a failed recovery
@@ -715,7 +769,9 @@ function recoveryFromLoadResult(result: LoadLogResult): RecoveryState {
 // pre-2b (see loadConfirmations's own "none" outcome) — while the separate
 // `confirmationsRecoveryFromLoadResult` below decides what (if anything)
 // the operator needs to see about it.
-function confirmationsFromLoadResult(result: LoadConfirmationsResult): ConfirmationInput[] {
+function confirmationsFromLoadResult(
+  result: LoadConfirmationsResult,
+): ConfirmationInput[] {
   return result.status === "valid" ? [...result.confirmations] : [];
 }
 
@@ -734,11 +790,22 @@ function confirmationsRecoveryFromLoadResult(
   // "there is nothing to report", and a read that THREW is not nothing, it
   // is unknown. Always blocks, regardless of logIsEmpty (mirrors
   // RecoveryState's own "storage-error", which is unconditional too).
-  if (result.status === "storage-error") return { kind: "storage-error", message: result.message };
+  if (result.status === "storage-error")
+    return { kind: "storage-error", message: result.message };
   if (result.status !== "invalid") return { kind: "none" };
   return logIsEmpty
-    ? { kind: "banner", reason: "quarantined-empty-log", quarantinedRaw: result.quarantinedRaw, quarantineStored: result.quarantineStored }
-    : { kind: "blocked", quarantinedRaw: result.quarantinedRaw, quarantineStored: result.quarantineStored, confirmingRestart: false };
+    ? {
+        kind: "banner",
+        reason: "quarantined-empty-log",
+        quarantinedRaw: result.quarantinedRaw,
+        quarantineStored: result.quarantineStored,
+      }
+    : {
+        kind: "blocked",
+        quarantinedRaw: result.quarantinedRaw,
+        quarantineStored: result.quarantineStored,
+        confirmingRestart: false,
+      };
 }
 
 function acquireBrowserStorage(): StorageLike {
@@ -747,9 +814,15 @@ function acquireBrowserStorage(): StorageLike {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return {
-      getItem: () => { throw new Error(message); },
-      setItem: () => { throw new Error(message); },
-      removeItem: () => { throw new Error(message); },
+      getItem: () => {
+        throw new Error(message);
+      },
+      setItem: () => {
+        throw new Error(message);
+      },
+      removeItem: () => {
+        throw new Error(message);
+      },
     };
   }
 }
@@ -762,9 +835,16 @@ let browserStorage = acquireBrowserStorage();
 // confirmations batch already in hand. Computed once, before `state`
 // exists, so `log`/`recovery`/`confirmations`/`confirmationsRecovery` below
 // all derive from the SAME pair of reads without re-reading storage.
-const bootConfirmationsResult = loadConfirmations(browserStorage, FANTA_TEAM_IDS);
+const bootConfirmationsResult = loadConfirmations(
+  browserStorage,
+  FANTA_TEAM_IDS,
+);
 const bootConfirmations = confirmationsFromLoadResult(bootConfirmationsResult);
-const bootLog = loadAuctionLog(browserStorage, FANTA_TEAM_IDS, bootConfirmations);
+const bootLog = loadAuctionLog(
+  browserStorage,
+  FANTA_TEAM_IDS,
+  bootConfirmations,
+);
 
 // Raw localStorage read for the persisted pool, or null if missing/
 // inaccessible. Silent by design (no error surfaced — this runs on every
@@ -855,7 +935,9 @@ const bootSchedaDrafts = loadSchedaDrafts(browserStorage);
 // riga lo dice senza allarmare: la contabilità dell'asta non è toccata.
 const bootInterestFlags = loadInterestFlags(browserStorage);
 
-function interestFlagsBootNotice(result: ReturnType<typeof loadInterestFlags>): string {
+function interestFlagsBootNotice(
+  result: ReturnType<typeof loadInterestFlags>,
+): string {
   if (result.status === "quarantined") {
     return (
       "La coda locale delle marcature «chi era in gara» non era leggibile ed è stata messa da parte: " +
@@ -877,7 +959,10 @@ const state: AppState = {
   log: bootLogEvents,
   recovery: recoveryFromLoadResult(bootLog),
   confirmations: bootConfirmations,
-  confirmationsRecovery: confirmationsRecoveryFromLoadResult(bootConfirmationsResult, bootLogEvents.length === 0),
+  confirmationsRecovery: confirmationsRecoveryFromLoadResult(
+    bootConfirmationsResult,
+    bootLogEvents.length === 0,
+  ),
   riconfermeError: "",
   riconfermeDraft: null,
   persistenceError: "",
@@ -973,9 +1058,15 @@ async function fetchStaticListone(): Promise<string | null> {
 // deterministic: a static preview/build without Pages Functions answers this
 // path with the SPA's own index.html at status 200, and treating that as data
 // would be a silent default.
-async function fetchRemoteListone(): Promise<{ text: string; modifiedAt: string | null } | null> {
+async function fetchRemoteListone(): Promise<{
+  text: string;
+  modifiedAt: string | null;
+} | null> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), LISTONE_REMOTE_TIMEOUT_MS);
+  const timeout = setTimeout(
+    () => controller.abort(),
+    LISTONE_REMOTE_TIMEOUT_MS,
+  );
   try {
     const res = await fetch(LISTONE_REMOTE_ENDPOINT, {
       signal: controller.signal,
@@ -984,7 +1075,10 @@ async function fetchRemoteListone(): Promise<{ text: string; modifiedAt: string 
     if (!res.ok) return null;
     const contentType = (res.headers.get("content-type") ?? "").toLowerCase();
     if (!contentType.includes("application/json")) return null;
-    return { text: await res.text(), modifiedAt: res.headers.get(LISTONE_REMOTE_HEADER_MODIFIED_AT) };
+    return {
+      text: await res.text(),
+      modifiedAt: res.headers.get(LISTONE_REMOTE_HEADER_MODIFIED_AT),
+    };
   } catch {
     return null;
   } finally {
@@ -1001,7 +1095,10 @@ async function fetchRemoteListone(): Promise<{ text: string; modifiedAt: string 
 // primo render: la schermata parte con lo stato onesto «non letto».
 async function fetchExpertSchede(): Promise<string | null> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), EXPERT_SCHEDE_TIMEOUT_MS);
+  const timeout = setTimeout(
+    () => controller.abort(),
+    EXPERT_SCHEDE_TIMEOUT_MS,
+  );
   try {
     const res = await fetch(EXPERT_SCHEDA_ENDPOINT, {
       signal: controller.signal,
@@ -1072,15 +1169,22 @@ function standingPurchasedPlayerIds(): string[] {
   for (const e of state.log) {
     if (e.type === "VOID") voided.add(e.targetSeq);
   }
-  const fromLog = state.log.flatMap((e) => (e.type === "PURCHASE" && !voided.has(e.seq) ? [e.playerId] : []));
+  const fromLog = state.log.flatMap((e) =>
+    e.type === "PURCHASE" && !voided.has(e.seq) ? [e.playerId] : [],
+  );
   const fromConfirmations = state.confirmations.map((c) => c.playerId);
   return [...fromLog, ...fromConfirmations];
 }
 
 /** "Alfa Uno, Beta Due e altri 3" — names read from the pool that still
  *  resolves them, or reconstructed from the id when none does. */
-function playerIdListLabel(ids: readonly string[], index: ReadonlyMap<string, ListonePlayer>): string {
-  const named = ids.slice(0, POOL_NOTICE_NAME_LIMIT).map((id) => resolvePlayerDisplayName(id, index));
+function playerIdListLabel(
+  ids: readonly string[],
+  index: ReadonlyMap<string, ListonePlayer>,
+): string {
+  const named = ids
+    .slice(0, POOL_NOTICE_NAME_LIMIT)
+    .map((id) => resolvePlayerDisplayName(id, index));
   const rest = ids.length - named.length;
   return rest > 0 ? `${named.join(", ")} e altri ${rest}` : named.join(", ");
 }
@@ -1122,7 +1226,9 @@ function poolOrphanNotice(): string {
  * a player no listone on screen contains, and the purchase went through — into
  * a log entry no screen could ever show as "Assegnato" again.
  */
-function disarmSelectionOutsidePool(index: ReadonlyMap<string, ListonePlayer>): string | null {
+function disarmSelectionOutsidePool(
+  index: ReadonlyMap<string, ListonePlayer>,
+): string | null {
   const selected = state.call.selectedPlayer;
   if (selected === null || index.has(listonePlayerKey(selected))) return null;
   const wasInAsta = state.moment === "asta";
@@ -1141,7 +1247,9 @@ function disarmSelectionOutsidePool(index: ReadonlyMap<string, ListonePlayer>): 
   // Il selezionato non esiste più nel listone: il posto della risposta lenta si
   // svuota con lui, dopo le mutazioni e prima che il chiamante ridipinga.
   armLateAnswer(null);
-  const head = wasInAsta ? "Selezione annullata e asta in corso interrotta" : "Selezione annullata";
+  const head = wasInAsta
+    ? "Selezione annullata e asta in corso interrotta"
+    : "Selezione annullata";
   return `${head}: ${selected.name} non è più nel listone caricato.`;
 }
 
@@ -1168,7 +1276,9 @@ function applyResolvedPool(
   const currentIndex = listonePoolIndex(state.pool);
   const nextIndex = listonePoolIndex(resolved.pool);
   const standing = standingPurchasedPlayerIds();
-  const lost = orphanPlayerIds(standing, nextIndex).filter((id) => currentIndex.has(id));
+  const lost = orphanPlayerIds(standing, nextIndex).filter((id) =>
+    currentIndex.has(id),
+  );
   if (lost.length > 0) {
     const missing =
       lost.length === 1
@@ -1194,7 +1304,11 @@ function applyResolvedPool(
   // Never persist a raw payload that resolves to zero rows (finding 5): the
   // saved copy is the offline defence for auction day, and a degraded source
   // must not be allowed to overwrite it.
-  if (rawText !== null && resolved.pool.length > 0 && (resolved.source === "remote" || resolved.source === "static")) {
+  if (
+    rawText !== null &&
+    resolved.pool.length > 0 &&
+    (resolved.source === "remote" || resolved.source === "static")
+  ) {
     if (!savePersistedPool(rawText)) notices.push(POOL_NOT_PERSISTED_NOTICE);
   }
   state.poolNotice = joinPoolNotices(notices);
@@ -1263,7 +1377,8 @@ function loadPoolFromText(text: string): void {
     state.poolSource = "none";
     state.poolModifiedAt = null;
     state.poolLoadError = "File non valido: non è JSON leggibile.";
-    state.poolNotice = disarmSelectionOutsidePool(listonePoolIndex(state.pool)) ?? "";
+    state.poolNotice =
+      disarmSelectionOutsidePool(listonePoolIndex(state.pool)) ?? "";
     state.poolSort = null;
     render();
     return;
@@ -1273,16 +1388,18 @@ function loadPoolFromText(text: string): void {
     state.pool = [];
     state.poolSource = "none";
     state.poolModifiedAt = null;
-    state.poolLoadError = validation.reason === "gated-field"
-      ? "File rifiutato: contiene campi decisionali non autorizzati. Nessuna riga è stata caricata."
-      : validation.reason === "ambiguous-identity"
-      ? "Identità ambigua: due righe hanno lo stesso nome e club senza proxyId distinti. Nessuna riga è stata caricata."
-      : validation.reason === "duplicate-identity"
-        ? "Identificatore duplicato: ogni proxyId deve essere unico. Nessuna riga è stata caricata."
-        : validation.reason === "inconsistent-appeal-index"
-          ? "Indice incoerente: le righe portano versioni diverse della ricetta. Nessuna riga è stata caricata."
-          : "Formato non valido: attesa una lista di { proxyId?, name, role, club, quotation? } con role ∈ P/D/C/A (più eventuali colonne extra).";
-    state.poolNotice = disarmSelectionOutsidePool(listonePoolIndex(state.pool)) ?? "";
+    state.poolLoadError =
+      validation.reason === "gated-field"
+        ? "File rifiutato: contiene campi decisionali non autorizzati. Nessuna riga è stata caricata."
+        : validation.reason === "ambiguous-identity"
+          ? "Identità ambigua: due righe hanno lo stesso nome e club senza proxyId distinti. Nessuna riga è stata caricata."
+          : validation.reason === "duplicate-identity"
+            ? "Identificatore duplicato: ogni proxyId deve essere unico. Nessuna riga è stata caricata."
+            : validation.reason === "inconsistent-appeal-index"
+              ? "Indice incoerente: le righe portano versioni diverse della ricetta. Nessuna riga è stata caricata."
+              : "Formato non valido: attesa una lista di { proxyId?, name, role, club, quotation? } con role ∈ P/D/C/A (più eventuali colonne extra).";
+    state.poolNotice =
+      disarmSelectionOutsidePool(listonePoolIndex(state.pool)) ?? "";
     state.poolSort = null;
     render();
     return;
@@ -1318,7 +1435,9 @@ function forgetPool(): void {
   // unmatched until a listone that covers it is loaded again.
   const notices = [disarmSelectionOutsidePool(listonePoolIndex(state.pool))];
   if (!forgetPersistedPool()) {
-    notices.push("Copia locale del listone non cancellata (spazio del browser negato): potrebbe riapparire al reload.");
+    notices.push(
+      "Copia locale del listone non cancellata (spazio del browser negato): potrebbe riapparire al reload.",
+    );
   }
   state.poolNotice = joinPoolNotices(notices);
   manualPoolLoadSinceBoot = false;
@@ -1329,7 +1448,9 @@ function forgetPool(): void {
 function sortListoneByColumn(key: string): void {
   const current = state.poolSort;
   const direction: "asc" | "desc" =
-    current && current.key === key && current.direction === "asc" ? "desc" : "asc";
+    current && current.key === key && current.direction === "asc"
+      ? "desc"
+      : "asc";
   state.poolSort = { key, direction };
   state.poolPage = 1; // a new sort order starts back at the top, not wherever the old order left off
   render();
@@ -1360,13 +1481,17 @@ function toggleListoneColumn(key: string): void {
   // onora: `visibleColumnKeys` mostrerebbe la colonna comunque, e resterebbe
   // in `localStorage` una riga che dice il falso. La bandiera è quella della
   // colonna, non un secondo elenco di chiavi tenuto a mano.
-  if (listoneColumns(state.pool).find((c) => c.key === key)?.locked === true) return;
+  if (listoneColumns(state.pool).find((c) => c.key === key)?.locked === true)
+    return;
   state.poolColumnPrefs = toggleColumnPref(
     state.poolColumnPrefs,
     key,
     defaultVisibleColumnKeys(state.pool),
   );
-  state.poolColumnPrefsPersisted = saveListoneColumnPrefs(browserStorage, state.poolColumnPrefs);
+  state.poolColumnPrefsPersisted = saveListoneColumnPrefs(
+    browserStorage,
+    state.poolColumnPrefs,
+  );
   render();
   // Il fuoco torna sull'interruttore appena premuto: si accendono e spengono
   // più colonne di fila, e senza questo ogni pressione riporterebbe al body.
@@ -1422,7 +1547,8 @@ document.addEventListener("click", (e) => {
   // the clicked node is detached and the fresh control never contains it —
   // which closed the menu on the very click that opened it. The detached
   // subtree keeps its ancestors, so closest() still identifies the origin.
-  if (e.target instanceof Element && e.target.closest("#listone-status-filter")) return;
+  if (e.target instanceof Element && e.target.closest("#listone-status-filter"))
+    return;
   state.poolStatusFilterOpen = false;
   render();
 });
@@ -1496,7 +1622,12 @@ function toggleMomentFactsDetail(): void {
 // against a stray Enter keypress).
 function isCallCorrelated(call: CallState): boolean {
   const sp = call.selectedPlayer;
-  return sp !== null && sp.name === call.playerName && sp.role === call.role && sp.club === call.club;
+  return (
+    sp !== null &&
+    sp.name === call.playerName &&
+    sp.role === call.role &&
+    sp.club === call.club
+  );
 }
 
 // Undoes a wrong/stale listone selection: clears the search bar and the
@@ -1595,7 +1726,11 @@ function auctionDisplayIndex(): ReadonlyMap<string, ListonePlayer> {
 // fields scarcity reads — playerId and role. Nothing from the quotation (or
 // any other listone column) crosses into the engine here.
 function scarcityPool(): PoolPlayer[] {
-  return state.pool.map((p) => ({ playerId: listonePlayerKey(p), role: p.role, name: p.name }));
+  return state.pool.map((p) => ({
+    playerId: listonePlayerKey(p),
+    role: p.role,
+    name: p.name,
+  }));
 }
 
 /**
@@ -1630,7 +1765,10 @@ function opponentPrecedentsProps(): OpponentPrecedentsProps {
   const called =
     selected === null
       ? null
-      : { playerId: listonePlayerKey(selected), club: selected.club ?? state.call.club };
+      : {
+          playerId: listonePlayerKey(selected),
+          club: selected.club ?? state.call.club,
+        };
   return {
     reading: auctionPrecedents({
       called,
@@ -1812,7 +1950,9 @@ function tierBandProps(aState: AuctionState): TierBandProps {
       state: aState,
       log: state.log,
       called:
-        selected === null ? null : { playerId: listonePlayerKey(selected), role: selected.role },
+        selected === null
+          ? null
+          : { playerId: listonePlayerKey(selected), role: selected.role },
       selfId: SELF_ID,
     }),
     role: selected === null ? "" : selected.role,
@@ -1856,15 +1996,25 @@ function tierBandProps(aState: AuctionState): TierBandProps {
  * duri dell'event log che l'app HA GIÀ: `deriveAuctionState()` e `SELF_ID`,
  * cioè gli stessi due che alimentano la war board e il momento dell'asta.
  *
- * `aState` SERVE A DUE COSE DIVERSE, e vanno tenute distinte perché una sembra
- * contraddire l'altra: allo SLOT 3 serve solo per il censimento delle squadre
- * dentro `buildTierBook` — `AbsoluteValueInput` non ha un campo in cui uno
- * stato d'asta possa entrare, e il libro che ne esce è memoizzato su
- * `(pool, source, teamsCount)` e non conosce il log —, allo SLOT 4 serve per
- * intero, perché è la serata. Arriva come PARAMETRO e non da una seconda
- * `deriveAuctionState()`: il riquadro deve mostrare lo stesso tavolo della
- * scheda che lo circonda, e due derivazioni nello stesso render sono due
- * fotografie che possono divergere.
+ * ANCHE LO SLOT 2 SI MUOVE, ed è tutto il suo mestiere. Il punteggio relativo è
+ * misurato sulla SCALA DEI LIBERI (src/relativeIndex.ts), memoizzata su
+ * `(pool, libro, presi)`, cioè su una chiave che il log tocca soltanto per il
+ * pezzo che il log davvero cambia: cambia quando qualcuno compra, e un tasto
+ * nella ricerca la lascia intatta.
+ *
+ * LO SLOT 3, AL CONTRARIO, NON SI MUOVE DURANTE LA SERATA, ed è vero per
+ * costruzione e non per attenzione: `AbsoluteValueInput` non ha un campo in cui
+ * uno stato d'asta possa entrare, e il libro che ne esce è memoizzato su
+ * `(pool, source, teamsCount)` e non conosce il log.
+ *
+ * `aState` SERVE QUINDI A TRE COSE DIVERSE, e vanno tenute distinte perché la
+ * prima sembra contraddire le altre: allo SLOT 3 solo per il censimento delle
+ * squadre dentro `buildTierBook` (come fa già il riquadro FASCIA); allo SLOT 2
+ * per portare al motore chi è stato preso e quanti slot di quel ruolo sono già
+ * riempiti; allo SLOT 4 per intero, perché è la serata. Arriva come PARAMETRO e
+ * non da una seconda `deriveAuctionState()`: il riquadro deve mostrare lo
+ * stesso tavolo della scheda che lo circonda, e due derivazioni nello stesso
+ * render sono due fotografie che possono divergere.
  */
 function valueBoxProps(aState: AuctionState): ValueBoxProps {
   const selected = state.call.selectedPlayer;
@@ -1885,7 +2035,9 @@ function valueBoxProps(aState: AuctionState): ValueBoxProps {
   return {
     reading: valueBoxReading({
       called:
-        selected === null ? null : { playerId: listonePlayerKey(selected), role: selected.role },
+        selected === null
+          ? null
+          : { playerId: listonePlayerKey(selected), role: selected.role },
       appealIndex: selected?.appealIndex,
       call: null,
       // LISTA VUOTA, E NON PER DIMENTICANZA: nessuno dei quattro numeri
@@ -1898,6 +2050,30 @@ function valueBoxProps(aState: AuctionState): ValueBoxProps {
       // proprio ultimo uso è un aggancio che sembra vivo, e `strict` senza
       // `noUnusedLocals` non lo segnala.
       missingDeclaredInputs: [],
+      // LA SCALA DEI LIBERI, memoizzata: il libro è già quello sopra (una
+      // costruzione sola, non due), i presi vengono dallo stato ridotto —
+      // riconferme comprese, perché `reduce()` le semina lì ed è la stessa
+      // nozione di «non prendibile» che usa l'occupazione delle fasce.
+      //
+      // IL MOTIVO DEL RIFIUTO NON PASSA, E LA CELLA NON FINGE DI AVERLO. Il
+      // libro può mancare per CINQUE ragioni diverse (`TierBandUnavailable`), e
+      // qui ne resta soltanto «non c'è»: il motore dell'indice relativo riceve
+      // `null` e può dire una cosa sola. La conseguenza è dichiarata dove si
+      // vede — la cella dello slot 2 dice «nessun ordine dichiarato» e non
+      // afferma una causa che non conosce (src/ui/valueBox.ts,
+      // `VALUE_MISSING_TEXT`) — mentre la causa vera la nomina il pannello
+      // FASCIA, che il motivo ce l'ha. Far viaggiare il motivo fin qui è una
+      // corsia sua: cambierebbe la firma del riquadro e il vocabolario dei
+      // motivi, e non è il cambio di forma dello slot 2.
+      relative: {
+        ladder: buildFreeLadder(
+          state.pool,
+          book.kind === "book" ? book.book : null,
+          aState.purchasedPlayerIds,
+        ),
+        state: aState,
+        selfId: SELF_ID,
+      },
       absolute: {
         // I TARGET DICHIARATI, così come Pico li ha scritti: la forma parziale
         // attraversa il confine intatta, e un ruolo non dichiarato resta una
@@ -1913,8 +2089,13 @@ function valueBoxProps(aState: AuctionState): ValueBoxProps {
           // SOLO PAGELLE COMPLETE, che è già la regola di src/pagellaEsperti.ts:
           // `totaleRicalcolato` è `null` finché i cinque assi non ci sono tutti.
           pagella:
-            pagella !== undefined && pagella.completa && pagella.totaleRicalcolato !== null
-              ? { totale: pagella.totaleRicalcolato, totaleMax: PAGELLA_TOTALE_MAX }
+            pagella !== undefined &&
+            pagella.completa &&
+            pagella.totaleRicalcolato !== null
+              ? {
+                  totale: pagella.totaleRicalcolato,
+                  totaleMax: PAGELLA_TOTALE_MAX,
+                }
               : null,
         },
       },
@@ -1941,7 +2122,11 @@ function playerInsightTarget(): SchedaTarget | null {
   // quale sia il quarto asse della pagella (src/pagellaEsperti.ts). Non entra
   // nell'identità — `schedaLinkRowKey` continua a essere nome + squadra — e
   // senza di lui il quarto asse non si indovina, si dichiara `ruolo ignoto`.
-  return { name: selected.name, club: selected.club ?? state.call.club, role: selected.role };
+  return {
+    name: selected.name,
+    club: selected.club ?? state.call.club,
+    role: selected.role,
+  };
 }
 
 /**
@@ -1954,7 +2139,10 @@ function playerInsightTarget(): SchedaTarget | null {
  */
 function playerInsightProps(): PlayerInsightProps {
   const target = playerInsightTarget();
-  const chosen = target === null ? null : state.schedaLinks.get(schedaLinkRowKey(target)) ?? null;
+  const chosen =
+    target === null
+      ? null
+      : (state.schedaLinks.get(schedaLinkRowKey(target)) ?? null);
   return {
     view: resolveExpertInsight(state.expertSchede, target, chosen),
     choicePersisted: state.schedaLinksPersisted,
@@ -1987,7 +2175,11 @@ function playerInsightProps(): PlayerInsightProps {
  * valore di riempimento. Un voto che nessuno ha scritto non è un voto basso.
  */
 function listoneSignalsInput(): ListoneSignalsInput {
-  return { pool: state.pool, schede: state.expertSchede, links: state.schedaLinks };
+  return {
+    pool: state.pool,
+    schede: state.expertSchede,
+    links: state.schedaLinks,
+  };
 }
 
 /**
@@ -2004,8 +2196,15 @@ function listoneSignalsInput(): ListoneSignalsInput {
 function chooseScheda(schedaKey: string | null): void {
   const target = playerInsightTarget();
   if (target === null) return;
-  state.schedaLinks = withSchedaLink(state.schedaLinks, schedaLinkRowKey(target), schedaKey);
-  state.schedaLinksPersisted = saveSchedaLinks(browserStorage, state.schedaLinks);
+  state.schedaLinks = withSchedaLink(
+    state.schedaLinks,
+    schedaLinkRowKey(target),
+    schedaKey,
+  );
+  state.schedaLinksPersisted = saveSchedaLinks(
+    browserStorage,
+    state.schedaLinks,
+  );
   render();
 }
 
@@ -2017,11 +2216,13 @@ const NOMINATION_CONTEXT_TOP_LIMIT = 5;
 /** Top-of-role purchases already registered, resolved to display names. */
 function nominationContextTopAssigned(role: Role): NominationContextTopEntry[] {
   const poolIndex = auctionDisplayIndex();
-  return roleTopPurchases(state.log, role, NOMINATION_CONTEXT_TOP_LIMIT).map((entry) => ({
-    playerName: resolvePlayerDisplayName(entry.playerId, poolIndex),
-    teamLabel: displayTeamLabel(entry.fantaTeamId),
-    price: entry.price,
-  }));
+  return roleTopPurchases(state.log, role, NOMINATION_CONTEXT_TOP_LIMIT).map(
+    (entry) => ({
+      playerName: resolvePlayerDisplayName(entry.playerId, poolIndex),
+      teamLabel: displayTeamLabel(entry.fantaTeamId),
+      price: entry.price,
+    }),
+  );
 }
 
 /**
@@ -2065,7 +2266,10 @@ function roleDepletionProps(aState: AuctionState): RoleDepletionProps {
 /** Restores focus after a full-screen blocked render, same rule in every
  *  branch that replaces the whole app: keep whatever had focus if it still
  *  exists, otherwise land on the screen's own heading. */
-function focusBlockedScreen(focusId: string | null, fallbackHeadingId: string): void {
+function focusBlockedScreen(
+  focusId: string | null,
+  fallbackHeadingId: string,
+): void {
   if (focusId) {
     const el = document.getElementById(focusId);
     if (el instanceof HTMLElement) el.focus({ preventScroll: true });
@@ -2084,7 +2288,10 @@ function render(): void {
   let selEnd: number | null = null;
   if (active instanceof HTMLElement && active.id && app.contains(active)) {
     focusId = active.id;
-    if (active instanceof HTMLInputElement && (active.type === "text" || active.type === "search")) {
+    if (
+      active instanceof HTMLInputElement &&
+      (active.type === "text" || active.type === "search")
+    ) {
       selStart = active.selectionStart;
       selEnd = active.selectionEnd;
     }
@@ -2096,8 +2303,16 @@ function render(): void {
   // header, no nav, no Rose/Impostazioni — those all derive from the same
   // (potentially fabricated) log, and normal mutations must not be
   // reachable until this is resolved. See LIVE-02.
-  if (state.recovery.kind === "blocked" || state.recovery.kind === "storage-error") {
-    app.appendChild(renderRecoveryBlockedScreen(recoveryBlockedProps(state.recovery), recoveryBlockedHandlers));
+  if (
+    state.recovery.kind === "blocked" ||
+    state.recovery.kind === "storage-error"
+  ) {
+    app.appendChild(
+      renderRecoveryBlockedScreen(
+        recoveryBlockedProps(state.recovery),
+        recoveryBlockedHandlers,
+      ),
+    );
     focusBlockedScreen(focusId, "recovery-heading");
     return;
   }
@@ -2163,7 +2378,12 @@ function render(): void {
       quarantinedRaw: null,
       quarantineStored: false,
     };
-    app.appendChild(renderRecoveryBlockedScreen(recoveryBlockedProps(state.recovery), recoveryBlockedHandlers));
+    app.appendChild(
+      renderRecoveryBlockedScreen(
+        recoveryBlockedProps(state.recovery),
+        recoveryBlockedHandlers,
+      ),
+    );
     focusBlockedScreen(focusId, "recovery-heading");
     return;
   }
@@ -2182,13 +2402,21 @@ function render(): void {
   // pagare») and the war board MINI, and Pico asked for the vertical room back
   // exactly there.
   if (criticalStripMounted()) {
-    wrapper.appendChild(renderCriticalAuctionStrip(myTeam(deriveAuctionState())));
+    wrapper.appendChild(
+      renderCriticalAuctionStrip(myTeam(deriveAuctionState())),
+    );
   }
 
-  if (state.recovery.kind === "recovered" || state.recovery.kind === "started-new") {
+  if (
+    state.recovery.kind === "recovered" ||
+    state.recovery.kind === "started-new"
+  ) {
     wrapper.appendChild(
       renderRecoveryBanner(
-        { kind: state.recovery.kind, quarantineStored: state.recovery.quarantineStored },
+        {
+          kind: state.recovery.kind,
+          quarantineStored: state.recovery.quarantineStored,
+        },
         { onExport: exportQuarantinedLog },
       ),
     );
@@ -2197,7 +2425,10 @@ function render(): void {
   if (state.confirmationsRecovery.kind === "banner") {
     wrapper.appendChild(
       renderConfirmationsQuarantineBanner(
-        { reason: state.confirmationsRecovery.reason, quarantineStored: state.confirmationsRecovery.quarantineStored },
+        {
+          reason: state.confirmationsRecovery.reason,
+          quarantineStored: state.confirmationsRecovery.quarantineStored,
+        },
         { onExport: exportQuarantinedConfirmations },
       ),
     );
@@ -2247,7 +2478,9 @@ function render(): void {
 
   // Mock modal takes priority over everything else on screen.
   if (state.mockModal) {
-    app.appendChild(renderMockModal(state.mockModal.title, state.mockModal.body, closeMock));
+    app.appendChild(
+      renderMockModal(state.mockModal.title, state.mockModal.body, closeMock),
+    );
     return;
   }
 
@@ -2255,13 +2488,16 @@ function render(): void {
     const el = document.getElementById(focusId);
     if (el instanceof HTMLElement) {
       el.focus({ preventScroll: true });
-      if (selStart !== null && el instanceof HTMLInputElement) el.setSelectionRange(selStart, selEnd ?? selStart);
+      if (selStart !== null && el instanceof HTMLInputElement)
+        el.setSelectionRange(selStart, selEnd ?? selStart);
     }
   } else if (state.screen === "asta" && state.moment === "asta") {
     // Restore focus to price input on first entry into the asta moment.
     // preventScroll: true so this doesn't fight the scroll-to-top done on
     // the chiamata/asta transition.
-    const priceInput = document.getElementById("assign-price") as HTMLInputElement | null;
+    const priceInput = document.getElementById(
+      "assign-price",
+    ) as HTMLInputElement | null;
     if (priceInput) priceInput.focus({ preventScroll: true });
   }
 }
@@ -2329,7 +2565,10 @@ function retryRecovery(): void {
   state.log = logEvents;
   state.recovery = recoveryFromLoadResult(result);
   state.confirmations = confirmations;
-  state.confirmationsRecovery = confirmationsRecoveryFromLoadResult(confirmationsResult, logEvents.length === 0);
+  state.confirmationsRecovery = confirmationsRecoveryFromLoadResult(
+    confirmationsResult,
+    logEvents.length === 0,
+  );
   render();
 }
 
@@ -2339,7 +2578,8 @@ function exportQuarantinedLog(): void {
   const recovery = state.recovery;
   const raw = "quarantinedRaw" in recovery ? recovery.quarantinedRaw : null;
   if (raw === null) {
-    state.persistenceError = "Export non disponibile: il payload non valido non è presente in memoria.";
+    state.persistenceError =
+      "Export non disponibile: il payload non valido non è presente in memoria.";
     render();
     return;
   }
@@ -2360,7 +2600,8 @@ function exportQuarantinedConfirmations(): void {
   const recovery = state.confirmationsRecovery;
   const raw = "quarantinedRaw" in recovery ? recovery.quarantinedRaw : null;
   if (raw === null) {
-    state.riconfermeError = "Export non disponibile: il payload non valido non è presente in memoria.";
+    state.riconfermeError =
+      "Export non disponibile: il payload non valido non è presente in memoria.";
     render();
     return;
   }
@@ -2377,13 +2618,19 @@ function exportQuarantinedConfirmations(): void {
 
 function requestRestartWithoutConfirmations(): void {
   if (state.confirmationsRecovery.kind !== "blocked") return;
-  state.confirmationsRecovery = { ...state.confirmationsRecovery, confirmingRestart: true };
+  state.confirmationsRecovery = {
+    ...state.confirmationsRecovery,
+    confirmingRestart: true,
+  };
   render();
 }
 
 function cancelRestartWithoutConfirmations(): void {
   if (state.confirmationsRecovery.kind !== "blocked") return;
-  state.confirmationsRecovery = { ...state.confirmationsRecovery, confirmingRestart: false };
+  state.confirmationsRecovery = {
+    ...state.confirmationsRecovery,
+    confirmingRestart: false,
+  };
   render();
 }
 
@@ -2404,7 +2651,8 @@ function confirmRestartWithoutConfirmations(): void {
   const saveResult = saveConfirmations(browserStorage, [], FANTA_TEAM_IDS);
   if (!saveResult.ok) {
     const message =
-      saveResult.reason === "storage-write-error" || saveResult.reason === "partial-write"
+      saveResult.reason === "storage-write-error" ||
+      saveResult.reason === "partial-write"
         ? saveResult.message
         : "salvataggio rifiutato";
     state.recovery = {
@@ -2439,9 +2687,14 @@ function downloadAuctionLog(raw: string): void {
 }
 
 function exportCurrentLog(): void {
-  const result = exportAuctionLog(state.log, FANTA_TEAM_IDS, state.confirmations);
+  const result = exportAuctionLog(
+    state.log,
+    FANTA_TEAM_IDS,
+    state.confirmations,
+  );
   if (!result.ok) {
-    state.persistenceError = "Export rifiutato: lo storico corrente non supera la validazione.";
+    state.persistenceError =
+      "Export rifiutato: lo storico corrente non supera la validazione.";
     render();
     return;
   }
@@ -2491,16 +2744,29 @@ async function importCurrentLog(file: File): Promise<void> {
  * what is now on disk, so state never drifts from storage after an import.
  */
 function applyImportedRaw(raw: string): void {
-  const result = importAuctionLog(browserStorage, state.log, raw, FANTA_TEAM_IDS, true, state.confirmations);
+  const result = importAuctionLog(
+    browserStorage,
+    state.log,
+    raw,
+    FANTA_TEAM_IDS,
+    true,
+    state.confirmations,
+  );
   if (!result.ok) {
-    if (result.reason === "storage-write-error" || result.reason === "partial-write") {
+    if (
+      result.reason === "storage-write-error" ||
+      result.reason === "partial-write"
+    ) {
       handleSaveFailure(result);
     } else if (result.reason === "incompatible-version") {
-      state.persistenceError = "Import rifiutato: versione del file non compatibile. Nessuna modifica applicata.";
+      state.persistenceError =
+        "Import rifiutato: versione del file non compatibile. Nessuna modifica applicata.";
     } else if (result.reason === "invalid-log") {
-      state.persistenceError = "Import rifiutato: il log non è semanticamente valido (o non coerente con le riconferme correnti). Nessuna modifica applicata.";
+      state.persistenceError =
+        "Import rifiutato: il log non è semanticamente valido (o non coerente con le riconferme correnti). Nessuna modifica applicata.";
     } else {
-      state.persistenceError = "Import rifiutato: file malformato. Nessuna modifica applicata.";
+      state.persistenceError =
+        "Import rifiutato: file malformato. Nessuna modifica applicata.";
     }
     render();
     return;
@@ -2522,12 +2788,15 @@ function applyImportedRaw(raw: string): void {
 }
 
 function focusAfterRender(id: string): void {
-  requestAnimationFrame(() => document.getElementById(id)?.focus({ preventScroll: true }));
+  requestAnimationFrame(() =>
+    document.getElementById(id)?.focus({ preventScroll: true }),
+  );
 }
 
 function cancelPendingImport(): void {
   state.pendingImportRaw = null;
-  state.persistenceError = "Import annullato: nessuna modifica applicata (storico e riconferme invariati).";
+  state.persistenceError =
+    "Import annullato: nessuna modifica applicata (storico e riconferme invariati).";
   render();
   focusAfterRender("auction-log-import");
 }
@@ -2552,7 +2821,10 @@ function renderImportConfirm(): HTMLElement {
   // cautious wording rather than assert a version the peek cannot confirm —
   // applyImportedRaw's own validation is still what actually decides
   // accept/reject once confirmed.
-  const importKind = state.pendingImportRaw !== null ? peekPortableLogEnvelope(state.pendingImportRaw) : "unknown";
+  const importKind =
+    state.pendingImportRaw !== null
+      ? peekPortableLogEnvelope(state.pendingImportRaw)
+      : "unknown";
 
   const title = document.createElement("h2");
   title.id = "import-confirm-title";
@@ -2621,7 +2893,13 @@ function confirmStartNewLog(): void {
   if (state.recovery.kind !== "blocked") return;
   const quarantinedRaw = state.recovery.quarantinedRaw;
   const quarantineStored = state.recovery.quarantineStored;
-  const saveResult = saveAuctionLog(browserStorage, [], FANTA_TEAM_IDS, undefined, state.confirmations);
+  const saveResult = saveAuctionLog(
+    browserStorage,
+    [],
+    FANTA_TEAM_IDS,
+    undefined,
+    state.confirmations,
+  );
   if (!saveResult.ok) {
     // Saving `[]` is always structurally valid against ANY confirmations
     // batch (an empty log has no PURCHASE to conflict with one) — a
@@ -2729,7 +3007,9 @@ function renderAsta(): HTMLElement {
   // carries what happened at the last pool change (a refused substitution, a
   // disarmed selection, a pool that could not be saved) — events, which no
   // recomputation could recover.
-  const poolNoticeText = [poolOrphanNotice(), state.poolNotice].filter((s) => s !== "").join(" ");
+  const poolNoticeText = [poolOrphanNotice(), state.poolNotice]
+    .filter((s) => s !== "")
+    .join(" ");
   if (poolNoticeText) {
     const poolNotice = document.createElement("div");
     poolNotice.id = "pool-notice";
@@ -2828,7 +3108,11 @@ function criticalFocusAnchorId(): string {
  * back exactly as it was once the dialog closes.
  */
 function confirmationOverlayOpen(): boolean {
-  return state.confirmVoidSeq !== null || state.pendingImportRaw !== null || state.mockModal !== null;
+  return (
+    state.confirmVoidSeq !== null ||
+    state.pendingImportRaw !== null ||
+    state.mockModal !== null
+  );
 }
 
 // Persistent, constraint-only accounting: budget/slots/max_safe come from the
@@ -2917,7 +3201,8 @@ function renderCriticalAuctionStrip(team: TeamState | undefined): HTMLElement {
   // gesture exactly the space the gesture exists to save. `aria-label` restates
   // the counts so screen readers lose nothing by the pills being a button name.
   const rosterAriaCounts = ROLES.map(
-    (role) => `${ROLE_LABELS[role]} ${team.filled[role] ?? 0} su ${ROSTER_REQUIREMENTS[role] ?? 0}`,
+    (role) =>
+      `${ROLE_LABELS[role]} ${team.filled[role] ?? 0} su ${ROSTER_REQUIREMENTS[role] ?? 0}`,
   ).join(", ");
 
   const rosterDetail = ROLES.map((role) => {
@@ -3041,7 +3326,9 @@ const SETTINGS_AREAS: readonly SettingsArea[] = [
 
 /** Seat -> display name, for views that render many seats at once. */
 function seatLabelMap(): Record<string, string> {
-  return Object.fromEntries(FANTA_TEAM_IDS.map((id) => [id, displayTeamLabel(id)]));
+  return Object.fromEntries(
+    FANTA_TEAM_IDS.map((id) => [id, displayTeamLabel(id)]),
+  );
 }
 
 // ── CHI ERA IN GARA — il flag al submit ───────────────────────────────────
@@ -3114,7 +3401,9 @@ function recordInterestFlag(
       flaggedAt: new Date().toISOString(),
     });
     state.interestFlags = result.pending;
-    state.interestFlagsNotice = result.ok ? "" : INTEREST_FLAG_NOT_PERSISTED_NOTICE;
+    state.interestFlagsNotice = result.ok
+      ? ""
+      : INTEREST_FLAG_NOT_PERSISTED_NOTICE;
   } catch {
     // Irraggiungibile per costruzione (enqueueInterestFlag non lancia), e
     // tenuto lo stesso: è l'ultima rete fra un dato di contorno e un acquisto
@@ -3130,7 +3419,9 @@ function recordInterestFlag(
 // `onChange` ridipinge la schermata SOLO quando lo stato visibile cambia
 // davvero: una risposta obsoleta viene scartata dal posto e non arriva
 // nemmeno a chiedere un re-render.
-const lateAnswerSlot = createLateAnswerSlot<string>({ onChange: () => render() });
+const lateAnswerSlot = createLateAnswerSlot<string>({
+  onChange: () => render(),
+});
 
 /**
  * L'UNICO punto d'innesto dichiarato. La corsia che alimenterà questo posto —
@@ -3177,7 +3468,9 @@ function persistRoster(next: LeagueRoster): void {
 
 /** Il nodo che mostra a schermo l'identificativo di una persona, o `null`. */
 function personIdNode(personId: string): Element | null {
-  return document.querySelector(`.person-id-value[data-person-id="${CSS.escape(personId)}"]`);
+  return document.querySelector(
+    `.person-id-value[data-person-id="${CSS.escape(personId)}"]`,
+  );
 }
 
 /**
@@ -3211,15 +3504,21 @@ function selectPersonIdOnScreen(personId: string): boolean {
  * nodo che la teneva — e la frase «è selezionato a schermo» diventerebbe falsa
  * nell'istante in cui viene scritta.
  */
-async function copyPersonId(person: { readonly id: string; readonly name: string }): Promise<void> {
+async function copyPersonId(person: {
+  readonly id: string;
+  readonly name: string;
+}): Promise<void> {
   const clipboard = navigator.clipboard as Clipboard | undefined;
   const outcome = await attemptCopy(person.id, {
     writeText:
-      typeof clipboard?.writeText === "function" ? (text) => clipboard.writeText(text) : null,
+      typeof clipboard?.writeText === "function"
+        ? (text) => clipboard.writeText(text)
+        : null,
     selectAndCopy:
       personIdNode(person.id) === null
         ? null
-        : () => selectPersonIdOnScreen(person.id) && document.execCommand("copy"),
+        : () =>
+            selectPersonIdOnScreen(person.id) && document.execCommand("copy"),
   });
   state.personIdCopy = { personName: person.name, outcome };
   render();
@@ -3289,9 +3588,12 @@ function renderLeagueTeamsSettings(): HTMLElement {
       const opt = document.createElement("option");
       opt.value = person.id;
       const elsewhere = FANTA_TEAM_IDS.find(
-        (other) => other !== id && state.leagueRoster.seats[other] === person.id,
+        (other) =>
+          other !== id && state.leagueRoster.seats[other] === person.id,
       );
-      opt.textContent = elsewhere ? `${person.name} (ora ${elsewhere})` : person.name;
+      opt.textContent = elsewhere
+        ? `${person.name} (ora ${elsewhere})`
+        : person.name;
       if (occupant?.id === person.id) opt.selected = true;
       select.appendChild(opt);
     }
@@ -3302,9 +3604,14 @@ function renderLeagueTeamsSettings(): HTMLElement {
     } else {
       select.addEventListener("change", (e) => {
         const value = (e.target as HTMLSelectElement).value;
-        const result = assignSeat(state.leagueRoster, id, value === "" ? null : value);
+        const result = assignSeat(
+          state.leagueRoster,
+          id,
+          value === "" ? null : value,
+        );
         if (!result.ok) {
-          state.rosterError = ROSTER_ERRORS[result.reason] ?? "Operazione rifiutata.";
+          state.rosterError =
+            ROSTER_ERRORS[result.reason] ?? "Operazione rifiutata.";
           render();
           return;
         }
@@ -3338,7 +3645,9 @@ function renderLeagueTeamsSettings(): HTMLElement {
     const field = document.createElement("label");
     field.className = "league-team-field";
 
-    const seatOf = FANTA_TEAM_IDS.find((id) => state.leagueRoster.seats[id] === person.id);
+    const seatOf = FANTA_TEAM_IDS.find(
+      (id) => state.leagueRoster.seats[id] === person.id,
+    );
     const caption = document.createElement("span");
     caption.className = "field-label";
     caption.textContent = seatOf ?? "senza squadra";
@@ -3352,7 +3661,11 @@ function renderLeagueTeamsSettings(): HTMLElement {
     input.maxLength = PERSON_NAME_MAX;
     input.value = person.name;
     input.addEventListener("input", (e) => {
-      const result = renamePerson(state.leagueRoster, person.id, (e.target as HTMLInputElement).value);
+      const result = renamePerson(
+        state.leagueRoster,
+        person.id,
+        (e.target as HTMLInputElement).value,
+      );
       if (!result.ok) {
         // Keep what was typed visible; only refuse to persist it.
         state.rosterError = ROSTER_ERRORS[result.reason] ?? "Nome rifiutato.";
@@ -3414,7 +3727,10 @@ function renderLeagueTeamsSettings(): HTMLElement {
     status.className = copySucceeded(state.personIdCopy.outcome)
       ? "person-id-copy-status"
       : "person-id-copy-status person-id-copy-status--warn";
-    status.textContent = copyMessage(state.personIdCopy.personName, state.personIdCopy.outcome);
+    status.textContent = copyMessage(
+      state.personIdCopy.personName,
+      state.personIdCopy.outcome,
+    );
     panel.appendChild(status);
   }
 
@@ -3452,7 +3768,8 @@ function renderLeagueTeamsSettings(): HTMLElement {
   const submitNewPerson = (): void => {
     const result = addPerson(state.leagueRoster, state.newPersonName);
     if (!result.ok) {
-      state.rosterError = ROSTER_ERRORS[result.reason] ?? "Partecipante non aggiunto.";
+      state.rosterError =
+        ROSTER_ERRORS[result.reason] ?? "Partecipante non aggiunto.";
       render();
       return;
     }
@@ -3505,9 +3822,9 @@ function renderLeagueTeamsSettings(): HTMLElement {
 // persisted batch makes the constraint checkable starting next season
 // (`previouslyConfirmedPlayerIds` as a future engine extension) — not built
 // here.
-const RICONFERME_ROLES: readonly Role[] = (Object.keys(CONFIRMATION_LIMITS) as Role[]).filter(
-  (role) => CONFIRMATION_LIMITS[role] > 0,
-);
+const RICONFERME_ROLES: readonly Role[] = (
+  Object.keys(CONFIRMATION_LIMITS) as Role[]
+).filter((role) => CONFIRMATION_LIMITS[role] > 0);
 
 function renderRiconfermeSettings(): HTMLElement {
   const panel = document.createElement("section");
@@ -3597,7 +3914,9 @@ function renderRiconfermeSettings(): HTMLElement {
       slot.id = `riconferme-slot-${seatId}-${role}`;
       slot.appendChild(renderRoleChip(role));
 
-      const existing = state.confirmations.find((c) => c.fantaTeamId === seatId && c.role === role);
+      const existing = state.confirmations.find(
+        (c) => c.fantaTeamId === seatId && c.role === role,
+      );
       if (existing) {
         const display = resolvePlayerDisplayName(existing.playerId, poolIndex);
         const name = document.createElement("span");
@@ -3623,7 +3942,9 @@ function renderRiconfermeSettings(): HTMLElement {
           // tooltip so the two never say different things.
           removeBtn.title = `Rimuovi la riconferma di ${display}`;
           removeBtn.setAttribute("aria-label", removeBtn.title);
-          removeBtn.addEventListener("click", () => removeRiconferma(seatId, role));
+          removeBtn.addEventListener("click", () =>
+            removeRiconferma(seatId, role),
+          );
           slot.appendChild(removeBtn);
         }
       } else if (editable && poolAvailable) {
@@ -3631,7 +3952,9 @@ function renderRiconfermeSettings(): HTMLElement {
         // never picks a role separately, only a player already of the role
         // this slot/column represents. Already-used players (confirmed
         // elsewhere in this batch) are excluded, never shown as pickable.
-        const eligible = pool.filter((p) => p.role === role && !usedPlayerIds.has(listonePlayerKey(p)));
+        const eligible = pool.filter(
+          (p) => p.role === role && !usedPlayerIds.has(listonePlayerKey(p)),
+        );
 
         // Fix 6 (PX, round 2, #285): the last REFUSED attempt for exactly
         // this slot, if any — see AppState.riconfermeDraft's own doc
@@ -3639,7 +3962,9 @@ function renderRiconfermeSettings(): HTMLElement {
         // every call, so without this the operator's picks silently vanish
         // right when the error message tells them to fix something.
         const draft =
-          state.riconfermeDraft && state.riconfermeDraft.seatId === seatId && state.riconfermeDraft.role === role
+          state.riconfermeDraft &&
+          state.riconfermeDraft.seatId === seatId &&
+          state.riconfermeDraft.role === role
             ? state.riconfermeDraft
             : null;
 
@@ -3649,10 +3974,16 @@ function renderRiconfermeSettings(): HTMLElement {
         const select = document.createElement("select");
         select.id = `riconferme-picker-${seatId}-${role}`;
         select.className = "field-input riconferme-slot__picker";
-        select.setAttribute("aria-label", `Riconferma ${roleLabelText} per ${seatLabelText}`);
+        select.setAttribute(
+          "aria-label",
+          `Riconferma ${roleLabelText} per ${seatLabelText}`,
+        );
         const emptyOpt = document.createElement("option");
         emptyOpt.value = "";
-        emptyOpt.textContent = eligible.length === 0 ? "— nessun giocatore disponibile —" : "— seleziona —";
+        emptyOpt.textContent =
+          eligible.length === 0
+            ? "— nessun giocatore disponibile —"
+            : "— seleziona —";
         select.appendChild(emptyOpt);
         for (const p of eligible) {
           const opt = document.createElement("option");
@@ -3661,7 +3992,10 @@ function renderRiconfermeSettings(): HTMLElement {
           select.appendChild(opt);
         }
         select.disabled = eligible.length === 0;
-        if (draft && eligible.some((p) => listonePlayerKey(p) === draft.playerId)) {
+        if (
+          draft &&
+          eligible.some((p) => listonePlayerKey(p) === draft.playerId)
+        ) {
           select.value = draft.playerId;
         }
         slot.appendChild(select);
@@ -3673,8 +4007,12 @@ function renderRiconfermeSettings(): HTMLElement {
         priceInput.step = "1";
         priceInput.setAttribute("inputmode", "numeric");
         priceInput.placeholder = "prezzo";
-        priceInput.title = "Prezzo pagato per questo giocatore la scorsa stagione (crediti interi).";
-        priceInput.setAttribute("aria-label", `Prezzo riconferma ${roleLabelText} per ${seatLabelText}`);
+        priceInput.title =
+          "Prezzo pagato per questo giocatore la scorsa stagione (crediti interi).";
+        priceInput.setAttribute(
+          "aria-label",
+          `Prezzo riconferma ${roleLabelText} per ${seatLabelText}`,
+        );
         priceInput.className = "field-input riconferme-slot__price-input";
         priceInput.disabled = eligible.length === 0;
         if (draft) priceInput.value = draft.priceRaw;
@@ -3685,9 +4023,14 @@ function renderRiconfermeSettings(): HTMLElement {
         confirmBtn.id = `riconferme-confirm-${seatId}-${role}`;
         confirmBtn.className = "btn btn--secondary";
         confirmBtn.textContent = "Conferma";
-        confirmBtn.setAttribute("aria-label", `Conferma riconferma ${roleLabelText} per ${seatLabelText}`);
+        confirmBtn.setAttribute(
+          "aria-label",
+          `Conferma riconferma ${roleLabelText} per ${seatLabelText}`,
+        );
         confirmBtn.disabled = eligible.length === 0;
-        confirmBtn.addEventListener("click", () => confirmRiconferma(seatId, role));
+        confirmBtn.addEventListener("click", () =>
+          confirmRiconferma(seatId, role),
+        );
         slot.appendChild(confirmBtn);
       } else {
         const empty = document.createElement("span");
@@ -3727,7 +4070,9 @@ function renderRiconfermeSettings(): HTMLElement {
  */
 function renderRiconfermeFailure(): void {
   render();
-  document.getElementById("riconferme-error")?.scrollIntoView({ block: "nearest" });
+  document
+    .getElementById("riconferme-error")
+    ?.scrollIntoView({ block: "nearest" });
 }
 
 /**
@@ -3738,22 +4083,28 @@ function renderRiconfermeFailure(): void {
  * own input value already IS the source of truth until this click.
  */
 function confirmRiconferma(seatId: string, role: Role): void {
-  const select = document.getElementById(`riconferme-picker-${seatId}-${role}`) as HTMLSelectElement | null;
-  const priceInput = document.getElementById(`riconferme-price-${seatId}-${role}`) as HTMLInputElement | null;
+  const select = document.getElementById(
+    `riconferme-picker-${seatId}-${role}`,
+  ) as HTMLSelectElement | null;
+  const priceInput = document.getElementById(
+    `riconferme-price-${seatId}-${role}`,
+  ) as HTMLInputElement | null;
   if (!select || !priceInput) return;
 
   const playerId = select.value;
   const priceRaw = priceInput.value;
   const draft: RiconfermeDraft = { seatId, role, playerId, priceRaw };
   if (!playerId) {
-    state.riconfermeError = "Seleziona un giocatore dal listone prima di confermare.";
+    state.riconfermeError =
+      "Seleziona un giocatore dal listone prima di confermare.";
     state.riconfermeDraft = draft;
     renderRiconfermeFailure();
     return;
   }
   const price = parsePositiveIntegerPrice(priceRaw);
   if (price === null) {
-    state.riconfermeError = "Prezzo non valido: inserisci un numero intero positivo (l'importo pagato la scorsa stagione).";
+    state.riconfermeError =
+      "Prezzo non valido: inserisci un numero intero positivo (l'importo pagato la scorsa stagione).";
     state.riconfermeDraft = draft;
     renderRiconfermeFailure();
     return;
@@ -3762,14 +4113,18 @@ function confirmRiconferma(seatId: string, role: Role): void {
   // "ogni azione ricompone il batch" — replace this seat+role's entry (if
   // any) and re-submit the WHOLE batch, never a partial/incremental update.
   const next = [
-    ...state.confirmations.filter((c) => !(c.fantaTeamId === seatId && c.role === role)),
+    ...state.confirmations.filter(
+      (c) => !(c.fantaTeamId === seatId && c.role === role),
+    ),
     { fantaTeamId: seatId, playerId, role, price },
   ];
   applyRiconfermeBatch(next, draft);
 }
 
 function removeRiconferma(seatId: string, role: Role): void {
-  const next = state.confirmations.filter((c) => !(c.fantaTeamId === seatId && c.role === role));
+  const next = state.confirmations.filter(
+    (c) => !(c.fantaTeamId === seatId && c.role === role),
+  );
   applyRiconfermeBatch(next);
 }
 
@@ -3780,7 +4135,10 @@ function removeRiconferma(seatId: string, role: Role): void {
  * state on a REFUSED attempt — omitted by removeRiconferma, which has no
  * picker/price of its own to preserve.
  */
-function applyRiconfermeBatch(next: readonly ConfirmationInput[], draftOnFailure?: RiconfermeDraft): void {
+function applyRiconfermeBatch(
+  next: readonly ConfirmationInput[],
+  draftOnFailure?: RiconfermeDraft,
+): void {
   const result = saveConfirmations(browserStorage, next, FANTA_TEAM_IDS);
   if (!result.ok) {
     state.riconfermeDraft = draftOnFailure ?? null;
@@ -3852,7 +4210,9 @@ function applyRiconfermeBatch(next: readonly ConfirmationInput[], draftOnFailure
 function schedaRowTarget(rowKey: string | null): SchedaTarget | null {
   if (rowKey === null) return null;
   const row = auctionDisplayIndex().get(rowKey);
-  return row === undefined ? null : { name: row.name, club: row.club, role: row.role };
+  return row === undefined
+    ? null
+    : { name: row.name, club: row.club, role: row.role };
 }
 
 /**
@@ -3872,7 +4232,9 @@ function persistSchedaDrafts(next: SchedaDraftState): void {
 function schedaEditingSnapshot(): SchedaDraftState {
   return withEditing(
     state.schedaDrafts,
-    state.schedaTargetKey === null ? null : { rowKey: state.schedaTargetKey, values: state.schedaForm },
+    state.schedaTargetKey === null
+      ? null
+      : { rowKey: state.schedaTargetKey, values: state.schedaForm },
   );
 }
 
@@ -3882,9 +4244,11 @@ function schedaEditingSnapshot(): SchedaDraftState {
  * riscriverla.
  */
 function selectSchedaTarget(rowKey: string | null): void {
-  const existing = rowKey === null ? undefined : state.schedaDrafts.schede.get(rowKey);
+  const existing =
+    rowKey === null ? undefined : state.schedaDrafts.schede.get(rowKey);
   state.schedaTargetKey = rowKey;
-  state.schedaForm = existing === undefined ? EMPTY_SCHEDA_FORM : schedaToForm(existing);
+  state.schedaForm =
+    existing === undefined ? EMPTY_SCHEDA_FORM : schedaToForm(existing);
   state.schedaErrors = [];
   state.schedaNotice = "";
   state.schedaConfirmDelete = null;
@@ -3926,7 +4290,11 @@ function saveSchedaFromForm(): void {
   const rowKey = state.schedaTargetKey;
   if (target === null || rowKey === null) {
     state.schedaErrors = [
-      { field: "identita", message: "Scegli prima una riga del listone: nome e squadra della scheda vengono da lì." },
+      {
+        field: "identita",
+        message:
+          "Scegli prima una riga del listone: nome e squadra della scheda vengono da lì.",
+      },
     ];
     state.schedaNotice = "";
     render();
@@ -3944,7 +4312,9 @@ function saveSchedaFromForm(): void {
   state.schedaTargetKey = null;
   state.schedaForm = EMPTY_SCHEDA_FORM;
   state.schedaConfirmDelete = null;
-  persistSchedaDrafts(withEditing(withScheda(state.schedaDrafts, rowKey, result.scheda), null));
+  persistSchedaDrafts(
+    withEditing(withScheda(state.schedaDrafts, rowKey, result.scheda), null),
+  );
   state.schedaNotice = `Scheda salvata: ${result.scheda.player} (${result.scheda.club}).`;
   render();
   // Il giro è: scegli, compila, salva, scegli il prossimo. La messa a fuoco
@@ -4021,7 +4391,8 @@ function downloadSchedaDeposit(text: string): void {
 function copySchedaDeposit(text: string, count: number): void {
   const clipboard = navigator.clipboard as Clipboard | undefined;
   if (clipboard === undefined || typeof clipboard.writeText !== "function") {
-    state.schedaNotice = "Questo browser non dà accesso agli appunti: usa «Scarica il deposito».";
+    state.schedaNotice =
+      "Questo browser non dà accesso agli appunti: usa «Scarica il deposito».";
     render();
     return;
   }
@@ -4031,7 +4402,8 @@ function copySchedaDeposit(text: string, count: number): void {
       render();
     },
     () => {
-      state.schedaNotice = "Il browser ha rifiutato la copia negli appunti: usa «Scarica il deposito».";
+      state.schedaNotice =
+        "Il browser ha rifiutato la copia negli appunti: usa «Scarica il deposito».";
       render();
     },
   );
@@ -4053,9 +4425,12 @@ function copySchedaDeposit(text: string, count: number): void {
 // src/ui/expertInsight.ts, e senza una risposta `applySchedaImport` rende
 // `null` invece di sceglierne una.
 
-const SCHEDA_IMPORT_REFUSALS: Readonly<Record<"absent" | "unreadable" | "invalid" | "empty", string>> = {
+const SCHEDA_IMPORT_REFUSALS: Readonly<
+  Record<"absent" | "unreadable" | "invalid" | "empty", string>
+> = {
   absent: "Nessun file letto: riprova a sceglierlo.",
-  unreadable: "Il file non è JSON leggibile. Non è stato toccato niente di quello che hai già scritto.",
+  unreadable:
+    "Il file non è JSON leggibile. Non è stato toccato niente di quello che hai già scritto.",
   invalid:
     "Il file non è un deposito valido secondo il contratto (parseExpertSchedaDeposit): versione diversa, un campo fuori vocabolario o una chiave che non esiste. Non è stato toccato niente di quello che hai già scritto.",
   empty: "Il file è un deposito valido ma non contiene nessuna scheda.",
@@ -4063,7 +4438,11 @@ const SCHEDA_IMPORT_REFUSALS: Readonly<Record<"absent" | "unreadable" | "invalid
 
 /** Le righe del listone come le vede il pianificatore d'importazione. */
 function schedaImportRows(): { rowKey: string; name: string; club: string }[] {
-  return state.pool.map((p) => ({ rowKey: listonePlayerKey(p), name: p.name, club: p.club }));
+  return state.pool.map((p) => ({
+    rowKey: listonePlayerKey(p),
+    name: p.name,
+    club: p.club,
+  }));
 }
 
 /**
@@ -4106,7 +4485,11 @@ function readSchedaImportFile(input: HTMLInputElement): void {
 }
 
 function openSchedaImport(text: string, fileName: string): void {
-  const result = planSchedaImport(text, schedaImportRows(), state.schedaDrafts.schede);
+  const result = planSchedaImport(
+    text,
+    schedaImportRows(),
+    state.schedaDrafts.schede,
+  );
   if (!result.ok) {
     state.schedaImport = null;
     state.schedaImportError =
@@ -4121,7 +4504,9 @@ function openSchedaImport(text: string, fileName: string): void {
   state.schedaNotice = "";
   render();
   focusAfterRender(
-    result.plan.conflicts.length > 0 ? "schede-import-resolution" : "schede-import-confirm",
+    result.plan.conflicts.length > 0
+      ? "schede-import-resolution"
+      : "schede-import-confirm",
   );
 }
 
@@ -4134,7 +4519,11 @@ function cancelSchedaImport(): void {
 function confirmSchedaImport(): void {
   const pending = state.schedaImport;
   if (pending === null) return;
-  const next = applySchedaImport(state.schedaDrafts.schede, pending.plan, pending.resolution);
+  const next = applySchedaImport(
+    state.schedaDrafts.schede,
+    pending.plan,
+    pending.resolution,
+  );
   if (next === null) {
     state.schedaImportError =
       "Scegli prima che cosa fare delle schede in conflitto: non ne sovrascrivo nessuna da solo.";
@@ -4224,7 +4613,9 @@ function renderSchedaImportPreview(pending: PendingSchedaImport): HTMLElement {
       state.schedaImportError = "";
       render();
     });
-    box.appendChild(schedaField("schede-import-resolution", "SCHEDE IN CONFLITTO", select));
+    box.appendChild(
+      schedaField("schede-import-resolution", "SCHEDE IN CONFLITTO", select),
+    );
   }
 
   const actions = document.createElement("div");
@@ -4234,7 +4625,8 @@ function renderSchedaImportPreview(pending: PendingSchedaImport): HTMLElement {
   confirm.id = "schede-import-confirm";
   confirm.className = "btn btn--primary";
   confirm.textContent = "Riprendi questo deposito";
-  confirm.disabled = pending.plan.conflicts.length > 0 && pending.resolution === null;
+  confirm.disabled =
+    pending.plan.conflicts.length > 0 && pending.resolution === null;
   confirm.addEventListener("click", () => confirmSchedaImport());
   const cancel = document.createElement("button");
   cancel.type = "button";
@@ -4249,7 +4641,11 @@ function renderSchedaImportPreview(pending: PendingSchedaImport): HTMLElement {
 }
 
 /** Una `<label>` col suo controllo, nella forma già usata dagli altri pannelli. */
-function schedaField(id: string, caption: string, control: HTMLElement): HTMLElement {
+function schedaField(
+  id: string,
+  caption: string,
+  control: HTMLElement,
+): HTMLElement {
   const field = document.createElement("label");
   field.className = "league-team-field";
   field.htmlFor = id;
@@ -4314,7 +4710,9 @@ function schedaCheckGroup(
     box.id = `${id}-${value}`;
     box.checked = chosen.includes(value);
     box.addEventListener("change", () => {
-      const next = box.checked ? [...chosen, value] : chosen.filter((v) => v !== value);
+      const next = box.checked
+        ? [...chosen, value]
+        : chosen.filter((v) => v !== value);
       onChange(next);
       persistSchedaEditing();
     });
@@ -4343,7 +4741,9 @@ function schedaNumberInput(
   input.step = "1";
   input.setAttribute("inputmode", "numeric");
   input.value = current;
-  input.addEventListener("input", (e) => onChange((e.target as HTMLInputElement).value));
+  input.addEventListener("input", (e) =>
+    onChange((e.target as HTMLInputElement).value),
+  );
   input.addEventListener("change", () => persistSchedaEditing());
   return input;
 }
@@ -4476,7 +4876,8 @@ function renderSchedaPicker(pool: readonly ListonePlayer[]): HTMLElement {
   const rows = pool.filter((p) => {
     if (needle === "") return true;
     return (
-      normalizeIdentityPart(p.name).includes(needle) || normalizeIdentityPart(p.club).includes(needle)
+      normalizeIdentityPart(p.name).includes(needle) ||
+      normalizeIdentityPart(p.club).includes(needle)
     );
   });
 
@@ -4485,7 +4886,10 @@ function renderSchedaPicker(pool: readonly ListonePlayer[]): HTMLElement {
   select.className = "field-input";
   const empty = document.createElement("option");
   empty.value = "";
-  empty.textContent = rows.length === 0 ? "— nessuna riga corrisponde al filtro —" : "— scegli un giocatore —";
+  empty.textContent =
+    rows.length === 0
+      ? "— nessuna riga corrisponde al filtro —"
+      : "— scegli un giocatore —";
   select.appendChild(empty);
   for (const row of rows) {
     const key = listonePlayerKey(row);
@@ -4503,13 +4907,18 @@ function renderSchedaPicker(pool: readonly ListonePlayer[]): HTMLElement {
     selectSchedaTarget(value === "" ? null : value);
     if (value !== "") focusAfterRender("schede-titolarita");
   });
-  box.appendChild(schedaField("schede-player", "GIOCATORE (DAL LISTONE)", select));
+  box.appendChild(
+    schedaField("schede-player", "GIOCATORE (DAL LISTONE)", select),
+  );
 
   return box;
 }
 
 /** Il modulo: un controllo per campo, nessun testo libero fuori dalla nota. */
-function renderSchedaForm(target: SchedaTarget, pool: readonly ListonePlayer[]): HTMLElement {
+function renderSchedaForm(
+  target: SchedaTarget,
+  pool: readonly ListonePlayer[],
+): HTMLElement {
   const form = document.createElement("div");
   form.id = "schede-form";
   form.className = "schede-form";
@@ -4517,7 +4926,9 @@ function renderSchedaForm(target: SchedaTarget, pool: readonly ListonePlayer[]):
   const heading = document.createElement("h3");
   heading.id = "schede-form-title";
   heading.className = "schede-form__title";
-  const known = state.schedaTargetKey !== null && state.schedaDrafts.schede.has(state.schedaTargetKey);
+  const known =
+    state.schedaTargetKey !== null &&
+    state.schedaDrafts.schede.has(state.schedaTargetKey);
   heading.textContent = `${known ? "Correggi" : "Scrivi"} la scheda — ${target.name} (${target.club})`;
   form.appendChild(heading);
 
@@ -4627,7 +5038,9 @@ function renderSchedaForm(target: SchedaTarget, pool: readonly ListonePlayer[]):
   date.className = "field-input";
   date.type = "date";
   date.value = state.schedaForm.aggiornata;
-  date.addEventListener("input", (e) => updateSchedaForm({ aggiornata: (e.target as HTMLInputElement).value }));
+  date.addEventListener("input", (e) =>
+    updateSchedaForm({ aggiornata: (e.target as HTMLInputElement).value }),
+  );
   date.addEventListener("change", () => persistSchedaEditing());
   grid.appendChild(schedaField("schede-aggiornata", "AGGIORNATA AL", date));
 
@@ -4664,7 +5077,8 @@ function renderSchedaForm(target: SchedaTarget, pool: readonly ListonePlayer[]):
   const notaLabel = document.createElement("label");
   notaLabel.className = "field-label";
   notaLabel.htmlFor = "schede-nota";
-  notaLabel.textContent = "NOTA (IL PERCHÉ DI UN AVVISO, UNA SITUAZIONE DI MERCATO, UN CONTESTO)";
+  notaLabel.textContent =
+    "NOTA (IL PERCHÉ DI UN AVVISO, UNA SITUAZIONE DI MERCATO, UN CONTESTO)";
   const nota = document.createElement("textarea");
   nota.id = "schede-nota";
   nota.className = "field-input schede-nota";
@@ -4781,7 +5195,10 @@ function renderSchedaForm(target: SchedaTarget, pool: readonly ListonePlayer[]):
 function ballottaggioOptions(
   target: SchedaTarget,
   pool: readonly ListonePlayer[],
-): { readonly stessoClub: readonly ListonePlayer[]; readonly altri: readonly ListonePlayer[] } {
+): {
+  readonly stessoClub: readonly ListonePlayer[];
+  readonly altri: readonly ListonePlayer[];
+} {
   const self = listonePlayerKey({ name: target.name, club: target.club });
   const club = normalizeIdentityPart(target.club);
   const stessoClub: ListonePlayer[] = [];
@@ -4792,7 +5209,8 @@ function ballottaggioOptions(
     // giocatore della scheda comparirebbe fra i propri rivali. È la stessa
     // forma con cui `planSchedaImport` indicizza le righe, per la stessa
     // ragione.
-    if (ballottaggioOptionValue({ surface: row.name, club: row.club }) === self) continue;
+    if (ballottaggioOptionValue({ surface: row.name, club: row.club }) === self)
+      continue;
     (normalizeIdentityPart(row.club) === club ? stessoClub : altri).push(row);
   }
   return { stessoClub, altri };
@@ -4819,10 +5237,15 @@ function ballottaggioOptionValue(identita: {
   const surface = identita.surface.trim();
   const club = identita.club.trim();
   if (surface === "") return "";
-  return club === "" ? normalizeIdentityPart(surface) : listonePlayerKey({ name: surface, club });
+  return club === ""
+    ? normalizeIdentityPart(surface)
+    : listonePlayerKey({ name: surface, club });
 }
 
-function renderSchedaBallottaggio(target: SchedaTarget, pool: readonly ListonePlayer[]): HTMLElement {
+function renderSchedaBallottaggio(
+  target: SchedaTarget,
+  pool: readonly ListonePlayer[],
+): HTMLElement {
   const group = document.createElement("fieldset");
   group.id = "schede-ballottaggio";
   group.className = "schede-group";
@@ -4861,7 +5284,10 @@ function renderSchedaBallottaggio(target: SchedaTarget, pool: readonly ListonePl
     // chiave e il modulo dovrebbe ripiegarla in nome e squadra, cioè inventarsi
     // all'indietro le due superfici che la riga ha già scritte giuste.
     const byValue = new Map<string, ListonePlayer>();
-    const appendRows = (rows: readonly ListonePlayer[], label: string): void => {
+    const appendRows = (
+      rows: readonly ListonePlayer[],
+      label: string,
+    ): void => {
       if (rows.length === 0) return;
       const optgroup = document.createElement("optgroup");
       optgroup.label = label;
@@ -4912,7 +5338,9 @@ function renderSchedaBallottaggio(target: SchedaTarget, pool: readonly ListonePl
       // sparisce, e gli indici delle altre si spostano.
       render();
     });
-    row.appendChild(schedaField(`schede-ballottaggio-nome-${i}`, `ALTRO ${i + 1}`, select));
+    row.appendChild(
+      schedaField(`schede-ballottaggio-nome-${i}`, `ALTRO ${i + 1}`, select),
+    );
 
     const quota = document.createElement("input");
     quota.id = `schede-ballottaggio-quota-${i}`;
@@ -4924,7 +5352,9 @@ function renderSchedaBallottaggio(target: SchedaTarget, pool: readonly ListonePl
     quota.setAttribute("inputmode", "numeric");
     quota.value = riga.sharePercent;
     quota.addEventListener("input", (e) => {
-      updateSchedaBallottaggio(i, { sharePercent: (e.target as HTMLInputElement).value });
+      updateSchedaBallottaggio(i, {
+        sharePercent: (e.target as HTMLInputElement).value,
+      });
     });
     quota.addEventListener("change", () => persistSchedaEditing());
     row.appendChild(
@@ -4956,12 +5386,18 @@ function renderSchedaBallottaggio(target: SchedaTarget, pool: readonly ListonePl
  * il numero c'è, e buttarlo via in silenzio sarebbe la perdita che questo
  * pannello esiste per non avere: `buildScheda` lo dice invece.
  */
-function updateSchedaBallottaggio(index: number, patch: Partial<SchedaBallottaggioValues>): void {
+function updateSchedaBallottaggio(
+  index: number,
+  patch: Partial<SchedaBallottaggioValues>,
+): void {
   const righe = [...state.schedaForm.ballottaggio];
   while (righe.length <= index) righe.push(EMPTY_SCHEDA_BALLOTTAGGIO_ROW);
   righe[index] = { ...(righe[index] as SchedaBallottaggioValues), ...patch };
   const compacted = righe.filter(
-    (r) => r.surface.trim() !== "" || r.club.trim() !== "" || r.sharePercent.trim() !== "",
+    (r) =>
+      r.surface.trim() !== "" ||
+      r.club.trim() !== "" ||
+      r.sharePercent.trim() !== "",
   );
   updateSchedaForm({ ballottaggio: compacted });
   // Non persiste qui: come per gli altri numerici, si scrive su `change` e non
@@ -5012,7 +5448,10 @@ function renderSchedaPagella(target: SchedaTarget): HTMLElement {
   verifica.id = "schede-pagella-verifica";
   verifica.className = "hint-text";
   const paintVerifica = (): void => {
-    verifica.textContent = schedaPagellaVerificaText(state.schedaForm.pagella, target.role);
+    verifica.textContent = schedaPagellaVerificaText(
+      state.schedaForm.pagella,
+      target.role,
+    );
   };
 
   const votoInput = (asse: PagellaAsse, etichetta: string): HTMLElement => {
@@ -5044,10 +5483,17 @@ function renderSchedaPagella(target: SchedaTarget): HTMLElement {
     ignoto.textContent = `${PAGELLA_QUARTO_ASSE_IGNOTO}: questa riga di listone non dichiara un ruolo, quindi non si sa quale sia il quarto asse e non se ne sceglie uno al posto suo.`;
     grid.appendChild(ignoto);
   } else {
-    grid.appendChild(votoInput(atteso, `${PAGELLA_ETICHETTE[atteso]} (dal ruolo della riga)`));
+    grid.appendChild(
+      votoInput(atteso, `${PAGELLA_ETICHETTE[atteso]} (dal ruolo della riga)`),
+    );
   }
 
-  grid.appendChild(votoInput(quinto as PagellaAsse, `${PAGELLA_ETICHETTE.pagella_consiglio} (parere della fonte)`));
+  grid.appendChild(
+    votoInput(
+      quinto as PagellaAsse,
+      `${PAGELLA_ETICHETTE.pagella_consiglio} (parere della fonte)`,
+    ),
+  );
 
   // L'asse dell'ALTRO ruolo, solo se una scheda ripresa ne porta uno: c'è per
   // poterlo togliere, e lo dice.
@@ -5058,7 +5504,12 @@ function renderSchedaPagella(target: SchedaTarget): HTMLElement {
         ? "pagella_porta_inviolata"
         : null;
   if (estraneo !== null && state.schedaForm.pagella[estraneo].trim() !== "") {
-    grid.appendChild(votoInput(estraneo, `${PAGELLA_ETICHETTE[estraneo]} — asse di un altro ruolo, da togliere`));
+    grid.appendChild(
+      votoInput(
+        estraneo,
+        `${PAGELLA_ETICHETTE[estraneo]} — asse di un altro ruolo, da togliere`,
+      ),
+    );
   }
 
   const totale = schedaNumberInput(
@@ -5072,7 +5523,11 @@ function renderSchedaPagella(target: SchedaTarget): HTMLElement {
     },
   );
   grid.appendChild(
-    schedaField("schede-pagella-totale", `TOTALE DICHIARATO DALLA FONTE (0–${PAGELLA_TOTALE_MAX})`, totale),
+    schedaField(
+      "schede-pagella-totale",
+      `TOTALE DICHIARATO DALLA FONTE (0–${PAGELLA_TOTALE_MAX})`,
+      totale,
+    ),
   );
 
   group.appendChild(grid);
@@ -5139,7 +5594,9 @@ function renderSchedaList(): HTMLElement {
         ? `Conferma la cancellazione della scheda di ${scheda.player}`
         : `Cancella la scheda di ${scheda.player}`,
     );
-    remove.addEventListener("click", () => (confirming ? deleteScheda(rowKey) : requestSchedaDelete(rowKey)));
+    remove.addEventListener("click", () =>
+      confirming ? deleteScheda(rowKey) : requestSchedaDelete(rowKey),
+    );
     head.appendChild(remove);
 
     if (confirming) {
@@ -5148,7 +5605,10 @@ function renderSchedaList(): HTMLElement {
       cancel.id = `schede-delete-cancel-${rowKey}`;
       cancel.className = "btn btn--secondary";
       cancel.textContent = "No";
-      cancel.setAttribute("aria-label", `Non cancellare la scheda di ${scheda.player}`);
+      cancel.setAttribute(
+        "aria-label",
+        `Non cancellare la scheda di ${scheda.player}`,
+      );
       cancel.addEventListener("click", () => cancelSchedaDelete());
       head.appendChild(cancel);
     }
@@ -5197,7 +5657,10 @@ function renderSchedaDeposit(): HTMLElement {
   download.className = "btn btn--primary";
   download.textContent = "Scarica il deposito";
   download.disabled = !result.ok;
-  if (result.ok) download.addEventListener("click", () => downloadSchedaDeposit(result.text));
+  if (result.ok)
+    download.addEventListener("click", () =>
+      downloadSchedaDeposit(result.text),
+    );
 
   const copy = document.createElement("button");
   copy.type = "button";
@@ -5205,7 +5668,10 @@ function renderSchedaDeposit(): HTMLElement {
   copy.className = "btn btn--secondary";
   copy.textContent = "Copia negli appunti";
   copy.disabled = !result.ok;
-  if (result.ok) copy.addEventListener("click", () => copySchedaDeposit(result.text, result.count));
+  if (result.ok)
+    copy.addEventListener("click", () =>
+      copySchedaDeposit(result.text, result.count),
+    );
 
   actions.append(download, copy);
   box.appendChild(actions);
@@ -5227,8 +5693,13 @@ function renderSchedaDeposit(): HTMLElement {
   importFile.id = "schede-import-file";
   importFile.className = "field-input schede-import-file";
   importFile.accept = "application/json,.json";
-  importFile.setAttribute("aria-label", "Scegli il file di deposito da riprendere");
-  importFile.addEventListener("change", (e) => readSchedaImportFile(e.target as HTMLInputElement));
+  importFile.setAttribute(
+    "aria-label",
+    "Scegli il file di deposito da riprendere",
+  );
+  importFile.addEventListener("change", (e) =>
+    readSchedaImportFile(e.target as HTMLInputElement),
+  );
   box.appendChild(importFile);
 
   if (state.schedaImportError) {
@@ -5240,7 +5711,8 @@ function renderSchedaDeposit(): HTMLElement {
     box.appendChild(error);
   }
 
-  if (state.schedaImport !== null) box.appendChild(renderSchedaImportPreview(state.schedaImport));
+  if (state.schedaImport !== null)
+    box.appendChild(renderSchedaImportPreview(state.schedaImport));
 
   return box;
 }
@@ -5327,7 +5799,11 @@ function renderTableDetail(
   // `auctionDisplayIndex()` is the same one-index-per-render helper STORICO
   // and Rose already use: no per-acquisition scan of the pool.
   body.appendChild(
-    renderWarBoardFull(warBoardRows(aState, SELF_ID), seatLabelMap(), auctionDisplayIndex()),
+    renderWarBoardFull(
+      warBoardRows(aState, SELF_ID),
+      seatLabelMap(),
+      auctionDisplayIndex(),
+    ),
   );
   section.appendChild(body);
 
@@ -5484,7 +5960,9 @@ function renderMomentoChiamata(
   optAllClubs.value = "";
   optAllClubs.textContent = "Tutte";
   clubSelect.appendChild(optAllClubs);
-  const poolClubs = [...new Set(state.pool.map((p) => p.club))].sort((a, b) => a.localeCompare(b, "it"));
+  const poolClubs = [...new Set(state.pool.map((p) => p.club))].sort((a, b) =>
+    a.localeCompare(b, "it"),
+  );
   for (const club of poolClubs) {
     const opt = document.createElement("option");
     opt.value = club;
@@ -5532,7 +6010,8 @@ function renderMomentoChiamata(
   const resetBtn = document.createElement("button");
   resetBtn.type = "button";
   resetBtn.textContent = "✕ Reset";
-  resetBtn.title = "Cancella ricerca e selezione corrente (nessuna azione sullo storico acquisti)";
+  resetBtn.title =
+    "Cancella ricerca e selezione corrente (nessuna azione sullo storico acquisti)";
   resetBtn.style.cssText = `background:transparent;color:${C.textDim};font-size:12.5px;font-weight:600;padding:10px 14px;border-radius:7px;border:1px solid ${C.border};cursor:pointer;flex:none;`;
   resetBtn.addEventListener("click", resetListoneSearch);
 
@@ -5546,7 +6025,9 @@ function renderMomentoChiamata(
   const hint = document.createElement("div");
   hint.className = "hint-text";
   hint.style.marginTop = "8px";
-  const roleError = state.call.selectedPlayer ? requiredRoleError(state.call.role) : null;
+  const roleError = state.call.selectedPlayer
+    ? requiredRoleError(state.call.role)
+    : null;
   if (roleError) {
     hint.setAttribute("role", "alert");
     hint.style.color = C.stopRed;
@@ -5621,13 +6102,17 @@ function renderMomentoChiamata(
   suggestedEyebrow.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.06em;color:${C.textSec};margin-bottom:4px;`;
   suggestedEyebrow.textContent = "GIOCATORE SUGGERITO — CHI CHIAMARE ORA";
   suggestedFirst.appendChild(suggestedEyebrow);
-  suggestedFirst.appendChild(renderPerMeSection(perMeSectionProps(aState), selectListonePlayer));
+  suggestedFirst.appendChild(
+    renderPerMeSection(perMeSectionProps(aState), selectListonePlayer),
+  );
   suggested.appendChild(suggestedFirst);
   // SECONDA METÀ — «chi chiamare per far spendere gli altri». `onSelect` è
   // `selectListonePlayer`, cioè L'UNICA via che arma la CTA «Avvia»: il
   // candidato È una riga di listone, quindi la stessa funzione si applica senza
   // adattatori e non nasce una seconda superficie di selezione.
-  suggested.appendChild(renderBaitSection(baitSectionProps(aState), selectListonePlayer));
+  suggested.appendChild(
+    renderBaitSection(baitSectionProps(aState), selectListonePlayer),
+  );
   wrap.appendChild(suggested);
 
   // Il listone sta SOTTO il blocco del giocatore suggerito (richiesta di Pico,
@@ -5646,7 +6131,12 @@ function renderMomentoChiamata(
   const assignedKeys = new Set(aState.purchasedPlayerIds);
   const displayPool = filterListonePool(
     state.pool,
-    { text: state.call.playerName, role: state.call.role, club: state.call.club, status: state.poolStatusFilter },
+    {
+      text: state.call.playerName,
+      role: state.call.role,
+      club: state.call.club,
+      status: state.poolStatusFilter,
+    },
     assignedKeys,
   );
   // Un lookup solo per tutto il render, e la sua memo NON muore con il render:
@@ -5662,12 +6152,16 @@ function renderMomentoChiamata(
         displayPool,
         loadError: state.poolLoadError,
         sourceNote: listoneSourceNote(
-          state.poolSource, state.poolModifiedAt, poolHasAppealIndex(state.pool),
+          state.poolSource,
+          state.poolModifiedAt,
+          poolHasAppealIndex(state.pool),
         ),
         appealIndexNote: listoneAppealIndexNote(state.pool),
         // I conteggi di #33 girano solo quando c'è qualcosa da contare: la
         // nota lo dice, e oggi dice che i voti non sono ancora estratti.
-        expertSignalsNote: listoneExpertSignalsNote(listoneExpertPagellaViews(signalsInput)),
+        expertSignalsNote: listoneExpertSignalsNote(
+          listoneExpertPagellaViews(signalsInput),
+        ),
         sort: state.poolSort,
         visibleColumnKeys: listoneVisibleColumnKeys(),
         rowSignals,
@@ -5678,7 +6172,9 @@ function renderMomentoChiamata(
         assignedKeys,
         statusFilter: state.poolStatusFilter,
         statusFilterOpen: state.poolStatusFilterOpen,
-        selectedKey: state.call.selectedPlayer ? listonePlayerKey(state.call.selectedPlayer) : null,
+        selectedKey: state.call.selectedPlayer
+          ? listonePlayerKey(state.call.selectedPlayer)
+          : null,
       },
       {
         onFileText: loadPoolFromText,
@@ -5726,7 +6222,11 @@ const THIRD_GOALKEEPER_ZERO_LABEL = "Dichiaro e registro a 0 cr";
  * messaggio d'errore del prezzo) e devono dire tutti la stessa cosa.
  */
 function isThirdGoalkeeperSlot(assignTeam: TeamState | undefined): boolean {
-  return state.call.role === "P" && assignTeam !== undefined && assignTeam.slotsRemaining.P === 1;
+  return (
+    state.call.role === "P" &&
+    assignTeam !== undefined &&
+    assignTeam.slotsRemaining.P === 1
+  );
 }
 
 /**
@@ -5835,7 +6335,10 @@ function assignAfterProjection(
  * muta a schermo pur avendola calcolata. Successo davvero, alla prima stesura;
  * la spec e2e ora lo intercetta perché asserisce il TESTO, non la presenza.
  */
-function fillAssignAfter(box: HTMLElement, projection: PostPurchaseProjection | null): void {
+function fillAssignAfter(
+  box: HTMLElement,
+  projection: PostPurchaseProjection | null,
+): void {
   const label = box.querySelector("#assign-after-label");
   const value = box.querySelector("#assign-after-value");
   const alarm = box.querySelector("#assign-after-alarm");
@@ -5845,14 +6348,19 @@ function fillAssignAfter(box: HTMLElement, projection: PostPurchaseProjection | 
     return;
   }
   box.hidden = false;
-  label.textContent = projectionLabelText(displayTeamLabel(projection.fantaTeamId));
+  label.textContent = projectionLabelText(
+    displayTeamLabel(projection.fantaTeamId),
+  );
   value.textContent = projectionValueText(projection);
   const alarmText = projectionAlarmText(projection);
   alarm.textContent = alarmText;
   box.classList.toggle("assign-after--alarm", alarmText !== "");
 }
 
-function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): HTMLElement {
+function renderMomentoAsta(
+  aState: AuctionState,
+  team: TeamState | undefined,
+): HTMLElement {
   const wrap = document.createElement("div");
 
   // Back link
@@ -5897,7 +6405,10 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   const card = document.createElement("section");
   card.id = "call-card";
   card.className = "call-card";
-  card.setAttribute("aria-label", "Giocatore chiamato: prezzo, momento del ruolo e assegnazione");
+  card.setAttribute(
+    "aria-label",
+    "Giocatore chiamato: prezzo, momento del ruolo e assegnazione",
+  );
 
   // Player info + maxSafe row
   const topRow = document.createElement("div");
@@ -5913,13 +6424,21 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   if (state.call.role) {
     const roleSpan = document.createElement("span");
     roleSpan.style.cssText = `font-size:14px;font-weight:400;color:${C.textSec};display:inline-flex;align-items:center;gap:5px;`;
-    roleSpan.append("— ", renderRoleChip(state.call.role), ` ${ROLE_LABEL_SING[state.call.role as Role]}`);
+    roleSpan.append(
+      "— ",
+      renderRoleChip(state.call.role),
+      ` ${ROLE_LABEL_SING[state.call.role as Role]}`,
+    );
     callName.appendChild(roleSpan);
   }
   if (state.call.club) {
     const clubSpan = document.createElement("span");
     clubSpan.style.cssText = `font-size:14px;font-weight:400;color:${C.textSec};display:inline-flex;align-items:center;gap:5px;`;
-    clubSpan.append("· ", renderClubBadge(state.call.club), ` ${state.call.club}`);
+    clubSpan.append(
+      "· ",
+      renderClubBadge(state.call.club),
+      ` ${state.call.club}`,
+    );
     callName.appendChild(clubSpan);
   }
   playerInfo.appendChild(callLabel);
@@ -5941,8 +6460,11 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   // seconda derivazione. La nota di max_safe qui sotto legge il secondo, così
   // non può dichiarare indisponibile un acquisto che il bottone registrerebbe.
   const zeroGestureAvailable = isThirdGoalkeeperSlot(assignTeam);
-  const zeroProposal = zeroGestureAvailable ? thirdGoalkeeperZeroProposal() : null;
-  const zeroAdmitted = zeroProposal !== null && purchaseFeasibility(aState, zeroProposal).ok;
+  const zeroProposal = zeroGestureAvailable
+    ? thirdGoalkeeperZeroProposal()
+    : null;
+  const zeroAdmitted =
+    zeroProposal !== null && purchaseFeasibility(aState, zeroProposal).ok;
 
   if (assignTeam && state.call.role) {
     const ms = maxSafe(assignTeam, state.call.role as Role);
@@ -5953,7 +6475,9 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
     priceDisplay.id = "price-display";
     priceDisplay.className = "kpi-value";
     priceDisplay.style.cssText = `font-size:32px;color:${C.textPrimary};background:${C.panelInner};border-radius:7px;padding:6px 16px;display:inline-block;`;
-    priceDisplay.textContent = state.assign.price ? `${state.assign.price} cr` : "— cr";
+    priceDisplay.textContent = state.assign.price
+      ? `${state.assign.price} cr`
+      : "— cr";
     // #333 §A — QUESTO NUMERO SI CHIAMA COME SI CHIAMA ALTROVE. Era «max per
     // completare la rosa di X»: terza formulazione per la cifra che la fascia
     // critica chiama «Max bid sicuro» e la war board «max bid», e la sola per
@@ -5973,7 +6497,10 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
     // contraddizione. La coda qui sotto la toglie, e la toglie solo quando è
     // purchaseFeasibility() a dire di sì.
     const ceiling = ms.biddable ? `${ms.maxSafe} cr` : "n/d";
-    const zeroTail = !ms.biddable && zeroAdmitted ? " — resta solo il terzo portiere a 0 cr" : "";
+    const zeroTail =
+      !ms.biddable && zeroAdmitted
+        ? " — resta solo il terzo portiere a 0 cr"
+        : "";
     maxSafeNote.textContent = `${MAX_BID_LABEL_LONG} di ${displayTeamLabel(state.assign.fantaTeamId)}: ${ceiling}${zeroTail}`;
     maxSafeWrap.appendChild(priceLabel);
     maxSafeWrap.appendChild(priceDisplay);
@@ -6044,7 +6571,8 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
 
   const headNote = document.createElement("div");
   headNote.className = "hint-text assign-block__note";
-  headNote.textContent = "Il prezzo viene registrato nello storico; il piano rosa viene rivalutato subito dopo.";
+  headNote.textContent =
+    "Il prezzo viene registrato nello storico; il piano rosa viene rivalutato subito dopo.";
   assignHead.appendChild(headNote);
   divider.appendChild(assignHead);
 
@@ -6064,7 +6592,8 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   for (const tid of FANTA_TEAM_IDS) {
     const opt = document.createElement("option");
     opt.value = tid;
-    opt.textContent = tid === SELF_ID ? `${displayTeamLabel(tid)} (io)` : displayTeamLabel(tid);
+    opt.textContent =
+      tid === SELF_ID ? `${displayTeamLabel(tid)} (io)` : displayTeamLabel(tid);
     if (state.assign.fantaTeamId === tid) opt.selected = true;
     teamSelect.appendChild(opt);
   }
@@ -6101,7 +6630,8 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
     state.assign.price = (e.target as HTMLInputElement).value;
     // live-update maxSafe price display without full re-render
     const pd = wrap.querySelector("#price-display");
-    if (pd) pd.textContent = state.assign.price ? `${state.assign.price} cr` : "— cr";
+    if (pd)
+      pd.textContent = state.assign.price ? `${state.assign.price} cr` : "— cr";
     // Stesso motivo, stesso idioma, per «dopo l'acquisto»: è la risposta a
     // «quanto mi resta se lo prendo A QUESTA CIFRA», quindi deve seguire la
     // cifra mentre viene battuta, non l'ultima cifra registrata.
@@ -6189,7 +6719,9 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
     zeroBtn.style.flex = "none";
     zeroBtn.title =
       "Un solo click: dichiara che le condizioni del regolamento sono soddisfatte adesso e registra l'acquisto a 0 crediti. La dichiarazione resta nello storico.";
-    zeroBtn.addEventListener("click", () => registerThirdGoalkeeperZero(aState));
+    zeroBtn.addEventListener("click", () =>
+      registerThirdGoalkeeperZero(aState),
+    );
     zeroWrap.appendChild(zeroNote);
     zeroWrap.appendChild(zeroBtn);
     divider.appendChild(zeroWrap);
@@ -6229,7 +6761,10 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   wrap.appendChild(
     renderLateAnswerBlock({
       state: lateAnswerSlot.state(),
-      subjectLabel: state.call.playerName === "" ? "il giocatore chiamato" : state.call.playerName,
+      subjectLabel:
+        state.call.playerName === ""
+          ? "il giocatore chiamato"
+          : state.call.playerName,
     }),
   );
 
@@ -6239,7 +6774,9 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   // nessun dettaglio — il dettaglio vive nella variante COMPLETA del momento
   // di chiamata. La riga di legenda («bdg = crediti residui · max bid = …») è
   // parte di questo pannello (renderWarBoardMini) e si sposta con lui.
-  wrap.appendChild(renderWarBoardMini(warBoardRows(aState, SELF_ID), seatLabelMap()));
+  wrap.appendChild(
+    renderWarBoardMini(warBoardRows(aState, SELF_ID), seatLabelMap()),
+  );
 
   // IL RUOLO STASERA — che cosa è successo al ruolo in asta stasera (quanti ne
   // sono passati, da chi, a che prezzi) e quanti posti di quel ruolo restano
@@ -6268,7 +6805,9 @@ function renderMomentoAsta(aState: AuctionState, team: TeamState | undefined): H
   // impilamento sono quelli di prima.
   const suggestionsGrid = document.createElement("div");
   suggestionsGrid.className = "moment-blocks-grid moment-blocks-grid--single";
-  suggestionsGrid.appendChild(renderOpponentPrecedentsBlock(opponentPrecedentsProps()));
+  suggestionsGrid.appendChild(
+    renderOpponentPrecedentsBlock(opponentPrecedentsProps()),
+  );
   wrap.appendChild(suggestionsGrid);
 
   return wrap;
@@ -6294,7 +6833,10 @@ function launchAsta(): void {
  * form and the command line so the SAME violation never gets two different
  * explanations depending on which input path produced it.
  */
-function feasibilityErrorText(violations: readonly string[], role: Role): string {
+function feasibilityErrorText(
+  violations: readonly string[],
+  role: Role,
+): string {
   const msgs: Record<string, string> = {
     "unknown-team": "Squadra sconosciuta.",
     "role-full": `Nessuno slot ${ROLE_LABEL_SING[role]} disponibile per questa squadra.`,
@@ -6306,7 +6848,8 @@ function feasibilityErrorText(violations: readonly string[], role: Role): string
     "price-invalid": "Il prezzo deve essere un numero intero.",
     "price-below-floor": "Il prezzo deve essere almeno 1 cr.",
     "insufficient-budget": "Budget insufficiente per questa squadra.",
-    "breaks-hard-reserve": "Questo acquisto renderebbe impossibile completare la rosa (hard reserve violata).",
+    "breaks-hard-reserve":
+      "Questo acquisto renderebbe impossibile completare la rosa (hard reserve violata).",
   };
   return violations.map((v) => msgs[v] ?? v).join(" ");
 }
@@ -6319,7 +6862,11 @@ function feasibilityErrorText(violations: readonly string[], role: Role): string
  * regardless of which gesture produced `proposed`, so `max_safe`/hard
  * reserve stay non-overridable no matter which UI path is used.
  */
-function commitPurchase(aState: AuctionState, proposed: ProposedPurchase, role: Role): void {
+function commitPurchase(
+  aState: AuctionState,
+  proposed: ProposedPurchase,
+  role: Role,
+): void {
   const feasibility = purchaseFeasibility(aState, proposed);
   if (!feasibility.ok) {
     state.error = feasibilityErrorText(feasibility.violations, role);
@@ -6328,12 +6875,23 @@ function commitPurchase(aState: AuctionState, proposed: ProposedPurchase, role: 
   }
 
   try {
-    const newLog = recordPurchase(state.log, aState, proposed, new Date().toISOString());
+    const newLog = recordPurchase(
+      state.log,
+      aState,
+      proposed,
+      new Date().toISOString(),
+    );
     // `state.log` is the baseline this purchase was computed FROM: it is what
     // arms the optimistic-concurrency guard (audit fix 1), so a second tab
     // that moved the canonical underneath gets a refusal, not a silent
     // overwrite.
-    const saveResult = saveAuctionLog(browserStorage, newLog, FANTA_TEAM_IDS, state.log, state.confirmations);
+    const saveResult = saveAuctionLog(
+      browserStorage,
+      newLog,
+      FANTA_TEAM_IDS,
+      state.log,
+      state.confirmations,
+    );
     if (!saveResult.ok) {
       // Fail-closed: the in-memory log is never advanced past what was
       // actually persisted — no false "saved" state, no silent data loss
@@ -6356,7 +6914,8 @@ function commitPurchase(aState: AuctionState, proposed: ProposedPurchase, role: 
     // ragione — un elenco vuoto.
     const flagged = currentInterestMarks();
     const purchaseSeq = newLog[newLog.length - 1]?.seq;
-    if (purchaseSeq !== undefined) recordInterestFlag(purchaseSeq, proposed, flagged);
+    if (purchaseSeq !== undefined)
+      recordInterestFlag(purchaseSeq, proposed, flagged);
     state.interestMarks = { subjectKey: null, contenders: [] };
     state.moment = "chiamata";
     state.chiamataFocusPending = true;
@@ -6420,7 +6979,11 @@ function priceRejectedText(raw: string, aState: AuctionState): string {
   // Solo uno zero (anche scritto "00" o con spazi): un prezzo negativo o una
   // parola non sono il caso del regolamento e non vanno indirizzati lì.
   const typedZero = /^0+$/.test(raw.trim());
-  if (!typedZero || !isThirdGoalkeeperSlot(aState.teams[state.assign.fantaTeamId])) return base;
+  if (
+    !typedZero ||
+    !isThirdGoalkeeperSlot(aState.teams[state.assign.fantaTeamId])
+  )
+    return base;
   return `${base} Per il terzo portiere a 0 usa il bottone «${THIRD_GOALKEEPER_ZERO_LABEL}».`;
 }
 
@@ -6454,7 +7017,9 @@ function registerThirdGoalkeeperZero(aState: AuctionState): void {
 /** Human-readable, non-alarmist explanation of a failed save — always
  *  paired with an explicit statement that nothing was applied, per
  *  LIVE-02's "mai dichiarare falsamente un salvataggio avvenuto". */
-function persistenceErrorMessage(result: Extract<SaveLogResult, { ok: false }>): string {
+function persistenceErrorMessage(
+  result: Extract<SaveLogResult, { ok: false }>,
+): string {
   if (result.reason === "partial-write") {
     return `Persistenza in stato indeterminato (${result.message}). Le azioni sono bloccate: usa Riprova per rileggere lo stato effettivo.`;
   }
@@ -6467,7 +7032,9 @@ function persistenceErrorMessage(result: Extract<SaveLogResult, { ok: false }>):
   return `Impossibile salvare nel browser (${result.message}). La modifica NON è stata applicata.`;
 }
 
-function handleSaveFailure(result: Extract<SaveLogResult, { ok: false }>): void {
+function handleSaveFailure(
+  result: Extract<SaveLogResult, { ok: false }>,
+): void {
   const message = persistenceErrorMessage(result);
   if (result.reason === "partial-write") {
     state.recovery = {
@@ -6499,7 +7066,8 @@ function renderZona4(aState: AuctionState): HTMLElement {
   title.className = "panel-title";
   title.textContent = "STORICO ACQUISTI";
   const actions = document.createElement("div");
-  actions.style.cssText = "display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;";
+  actions.style.cssText =
+    "display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;";
   const exportBtn = document.createElement("button");
   exportBtn.id = "auction-log-export";
   exportBtn.type = "button";
@@ -6555,7 +7123,12 @@ function renderZona4(aState: AuctionState): HTMLElement {
   entries.forEach((entry, idx) => {
     if (entry.type !== "PURCHASE") return;
     const isLatest = idx === 0;
-    const time = entry.ts ? new Date(entry.ts).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }) : "";
+    const time = entry.ts
+      ? new Date(entry.ts).toLocaleTimeString("it-IT", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : "";
     const row = document.createElement("div");
     row.style.cssText = `display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid ${C.border};font-size:14px;`;
 
@@ -6609,7 +7182,10 @@ function renderZona4(aState: AuctionState): HTMLElement {
       // Rebuilt on the click, not captured from the render above: the label in
       // the confirmation must name the player as the pool CURRENTLY on screen
       // does, exactly as before this panel got its index.
-      const playerDisplay = resolvePlayerDisplayName(entry.playerId, auctionDisplayIndex());
+      const playerDisplay = resolvePlayerDisplayName(
+        entry.playerId,
+        auctionDisplayIndex(),
+      );
       state.confirmVoidSeq = entry.seq;
       // La dichiarazione segue l'acquisto anche qui: chi sta per annullare uno
       // 0 deve sapere se sta cancellando un errore o una scelta dichiarata.
@@ -6678,7 +7254,10 @@ function renderVoidConfirm(): HTMLElement {
   keepBtn.className = "btn btn--secondary";
   keepBtn.dataset.dialogInitialFocus = "";
   keepBtn.addEventListener("click", () => {
-    const returnId = state.confirmVoidSeq === null ? criticalFocusAnchorId() : `undo-purchase-${state.confirmVoidSeq}`;
+    const returnId =
+      state.confirmVoidSeq === null
+        ? criticalFocusAnchorId()
+        : `undo-purchase-${state.confirmVoidSeq}`;
     state.confirmVoidSeq = null;
     state.confirmVoidLabel = "";
     render();
@@ -6741,7 +7320,10 @@ function renderVoidConfirm(): HTMLElement {
   });
 
   activateAccessibleDialog(overlay, modal, () => {
-    const returnId = state.confirmVoidSeq === null ? criticalFocusAnchorId() : `undo-purchase-${state.confirmVoidSeq}`;
+    const returnId =
+      state.confirmVoidSeq === null
+        ? criticalFocusAnchorId()
+        : `undo-purchase-${state.confirmVoidSeq}`;
     state.confirmVoidSeq = null;
     state.confirmVoidLabel = "";
     render();

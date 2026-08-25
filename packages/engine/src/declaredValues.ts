@@ -71,39 +71,68 @@ export type UnratifiedChoiceId =
   | "PAGELLA_POSITION_IS_TOTAL_OVER_MAX" // rapporto sul fondo scala, non scarto dal punto medio
   // ── Le due letture del sottoblocco «PER ME» (src/perMeCandidates.ts) ──────
   | "PER_ME_ORDER_APPEAL_BREAKS_SURPLUS_TIES" // chi decide a parità di surplus, e senza surplus
-  | "PER_ME_REQUIRES_COMPLETE_ROLE_PLAN"; // senza piano completo il sottoblocco tace
+  | "PER_ME_REQUIRES_COMPLETE_ROLE_PLAN" // senza piano completo il sottoblocco tace
+  // ── Le otto letture dell'indice relativo (relativeIndex.ts). Pico ha deciso
+  //    la FORMA il 2026-08-24 («un punteggio da 0 a 100»); qui restano aperte le
+  //    letture che quella decisione NON nomina. `RELATIVE_NUMBER_IS_A_POSITION`
+  //    è uscita dal vocabolario insieme alla forma che dichiarava.
+  | "RELATIVE_SCORE_IS_SHARE_OF_FREE_RANKED" // il riscalamento è la quota degli altri liberi ordinati che precede
+  | "RELATIVE_DENOMINATOR_IS_FREE_RANKED" // il denominatore conta i liberi ORDINATI, non i liberi
+  | "RELATIVE_ONLY_FREE_HAS_NO_SCORE" // con un solo libero ordinato la quota è 0/0: `n/d`, non 0 e non 100
+  | "RELATIVE_SCORE_TIES_ONLY_FROM_RENDERING" // il numero è esatto; è la resa a poter creare pareggi
+  | "RELATIVE_TIES_BY_DECLARED_ORDER" // «superiore a lui» letto sull'ordine dichiarato, pareggi compresi
+  | "RELATIVE_TAKEN_INCLUDES_CONFIRMED" // riconfermato = non prendibile, come per l'occupazione delle fasce
+  | "RELATIVE_ORDER_INCLUDES_FONDO" // anche chi è oltre l'ultima fascia entra nel conto
+  | "RELATIVE_OWNERSHIP_BESIDE_THE_NUMBER"; // «quanti ne ho presi io» resta accanto, non dentro
 
 /** Perché ciascuna scelta è aperta. Testo macchina-leggibile, non prosa libera. */
-export const UNRATIFIED_CHOICES: Readonly<Record<UnratifiedChoiceId, string>> = {
-  OPPORTUNITY_MIN_QUALITY:
-    "soglia del gate occasioni non registrata in docs/: il motore decide che «media» non basta",
-  CLIFF_GAP_RATIO:
-    "confine del cliff non registrato in docs/: un credito di differenza ribalta l'etichetta mostrata",
-  REGRET_BAND_LEVELS:
-    "fascia a tre livelli scelta dal motore, mentre livePlan/cliff rifiutano le fasce citando §D9",
-  V_WITHOUT_EQUALS_OPPORTUNITY_COST:
-    "§4.2 tratta V(WITHOUT) e opportunityCost come grandezze distinte: identificarle è una lettura del motore",
-  ANCHOR_QUALIFICATION_REQUIRES_ROLE_SAMPLE:
-    "richiedere il campione DEL RUOLO per qualificare un'ancora è la lettura stretta: nessun documento la fissa",
-  WIDTH_GATE_MIDPOINT_DIMENSION_OFF:
-    "§4.2 impone due dimensioni sulla larghezza: qui chiude solo il budget residuo, il midpoint è misurato e inattivo",
-  ABSOLUTE_BASE_UNIFORM_PER_SLOT:
-    "ripartire il budget del ruolo in parti UGUALI fra i suoi slot è l'unica divisione senza pesi dichiarati, ma nessun documento la fissa",
-  ABSOLUTE_BASE_EXCLUDES_FONDO:
-    "chi sta oltre l'ultima fascia non occupa uno slot della ripartizione: qui non ha base, e nessun documento dice che debba averne una",
-  CONCORRENZA_SCALE_SYMMETRIC:
-    "il vocabolario ordina tre parole, non dichiara che il passo sopra e sotto quella di mezzo sia lo stesso",
-  CONCORRENZA_ONLY_TITOLARITA:
-    "ballottaggio e gerarchia sono fatti dichiarati dalla scheda, ma portarli nella stessa unità della titolarità richiederebbe una conversione che nessuno ha dichiarato",
-  COPPE_BASELINE_IS_ABSENCE:
-    "«non gioca in Europa» è trattato come linea di base (0) e non come l'opposto di «ci gioca»: è una lettura, non il dato",
-  PAGELLA_POSITION_IS_TOTAL_OVER_MAX:
-    "il totale entra come rapporto sul fondo scala della fonte: uno scarto dal punto medio sarebbe altrettanto scrivibile e nessuno ha scelto",
-  PER_ME_ORDER_APPEAL_BREAKS_SURPLUS_TIES:
-    "l'ordine «piano prima, surplus poi» viene dalla decisione di Pico del 2026-08-25 (in sessione: il piano filtra, il surplus ordina); che a parità di surplus — e per le righe senza valore dichiarato, dove un surplus non esiste — decida la posizione nell'ordine di appetibilità del ruolo è invece una lettura del motore, e nessun documento assegna quel posto a quel criterio",
-  PER_ME_REQUIRES_COMPLETE_ROLE_PLAN:
-    "«dentro il mio piano» è il primo criterio dell'ordine: qui senza piano completo il sottoblocco tace invece di ordinare con un criterio in meno, e nessun documento sceglie fra le due",
-};
+export const UNRATIFIED_CHOICES: Readonly<Record<UnratifiedChoiceId, string>> =
+  {
+    OPPORTUNITY_MIN_QUALITY:
+      "soglia del gate occasioni non registrata in docs/: il motore decide che «media» non basta",
+    CLIFF_GAP_RATIO:
+      "confine del cliff non registrato in docs/: un credito di differenza ribalta l'etichetta mostrata",
+    REGRET_BAND_LEVELS:
+      "fascia a tre livelli scelta dal motore, mentre livePlan/cliff rifiutano le fasce citando §D9",
+    V_WITHOUT_EQUALS_OPPORTUNITY_COST:
+      "§4.2 tratta V(WITHOUT) e opportunityCost come grandezze distinte: identificarle è una lettura del motore",
+    ANCHOR_QUALIFICATION_REQUIRES_ROLE_SAMPLE:
+      "richiedere il campione DEL RUOLO per qualificare un'ancora è la lettura stretta: nessun documento la fissa",
+    WIDTH_GATE_MIDPOINT_DIMENSION_OFF:
+      "§4.2 impone due dimensioni sulla larghezza: qui chiude solo il budget residuo, il midpoint è misurato e inattivo",
+    ABSOLUTE_BASE_UNIFORM_PER_SLOT:
+      "ripartire il budget del ruolo in parti UGUALI fra i suoi slot è l'unica divisione senza pesi dichiarati, ma nessun documento la fissa",
+    ABSOLUTE_BASE_EXCLUDES_FONDO:
+      "chi sta oltre l'ultima fascia non occupa uno slot della ripartizione: qui non ha base, e nessun documento dice che debba averne una",
+    CONCORRENZA_SCALE_SYMMETRIC:
+      "il vocabolario ordina tre parole, non dichiara che il passo sopra e sotto quella di mezzo sia lo stesso",
+    CONCORRENZA_ONLY_TITOLARITA:
+      "ballottaggio e gerarchia sono fatti dichiarati dalla scheda, ma portarli nella stessa unità della titolarità richiederebbe una conversione che nessuno ha dichiarato",
+    COPPE_BASELINE_IS_ABSENCE:
+      "«non gioca in Europa» è trattato come linea di base (0) e non come l'opposto di «ci gioca»: è una lettura, non il dato",
+    PAGELLA_POSITION_IS_TOTAL_OVER_MAX:
+      "il totale entra come rapporto sul fondo scala della fonte: uno scarto dal punto medio sarebbe altrettanto scrivibile e nessuno ha scelto",
+    PER_ME_ORDER_APPEAL_BREAKS_SURPLUS_TIES:
+      "l'ordine «piano prima, surplus poi» viene dalla decisione di Pico del 2026-08-25 (in sessione: il piano filtra, il surplus ordina); che a parità di surplus — e per le righe senza valore dichiarato, dove un surplus non esiste — decida la posizione nell'ordine di appetibilità del ruolo è invece una lettura del motore, e nessun documento assegna quel posto a quel criterio",
+    PER_ME_REQUIRES_COMPLETE_ROLE_PLAN:
+      "«dentro il mio piano» è il primo criterio dell'ordine: qui senza piano completo il sottoblocco tace invece di ordinare con un criterio in meno, e nessun documento sceglie fra le due",
+    RELATIVE_SCORE_IS_SHARE_OF_FREE_RANKED:
+      "Pico ha deciso la scala (0-100) e non la curva: qui il riscalamento è scritto come QUOTA degli altri liberi ordinati che il chiamato precede, cioè l'unica forma senza parametri liberi (riscalare linearmente un rango coincide con il percent rank inclusivo). La dimostrazione è nell'intestazione del modulo, ma la lettura resta nostra",
+    RELATIVE_DENOMINATOR_IS_FREE_RANKED:
+      "il denominatore conta i liberi ORDINATI e non i liberi: un giocatore senza verdetto non sta nell'ordine e non è mai stato confrontato col chiamato, ma nessun documento fissa quale delle due popolazioni accompagni il numero",
+    RELATIVE_ONLY_FREE_HAS_NO_SCORE:
+      "con un solo libero ordinato nel ruolo la quota sarebbe 0/0 e il numero non esiste: si dichiara `n/d` col motivo invece di scegliere 0 o 100, che la stessa regola imporrebbe entrambi. Nessuno ha firmato questa chiusura",
+    RELATIVE_SCORE_TIES_ONLY_FROM_RENDERING:
+      "il punteggio esce esatto e non viene arrotondato dal motore; la resa ne stampa un decimale, e questo può far mostrare lo stesso numero a due giocatori distinti oltre i 1001 liberi ordinati nello stesso ruolo — misurato e pinnato, non promesso, ma la regola di resa non è di Pico",
+    RELATIVE_TIES_BY_DECLARED_ORDER:
+      "«indice superiore a lui» è letto sull'ordine dichiarato (pareggi rotti da APPEAL_ORDER_TIE_BREAK) e non sul confronto nudo dei punteggi: le due letture divergono sui pari punteggio",
+    RELATIVE_TAKEN_INCLUDES_CONFIRMED:
+      "un giocatore riconfermato conta fra i NON prendibili, come già in TierOccupancy.freeCount: nessun documento lo fissa per questo numero",
+    RELATIVE_ORDER_INCLUDES_FONDO:
+      "chi sta oltre l'ultima fascia entra comunque nel conto dei liberi sopra di lui, al contrario di quanto fa la base del valore assoluto: la differenza è una lettura, non il dato",
+    RELATIVE_OWNERSHIP_BESIDE_THE_NUMBER:
+      "«quanti ne ho presi io e quanti gli avversari» restano fatti misurati ACCANTO al punteggio: farli entrare nel numero richiederebbe un coefficiente che nessuno ha dichiarato",
+  };
 
 /**
  * Lo stato di ratifica che accompagna un giudizio costruito su almeno una
@@ -175,7 +204,8 @@ export function validateDeclaredValues(
     else if (seen.has(v.playerId)) add("duplicate-player");
     else seen.add(v.playerId);
 
-    if (!Number.isFinite(v.declaredValue) || v.declaredValue < 0) add("declared-value-invalid");
+    if (!Number.isFinite(v.declaredValue) || v.declaredValue < 0)
+      add("declared-value-invalid");
   });
 
   return { ok: issues.length === 0, issues };
@@ -218,7 +248,10 @@ export function declaredValueBook(
  * `null` esplicito e mai 0: «vale zero per me» e «non l'ho ancora valutato»
  * sono due fatti diversi, e solo il primo è una dichiarazione.
  */
-export function declaredValueOf(playerId: string, book: DeclaredValueBook): number | null {
+export function declaredValueOf(
+  playerId: string,
+  book: DeclaredValueBook,
+): number | null {
   const entry = book.byPlayerId.get(playerId);
   return entry === undefined ? null : entry.declaredValue;
 }
