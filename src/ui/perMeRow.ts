@@ -8,20 +8,31 @@
 //
 // IL TITOLO NOMINA CIÒ CHE IL BLOCCO CONTIENE, NON UN'INTENZIONE — la regola
 // con cui ./liveFacts.ts ha corretto «INTERESSE SUL GIOCATORE» in «I
-// PRECEDENTI». Qui la regola morde più del solito, perché la frase spontanea
-// («chi costa meno di quanto vale per te») è proprio quella che il blocco NON
-// può più dire: il valore per me è stato smontato da Pico il 2026-08-24, e con
-// lui la sottrazione che la reggeva. L'occhiello per esteso dice quindi che
-// cosa le righe SONO — liberi che il piano copre, che si possono pagare, in
-// ordine di appetibilità dichiarata — e nient'altro.
+// PRECEDENTI». L'occhiello per esteso dice quindi che cosa le righe SONO —
+// liberi che il piano copre, che si possono pagare, ordinati per surplus e
+// poi per appetibilità — e nient'altro.
+//
+// LA FRASE CHE IL BLOCCO PUÒ DIRE, E QUELLA CHE NON PUÒ. Con la decisione di
+// Pico del 2026-08-25 («il numero uno è il filtro a monte ma il due è quello
+// successivo») il surplus è tornato al suo posto nell'ordine, quindi «costa
+// meno di quanto vale per te» è di nuovo DICIBILE — ma **solo** per le righe
+// che portano un valore dichiarato da Pico, e infatti solo quelle lo dicono.
+// Per le altre non c'è nessuna sottrazione da fare: nessun numero di ripiego,
+// nessuno zero al posto della dichiarazione che manca, e l'assenza detta una
+// volta sola nella nota, contata («N righe senza valore dichiarato»). Il
+// perché di «una volta sola» invece che «su ogni riga» è misurato e sta
+// accanto a `perMeSurplusText`.
 //
 // NESSUN NUMERO DIRETTIVO, e non per prudenza: `fair_to_me_promoted` e
 // `decision_promoted` sono gate OFF (PROJECT_STATE.md §"Gate attivi"). Qui non
-// compare un «vale X», un «offri Y», una banda, un prezzo previsto o un
-// punteggio di occasione. Compaiono l'ancora corrente misurata con la sua
-// provenienza, il piano dichiarato da Pico, il max bid hard-safe e una
-// posizione in un ordine dichiarato. `perMeRow.test.ts` §"guardia di deriva"
-// cerca il vocabolario vietato su TUTTO il testo del sottoblocco.
+// compare un «offri Y», una banda, un prezzo previsto, un badge OCCASIONE o un
+// punteggio di occasione. Compaiono il valore che PICO HA DICHIARATO (§D9
+// ingrediente 2, non un numero del motore) con la sua distanza dall'ancora,
+// l'ancora corrente misurata con la sua provenienza, il piano dichiarato da
+// Pico, il max bid hard-safe e una posizione in un ordine dichiarato.
+// `perMeRow.test.ts` §"guardia di deriva" cerca il vocabolario vietato su TUTTO
+// il testo del sottoblocco, e la sola parola «valore» che lascia passare è
+// quella che porta con sé «dichiarato».
 //
 // IL GESTO È QUELLO DEL LISTONE, E LO È DAVVERO. La riga chiama
 // `selectListonePlayer()` — l'UNICA via che arma la CTA «Avvia» — con la
@@ -53,7 +64,7 @@ export const PER_ME_TITLE_SHORT = "PER ME";
  * costruzione (il secondo è interpolato dal primo), e un test lo verifica: i
  * due non possono diventare due nomi diversi.
  */
-export const PER_ME_TITLE = `${PER_ME_TITLE_SHORT} — liberi nel tuo piano, che puoi pagare, per appetibilità`;
+export const PER_ME_TITLE = `${PER_ME_TITLE_SHORT} — liberi nel tuo piano, che puoi pagare, per surplus e appetibilità`;
 
 /**
  * Quale dei due va a schermo. Stessa regola — e stessa misura — di
@@ -128,9 +139,55 @@ export function perMeHeadText(candidate: PerMeCandidate): string {
 }
 
 /**
- * IL CRITERIO 2, DETTO A SCHERMO. È una POSIZIONE in un ordine dichiarato, non
+ * IL CRITERIO 2, DETTO A SCHERMO — il surplus, cioè la distanza fra il valore
+ * che PICO HA DICHIARATO e l'ancora corrente misurata.
+ *
+ * SI SCRIVE COME UNA DISTANZA, NON COME UN VERDETTO. «12 cr sotto il tuo
+ * valore dichiarato (48 cr)» è un fatto ispezionabile: c'è la distanza, c'è il
+ * minuendo, e il sottraendo sta nella riga dell'ancora subito sotto — chi
+ * legge può rifare la sottrazione a mano. Non c'è nessun «è un'occasione»,
+ * nessun badge, nessun punteggio: quella promozione ha un gate, e il gate è
+ * OFF.
+ *
+ * I TRE CASI IN CUI C'È QUALCOSA DA DIRE, e nessuno è un default dell'altro:
+ *  - sotto il valore dichiarato → la distanza, con «sotto»;
+ *  - sopra → la stessa distanza con «sopra», e la riga RESTA a schermo: qui il
+ *    surplus ordina e non esclude (src/perMeCandidates.ts §4);
+ *  - esattamente pari → si dice «esattamente», perché «0 cr sotto» si legge
+ *    come un arrotondamento e questo è un pareggio.
+ *
+ * E IL QUARTO CASO — valore non dichiarato — RESTITUISCE `null`: niente riga.
+ * Non è l'assenza taciuta, è l'assenza detta UNA VOLTA SOLA, nella nota, con
+ * il suo contatore («N righe senza valore dichiarato, in fondo senza surplus
+ * fabbricato»). La ragione è MISURATA, non stimata: oggi nessuna riga ha un
+ * valore dichiarato — l'app non ha ancora una sorgente per quel listino —
+ * quindi ripetere la stessa frase su ogni candidato porta il sottoblocco pieno
+ * da 574px a 683px a 390x844, cioè sopra il tetto di regressione che
+ * e2e/per-me-row.spec.ts sorveglia, per zero fatti in più: tre volte la stessa
+ * riga dice quello che la nota dice una volta e meglio (perché le conta).
+ * Quando invece un surplus c'è, la riga lo porta: è il criterio che l'ha messa
+ * lì, e distingue una riga dall'altra.
+ *
+ * `null` E NON `""`: una stringa vuota è una riga di testo che il renderer
+ * aggiunge lo stesso e che una guardia di deriva legge come «coperto». `null`
+ * dice «qui non c'è niente da mostrare» e il chiamante deve gestirlo.
+ */
+export function perMeSurplusText(candidate: PerMeCandidate): string | null {
+  const { declaredValue, surplus } = candidate;
+  if (declaredValue === null || surplus === null) return null;
+  if (surplus === 0) return `esattamente il tuo valore dichiarato (${declaredValue} cr)`;
+  const where = surplus > 0 ? "sotto" : "sopra";
+  return `${Math.abs(surplus)} cr ${where} il tuo valore dichiarato (${declaredValue} cr)`;
+}
+
+/**
+ * IL CRITERIO 3, DETTO A SCHERMO. È una POSIZIONE in un ordine dichiarato, non
  * un punteggio: il numero dell'indice non compare, perché non è il numero che
  * ordina questa riga e mostrarlo lo farebbe leggere come un giudizio.
+ *
+ * NON È SCOMPARSO CON IL RITORNO DEL SURPLUS: è sceso di un gradino e decide a
+ * parità di surplus — e da solo, per le righe che un valore dichiarato non ce
+ * l'hanno, che oggi sono tutte.
  *
  * L'assenza di verdetto ha la sua frase e non un numero di ripiego: una riga
  * senza posizione non è «l'ultima», è «senza verdetto», e l'ordine la tratta
@@ -144,7 +201,9 @@ export function perMeAppealText(candidate: PerMeCandidate): string {
 }
 
 /**
- * L'ANCORA CORRENTE, MOSTRATA E MAI SOTTRATTA. Porta sempre con sé i tre pezzi
+ * L'ANCORA CORRENTE, MOSTRATA E POI SOTTRATTA — è il sottraendo del surplus
+ * della riga sopra, e si mostra per intero proprio perché quella sottrazione
+ * si possa rifare a mano. Porta sempre con sé i tre pezzi
  * che la rendono ispezionabile: la Qt.A nuda, l'inflazione applicata e il
  * campione su cui poggia. In cold start non c'è un numero al posto della misura
  * mancante: c'è la frase che dice che la misura manca.
@@ -165,7 +224,7 @@ export function perMeAnchorText(candidate: PerMeCandidate): string {
 }
 
 /**
- * IL CRITERIO 1, DETTO A SCHERMO, più il tetto hard-safe accanto.
+ * IL CRITERIO 1 — IL FILTRO — DETTO A SCHERMO, più il tetto hard-safe accanto.
  *
  * «dentro/fuori dal piano» è un FATTO CONTABILE (`fitsPlan`), non un consiglio e
  * non un veto: un prezzo fuori piano resta comprabile se il budget lo consente,
@@ -188,26 +247,38 @@ export function perMePlanText(candidate: PerMeCandidate): string {
 
 /**
  * La nota del sottoblocco: la PROVENIENZA, l'ORDINE dichiarato criterio per
- * criterio, i parametri in vigore e la SCELTA NON RATIFICATA su cui l'ordine
- * poggia — stesso modello di `baitNoteText` e di `PrecedentsReading.thresholds`.
+ * criterio, i parametri in vigore, la SCELTA NON RATIFICATA che resta e i DUE
+ * contatori delle assenze — stesso modello di `baitNoteText` e di
+ * `PrecedentsReading.thresholds`.
  *
- * L'ordine si stampa per esteso di proposito: è l'unica cosa che questo
- * sottoblocco «decide», e un ordine che non si legge è un peso nascosto scritto
- * in un file.
+ * L'ordine si stampa per esteso di proposito: i suoi primi due criteri sono la
+ * decisione di Pico del 2026-08-25, e un ordine che non si legge è un peso
+ * nascosto scritto in un file.
+ *
+ * I DUE CONTATORI SONO DUE, e non uno solo: «non ha un valore dichiarato» e
+ * «non ha un verdetto di appetibilità» sono due assenze diverse, di due
+ * ingredienti diversi, e ognuna manda la riga in fondo per una ragione sua.
+ * Compaiono solo quando c'è qualcosa da contare.
  */
 export function perMeNoteText(
   parameters: PerMeParameters,
   planVersion: string | null,
   withoutAppealPosition: number,
+  withoutDeclaredValue: number,
 ): string {
   const parts = [
     "Qt.A del listone corretta dall'inflazione misurata" +
       (planVersion === null ? "" : `, piano «${planVersion}»`),
-    "ordine: piano → appetibilità del ruolo → ancora → chiave di listone",
+    "ordine: piano → surplus dichiarato → appetibilità del ruolo → ancora → chiave di listone",
     `campione minimo ${parameters.minInflationSample}`,
     `${parameters.rowsMax} ${parameters.rowsMax === 1 ? "riga" : "righe"} al massimo (${parameters.rowsMaxStatus})`,
-    "NON RATIFICATA: il posto del criterio caduto è preso dall'appetibilità",
+    "NON RATIFICATA: a parità di surplus decide l'appetibilità del ruolo",
   ];
+  if (withoutDeclaredValue > 0) {
+    parts.push(
+      `${withoutDeclaredValue} ${withoutDeclaredValue === 1 ? "riga" : "righe"} senza valore dichiarato, in fondo senza surplus fabbricato`,
+    );
+  }
   if (withoutAppealPosition > 0) {
     parts.push(
       `${withoutAppealPosition} ${withoutAppealPosition === 1 ? "riga" : "righe"} senza verdetto di appetibilità, in fondo senza posizione fabbricata`,
@@ -228,18 +299,25 @@ export function perMeSectionText(reading: PerMeReading): string {
   if (reading.kind === "empty") {
     out.push(perMeEmptyText(reading.reason));
     if (perMeNoteApplies(reading)) {
-      out.push(perMeNoteText(reading.parameters, null, 0));
+      out.push(perMeNoteText(reading.parameters, null, 0, 0));
     }
     return out.join("\n");
   }
   for (const candidate of perMeShownCandidates(reading)) {
     out.push(perMeHeadText(candidate));
+    const surplus = perMeSurplusText(candidate);
+    if (surplus !== null) out.push(surplus);
     out.push(perMeAppealText(candidate));
     out.push(perMeAnchorText(candidate));
     out.push(perMePlanText(candidate));
   }
   out.push(
-    perMeNoteText(reading.parameters, reading.planVersion, reading.withoutAppealPosition),
+    perMeNoteText(
+      reading.parameters,
+      reading.planVersion,
+      reading.withoutAppealPosition,
+      reading.withoutDeclaredValue,
+    ),
   );
   return out.join("\n");
 }
@@ -308,6 +386,15 @@ export function renderPerMeSection(
       const head = document.createElement("span");
       head.className = "per-me-row__head";
       head.appendChild(line("per-me-row__name", perMeHeadText(candidate)));
+      // I DUE CRITERI D'ORDINE che non sono il piano, nello stesso blocco che
+      // avvolge: il surplus (criterio 2) prima dell'appetibilità (criterio 3),
+      // nello stesso ordine in cui ordinano. A 390px vanno a capo da soli e non
+      // costano una riga fissa per candidato. Il surplus compare solo dove
+      // esiste: l'assenza la dice la nota, una volta e contata.
+      const surplusText = perMeSurplusText(candidate);
+      if (surplusText !== null) {
+        head.appendChild(line("per-me-row__surplus", surplusText));
+      }
       head.appendChild(line("per-me-row__appeal", perMeAppealText(candidate)));
       row.appendChild(head);
 
@@ -329,6 +416,7 @@ export function renderPerMeSection(
       reading.parameters,
       reading.kind === "candidates" ? reading.planVersion : null,
       reading.kind === "candidates" ? reading.withoutAppealPosition : 0,
+      reading.kind === "candidates" ? reading.withoutDeclaredValue : 0,
     );
     section.appendChild(note);
   }

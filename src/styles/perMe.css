@@ -97,6 +97,16 @@
   color: var(--text-primary);
 }
 
+/* Il surplus e la posizione di appetibilità stanno nella testa della riga, che
+   è un flex CHE AVVOLGE: a 390px vanno a capo se non ci stanno, e non costano
+   una riga fissa per candidato. Il surplus porta il colore del testo medio come
+   l'appetibilità e non un colore d'accento: è un fatto ordinatore, non un
+   badge. */
+.per-me-row__surplus {
+  font-size: 12.5px;
+  color: var(--text-mid);
+}
+
 .per-me-row__appeal {
   font-size: 12.5px;
   color: var(--text-mid);

@@ -87,6 +87,7 @@ import {
   type OpportunityQualityGate,
   dataQualityIndex,
   opportunityQualityGate,
+  surplusOverAnchor,
 } from "./opportunities.js";
 import { type TensionAssessment, tension } from "./tension.js";
 import { maxSafe } from "./auction.js";
@@ -549,7 +550,10 @@ export function callScreen(input: CallScreenInput): CallScreen {
   const maxBid = safe.biddable ? safe.maxSafe : 0;
   const competitors = competitorSet(state, role, anchor.correctedAnchor, selfId);
   const assessment = tension({ playerId, book, state, inflation, selfId });
-  const surplus = declaredValue === null ? null : declaredValue - anchor.correctedAnchor;
+  // La sottrazione NON è riscritta qui: è `surplusOverAnchor` (opportunities.ts),
+  // l'unica aritmetica del surplus del progetto. `null` resta `null` — un valore
+  // non dichiarato non diventa uno zero da sottrarre.
+  const surplus = declaredValue === null ? null : surplusOverAnchor(declaredValue, anchor);
   const withinRolePlan = fitsPlan(plan.perRole[role], anchor.correctedAnchor);
 
   const alternative =

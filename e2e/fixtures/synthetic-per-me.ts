@@ -5,11 +5,13 @@
 // fonte reale. Nessuna riga del listone vero (public/data/listone_2025_26.json)
 // entra qui, e il network guard aborta qualunque richiesta esterna.
 //
-// LA SCENA È COSTRUITA PERCHÉ LA SOTTRAZIONE CADUTA SBAGLIEREBBE. Il valore
-// assoluto del ruolo A è piatto per tutti gli attaccanti: con `valore − ancora`
-// l'unico candidato con differenza positiva sarebbe «Attaccante Scarso» a 2 cr,
-// e i due da 40 e 60 sarebbero esclusi. Il sottoblocco costruito senza
-// sottrazione lo mette invece ULTIMO, e a tetto di tre righe non lo mostra
+// LA SCENA È COSTRUITA PERCHÉ UN VALORE *DERIVATO* SBAGLIEREBBE. Il surplus del
+// sottoblocco (decisione di Pico, 2026-08-25) sottrae l'ancora al valore che
+// PICO DICHIARA, e qui nessuno è dichiarato: la scena non ne porta. Se qualcuno
+// gli sostituisse il valore ASSOLUTO — piatto per ruolo, uguale per tutti gli
+// attaccanti — l'unico candidato con differenza positiva sarebbe «Attaccante
+// Scarso» a 2 cr, e i due da 40 e 60 sarebbero esclusi. Con i criteri veri
+// «Attaccante Scarso» è invece ULTIMO, e a tetto di tre righe non compare
 // nemmeno: è ciò che e2e/per-me-row.spec.ts asserisce sul DOM vivo.
 //
 // IL PIANO ROSA passa da `localStorage` con la stessa chiave e lo stesso schema

@@ -1681,12 +1681,25 @@ function baitSectionProps(aState: AuctionState): BaitSectionProps {
  * piano rosa dichiarato copre, che il max bid hard-safe regge, nell'ordine di
  * appetibilità dichiarato del ruolo.
  *
- * NIENTE VALORE PER ME, e non è una mancanza: Pico l'ha smontato il 2026-08-24
- * («non esiste il valore in crediti per me»), e con lui la sottrazione
- * `valore − ancora` su cui il radar occasioni del motore poggiava. Il valore
- * ASSOLUTO non la sostituisce — è piatto per ruolo, quindi quella sottrazione
- * ordinerebbe dal più economico, cioè selezione avversa. Il sottoblocco è
- * costruito senza sottrazione: vedi la testa di src/perMeCandidates.ts.
+ * L'ORDINE È QUELLO DECISO DA PICO IL 2026-08-25 (in sessione): «deve essere un
+ * mix tra le due cose. Il numero uno è il filtro a monte ma il due è quello
+ * successivo» — il piano rosa FILTRA, il surplus ORDINA chi ha passato il
+ * filtro. La lettura è tutta in src/perMeCandidates.ts.
+ *
+ * `values: null`, E PERCHÉ NON È UNA DIMENTICANZA. Il surplus ha per primo
+ * ingrediente il listino dei valori DICHIARATI da Pico (`DeclaredValueBook`,
+ * packages/engine/src/declaredValues.js), e quel listino **non ha ancora una
+ * sorgente in `src/`** — è la stessa mancanza per cui `valueBoxProps` passa
+ * `call: null` e lo slot 4 del riquadro del valore dice `n/d`. Fabbricarne uno
+ * qui (un valore dedotto dalla Qt.A, una media di ruolo) sarebbe inventare
+ * l'ingrediente 2 di §D9, cioè far dire all'app che Pico ha dichiarato
+ * qualcosa che non ha dichiarato. Il campo è OBBLIGATORIO nel contratto proprio
+ * perché questa scelta sia scritta a ogni chiamata invece che dimenticata: con
+ * `null` nessuna riga ha un surplus, il sottoblocco lo DICE riga per riga
+ * («valore non dichiarato») e le conta nella nota, e l'ordine cade sui criteri
+ * che restano. Il giorno in cui quel listino entra nell'app, questa riga passa
+ * un libro vero e il criterio 2 si accende senza toccare né la lettura né la
+ * vista.
  *
  * Le tre memorie che legge sono quelle che l'app ha già: le righe del listone
  * (con la loro Qt.A e il loro indice di appetibilità), il log d'asta (da cui
@@ -1708,6 +1721,7 @@ function perMeSectionProps(aState: AuctionState): PerMeSectionProps {
       log: state.log,
       selfId: SELF_ID,
       planDraft: state.rolePlan,
+      values: null,
     }),
     selectedKey: selected === null ? null : listonePlayerKey(selected),
   };
@@ -5573,12 +5587,15 @@ function renderMomentoChiamata(
   // motore richiede dati reali, non ancora abilitati» di una cosa che adesso i
   // dati ce li ha — Qt.A del listone, log d'asta, piano rosa dichiarato.
   //
-  // NON È IL RADAR OCCASIONI DEL MOTORE, e non poteva esserlo:
-  // `packages/engine/src/opportunities.ts` ordina per
-  // `valore dichiarato − ancora`, e il valore per me è stato smontato da Pico
-  // il 2026-08-24. Qui non c'è nessuna sottrazione valore−prezzo, in nessuna
-  // forma; c'è l'ordine dichiarato di src/perMeCandidates.ts, scritto criterio
-  // per criterio nella nota che il sottoblocco stampa.
+  // NON È IL RADAR OCCASIONI DEL MOTORE, e la differenza non è di aritmetica ma
+  // di domanda. La sottrazione è la STESSA (`surplusOverAnchor`,
+  // packages/engine/src/opportunities.ts, condivisa e non copiata), ma il radar
+  // ne fa una condizione d'ingresso — chi non ha surplus positivo non è
+  // un'occasione — mentre qui il surplus ORDINA e non ESCLUDE: la domanda è
+  // «chi chiamare adesso», e un giocatore che il piano copre resta chiamabile
+  // anche se costa quanto vale. L'ordine dichiarato sta in
+  // src/perMeCandidates.ts, scritto criterio per criterio nella nota che il
+  // sottoblocco stampa.
   //
   // `onSelect` è `selectListonePlayer`, come per la seconda metà: L'UNICA via
   // che arma la CTA «Avvia», riusata e non duplicata.

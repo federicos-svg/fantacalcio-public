@@ -5,74 +5,93 @@
 // paio ed è testabile da sola.
 //
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. IL DIFETTO CHE QUESTO FILE ESISTE PER NON RIPETERE
+// 1. I DUE CRITERI, E CHI COMANDA SU CHI — decisione di Pico, 2026-08-25
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// `packages/engine/src/opportunities.ts` risponde alla domanda «chi costa meno
-// di quanto vale per me» con una sottrazione dichiarata:
+// Messo davanti ai due criteri possibili per questo riquadro — (1) «se ti
+// serve»: ruolo scoperto, piano per ruolo, quanti ne mancano; (2) «se è un
+// affare»: il surplus, cioè quanto Pico dichiara che valga meno quanto costerà
+// — Pico ha risposto, in sessione, il 2026-08-25:
 //
-//     surplus = valore DICHIARATO da Owner − ancora corrente MISURATA
+//     «Deve essere un mix tra le due cose. Il numero uno è il filtro a monte
+//      ma il due è quello successivo»
 //
-// Il primo ingrediente NON ESISTE PIÙ. Pico l'ha smontato il 2026-08-24: «non
-// esiste il valore in crediti PER ME, esiste il valore in crediti relativo al
-// momento dell'asta e quello assoluto». Con lui cadono il profilo di rischio,
-// gli α e il costo-opportunità come ingredienti.
+// Tradotto in codice, e senza una virgola in più: **IL PIANO FILTRA, IL
+// SURPLUS ORDINA CHI HA PASSATO IL FILTRO**. Sono i primi due criteri
+// dell'ordine dichiarato più sotto, in quest'ordine e con questi ruoli.
 //
-// E IL VALORE ASSOLUTO NON LO SOSTITUISCE. `packages/engine/src/absoluteValue.
-// ts` deriva una base PIATTA PER RUOLO (il budget del ruolo diviso per i suoi
-// slot). Sostituirla a `declaredValue` in quella sottrazione renderebbe
-// `base − ancora` MONOTONA DECRESCENTE NEL PREZZO: a parità di ruolo vince
-// sempre il più economico, cioè il peggiore. Sarebbe selezione avversa con un
-// badge OCCASIONE sopra, e il gate di qualità non la intercetterebbe — quel
-// gate guarda l'ANCORA, mai il lato del valore.
+// IL SURPLUS È LA SOTTRAZIONE DEL RADAR, NON UNA SUA IMITAZIONE:
 //
-// PICO HA SCELTO: «costruiamo il box senza la sottrazione». Quindi qui NON
-// compare nessuna sottrazione valore−prezzo, in nessuna forma: né esplicita, né
-// travestita da rapporto valore/prezzo, da differenza di posizioni pesata o da
-// «quanto sotto il valore sta». `src/perMeCandidates.test.ts` §"selezione
-// avversa" pinna il comportamento su uno stato costruito apposta perché la
-// sottrazione, se qualcuno la reintroducesse, metterebbe in cima il giocatore
-// peggiore e più economico del ruolo.
+//     surplus = valore DICHIARATO da Pico − ancora corrente MISURATA
+//
+// ed è la STESSA aritmetica, presa dove vive: `surplusOverAnchor`
+// (packages/engine/src/opportunities.ts), la sola funzione del progetto che
+// esegua quella sottrazione, condivisa con il radar occasioni e con la
+// schermata CHIAMATA. Qui non se ne scrive una seconda copia: due copie della
+// stessa sottrazione sono due occasioni di divergere su quale ancora
+// sottrarre, e la risposta è una sola (`correctedAnchor`, la misurata).
 //
 // ─────────────────────────────────────────────────────────────────────────────
-// 2. COSA ORDINA IL BOX, ALLORA: UN ORDINE TOTALE DICHIARATO SU FATTI
+// 2. IL VALORE CHE ENTRA È QUELLO DICHIARATO, E SOLO QUELLO
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// Lo stampo è quello che `opportunities.ts` dichiara di sé nella sezione «COSA
-// NON C'È, di proposito»: «l'ordinamento qui è un ordine TOTALE DICHIARATO su
-// fatti: stessa informazione, zero pesi nascosti». L'ordine del radar era
+// L'ingrediente 1 della sottrazione è `DeclaredValueBook`
+// (packages/engine/src/declaredValues.ts): l'INPUT DICHIARATO di Pico, §D9
+// ingrediente 2. Non è model-derived, non è un `value` gated, non è una banda;
+// è quanto Pico ha scritto che quel giocatore vale per lui.
 //
-//     1. dentro il piano   2. surplus   3. ancora corrente   4. playerId
+// E IL VALORE ASSOLUTO NON LO SOSTITUISCE, MAI. `packages/engine/src/
+// absoluteValue.ts` deriva una base PIATTA PER RUOLO (il budget del ruolo
+// diviso per i suoi slot). Sostituirla a `declaredValue` in questa sottrazione
+// renderebbe `base − ancora` MONOTONA DECRESCENTE NEL PREZZO: a parità di
+// ruolo vincerebbe sempre il più economico, cioè il peggiore. Sarebbe
+// selezione avversa, e il gate di qualità non la intercetterebbe — quel gate
+// guarda l'ANCORA, mai il lato del valore. `src/perMeCandidates.test.ts`
+// §"selezione avversa" pinna il comportamento su uno stato costruito apposta:
+// senza valori dichiarati il peggiore e più economico del ruolo finisce
+// ULTIMO, e nessun `absoluteValue` entra in questa via (una guardia di
+// sorgente lo verifica per nome).
 //
-// e qui resta lo stesso, meno il criterio caduto. Il posto 2 è rimasto vuoto e
-// va riempito con qualcosa che risponda alla STESSA domanda che il surplus
-// rispondeva — «fra i candidati che il piano copre, quale viene prima?» — senza
-// essere un numero scelto dal motore (§D9). Ci va la POSIZIONE NELL'ORDINE
-// DICHIARATO DI APPETIBILITÀ del ruolo: quello di `buildTierBook`
-// (src/tierOrdering.ts), che è l'ordine con cui questo repository costruisce già
-// le fasce, viene dall'indice servito dal deposito, porta la propria ricetta e
-// il proprio criterio di pareggio, e non ha un solo peso scritto qui dentro.
+// UN VALORE DICHIARATO CHE MANCA NON DIVENTA ZERO. Oggi il core pubblico non
+// ha ancora una sorgente d'app per il listino dei valori (src/main.ts passa
+// `values: null` e dice perché): per tutte le righe il surplus è quindi
+// `null`. `null` NON è 0 («vale zero per me» sarebbe una dichiarazione, e non
+// c'è) e NON è `-Infinity` (sarebbe una misura, e non c'è). È l'assenza, e si
+// tratta come tale: la riga resta VISIBILE, finisce dopo tutte quelle che un
+// surplus ce l'hanno, e la vista lo dice con il proprio contatore
+// (`withoutDeclaredValue`). È lo stesso stampo di `appealPosition` qui sotto,
+// e un test lo difende.
 //
-// CHE COSA CAMBIA, DETTO IN CHIARO: il sottoblocco non dice più «costa meno di
-// quanto vale per te», perché non c'è più niente con cui dirlo. Dice «fra i
-// liberi che il tuo piano copre e che puoi pagare, questi vengono prima
-// nell'ordine di appetibilità dichiarato». È una frase diversa, ed è per questo
-// che il titolo e la nota la scrivono per esteso invece di lasciarla intendere.
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. COSA DICE IL SOTTOBLOCCO, ADESSO CHE PUÒ DIRLO
+// ─────────────────────────────────────────────────────────────────────────────
 //
-// LA SCELTA È DEL MOTORE E NON È RATIFICATA. Nessun documento assegna il posto
-// del surplus all'ordine di appetibilità: la scelta è registrata come
-// `PER_ME_ORDER_APPEAL_REPLACES_SURPLUS` in `UNRATIFIED_CHOICES`
+// Con il surplus al suo posto la frase «costa meno di quanto vale per te»
+// torna DICIBILE — ma solo per le righe che hanno un valore dichiarato, ed è
+// esattamente così che la vista la scrive: per quelle righe dice di quanto la
+// riga sta sotto (o sopra) il valore dichiarato, per le altre dice «valore non
+// dichiarato» e non fabbrica niente. Il titolo e la nota scrivono l'ordine per
+// esteso invece di lasciarlo intendere, perché un ordine che non si legge è un
+// peso nascosto scritto in un file.
+//
+// LA SCELTA CHE RESTA APERTA, E QUELLA CHE NON LO È PIÙ. L'ordine «piano
+// prima, surplus poi» è la decisione di Pico del 2026-08-25 citata sopra: non
+// è più una lettura del motore. Resta invece del motore, e non ratificata, chi
+// decide A PARITÀ DI SURPLUS — e per le righe che un surplus non ce l'hanno:
+// ci va la POSIZIONE NELL'ORDINE DICHIARATO DI APPETIBILITÀ del ruolo, quello
+// di `buildTierBook` (src/tierOrdering.ts), che viene dall'indice servito dal
+// deposito, porta la propria ricetta e il proprio criterio di pareggio, e non
+// ha un solo peso scritto qui dentro. È registrata come
+// `PER_ME_ORDER_APPEAL_BREAKS_SURPLUS_TIES` in `UNRATIFIED_CHOICES`
 // (packages/engine/src/declaredValues.ts), viaggia nel dato dentro
-// `PerMeReading.ratification` e la nota la stampa. Stesso stampo di
-// absoluteValue.ts e del gate di opportunities.ts: il calcolo non si toglie,
-// perde la pretesa di essere un giudizio chiuso.
+// `PerMeReading.ratification` e la nota la stampa.
 //
 // ─────────────────────────────────────────────────────────────────────────────
-// 3. I CANCELLI DI AMMISSIONE — le condizioni di opportunities.ts, meno una
+// 4. I CANCELLI DI AMMISSIONE — le condizioni di opportunities.ts, meno una
 // ─────────────────────────────────────────────────────────────────────────────
 //
 // Il radar ammetteva un candidato con cinque condizioni. Qui restano le prime
-// quattro, alla lettera, e cade la quinta (`surplus > 0`) insieme al surplus:
+// quattro, alla lettera:
 //
 //   1. HA UN'ANCORA — la riga porta la Qt.A. Senza quotazione non c'è nessuna
 //      ancora da misurare: la riga resta FUORI, non a zero;
@@ -82,20 +101,30 @@
 //   4. IL MIO MAX BID VERO COPRE L'ANCORA CORRENTE — `maxSafe` (hard-safe, non
 //      overridabile): un giocatore che non posso comprare non è un candidato.
 //
+// LA QUINTA (`surplus > 0`) NON TORNA COME CANCELLO, ed è una differenza
+// deliberata dal radar. Qui il surplus ORDINA, non ESCLUDE: una riga con
+// surplus ≤ 0 resta visibile, dopo quelle con surplus positivo. Escluderla
+// ridurrebbe ciò che Pico vede in asta — il radar può permetterselo perché
+// risponde alla domanda «chi è un'occasione»; questo riquadro risponde a «chi
+// chiamare adesso», e un giocatore che serve al piano resta chiamabile anche
+// se costa quanto vale.
+//
 // ORDINE DEI CANCELLI, il più economico per primo, come in baitCandidates.ts:
 // prima i quattro `maxSafe` per ruolo (i ruoli pieni o budget-locked spariscono
 // interi, con tutti i loro giocatori), poi la passata sul listone.
 //
 // ─────────────────────────────────────────────────────────────────────────────
-// 4. COSA QUESTO FILE NON FA
+// 5. COSA QUESTO FILE NON FA
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// Nessun valore, nessun fair-to-me, nessuna banda obiettivo, nessuno
-// `stretch_cap`, nessun punteggio di occasione, nessun «offri X»: i gate
-// `fair_to_me_promoted` e `decision_promoted` sono OFF e restano OFF. L'ancora
-// corrente si MOSTRA come fatto — con la sua base, la sua inflazione e il suo
-// campione — e non entra in nessuna sottrazione. `maxSafe` viene INTERROGATA,
-// mai derivata né spostata di un credito.
+// Nessun fair-to-me, nessuna banda obiettivo, nessuno `stretch_cap`, nessun
+// punteggio di occasione, nessun badge OCCASIONE, nessun «offri X»: i gate
+// `fair_to_me_promoted` e `decision_promoted` sono OFF e restano OFF. Il
+// surplus è una sottrazione fra due numeri già dichiarati e già misurati, non
+// un giudizio promosso. L'ancora corrente si MOSTRA come fatto — con la sua
+// base, la sua inflazione e il suo campione — e nella sottrazione entra solo
+// quella corretta. `maxSafe` viene INTERROGATA, mai derivata né spostata di un
+// credito.
 
 import { maxSafe } from "../packages/engine/src/auction.js";
 import {
@@ -107,10 +136,13 @@ import {
   type CurrentAnchor,
   type PlayerAnchor,
 } from "../packages/engine/src/anchors.js";
-import type {
-  RatificationStatus,
-  UnratifiedChoiceId,
+import {
+  declaredValueOf,
+  type DeclaredValueBook,
+  type RatificationStatus,
+  type UnratifiedChoiceId,
 } from "../packages/engine/src/declaredValues.js";
+import { surplusOverAnchor } from "../packages/engine/src/opportunities.js";
 import { fitsPlan, type LivePlan, type RolePlanLine } from "../packages/engine/src/livePlan.js";
 import {
   ROLES,
@@ -143,7 +175,7 @@ import {
  * le porta davvero, così quella dichiarazione non può diventare una bugia.
  */
 export const PER_ME_UNRATIFIED_CHOICES: readonly UnratifiedChoiceId[] = [
-  "PER_ME_ORDER_APPEAL_REPLACES_SURPLUS",
+  "PER_ME_ORDER_APPEAL_BREAKS_SURPLUS_TIES",
   "PER_ME_REQUIRES_COMPLETE_ROLE_PLAN",
 ];
 
@@ -306,9 +338,28 @@ export interface PerMeCandidate {
   readonly role: Role;
   /**
    * L'ancora corrente MISURATA, con base, inflazione applicata e campione.
-   * Si MOSTRA accanto alla riga; non entra in nessuna sottrazione.
+   * Si MOSTRA accanto alla riga, ed è il SOTTRAENDO del surplus qui sotto:
+   * quella CORRETTA dall'inflazione misurata, mai la Qt.A nuda.
    */
   readonly anchor: CurrentAnchor;
+  /**
+   * Il valore che PICO HA DICHIARATO per questo giocatore, in crediti, o `null`
+   * se non l'ha dichiarato. `null` non è 0: «vale zero per me» sarebbe una
+   * dichiarazione, «non l'ho dichiarato» è la sua assenza
+   * (`declaredValueOf`, packages/engine/src/declaredValues.ts).
+   */
+  readonly declaredValue: number | null;
+  /**
+   * `declaredValue − anchor.correctedAnchor` — la sottrazione di
+   * `surplusOverAnchor` (packages/engine/src/opportunities.ts), non una sua
+   * copia — oppure `null` quando il valore dichiarato manca.
+   *
+   * PUÒ ESSERE ≤ 0 E LA RIGA RESTA. Qui il surplus ORDINA e non ESCLUDE: la
+   * quinta condizione d'ammissione del radar (`surplus > 0`) non torna come
+   * cancello, perché togliere dallo schermo un giocatore che il piano copre
+   * ridurrebbe ciò che Pico vede in asta.
+   */
+  readonly surplus: number | null;
   /** Il mio max bid vero nel ruolo (`maxSafe`), interrogato e non riderivato. */
   readonly maxBid: number;
   /** Il prezzo all'ancora sta dentro l'allocazione viva del ruolo? */
@@ -372,6 +423,13 @@ export type PerMeReading =
       /** Quanti candidati non hanno un verdetto di appetibilità: l'ordine lo dice
        *  invece di fingerlo. */
       readonly withoutAppealPosition: number;
+      /**
+       * Quanti candidati non hanno un valore dichiarato da Pico, cioè per
+       * quanti il surplus non è calcolabile. Gemello del contatore qui sopra e
+       * per la stessa ragione: l'assenza si CONTA e si dice, non si riempie con
+       * uno zero che sembrerebbe una dichiarazione.
+       */
+      readonly withoutDeclaredValue: number;
       /** La versione del piano che ha prodotto il criterio 1 (§4.1: ogni
        *  spiegazione indica il `plan_version` usato). */
       readonly planVersion: string;
@@ -393,6 +451,15 @@ export interface PerMeInput {
   readonly state: AuctionState;
   /** Il log grezzo: i PREZZI stanno lì, e l'inflazione misurata si fa sui prezzi. */
   readonly log: readonly AuctionEvent[];
+  /**
+   * Il listino dei valori DICHIARATI da Pico, o `null` se il chiamante non ne
+   * ha uno. È l'ingrediente 1 del surplus (§D9 ingrediente 2), e il campo è
+   * OBBLIGATORIO di proposito: un chiamante deve DICHIARARE che non ha valori,
+   * non dimenticarsene. Con `null` — oggi il caso dell'app, che non ha ancora
+   * una sorgente per questo listino — nessuna riga ha un surplus, e nessuna
+   * riga ne riceve uno fabbricato.
+   */
+  readonly values: DeclaredValueBook | null;
   /** Il mio posto. La domanda è cosa posso chiamare IO. */
   readonly selfId: string;
   /**
@@ -410,43 +477,73 @@ export interface PerMeInput {
 /**
  * L'ORDINE DEI CANDIDATI, dichiarato riga per riga e senza un solo peso:
  *
- *   1. `withinRolePlan`   DECRESCENTE  ← «dentro il mio piano prima»
- *   2. `appealPosition`   CRESCENTE    ← il posto lasciato dal surplus
- *   3. `anchor.correctedAnchor` DECRESCENTE
- *   4. `playerId`         CRESCENTE    ← ordine totale, deterministico
+ *   1. `withinRolePlan`   DECRESCENTE  ← il FILTRO: «dentro il mio piano prima»
+ *   2. `surplus`          DECRESCENTE  ← chi ORDINA fra quelli che il piano copre
+ *   3. `appealPosition`   CRESCENTE    ← criterio di parità, non rimosso
+ *   4. `anchor.correctedAnchor` DECRESCENTE
+ *   5. `playerId`         CRESCENTE    ← ordine totale, deterministico
+ *
+ * I PRIMI DUE SONO LA DECISIONE DI PICO DEL 2026-08-25 (in sessione): «deve
+ * essere un mix tra le due cose. Il numero uno è il filtro a monte ma il due è
+ * quello successivo». Il piano filtra, il surplus ordina.
  *
  * La PROVENIENZA di ciascuno, che è ciò che lo rende un fatto e non un'opinione:
  *
  *   1. `fitsPlan(line, ancora)` su `LivePlan` — aritmetica dichiarata del motore
  *      sui TARGET DI RUOLO dichiarati da Pico (packages/engine/src/livePlan.ts).
  *      Stessa posizione e stesso criterio del radar occasioni;
- *   2. `positionOf` dell'ordine di appetibilità del ruolo, costruito da
+ *   2. `surplusOverAnchor(valore dichiarato, ancora)` — la sottrazione del radar
+ *      occasioni (packages/engine/src/opportunities.ts), presa da lì e non
+ *      riscritta: valore DICHIARATO da Pico meno ancora corrente MISURATA. È il
+ *      posto che il surplus aveva nel radar, e ci è tornato. **Ordina, non
+ *      esclude**: un surplus ≤ 0 fa scendere la riga, non la fa sparire;
+ *   3. `positionOf` dell'ordine di appetibilità del ruolo, costruito da
  *      `buildTierBook` (src/tierOrdering.ts) sull'indice servito dal deposito
  *      privato, con la ricetta COPIATA dalle righe e il criterio di pareggio del
- *      motore. È il criterio che PRENDE IL POSTO DEL SURPLUS, ed è la scelta non
- *      ratificata `PER_ME_ORDER_APPEAL_REPLACES_SURPLUS`;
- *   3. `currentAnchor(...).correctedAnchor` — Qt.A misurata corretta
+ *      motore. È SCESO DI UN GRADINO e non è stato tolto: è ciò che decide a
+ *      parità di surplus, ed è l'unico criterio che ordina le righe per cui un
+ *      surplus non esiste. È la scelta non ratificata
+ *      `PER_ME_ORDER_APPEAL_BREAKS_SURPLUS_TIES`;
+ *   4. `currentAnchor(...).correctedAnchor` — Qt.A misurata corretta
  *      dall'inflazione misurata (packages/engine/src/anchors.ts). Stessa
- *      posizione e stesso verso del radar occasioni, dove la frase era «a parità
- *      di surplus il pezzo più grosso della rosa vale prima»: qui è «a parità di
- *      posto nell'ordine, il pezzo più grosso prima». **Decrescente**, e il verso
- *      non è un dettaglio: è la direzione OPPOSTA a quella che la sottrazione
- *      caduta produrrebbe;
- *   4. `playerId` — l'idioma già in uso in `precedents.ts`, `competitors.ts` e
+ *      posizione e stesso verso del radar occasioni: «a parità di surplus il
+ *      pezzo più grosso della rosa vale prima». **Decrescente**, e il verso non
+ *      è un dettaglio: è ciò che tiene il più economico in fondo quando né il
+ *      surplus né l'appetibilità hanno un verdetto da dare;
+ *   5. `playerId` — l'idioma già in uso in `precedents.ts`, `competitors.ts` e
  *      `baitCandidates.ts`: stesso input, stessa lista, sempre.
  *
- * NESSUNA SOTTRAZIONE VALORE−PREZZO, in nessuna forma. Nessuno dei quattro
- * criteri mette in relazione un valore con un prezzo; il solo prezzo che compare
- * è l'ancora, e compare da sola.
+ * L'UNICA SOTTRAZIONE VALORE−PREZZO È QUELLA DEL CRITERIO 2, e ha per minuendo
+ * il valore DICHIARATO da Pico. Nessun valore derivato entra in questa via: una
+ * base piatta per ruolo renderebbe la sottrazione monotona decrescente nel
+ * prezzo, cioè selezione avversa (§2 dell'intestazione).
  */
 export function orderPerMeCandidates(candidates: readonly PerMeCandidate[]): PerMeCandidate[] {
   return [...candidates].sort(
     (a, b) =>
       Number(b.withinRolePlan) - Number(a.withinRolePlan) ||
+      compareSurplus(a.surplus, b.surplus) ||
       compareAppealPosition(a.appealPosition, b.appealPosition) ||
       b.anchor.correctedAnchor - a.anchor.correctedAnchor ||
       a.playerId.localeCompare(b.playerId),
   );
+}
+
+/**
+ * Confronto DECRESCENTE sul surplus, con l'ASSENZA dichiarata invece che
+ * fabbricata — lo stesso stampo di `compareAppealPosition` qui sotto, e per la
+ * stessa ragione: `null` non diventa 0 (sarebbe la dichiarazione «vale
+ * esattamente quanto costa», che nessuno ha fatto) e non diventa `-Infinity`
+ * (sarebbe una misura, e non c'è nessuna misura). Una riga senza valore
+ * dichiarato finisce dopo TUTTE quelle che un surplus ce l'hanno — anche dopo
+ * quelle con surplus negativo, che una misura ce l'hanno — e la vista lo dice
+ * (`withoutDeclaredValue`).
+ */
+function compareSurplus(a: number | null, b: number | null): number {
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return b - a;
 }
 
 /**
@@ -498,7 +595,7 @@ function empty(reason: PerMeEmptyReason, detail = ""): PerMeReading {
  * raccolti a monte (`perMeAnchors`, `buildTierBook`).
  */
 export function perMeCandidates(input: PerMeInput): PerMeReading {
-  const { pool, source, state, log, selfId, planDraft } = input;
+  const { pool, source, state, log, selfId, planDraft, values } = input;
 
   if (pool.length === 0) return empty("no-pool");
 
@@ -555,11 +652,19 @@ export function perMeCandidates(input: PerMeInput): PerMeReading {
     const index = tiers.kind === "book" ? tiers.book.byRole.get(anchor.role) : undefined;
     const position = index?.positionOf.get(playerId);
 
+    // IL CRITERIO 2. `declaredValueOf` risponde `null` — mai 0 — quando Pico non
+    // ha dichiarato niente su questo giocatore, e da `null` non si sottrae:
+    // senza il primo ingrediente il surplus non esiste, e l'ordine lo sa.
+    const declaredValue = values === null ? null : declaredValueOf(playerId, values);
+    const surplus = declaredValue === null ? null : surplusOverAnchor(declaredValue, anchor);
+
     out.push({
       player: row,
       playerId,
       role: anchor.role,
       anchor,
+      declaredValue,
+      surplus,
       maxBid,
       withinRolePlan: fitsPlan(line, anchor.correctedAnchor),
       planAllocation: line.allocation,
@@ -580,6 +685,7 @@ export function perMeCandidates(input: PerMeInput): PerMeReading {
     evaluated: candidates.length,
     freeInOpenRoles,
     withoutAppealPosition: candidates.filter((c) => c.appealPosition === null).length,
+    withoutDeclaredValue: candidates.filter((c) => c.surplus === null).length,
     planVersion: live.planVersion,
     basis: BASIS,
     ratification: RATIFICATION,

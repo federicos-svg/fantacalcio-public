@@ -4,19 +4,30 @@
 // derivano da `reduce()` su acquisti passati da `recordPurchase`, quindi ogni
 // numero atteso qui sotto è lo stesso numero che l'app vede a schermo.
 //
-// LA PROVA CHE QUESTO FILE ESISTE PER TENERE IN PIEDI è §"selezione avversa":
-// la strada precedente moriva lì. Sostituire il valore ASSOLUTO al valore per
-// me nella sottrazione `valore − ancora` la rende monotona decrescente nel
-// prezzo — la base assoluta è piatta per ruolo — e il radar finirebbe per
-// ordinare dal più economico, cioè dal peggiore. Qui c'è uno stato costruito
-// apposta perché quella sottrazione, se qualcuno la reintroducesse, metterebbe
-// in cima il giocatore peggiore e più economico del ruolo; il test pinna che
-// questo box lo mette IN FONDO.
+// L'ORDINE PROVATO QUI È QUELLO DECISO DA PICO IL 2026-08-25 (in sessione):
+// «deve essere un mix tra le due cose. Il numero uno è il filtro a monte ma il
+// due è quello successivo» — il piano FILTRA, il surplus ORDINA. §"il surplus
+// ordina, non esclude" copre i primi due criteri e i tre casi che li rendono
+// falsificabili: il surplus ≤ 0 che RESTA a schermo, il valore dichiarato che
+// manca e NON diventa zero, la parità che scende sull'appetibilità.
+//
+// LA PROVA CHE QUESTO FILE ESISTE PER TENERE IN PIEDI è §"selezione avversa".
+// Il minuendo del surplus è il valore DICHIARATO da Pico e nessun altro:
+// sostituirgli il valore ASSOLUTO renderebbe `valore − ancora` monotona
+// decrescente nel prezzo — la base assoluta è piatta per ruolo — e il riquadro
+// finirebbe per ordinare dal più economico, cioè dal peggiore. Qui c'è uno
+// stato costruito apposta perché quella sostituzione, se qualcuno la facesse,
+// metterebbe in cima il giocatore peggiore e più economico del ruolo; il test
+// pinna che questo box lo mette IN FONDO.
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
 import { FANTA_TEAM_IDS } from "../packages/engine/fixtures/synthetic.js";
 import { maxSafe } from "../packages/engine/src/auction.js";
-import { UNRATIFIED_CHOICES } from "../packages/engine/src/declaredValues.js";
+import {
+  declaredValueBook,
+  UNRATIFIED_CHOICES,
+  type DeclaredValueBook,
+} from "../packages/engine/src/declaredValues.js";
 import { recordPurchase } from "../packages/engine/src/feasibility.js";
 import { reduce } from "../packages/engine/src/reduce.js";
 import { ROLES, type AuctionEvent, type Role } from "../packages/engine/src/types.js";
@@ -79,6 +90,12 @@ function logAfter(
 interface ReadOptions {
   readonly log?: readonly AuctionEvent[];
   readonly planDraft?: RolePlanDraft | null;
+  /**
+   * Il listino dei valori DICHIARATI. Il default è `null` — nessun valore
+   * dichiarato — perché è lo stato dell'app oggi (src/main.ts passa `null`): i
+   * test che non lo passano provano quindi il caso vero, non un caso comodo.
+   */
+  readonly values?: DeclaredValueBook | null;
 }
 
 function read(pool: readonly ListonePlayer[], options: ReadOptions = {}): PerMeReading {
@@ -90,7 +107,16 @@ function read(pool: readonly ListonePlayer[], options: ReadOptions = {}): PerMeR
     log,
     selfId: ME,
     planDraft: options.planDraft === undefined ? FULL_PLAN : options.planDraft,
+    values: options.values ?? null,
   });
+}
+
+/** Un listino di valori dichiarati sintetico, costruito col motore vero (che
+ *  lancia su un listino invalido) e non a mano. */
+function valuesOf(pairs: readonly (readonly [ListonePlayer, number])[]): DeclaredValueBook {
+  return declaredValueBook(
+    pairs.map(([player, declaredValue]) => ({ playerId: listonePlayerKey(player), declaredValue })),
+  );
 }
 
 const ids = (reading: PerMeReading): readonly string[] =>
@@ -181,6 +207,153 @@ describe("perMeCandidates — l'ordine dichiarato", () => {
   });
 });
 
+describe("perMeCandidates — il surplus ordina, non esclude", () => {
+  // LA DECISIONE DI PICO DEL 2026-08-25, provata criterio per criterio: «deve
+  // essere un mix tra le due cose. Il numero uno è il filtro a monte ma il due
+  // è quello successivo». Il piano filtra, il surplus ordina.
+  //
+  // La scena è quella principale, con i valori DICHIARATI aggiunti sopra: le
+  // ancore a log vuoto sono le Qt.A nude (60, 40, 2, 30), quindi ogni surplus
+  // atteso qui sotto si rifà a mano.
+
+  it("il surplus ordina chi ha passato il filtro, e batte l'appetibilità", () => {
+    // A_MEDIO è 2ª di 3 per appetibilità e A_FORTE è 1ª: se ordinasse
+    // l'appetibilità, A_FORTE verrebbe prima. Col surplus davanti vince A_MEDIO
+    // (+30 contro +10), ed è esattamente ciò che «il due è quello successivo»
+    // significa.
+    const values = valuesOf([
+      [A_FORTE, 70], // 70 − 60 = +10
+      [A_MEDIO, 70], // 70 − 40 = +30
+      [A_SCARSO, 5], // 5 − 2 = +3
+      [D_FORTE, 35], // 35 − 30 = +5
+    ]);
+    const reading = read(SCENE, { values });
+    if (reading.kind !== "candidates") throw new Error("attesi candidati");
+    expect(reading.candidates.map((c) => c.surplus)).toEqual([30, 10, 5, 3]);
+    expect(ids(reading)).toEqual([key(A_MEDIO), key(A_FORTE), key(D_FORTE), key(A_SCARSO)]);
+    expect(reading.withoutDeclaredValue).toBe(0);
+  });
+
+  it("IL PIANO RESTA IL FILTRO A MONTE: un surplus enorme fuori piano non scavalca", () => {
+    // L'allocazione viva del reparto A è 210 cr su 7 slot: `fitsPlan` lascia
+    // passare fino a 204 cr. Il caro a 300 cr sfora il piano ma resta
+    // comprabile (`maxSafe` a rosa vuota vale 473) e porta il surplus più
+    // grande del tavolo: resta comunque SOTTO chi il piano lo rispetta.
+    const caro = row("Attaccante Caro", "A", "Alfa", 300, 99);
+    const modesto = row("Attaccante Modesto", "A", "Alfa", 20, 30);
+    const values = valuesOf([
+      [caro, 500], // 500 − 300 = +200, fuori piano
+      [modesto, 21], // 21 − 20 = +1, nel piano
+    ]);
+    const reading = read([caro, modesto], { values });
+    if (reading.kind !== "candidates") throw new Error("attesi candidati");
+    expect(reading.candidates[0]!.playerId).toBe(key(modesto));
+    expect(reading.candidates[0]!.surplus).toBe(1);
+    expect(reading.candidates[1]!.playerId).toBe(key(caro));
+    expect(reading.candidates[1]!.surplus).toBe(200);
+  });
+
+  it("un surplus ≤ 0 NON esclude: la riga resta visibile, più in basso", () => {
+    // La quinta condizione d'ammissione del radar occasioni (`surplus > 0`) qui
+    // NON torna come cancello: togliere dallo schermo un giocatore che il piano
+    // copre ridurrebbe ciò che Pico vede in asta.
+    const values = valuesOf([
+      [A_FORTE, 50], // 50 − 60 = −10
+      [A_MEDIO, 40], // 40 − 40 = 0
+      [A_SCARSO, 3], // 3 − 2 = +1
+      [D_FORTE, 20], // 20 − 30 = −10
+    ]);
+    const reading = read(SCENE, { values });
+    if (reading.kind !== "candidates") throw new Error("attesi candidati");
+    // Tutti e quattro sono ancora lì: nessuno è sparito per il segno.
+    expect(reading.candidates).toHaveLength(4);
+    expect(reading.evaluated).toBe(4);
+    expect(ids(reading)).toContain(key(A_FORTE));
+    // …e l'unico positivo è in cima, i due negativi in fondo. Fra i due a −10
+    // decide il criterio successivo che ha un verdetto: entrambi sono 1ª del
+    // proprio ruolo, quindi decide l'ancora decrescente (60 prima di 30).
+    expect(ids(reading)).toEqual([key(A_SCARSO), key(A_MEDIO), key(A_FORTE), key(D_FORTE)]);
+  });
+
+  it("un valore dichiarato che manca NON diventa zero, e nemmeno meno infinito", () => {
+    // IL TEST CHE DIFENDE LA REGOLA. `A_FORTE` ha un surplus NEGATIVO (−10):
+    // è una misura, e una misura viene prima di un'assenza. Se l'assenza
+    // diventasse 0 starebbe DAVANTI a lui; se diventasse `-Infinity` sarebbe
+    // «l'ultimo misurato» — cioè un verdetto che nessuno ha espresso.
+    const values = valuesOf([[A_FORTE, 50]]); // 50 − 60 = −10; gli altri tre, niente
+    const reading = read(SCENE, { values });
+    if (reading.kind !== "candidates") throw new Error("attesi candidati");
+    expect(reading.candidates[0]!.playerId).toBe(key(A_FORTE));
+    expect(reading.candidates[0]!.surplus).toBe(-10);
+    expect(reading.candidates[0]!.declaredValue).toBe(50);
+    // Le tre senza dichiarazione seguono, e portano `null` in entrambi i campi:
+    // non uno zero, non un numero di ripiego.
+    for (const c of reading.candidates.slice(1)) {
+      expect(c.surplus).toBeNull();
+      expect(c.declaredValue).toBeNull();
+    }
+    expect(reading.withoutDeclaredValue).toBe(3);
+  });
+
+  it("a parità di surplus decide l'appetibilità, che è scesa di un gradino e non è sparita", () => {
+    // Stesso surplus (+10) per i tre attaccanti: se l'appetibilità fosse stata
+    // rimossa insieme al ritorno del surplus, a decidere sarebbe l'ancora
+    // decrescente e l'ordine sarebbe FORTE(60) → MEDIO(40) → SCARSO(2). Con
+    // l'appetibilità al suo posto l'ordine coincide qui, quindi la prova sta
+    // nel caso costruito apposta: SCARSO ha l'ancora più bassa ma la posizione
+    // migliore.
+    const primo = row("Attaccante Uno", "A", "Alfa", 10, 90); // 1ª per appetibilità
+    const secondo = row("Attaccante Due", "A", "Alfa", 80, 20); // 2ª, ma ancora più alta
+    const values = valuesOf([
+      [primo, 20], // 20 − 10 = +10
+      [secondo, 90], // 90 − 80 = +10
+    ]);
+    const reading = read([primo, secondo], { values });
+    if (reading.kind !== "candidates") throw new Error("attesi candidati");
+    expect(reading.candidates.map((c) => c.surplus)).toEqual([10, 10]);
+    expect(ids(reading)).toEqual([key(primo), key(secondo)]);
+    expect(reading.candidates[0]!.appealPosition).toBe(1);
+  });
+
+  it("senza listino dei valori nessuna riga ha un surplus, e l'ordine cade sui criteri che restano", () => {
+    // È LO STATO DELL'APP OGGI: `src/main.ts` passa `values: null` perché il
+    // core pubblico non ha ancora una sorgente per il listino dichiarato. Il
+    // criterio 2 non ha verdetto per nessuno, quindi decide il 3 — e nessuna
+    // riga sparisce per questo.
+    const reading = read(SCENE);
+    if (reading.kind !== "candidates") throw new Error("attesi candidati");
+    expect(reading.candidates.every((c) => c.surplus === null)).toBe(true);
+    expect(reading.candidates.every((c) => c.declaredValue === null)).toBe(true);
+    expect(reading.withoutDeclaredValue).toBe(4);
+    expect(ids(reading)).toEqual([key(A_FORTE), key(D_FORTE), key(A_MEDIO), key(A_SCARSO)]);
+  });
+
+  it("la sottrazione è quella del motore, non una copia: valore dichiarato − ancora CORRETTA", () => {
+    // Con un campione sufficiente l'ancora non è più la Qt.A nuda: il surplus
+    // deve muoversi con l'ancora corretta, altrimenti qualcuno sta sottraendo
+    // la base. Nove acquisti a prezzo doppio della Qt.A: inflazione +100%.
+    const log = logAfter(
+      Array.from({ length: 9 }, (_, i) => ({
+        playerId: key(row(`Venduto ${i}`, "C", "Zeta", 10)),
+        role: "C" as Role,
+        fantaTeamId: RIVAL,
+        price: 20,
+      })),
+    );
+    const pool = [
+      ...SCENE,
+      ...Array.from({ length: 9 }, (_, i) => row(`Venduto ${i}`, "C", "Zeta", 10)),
+    ];
+    const values = valuesOf([[A_FORTE, 130]]);
+    const reading = read(pool, { log, values });
+    if (reading.kind !== "candidates") throw new Error("attesi candidati");
+    const forte = reading.candidates.find((c) => c.playerId === key(A_FORTE))!;
+    expect(forte.anchor.correctedAnchor).toBeGreaterThan(forte.anchor.baseAnchor);
+    expect(forte.surplus).toBe(130 - forte.anchor.correctedAnchor);
+    expect(forte.surplus).not.toBe(130 - forte.anchor.baseAnchor);
+  });
+});
+
 describe("perMeCandidates — selezione avversa: la guardia", () => {
   // Lo stato è costruito perché la sottrazione CADUTA metterebbe in cima il
   // peggiore. Il valore assoluto del ruolo A è piatto (una sola cifra per
@@ -214,16 +387,27 @@ describe("perMeCandidates — selezione avversa: la guardia", () => {
     expect(reading.candidates[reading.candidates.length - 1]!.playerId).toBe(key(A_SCARSO));
   });
 
-  it("nel sorgente non esiste nessuna sottrazione valore−prezzo, in nessuna forma", () => {
+  it("nel sorgente il minuendo del surplus non è mai un valore DERIVATO", () => {
     // Guardia di SORGENTE, non di comportamento: un ordine si può cambiare
-    // senza rompere nessuna asserzione sui numeri, ma non si può reintrodurre
-    // il valore in questa via senza scriverne il nome.
+    // senza rompere nessuna asserzione sui numeri, ma non si può cambiare
+    // l'INGREDIENTE della sottrazione senza scriverne il nome.
+    //
+    // Che cosa è cambiato il 2026-08-25 e che cosa NO. Il surplus è tornato,
+    // quindi `declaredValue` e `surplus` non sono più parole vietate: sono il
+    // valore DICHIARATO da Pico e la sottrazione che ci si fa sopra. Resta
+    // vietato tutto ciò che DERIVEREBBE quel valore invece di riceverlo
+    // dichiarato — il valore assoluto (piatto per ruolo, quindi selezione
+    // avversa) e gli α del profilo di rischio.
     const src = stripCommentsAndStrings(
       readFileSync(new URL("./perMeCandidates.ts", import.meta.url), "utf8"),
     );
-    for (const forbidden of ["declaredValue", "absoluteValue", "surplus", "ALPHA_BY_PROFILE"]) {
-      expect(src, `«${forbidden}» è tornato nella via del sottoblocco`).not.toContain(forbidden);
+    for (const forbidden of ["absoluteValue", "ALPHA_BY_PROFILE", "fairToMe"]) {
+      expect(src, `«${forbidden}» è entrato nella via del sottoblocco`).not.toContain(forbidden);
     }
+    // …e il minuendo dichiarato c'è davvero, altrimenti la negazione qui sopra
+    // sarebbe verde su un file che non fa più nessuna sottrazione.
+    expect(src).toContain("declaredValueOf");
+    expect(src).toContain("surplusOverAnchor");
   });
 });
 
@@ -417,7 +601,7 @@ describe("perMeCandidates — i parametri e la ratifica viaggiano nel dato", () 
     // scritto: un identificatore senza motivo sarebbe una scelta nascosta con
     // un nome sopra. Questo test la DOCUMENTA, non la approva.
     expect(PER_ME_UNRATIFIED_CHOICES).toEqual([
-      "PER_ME_ORDER_APPEAL_REPLACES_SURPLUS",
+      "PER_ME_ORDER_APPEAL_BREAKS_SURPLUS_TIES",
       "PER_ME_REQUIRES_COMPLETE_ROLE_PLAN",
     ]);
     for (const id of PER_ME_UNRATIFIED_CHOICES) {
