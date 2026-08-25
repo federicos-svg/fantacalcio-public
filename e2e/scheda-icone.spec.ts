@@ -7,6 +7,7 @@ import {
   ICONE_SCHEDA_SORPRESA,
   ICONE_SCHEDA_SPENTA,
   ICONE_SCHEDA_TRE_NOMI,
+  SCHEDA_CLUB,
   SCHEDA_PLAYER,
   schedeDeposit,
 } from "./fixtures/synthetic-schede.js";
@@ -263,7 +264,7 @@ test("il ballottaggio a due: il nome dell'altro e la sua quota compaiono col mou
 
   await page.locator(`${BALLOTTAGGIO} .scheda-icona__hit`).hover();
   await expect(pop).toBeVisible();
-  await expect(pop).toContainText("Bruna Placeholder al 40%");
+  await expect(pop).toContainText(`Bruna Placeholder (${SCHEDA_CLUB}) al 40%`);
   await expect(pop).toContainText("lui al 60%");
 
   expect(external).toEqual([]);
@@ -279,8 +280,8 @@ test("il ballottaggio a TRE: tutti gli altri restano scritti, non solo «l'altro
   await page.locator(`${BALLOTTAGGIO} .scheda-icona__hit`).hover();
   const pop = page.locator(`${BALLOTTAGGIO} .scheda-icona__pop`);
   await expect(pop).toBeVisible();
-  await expect(pop).toContainText("Bruna Placeholder al 30%");
-  await expect(pop).toContainText("Carlo Segnaposto al 20%");
+  await expect(pop).toContainText(`Bruna Placeholder (${SCHEDA_CLUB}) al 30%`);
+  await expect(pop).toContainText(`Carlo Segnaposto (${SCHEDA_CLUB}) al 20%`);
   await expect(pop).toContainText("lui al 50%");
 
   expect(external).toEqual([]);
@@ -308,14 +309,14 @@ test("il nome dell'altro si raggiunge DA TASTIERA, col solo tasto Tab", async ({
 
   const pop = page.locator(`${BALLOTTAGGIO} .scheda-icona__pop`);
   await expect(pop).toBeVisible();
-  await expect(pop).toContainText("Bruna Placeholder al 30%");
-  await expect(pop).toContainText("Carlo Segnaposto al 20%");
+  await expect(pop).toContainText(`Bruna Placeholder (${SCHEDA_CLUB}) al 30%`);
+  await expect(pop).toContainText(`Carlo Segnaposto (${SCHEDA_CLUB}) al 20%`);
 
   // E chi naviga a voce non dipende dalla nuvoletta: la frase intera è il
   // CONTENUTO del bottone, cioè il suo nome accessibile.
   const nome = await hit.evaluate((el) => (el.textContent ?? "").trim());
-  expect(nome).toContain("Bruna Placeholder al 30%");
-  expect(nome).toContain("Carlo Segnaposto al 20%");
+  expect(nome).toContain(`Bruna Placeholder (${SCHEDA_CLUB}) al 30%`);
+  expect(nome).toContain(`Carlo Segnaposto (${SCHEDA_CLUB}) al 20%`);
   // Nessun `title`: non lo raggiungerebbero né la tastiera né il dito.
   await expect(hit).not.toHaveAttribute("title", /./);
 
@@ -340,8 +341,8 @@ test.describe("col dito, dove l'hover non esiste", () => {
     await hit.tap();
     const pop = page.locator(`${BALLOTTAGGIO} .scheda-icona__pop`);
     await expect(pop).toBeVisible();
-    await expect(pop).toContainText("Bruna Placeholder al 30%");
-    await expect(pop).toContainText("Carlo Segnaposto al 20%");
+    await expect(pop).toContainText(`Bruna Placeholder (${SCHEDA_CLUB}) al 30%`);
+    await expect(pop).toContainText(`Carlo Segnaposto (${SCHEDA_CLUB}) al 20%`);
     // La nuvoletta non esce dallo schermo: a 390px è il caso stretto.
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),

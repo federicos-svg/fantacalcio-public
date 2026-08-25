@@ -166,6 +166,12 @@ export const PAGELLA_SCHEDA_RUOLO_SBAGLIATO: ExpertScheda = {
 // I nomi degli altri in ballottaggio sono segnaposto come tutto il resto di
 // questo file: «Bruna Placeholder», «Carlo Segnaposto», «Dina Fittizia». Le
 // quote sono inventate e non sommano a nessuna verità.
+//
+// OGNI SOGGETTO PORTA LA PROPRIA SQUADRA, come il contratto adesso ammette: la
+// stessa del giocatore della scheda, perché un ballottaggio è una contesa per
+// un posto in una formazione e questi segnaposto sono i suoi compagni. Non è
+// una regola del contratto — un rivale di un altro club resta ammesso — è la
+// forma normale del caso che queste fixture rappresentano.
 
 /** Tutte e quattro le icone accese: tre segnali più la lista «consigliato». */
 export const ICONE_SCHEDA_PIENA: ExpertScheda = {
@@ -173,7 +179,7 @@ export const ICONE_SCHEDA_PIENA: ExpertScheda = {
   club: SCHEDA_CLUB,
   titolarita: "ballottaggio",
   percentuale: 60,
-  ballottaggio: [{ surface: "Bruna Placeholder", sharePercent: 40 }],
+  ballottaggio: [{ surface: "Bruna Placeholder", club: SCHEDA_CLUB, sharePercent: 40 }],
   rigori: "designato",
   piazzati: ["punizioni", "angoli"],
   lista: "consigliato",
@@ -197,8 +203,8 @@ export const ICONE_SCHEDA_TRE_NOMI: ExpertScheda = {
   ...ICONE_SCHEDA_PIENA,
   percentuale: 50,
   ballottaggio: [
-    { surface: "Bruna Placeholder", sharePercent: 30 },
-    { surface: "Carlo Segnaposto", sharePercent: 20 },
+    { surface: "Bruna Placeholder", club: SCHEDA_CLUB, sharePercent: 30 },
+    { surface: "Carlo Segnaposto", club: SCHEDA_CLUB, sharePercent: 20 },
   ],
   lista: "possibile_sorpresa",
 };

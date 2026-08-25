@@ -40,11 +40,14 @@ import {
 } from "./helpers.js";
 import {
   SCHEDA_BALLOTTAGGIO_MAX,
+  SCHEDA_CLUB_NON_DICHIARATA,
   SCHEDA_NOTA_MAX,
   parseExpertSchedaDeposit,
   resolveExpertInsight,
 } from "../src/expertScheda.js";
 import { PAGELLA_TOTALE_MAX } from "../src/pagellaEsperti.js";
+import { listonePlayerKey } from "../src/ui/listone.js";
+import type { ListonePlayer } from "../src/ui/listone.js";
 
 const SCHEDA_DRAFTS_KEY = "fac_scheda_drafts";
 const TOTAL_ROWS = SYNTHETIC_LISTONE_POOL.length;
@@ -52,6 +55,15 @@ const TARGET_OPTION = `${SCHEDA_PLAYER} (${SCHEDA_CLUB})`;
 const OTHER_OPTION = `${OTHER_PLAYER} (${OTHER_CLUB})`;
 /** La chiave di riga con cui il pannello nomina i pulsanti di una scheda. */
 const TARGET_ROW_KEY = `${SCHEDA_PLAYER.toLowerCase().replace(/\s+/g, "-")}__${SCHEDA_CLUB.toLowerCase()}`;
+/**
+ * IL VALORE DI UN'OPZIONE «CON CHI»: l'identità intera, non più il nome.
+ *
+ * Costruito con `listonePlayerKey` — la funzione vera, importata da `src/` —
+ * e non ricopiato a mano: è la stessa chiave con cui il deposito indicizza, e
+ * una seconda ricetta qui direbbe «verde» su un accoppiamento che l'app fa in
+ * un altro modo.
+ */
+const OTHER_ROW_VALUE = listonePlayerKey({ name: OTHER_PLAYER, club: OTHER_CLUB });
 const NOTA = "Ballottaggio aperto da tre amichevoli: da rileggere prima dell'asta.";
 
 /**
@@ -135,8 +147,9 @@ async function boot(page: Page): Promise<void> {
 async function fillFullScheda(page: Page): Promise<void> {
   await page.locator("#schede-titolarita").selectOption("ballottaggio");
   await page.locator("#schede-percentuale").fill("60");
-  // Con CHI se la gioca: si SCEGLIE da una riga del listone, come il giocatore.
-  await page.locator("#schede-ballottaggio-nome-0").selectOption(OTHER_PLAYER);
+  // Con CHI se la gioca: si SCEGLIE da una riga del listone, come il giocatore
+  // — e la riga porta nome E squadra, cioè l'identità intera.
+  await page.locator("#schede-ballottaggio-nome-0").selectOption({ label: OTHER_OPTION });
   await page.locator("#schede-ballottaggio-quota-0").fill("40");
   await page.locator("#schede-gerarchia").fill("2");
   await page.locator("#schede-rigori").selectOption("designato");
@@ -240,7 +253,9 @@ test("il giro completo: scelgo, compilo, salvo, ricarico, scarico — e il file 
   // I TRE CAMPI CHE IL CONTRATTO AMMETTEVA E CHE NESSUNO POTEVA SCRIVERE.
   // Non basta che finiscano nel file: devono ARRIVARE ALLA VISTA, che è la
   // metà del giro in cui si perdevano prima ancora di esistere.
-  expect(view.ballottaggio).toEqual([{ surface: OTHER_PLAYER, sharePercent: 40 }]);
+  expect(view.ballottaggio).toEqual([
+    { surface: OTHER_PLAYER, club: OTHER_CLUB, sharePercent: 40 },
+  ]);
   expect(view.lista).toBe("consigliato");
   expect(view.pagella.completa).toBe(true);
   expect(view.pagella.votiPresenti).toBe(5);
@@ -597,14 +612,16 @@ test("i tre campi si compilano, si rileggono e tornano identici byte per byte", 
   await expect(page.locator("#schede-form")).toHaveCount(0);
 
   // Il riassunto rilegge i tre campi senza riaprire la scheda.
-  await expect(page.locator("#schede-list")).toContainText(`con: ${OTHER_PLAYER} 40%`);
+  await expect(page.locator("#schede-list")).toContainText(
+    `con: ${OTHER_PLAYER} (${OTHER_CLUB}) 40%`,
+  );
   await expect(page.locator("#schede-list")).toContainText("lista: consigliato");
   await expect(page.locator("#schede-list")).toContainText("pagella: 5/5 voti, somma 39/50");
 
   // Riaperta, la scheda torna nel modulo com'era: nessun campo si perde per
   // strada, che è l'intero punto della correzione a tre sere di distanza.
   await page.locator(`#schede-edit-${TARGET_ROW_KEY}`).click();
-  await expect(page.locator("#schede-ballottaggio-nome-0")).toHaveValue(OTHER_PLAYER);
+  await expect(page.locator("#schede-ballottaggio-nome-0")).toHaveValue(OTHER_ROW_VALUE);
   await expect(page.locator("#schede-ballottaggio-quota-0")).toHaveValue("40");
   await expect(page.locator("#schede-lista")).toHaveValue("consigliato");
   await expect(page.locator("#schede-pagella-bonus")).toHaveValue("6");
@@ -654,12 +671,13 @@ test("i due rifiuti dei campi nuovi si leggono, e il lavoro resta a schermo", as
   //    Il riquadro d'asta li scarterebbe (`resolveExpertInsight`): scritti e mai
   //    resi. Qui la perdita diventa una domanda.
   await page.locator("#schede-titolarita").selectOption("titolare");
-  await page.locator("#schede-ballottaggio-nome-0").selectOption(OTHER_PLAYER);
+  await page.locator("#schede-ballottaggio-nome-0").selectOption({ label: OTHER_OPTION });
   await page.locator("#schede-save").click();
   await expect(page.locator("#schede-error-ballottaggio")).toContainText("ballottaggio");
   await expect(page.locator("#schede-progress-count")).toContainText(`0 su ${TOTAL_ROWS}`);
-  // Il nome scelto è ancora lì: il rifiuto non butta via il lavoro.
-  await expect(page.locator("#schede-ballottaggio-nome-0")).toHaveValue(OTHER_PLAYER);
+  // La riga scelta è ancora lì, con tutte e due le metà: il rifiuto non butta
+  // via il lavoro.
+  await expect(page.locator("#schede-ballottaggio-nome-0")).toHaveValue(OTHER_ROW_VALUE);
 
   // Corretta la titolarità, la stessa scheda passa — e il tetto del contratto
   // è visibile nella legenda del blocco.
@@ -713,6 +731,171 @@ test("i due rifiuti dei campi nuovi si leggono, e il lavoro resta a schermo", as
   await page.locator("#schede-save").click();
   await expect(page.locator("#schede-errors")).toHaveCount(0);
   await expect(page.locator("#schede-progress-count")).toContainText(`2 su ${TOTAL_ROWS}`);
+
+  expect(externalRequests).toEqual([]);
+});
+
+// ── DUE OMONIMI PIENI, DUE CLUB ─────────────────────────────────────────────
+//
+// Il caso per cui il campo `ballottaggio` ha smesso di portare il solo nome.
+// Due giocatori con lo stesso identico nome in club diversi producevano lo
+// STESSO valore depositato: dopo il salvataggio non c'era più modo di sapere
+// quale dei due la scheda intendesse. Finché il ballottaggio era testo mostrato
+// era un fastidio; da quando la valutazione del Gruppo Esperti entra nel
+// calcolo, un accoppiamento sbagliato sposta un numero.
+//
+// Il listone di questa prova è LOCALE e non tocca `SYNTHETIC_LISTONE_POOL`: le
+// due righe omonime servono solo qui, e aggiungerle al listone condiviso
+// sposterebbe i conteggi di una ventina di altre spec senza nessun motivo.
+
+const OMONIMO = "Bruna Placeholder";
+const OMONIMO_CLUB_A = "ClubUno";
+const OMONIMO_CLUB_B = "ClubDue";
+const POOL_OMONIMI: readonly ListonePlayer[] = [
+  { name: SCHEDA_PLAYER, role: "A", club: SCHEDA_CLUB, quotation: 20 },
+  { name: OMONIMO, role: "C", club: OMONIMO_CLUB_A, quotation: 12 },
+  { name: OMONIMO, role: "C", club: OMONIMO_CLUB_B, quotation: 10 },
+];
+const OMONIMO_VALUE_A = listonePlayerKey({ name: OMONIMO, club: OMONIMO_CLUB_A });
+const OMONIMO_VALUE_B = listonePlayerKey({ name: OMONIMO, club: OMONIMO_CLUB_B });
+
+test("due omonimi in club diversi restano DUE: nel modulo, nel file e nel riquadro d'asta", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, POOL_OMONIMI, externalRequests);
+  const pageErrors: string[] = [];
+  page.on("pageerror", (err) => pageErrors.push(err.message));
+  await boot(page);
+
+  await page.locator("#schede-player").selectOption({ label: TARGET_OPTION });
+  await page.locator("#schede-titolarita").selectOption("ballottaggio");
+  await page.locator("#schede-percentuale").fill("40");
+
+  // I due omonimi si distinguono già nell'elenco — l'etichetta porta la
+  // squadra — e da oggi si distinguono anche nel VALORE, che è l'identità.
+  await page
+    .locator("#schede-ballottaggio-nome-0")
+    .selectOption({ label: `${OMONIMO} (${OMONIMO_CLUB_A})` });
+  await page.locator("#schede-ballottaggio-quota-0").fill("35");
+  await page
+    .locator("#schede-ballottaggio-nome-1")
+    .selectOption({ label: `${OMONIMO} (${OMONIMO_CLUB_B})` });
+  await page.locator("#schede-ballottaggio-quota-1").fill("25");
+  await expect(page.locator("#schede-ballottaggio-nome-0")).toHaveValue(OMONIMO_VALUE_A);
+  await expect(page.locator("#schede-ballottaggio-nome-1")).toHaveValue(OMONIMO_VALUE_B);
+
+  // Col solo nome questa scheda non si salvava affatto: il rifiuto del doppione
+  // la fermava, perché le due righe erano la stessa parola.
+  await page.locator("#schede-save").click();
+  await expect(page.locator("#schede-errors")).toHaveCount(0);
+  await expect(page.locator("#schede-list")).toContainText(
+    `con: ${OMONIMO} (${OMONIMO_CLUB_A}) 35%, ${OMONIMO} (${OMONIMO_CLUB_B}) 25%`,
+  );
+
+  // ── NEL FILE, E NEL RIQUADRO ─────────────────────────────────────────────
+  const depositPath = fixturePath("omonimi.json");
+  const firstText = await saveDeposit(page, depositPath);
+  const store = parseExpertSchedaDeposit(firstText);
+  expect(store.ok, "il deposito con due omonimi deve passare il contratto").toBe(true);
+  const view = resolveExpertInsight(store, { name: SCHEDA_PLAYER, club: SCHEDA_CLUB });
+  expect(view.ballottaggio).toEqual([
+    { surface: OMONIMO, club: OMONIMO_CLUB_A, sharePercent: 35 },
+    { surface: OMONIMO, club: OMONIMO_CLUB_B, sharePercent: 25 },
+  ]);
+
+  // ── E DOPO IL GIRO INTERO ────────────────────────────────────────────────
+  // Azzerato il browser e ricaricato il file, i due sono ancora due — e il
+  // riscaricato è lo stesso file byte per byte, cioè l'ordine delle chiavi del
+  // soggetto è quello dello schema anche con la squadra in mezzo.
+  await wipeBrowser(page);
+  await page.locator("#schede-import-file").setInputFiles(depositPath);
+  await page.locator("#schede-import-confirm").click();
+  await expect(page.locator("#schede-notice")).toContainText("Deposito ripreso");
+  const roundTripPath = fixturePath("omonimi-round-trip.json");
+  expect(await saveDeposit(page, roundTripPath)).toBe(firstText);
+
+  await page.locator(`#schede-edit-${TARGET_ROW_KEY}`).click();
+  await expect(page.locator("#schede-ballottaggio-nome-0")).toHaveValue(OMONIMO_VALUE_A);
+  await expect(page.locator("#schede-ballottaggio-quota-0")).toHaveValue("35");
+  await expect(page.locator("#schede-ballottaggio-nome-1")).toHaveValue(OMONIMO_VALUE_B);
+  await expect(page.locator("#schede-ballottaggio-quota-1")).toHaveValue("25");
+
+  expect(pageErrors).toEqual([]);
+  expect(externalRequests).toEqual([]);
+});
+
+test("un ballottaggio della forma vecchia si riapre, dichiara la squadra mancante e non se ne inventa una", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, POOL_OMONIMI, externalRequests);
+  await boot(page);
+
+  // Un deposito scritto prima che il soggetto portasse la squadra: il solo
+  // nome, e nel listone caricato di omonimi con quel nome ce ne sono DUE.
+  // Attaccargliene uno sarebbe l'accoppiamento sbagliato reso invisibile.
+  const vecchioPath = fixturePath("ballottaggio-forma-vecchia.json");
+  writeFileSync(
+    vecchioPath,
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        schede: [
+          {
+            player: SCHEDA_PLAYER,
+            club: SCHEDA_CLUB,
+            titolarita: "ballottaggio",
+            percentuale: 60,
+            ballottaggio: [{ surface: OMONIMO, sharePercent: 40 }],
+          },
+        ],
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+  await page.locator("#schede-import-file").setInputFiles(vecchioPath);
+  await page.locator("#schede-import-confirm").click();
+  await expect(page.locator("#schede-notice")).toContainText("Deposito ripreso");
+
+  // Il riassunto DICHIARA che la squadra manca, invece di scriverne una.
+  await expect(page.locator("#schede-list")).toContainText(
+    `con: ${OMONIMO} (${SCHEDA_CLUB_NON_DICHIARATA}) 40%`,
+  );
+  await expect(page.locator("#schede-list")).not.toContainText(
+    `${OMONIMO} (${OMONIMO_CLUB_A})`,
+  );
+
+  // Riaperta: la casella porta il soggetto COM'È, segnato «squadra n/d», e non
+  // ricade su «nessuno» — cioè il nome non sparisce per non avere un posto.
+  await page.locator(`#schede-edit-${TARGET_ROW_KEY}`).click();
+  const casella = page.locator("#schede-ballottaggio-nome-0");
+  await expect(casella).not.toHaveValue("");
+  expect(await casella.evaluate((el) => (el as HTMLSelectElement).selectedOptions[0]?.text)).toBe(
+    `${OMONIMO} (${SCHEDA_CLUB_NON_DICHIARATA})`,
+  );
+  await expect(page.locator("#schede-ballottaggio-quota-0")).toHaveValue("40");
+
+  // Risalvata senza toccarla, resta senza squadra: il salvataggio non ne
+  // fabbrica una, e il file riscaricato è quello di prima byte per byte.
+  await page.locator("#schede-save").click();
+  await expect(page.locator("#schede-errors")).toHaveCount(0);
+  const riscaricato = await saveDeposit(page, fixturePath("forma-vecchia-riscaricata.json"));
+  expect(riscaricato).toBe(readFileSync(vecchioPath, "utf8"));
+
+  // E chi VUOLE completarla lo fa con un gesto: sceglie quale dei due omonimi.
+  await page.locator(`#schede-edit-${TARGET_ROW_KEY}`).click();
+  await page
+    .locator("#schede-ballottaggio-nome-0")
+    .selectOption({ label: `${OMONIMO} (${OMONIMO_CLUB_B})` });
+  await page.locator("#schede-save").click();
+  await expect(page.locator("#schede-list")).toContainText(
+    `con: ${OMONIMO} (${OMONIMO_CLUB_B}) 40%`,
+  );
 
   expect(externalRequests).toEqual([]);
 });

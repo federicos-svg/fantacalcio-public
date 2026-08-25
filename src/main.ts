@@ -225,6 +225,7 @@ import {
   PIAZZATI_VALUES,
   RIGORI_VALUES,
   SCHEDA_BALLOTTAGGIO_MAX,
+  SCHEDA_CLUB_NON_DICHIARATA,
   SCHEDA_GERARCHIA_MAX,
   SCHEDA_GERARCHIA_MIN,
   SCHEDA_NOTA_MAX,
@@ -4674,17 +4675,37 @@ function renderSchedaForm(target: SchedaTarget, pool: readonly ListonePlayer[]):
 // finirebbe nel deposito con un refuso, e il refuso non lo vedrebbe nessuno —
 // il riquadro d'asta scrive quel nome così com'è.
 //
-// I DUE GRUPPI NON SONO UNA GRADUATORIA. «Stessa squadra» sta in cima perché
-// un ballottaggio è una contesa per un posto in una formazione, e i rivali
-// plausibili sono i compagni: è un raggruppamento per un fatto dichiarato,
-// non un ordinamento per merito, e ogni riga del listone resta scegliibile.
+// E DA OGGI LA RIGA PORTA TUTTE E DUE LE METÀ. Il contratto deposita `surface`
+// E `club` (src/expertScheda.ts): il valore di un'opzione non è più il nome, è
+// l'IDENTITÀ — `listonePlayerKey`, la stessa chiave con cui l'event log
+// registra un acquisto e con cui `planSchedaImport` riaggancia una scheda alla
+// sua riga. La scelta da listone diventa così PIÙ naturale, non meno: la riga
+// porta già nome e squadra, e un gesto solo le scrive tutte e due. Col solo
+// nome, due omonimi pieni in club diversi producevano lo stesso valore
+// depositato ed erano indistinguibili dopo il salvataggio.
+//
+// I DUE GRUPPI NON SONO UNA GRADUATORIA, E NON SONO UN FILTRO. «Stessa
+// squadra» sta in cima perché un ballottaggio è una contesa per un posto in una
+// formazione, e i rivali plausibili sono i compagni: è un raggruppamento per un
+// fatto dichiarato, non un ordinamento per merito, e OGNI riga del listone
+// resta scegliibile. Restringere l'elenco ai soli compagni era una delle tre
+// strade sul tavolo il 2026-08-24, ed è quella che Pico NON ha scelto: la
+// squadra è entrata nel dato proprio perché non servisse restringere la scelta
+// per sapere di chi si parla.
 //
 // UN NOME CHE IL LISTONE NON HA SI DICHIARA, NON SI ABBINA. Riaprendo una
-// scheda ripresa da un deposito scritto altrove, un nome può non corrispondere
-// a nessuna riga caricata: resta scritto COM'È, l'opzione lo porta segnato, e
-// una riga sotto il campo lo dice. Agganciarlo «al più simile» attaccherebbe in
-// silenzio il rivale sbagliato — la stessa cosa che `planSchedaImport` si
-// rifiuta di fare.
+// scheda ripresa da un deposito scritto altrove, un'identità può non
+// corrispondere a nessuna riga caricata: resta scritta COM'È, l'opzione la
+// porta segnata, e una riga sotto il campo lo dice. Agganciarla «alla più
+// simile» attaccherebbe in silenzio il rivale sbagliato — la stessa cosa che
+// `planSchedaImport` si rifiuta di fare.
+//
+// E LO STESSO VALE PER LA SQUADRA CHE MANCA. Un soggetto scritto prima di
+// questa forma porta il solo nome: l'opzione lo mostra con «squadra n/d» e NON
+// gli attacca la squadra del primo omonimo che il listone porta, nemmeno quando
+// ce n'è uno solo. Chi vuole completarlo riapre il `<select>` e sceglie la
+// riga: è un gesto, e un gesto è la sola cosa che può decidere quale dei due
+// omonimi fosse.
 
 /** Le righe che una casella «con chi» può nominare: tutte tranne lui stesso. */
 function ballottaggioOptions(
@@ -4696,10 +4717,39 @@ function ballottaggioOptions(
   const stessoClub: ListonePlayer[] = [];
   const altri: ListonePlayer[] = [];
   for (const row of pool) {
-    if (listonePlayerKey(row) === self) continue;
+    // Per NOME+SQUADRA e non per `listonePlayerKey(row)`: su una riga proxy
+    // quella chiave è `proxy:<id>` e non combacerebbe mai con `self`, cioè il
+    // giocatore della scheda comparirebbe fra i propri rivali. È la stessa
+    // forma con cui `planSchedaImport` indicizza le righe, per la stessa
+    // ragione.
+    if (ballottaggioOptionValue({ surface: row.name, club: row.club }) === self) continue;
     (normalizeIdentityPart(row.club) === club ? stessoClub : altri).push(row);
   }
   return { stessoClub, altri };
+}
+
+/**
+ * IL VALORE DI UN'OPZIONE «CON CHI»: l'identità, non il nome.
+ *
+ * `listonePlayerKey` è la forma di casa per la coppia nome+squadra, e usarla
+ * qui vuol dire che il `<select>` e il deposito parlano della stessa cosa senza
+ * traduzioni in mezzo. Costruita SEMPRE da nome e squadra — mai da `proxyId` —
+ * perché il valore deve essere ricostruibile da un soggetto già depositato, che
+ * un `proxyId` non ce l'ha.
+ *
+ * Un soggetto SENZA squadra (deposito scritto prima di questa forma) prende il
+ * solo nome piegato. I due spazi di valori non possono collidere: la piega di
+ * `normalizeIdentityPart` non emette mai `_`, quindi solo un'identità intera
+ * contiene `__`.
+ */
+function ballottaggioOptionValue(identita: {
+  readonly surface: string;
+  readonly club: string;
+}): string {
+  const surface = identita.surface.trim();
+  const club = identita.club.trim();
+  if (surface === "") return "";
+  return club === "" ? normalizeIdentityPart(surface) : listonePlayerKey({ name: surface, club });
 }
 
 function renderSchedaBallottaggio(target: SchedaTarget, pool: readonly ListonePlayer[]): HTMLElement {
@@ -4736,35 +4786,57 @@ function renderSchedaBallottaggio(target: SchedaTarget, pool: readonly ListonePl
     empty.value = "";
     empty.textContent = "— nessuno —";
     select.appendChild(empty);
+    // L'indice valore -> riga: è ciò che permette al gestore di scrivere
+    // INSIEME le due metà dell'identità. Senza, il `<select>` porterebbe una
+    // chiave e il modulo dovrebbe ripiegarla in nome e squadra, cioè inventarsi
+    // all'indietro le due superfici che la riga ha già scritte giuste.
+    const byValue = new Map<string, ListonePlayer>();
     const appendRows = (rows: readonly ListonePlayer[], label: string): void => {
       if (rows.length === 0) return;
       const optgroup = document.createElement("optgroup");
       optgroup.label = label;
       for (const p of rows) {
         const opt = document.createElement("option");
-        // Il VALORE è il nome: è esattamente ciò che il contratto deposita
-        // (`surface`), quindi fra il controllo e il file non c'è nessuna
-        // traduzione che possa perdersi.
-        opt.value = p.name;
+        // Il VALORE è l'IDENTITÀ, non il nome: due omonimi pieni in club
+        // diversi sono due opzioni distinte, e restano distinte fin dentro il
+        // file. Col solo nome producevano lo stesso valore, e il secondo
+        // vinceva in silenzio.
+        opt.value = ballottaggioOptionValue({ surface: p.name, club: p.club });
         opt.textContent = `${p.name} (${p.club})`;
+        byValue.set(opt.value, p);
         optgroup.appendChild(opt);
       }
       select.appendChild(optgroup);
     };
     appendRows(stessoClub, "Stessa squadra");
     appendRows(altri, "Altre squadre");
-    // Un nome che nessuna riga porta: entra COM'È, segnato, e non viene
-    // riabbinato a niente.
-    const fuori = schedaBallottaggioFuoriListone([riga], pool);
-    for (const nome of fuori) {
+    // Un soggetto che nessuna riga del listone porta — perché è davvero fuori,
+    // o perché è scritto senza squadra e questo pannello non gliene inventa
+    // una: entra COM'È, segnato, e non viene riabbinato a niente. Senza questa
+    // opzione il `<select>` ricadrebbe su «nessuno» al primo ridisegno, cioè
+    // cancellerebbe il soggetto per non avere un posto dove scriverlo.
+    const value = ballottaggioOptionValue(riga);
+    if (value !== "" && !byValue.has(value)) {
       const opt = document.createElement("option");
-      opt.value = nome;
-      opt.textContent = `${nome} — fuori dal listone caricato`;
+      opt.value = value;
+      opt.textContent =
+        riga.club.trim() === ""
+          ? `${riga.surface} (${SCHEDA_CLUB_NON_DICHIARATA})`
+          : `${riga.surface} (${riga.club}) — fuori dal listone caricato`;
       select.appendChild(opt);
     }
-    select.value = riga.surface;
+    select.value = value;
     select.addEventListener("change", (e) => {
-      updateSchedaBallottaggio(i, { surface: (e.target as HTMLSelectElement).value });
+      const scelto = (e.target as HTMLSelectElement).value;
+      const row = byValue.get(scelto);
+      // Le due metà si scrivono INSIEME o non si scrivono: è la scelta della
+      // riga a garantire che combacino. «Nessuno» le toglie tutte e due —
+      // mezza identità rimasta indietro sarebbe un accoppiamento sbagliato che
+      // nessuno vede. L'opzione «com'è scritto» non cambia niente: è già lei.
+      if (scelto === "") updateSchedaBallottaggio(i, { surface: "", club: "" });
+      else if (row !== undefined) {
+        updateSchedaBallottaggio(i, { surface: row.name, club: row.club });
+      }
       persistSchedaEditing();
       // Ridisegna: una riga scelta ne apre una nuova in coda, una riga svuotata
       // sparisce, e gli indici delle altre si spostano.
@@ -4818,7 +4890,9 @@ function updateSchedaBallottaggio(index: number, patch: Partial<SchedaBallottagg
   const righe = [...state.schedaForm.ballottaggio];
   while (righe.length <= index) righe.push(EMPTY_SCHEDA_BALLOTTAGGIO_ROW);
   righe[index] = { ...(righe[index] as SchedaBallottaggioValues), ...patch };
-  const compacted = righe.filter((r) => r.surface.trim() !== "" || r.sharePercent.trim() !== "");
+  const compacted = righe.filter(
+    (r) => r.surface.trim() !== "" || r.club.trim() !== "" || r.sharePercent.trim() !== "",
+  );
   updateSchedaForm({ ballottaggio: compacted });
   // Non persiste qui: come per gli altri numerici, si scrive su `change` e non
   // a ogni tasto (schedaNumberInput). Chi cambia il `<select>` persiste da sé,

@@ -59,6 +59,7 @@ import {
   PIAZZATI_VALUES,
   RIGORI_VALUES,
   SCHEDA_BALLOTTAGGIO_MAX,
+  SCHEDA_CLUB_NON_DICHIARATA,
   SCHEDA_GERARCHIA_MAX,
   SCHEDA_GERARCHIA_MIN,
   SCHEDA_NAME_MAX,
@@ -70,7 +71,9 @@ import {
   isValidIsoDate,
   parseExpertSchedaDeposit,
   schedaHasContent,
+  stessoSoggettoBallottaggio,
   type Avviso,
+  type BallottaggioIdentita,
   type BallottaggioSoggetto,
   type ExpertScheda,
   type Fonte,
@@ -96,7 +99,7 @@ import {
   type PagellaAsseDiRuolo,
   type PagellaScheda,
 } from "./pagellaEsperti.js";
-import { listonePlayerKey, normalizeIdentityPart } from "./ui/listone.js";
+import { listonePlayerKey } from "./ui/listone.js";
 import {
   AVVISO_LABELS,
   FONTE_LABELS,
@@ -159,10 +162,25 @@ export interface SchedaFormValues {
   readonly pagella: SchedaPagellaValues;
 }
 
-/** Un soggetto del ballottaggio come lo rende il DOM: due stringhe. */
+/**
+ * Un soggetto del ballottaggio come lo rende il DOM: tre stringhe.
+ *
+ * `surface` E `club` VIAGGIANO INSIEME e vengono dallo STESSO gesto — la scelta
+ * di una riga di listone, che porta già tutte e due. Non ci sono due controlli:
+ * c'è un `<select>` di righe, e la riga scelta scrive entrambe le caselle. È la
+ * stessa forma con cui `player` e `club` della scheda arrivano da
+ * `SchedaTarget`, un livello più giù.
+ */
 export interface SchedaBallottaggioValues {
   /** Il nome dell'altro, preso da una riga del listone — mai battuto a mano. */
   readonly surface: string;
+  /**
+   * La sua squadra, dalla stessa riga. `""` è L'ASSENZA — una scheda ripresa da
+   * un deposito scritto prima che questa metà esistesse — e non diventa mai una
+   * squadra dedotta: `buildScheda` non scrive la chiave, e il riquadro dichiara
+   * che manca.
+   */
+  readonly club: string;
   /** La sua quota, o `""` quando la scheda non la dichiara. `""` non è `0`. */
   readonly sharePercent: string;
 }
@@ -178,6 +196,7 @@ export interface SchedaBallottaggioValues {
  */
 export const EMPTY_SCHEDA_BALLOTTAGGIO_ROW: SchedaBallottaggioValues = {
   surface: "",
+  club: "",
   sharePercent: "",
 };
 
@@ -287,8 +306,22 @@ const formSchema = z
   .object({
     titolarita: z.string(),
     percentuale: z.string(),
+    // `club` porta un `.default("")` per la stessa ragione dei tre campi che ne
+    // hanno già uno, ma un livello più giù — dentro la riga invece che sulla
+    // scheda. Una scheda APERTA salvata prima che la squadra esistesse ha righe
+    // con due chiavi soltanto: senza il default cadrebbe fuori da `formSchema`,
+    // cioè fino a 90 secondi di battitura trasformati in «nessuna scheda
+    // aperta» per una metà d'identità che nessuno aveva ancora potuto scrivere.
     ballottaggio: z
-      .array(z.object({ surface: z.string(), sharePercent: z.string() }).strict())
+      .array(
+        z
+          .object({
+            surface: z.string(),
+            club: z.string().default(""),
+            sharePercent: z.string(),
+          })
+          .strict(),
+      )
       .default([]),
     gerarchia: z.string(),
     rigori: z.string(),
@@ -520,13 +553,22 @@ export const SCHEDA_PAGELLA_ENTRY_POINTS = {
  * adesso: è il posto in cui il quarto ripetersi dello stesso difetto
  * aspetterebbe in silenzio.
  *
- * Le due chiavi si compilano dalla stessa riga del modulo — un `<select>` per
- * il nome, una casella numerica per la quota — quindi la via d'ingresso è il
- * campo `ballottaggio`; quale casella della riga sia quale lo verifica la
- * guardia confrontando le chiavi del contratto con `EMPTY_SCHEDA_BALLOTTAGGIO_ROW`.
+ * Le tre chiavi si compilano dalla stessa riga del modulo — un `<select>` di
+ * righe di listone, che scrive INSIEME il nome e la squadra, e una casella
+ * numerica per la quota — quindi la via d'ingresso è il campo `ballottaggio`;
+ * quale casella della riga sia quale lo verifica la guardia confrontando le
+ * chiavi del contratto con `EMPTY_SCHEDA_BALLOTTAGGIO_ROW`.
+ *
+ * `club` NON È UNA TERZA ECCEZIONE. Le due eccezioni dichiarate del primo
+ * livello (`player` e `club` della scheda) esistono perché lassù l'identità non
+ * ha un campo del modulo: la porta la riga scelta nel pannello. Qui la riga
+ * scelta È un campo del modulo — il `<select>` di questa casella — quindi la
+ * squadra ha una via d'ingresso vera e passa la guardia per merito, senza
+ * allargarle il perimetro di ciò che non sorveglia.
  */
 export const SCHEDA_BALLOTTAGGIO_ENTRY_POINTS = {
   surface: { kind: "form", field: "ballottaggio" },
+  club: { kind: "form", field: "ballottaggio" },
   sharePercent: { kind: "form", field: "ballottaggio" },
 } as const satisfies Readonly<Record<keyof BallottaggioSoggetto, SchedaEntryPoint>>;
 
@@ -563,18 +605,17 @@ function pickVocabulary<T extends string>(
   return { values, unknown: chosen.filter((c) => !known.has(c)) };
 }
 
-/**
- * L'identità di un nome ai fini del confronto: la stessa piega con cui
- * `listonePlayerKey` costruisce la metà «nome» della chiave di riga.
- *
- * Uguaglianza, non somiglianza. È la differenza che tiene in piedi la regola
- * qui sotto: due nomi piegati uguali SONO lo stesso nome scritto in due modi,
- * mentre due nomi che si somigliano restano due nomi diversi e nessuno li
- * abbina al posto di chi scrive.
- */
-function foldName(value: string): string {
-  return normalizeIdentityPart(value);
-}
+// L'IDENTITÀ DI UN SOGGETTO AI FINI DEL CONFRONTO non si piega più qui.
+//
+// C'era `foldName`, cioè `normalizeIdentityPart` sul solo nome, e rispondeva
+// alla domanda «due righe di ballottaggio sono la stessa persona?» — che col
+// solo nome non è più rispondibile. Con la squadra dentro il soggetto la
+// risposta ha due metà e un ramo dichiarato per la metà che può mancare, e vive
+// dove vive il contratto: `stessoSoggettoBallottaggio`, in
+// src/expertScheda.ts. Una copia qui sarebbe la seconda superficie che questo
+// modulo passa la vita a evitare:
+// il compilatore CHIEDE al contratto, come già chiede alla vista con
+// `ballottaggioVisibile`.
 
 /**
  * I NOMI DEL BALLOTTAGGIO CHE NESSUNA RIGA DEL LISTONE CARICATO PORTA.
@@ -585,31 +626,59 @@ function foldName(value: string): string {
  * non corrisponde a nessuno perché è un refuso, o perché arriva da un deposito
  * scritto contro un altro listone — deve essere VISIBILE, non silenzioso.
  *
- * E si dice per UGUAGLIANZA di nome piegato, mai per somiglianza: agganciare
- * «al più simile» attaccherebbe in silenzio il rivale sbagliato, che è
- * esattamente ciò che `planSchedaImport` si rifiuta di fare quando riprende un
- * deposito. Qui vale la stessa regola, per la stessa ragione.
+ * E si dice per UGUAGLIANZA, mai per somiglianza: agganciare «al più simile»
+ * attaccherebbe in silenzio il rivale sbagliato, che è esattamente ciò che
+ * `planSchedaImport` si rifiuta di fare quando riprende un deposito. Qui vale
+ * la stessa regola, per la stessa ragione.
  *
- * Rende i nomi COME SONO SCRITTI, nell'ordine in cui compaiono e senza
- * ripetizioni: è un elenco da mostrare, non un insieme da contare.
+ * UGUAGLIANZA DI CHE COSA. Da quando il soggetto porta la squadra, di
+ * IDENTITÀ — `stessoSoggettoBallottaggio`, la stessa funzione con cui il
+ * compilatore riconosce due righe per la stessa persona. Non è una raffinatezza
+ * contabile: col solo nome, «Mario Rossi (ClubDue)» risultava «nel listone»
+ * perché il listone porta un «Mario Rossi (ClubUno)», cioè un'altra persona.
+ * Il soggetto che la squadra NON la dichiara continua a dirsi sul solo nome:
+ * è tutto ciò che di lui si sa, e inventargli una squadra per poterlo
+ * confrontare meglio sarebbe il default fabbricato che questo campo esiste per
+ * non avere.
+ *
+ * Rende i nomi COME SONO SCRITTI — con la squadra quando c'è, perché è la
+ * squadra a rendere leggibile QUALE dei due omonimi non corrisponde — nell'ordine
+ * in cui compaiono e senza ripetizioni: è un elenco da mostrare, non un insieme
+ * da contare.
  */
 export function schedaBallottaggioFuoriListone(
   soggetti: readonly SchedaBallottaggioValues[],
-  rows: Iterable<{ readonly name: string }>,
+  rows: Iterable<{ readonly name: string; readonly club: string }>,
 ): readonly string[] {
-  const known = new Set<string>();
-  for (const row of rows) known.add(foldName(row.name));
+  const known: BallottaggioIdentita[] = [];
+  for (const row of rows) known.push({ surface: row.name, club: row.club });
   const out: string[] = [];
-  const seen = new Set<string>();
+  const seen: BallottaggioIdentita[] = [];
   for (const soggetto of soggetti) {
     const surface = soggetto.surface.trim();
     if (surface === "") continue;
-    const folded = foldName(surface);
-    if (known.has(folded) || seen.has(folded)) continue;
-    seen.add(folded);
-    out.push(surface);
+    const identita: BallottaggioIdentita = { surface, club: soggetto.club.trim() };
+    if (known.some((row) => stessoSoggettoBallottaggio(row, identita))) continue;
+    if (seen.some((altro) => stessoSoggettoBallottaggio(altro, identita))) continue;
+    seen.push(identita);
+    out.push(soggettoFuoriListoneText(identita));
   }
   return out;
+}
+
+/**
+ * Come si NOMINA un soggetto fuori dal listone: «Bruna Placeholder (ClubUno)»,
+ * oppure il solo nome quando la scheda non dichiara la squadra.
+ *
+ * Il ramo senza squadra non scrive `n/d`: qui la frase che segue l'elenco dice
+ * già «non corrisponde a nessuna riga del listone caricato», e una squadra
+ * dichiarata assente dentro un elenco di cose assenti sarebbe rumore. Il posto
+ * in cui l'assenza si dichiara è il riassunto della scheda (`schedaSummary`) e
+ * il dettaglio dell'icona, dove il soggetto viene RILETTO come dato.
+ */
+function soggettoFuoriListoneText(identita: BallottaggioIdentita): string {
+  const club = (identita.club ?? "").trim();
+  return club === "" ? identita.surface : `${identita.surface} (${club})`;
 }
 
 /**
@@ -837,6 +906,15 @@ export function buildScheda(target: SchedaTarget, values: SchedaFormValues): Sch
   //    così verrebbe salvato, depositato e mai reso — la stessa perdita
   //    silenziosa che `percentuale` senza titolarità già rifiuta, e la si
   //    rifiuta allo stesso modo.
+  //
+  // CHE COSA È CAMBIATO CON LA SQUADRA. Le tre regole sono le stesse; ciò che
+  // cambia è che «la stessa persona» non si dice più per nome, si dice per
+  // IDENTITÀ — `stessoSoggettoBallottaggio`, una funzione sola per tutte e tre
+  // le domande. Due omonimi pieni in club diversi sono due persone: entrambi
+  // possono stare nello stesso ballottaggio, e uno dei due può perfino avere il
+  // nome del giocatore della scheda senza essere lui. Sul soggetto che la
+  // squadra non la dichiara la risposta resta quella di prima, sul solo nome:
+  // fail-closed, perché non c'è modo di sapere se sia un altro.
   const soggetti: BallottaggioSoggetto[] = [];
   if (values.ballottaggio.length > SCHEDA_BALLOTTAGGIO_MAX) {
     errors.push({
@@ -844,17 +922,22 @@ export function buildScheda(target: SchedaTarget, values: SchedaFormValues): Sch
       message: `Un ballottaggio porta al massimo ${SCHEDA_BALLOTTAGGIO_MAX} altri nomi: oltre non è un ballottaggio, è un elenco di rosa.`,
     });
   }
-  const soggettiVisti = new Set<string>();
+  const soggettiVisti: BallottaggioIdentita[] = [];
   for (const riga of values.ballottaggio) {
     const surface = riga.surface.trim();
+    const clubAltro = riga.club.trim();
     const quotaRaw = riga.sharePercent.trim();
-    if (surface === "" && quotaRaw === "") continue;
+    if (surface === "" && clubAltro === "" && quotaRaw === "") continue;
     if (surface === "") {
-      // Il numero c'è: buttarlo via in silenzio sarebbe la perdita che questo
-      // pannello esiste per non avere.
+      // Quello che c'è, scritto: buttarlo via in silenzio sarebbe la perdita
+      // che questo pannello esiste per non avere. La quota si nomina per prima
+      // perché è il caso che si vede davvero — la squadra da sola arriva solo
+      // da un archivio manomesso, visto che il `<select>` scrive le due metà
+      // dell'identità insieme.
+      const scritto = quotaRaw !== "" ? `Una quota (${quotaRaw})` : `Una squadra (${clubAltro})`;
       errors.push({
         field: "ballottaggio",
-        message: `Una quota (${quotaRaw}) senza nome non è un soggetto: scegli chi si gioca il posto, oppure togli il numero.`,
+        message: `${scritto} senza nome non è un soggetto: scegli chi si gioca il posto, oppure togli il ${quotaRaw !== "" ? "numero" : "resto"}.`,
       });
       continue;
     }
@@ -865,22 +948,29 @@ export function buildScheda(target: SchedaTarget, values: SchedaFormValues): Sch
       });
       continue;
     }
-    const folded = foldName(surface);
-    if (player !== "" && folded === foldName(player)) {
+    if (clubAltro.length > SCHEDA_NAME_MAX) {
+      errors.push({
+        field: "ballottaggio",
+        message: `La squadra di «${surface}» supera ${SCHEDA_NAME_MAX} caratteri: il contratto del deposito non la accetta.`,
+      });
+      continue;
+    }
+    const identita: BallottaggioIdentita = { surface, club: clubAltro };
+    if (player !== "" && stessoSoggettoBallottaggio({ surface: player, club }, identita)) {
       errors.push({
         field: "ballottaggio",
         message: "Il giocatore della scheda non va fra gli altri del ballottaggio: la sua quota è QUOTA DEL BALLOTTAGGIO, scritta una volta sola.",
       });
       continue;
     }
-    if (soggettiVisti.has(folded)) {
+    if (soggettiVisti.some((altro) => stessoSoggettoBallottaggio(altro, identita))) {
       errors.push({
         field: "ballottaggio",
         message: `«${surface}» compare due volte nello stesso ballottaggio: due righe per la stessa persona sono due quote che possono divergere.`,
       });
       continue;
     }
-    soggettiVisti.add(folded);
+    soggettiVisti.push(identita);
     let sharePercent: number | undefined;
     if (quotaRaw !== "") {
       const parsed = parseInteger(quotaRaw);
@@ -893,7 +983,17 @@ export function buildScheda(target: SchedaTarget, values: SchedaFormValues): Sch
       }
       sharePercent = parsed;
     }
-    soggetti.push({ surface, ...(sharePercent === undefined ? {} : { sharePercent }) });
+    // NELL'ORDINE DELLO SCHEMA — nome, squadra, quota — e non in quello in cui
+    // le tre caselle capitano. È la condizione perché scarica → reimporta →
+    // riscarica renda lo stesso file: zod ricostruisce il soggetto nell'ordine
+    // della propria `shape`, e il difetto è già successo una volta sui voti
+    // della pagella. Una squadra assente NON scrive la chiave: `""` non
+    // diventa una squadra, resta «non dichiarata».
+    soggetti.push({
+      surface,
+      ...(clubAltro === "" ? {} : { club: clubAltro }),
+      ...(sharePercent === undefined ? {} : { sharePercent }),
+    });
   }
   // La condizione non è riscritta qui: è `ballottaggioVisibile`, la funzione
   // che il riquadro d'asta usa per decidere che cosa mostrare. Il compilatore
@@ -1058,8 +1158,13 @@ export function schedaToForm(scheda: ExpertScheda): SchedaFormValues {
   return {
     titolarita: scheda.titolarita ?? "",
     percentuale: scheda.percentuale === undefined ? "" : String(scheda.percentuale),
+    // Una squadra assente torna `""`, mai la squadra del giocatore della riga:
+    // riaprire una scheda vecchia non è il momento in cui indovinarle una metà
+    // d'identità che non ha mai avuto. Resta vuota, il modulo lo mostra, e il
+    // salvataggio non scrive la chiave — la stessa regola dei voti qui sotto.
     ballottaggio: (scheda.ballottaggio ?? []).map((soggetto) => ({
       surface: soggetto.surface,
+      club: soggetto.club ?? "",
       sharePercent: soggetto.sharePercent === undefined ? "" : String(soggetto.sharePercent),
     })),
     gerarchia: scheda.gerarchia === undefined ? "" : String(scheda.gerarchia),
@@ -1311,13 +1416,17 @@ export function schedaSummary(scheda: ExpertScheda): string {
     const share = scheda.percentuale === undefined ? "" : ` ${scheda.percentuale}%`;
     parts.push(`${TITOLARITA_LABELS[scheda.titolarita]}${share}`);
   }
-  // Gli altri del ballottaggio, ciascuno con la propria quota quando c'è. Una
-  // quota assente resta assente: nessun «0%» fabbricato accanto a un nome.
+  // Gli altri del ballottaggio, ciascuno con la propria squadra e la propria
+  // quota quando ci sono. Una quota assente resta assente: nessun «0%»
+  // fabbricato accanto a un nome. Una SQUADRA assente si DICE — `n/d` col
+  // motivo, mai una squadra dedotta: è la riga in cui un deposito scritto prima
+  // di questa forma dichiara di non poter distinguere due omonimi.
   const soggetti = scheda.ballottaggio ?? [];
   if (soggetti.length > 0) {
-    const nomi = soggetti.map((s) =>
-      s.sharePercent === undefined ? s.surface : `${s.surface} ${s.sharePercent}%`,
-    );
+    const nomi = soggetti.map((s) => {
+      const quota = s.sharePercent === undefined ? "" : ` ${s.sharePercent}%`;
+      return `${s.surface} (${s.club ?? SCHEDA_CLUB_NON_DICHIARATA})${quota}`;
+    });
     parts.push(`con: ${nomi.join(", ")}`);
   }
   if (scheda.gerarchia !== undefined) parts.push(gerarchiaLabel(scheda.gerarchia));
