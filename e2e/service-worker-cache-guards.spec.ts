@@ -216,15 +216,36 @@ test.describe("service worker cache lookup — regression guards", () => {
     });
     expect(logoPath, "the app must be rendering at least one club logo URL").not.toBeNull();
 
-    // Precondition, fail-closed: this build genuinely does not contain it. If a
-    // deployment ever DOES ship the file it is precached like any other built
-    // file, the rule under test never applies, and this spec must say so
-    // instead of proving nothing.
+    // Precondition — and it is a QUESTION asked of the deployment, not an
+    // assertion made about it. If a deployment ships the club logos, they are
+    // precached like any other built file, the worker answers them from the
+    // precache, and the rule under test — "an `/assets/` URL this build does
+    // NOT contain" — simply has no subject here. The spec then SAYS SO and
+    // skips, which is exactly what the paragraph above always prescribed:
+    // «the rule under test never applies, and this spec must say so instead of
+    // proving nothing».
+    //
+    // Why a skip and not an assertion, stated because the difference is the
+    // whole correction. This file is PUBLIC-OWNED: it is vendored, unchanged,
+    // into a private deployment that DOES ship the logo files. As an assertion
+    // the precondition was a claim about THIS repository's asset inventory that
+    // silently turned into a claim about a DIFFERENT tree's inventory the
+    // moment it crossed that boundary — and there it went red against a build
+    // that was behaving perfectly correctly. A test that fails because its
+    // premise stopped holding is not covering the rule any more, it is
+    // reporting its own premise.
+    //
+    // Nothing is weakened. Where the rule applies — no logo in the precache,
+    // which is this repository, that ships no logo file at all — every
+    // assertion below runs exactly as before, unchanged. What disappears is
+    // only the ability to fail for a reason that has nothing to do with the
+    // worker.
     const precache = await page.evaluate(
       async () => ((await (await fetch("/app-integrity.json")).json()) as { precache: string[] }).precache,
     );
-    expect(precache, "the file must be absent from the build for this rule to be the one under test").not.toContain(
-      logoPath,
+    test.skip(
+      precache.includes(logoPath!),
+      "this deployment ships the club logos in its precache: the rule under test does not apply here",
     );
 
     // A network that accepts the request and never answers it. If the worker

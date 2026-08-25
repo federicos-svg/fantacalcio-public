@@ -26,9 +26,11 @@ import {
   reduce,
   ROLES,
   ROSTER_REQUIREMENTS,
+  type AnchorBook,
   type AuctionEvent,
   type DeclaredDataQuality,
   type DeclaredPlayerValue,
+  type DeclaredValueBook,
   type OpportunityRadarInput,
   type PlayerAnchor,
   type Role,
@@ -269,3 +271,105 @@ export function perfScenario(
 /** La griglia di dimensioni operative su cui si misura e si prova l'identità. */
 export const PERF_GRID_ASSETS: readonly number[] = [200, 500, 600, 1000];
 export const PERF_GRID_DECLARED: readonly number[] = [10, 50, 100, 200, 500];
+
+// ---------------------------------------------------------------------------
+// IL CONTATORE — 2026-08-24
+// ---------------------------------------------------------------------------
+
+/**
+ * Il lavoro svolto da una chiamata al radar, CONTATO, non cronometrato.
+ *
+ * Perché esiste (2026-08-24). L'affermazione «il costo cresce con i candidati,
+ * non con candidati × listone» è un'affermazione sulla QUANTITÀ DI LAVORO, che
+ * un orologio di parete misura solo per procura — e per procura mente appena la
+ * macchina è sotto carico. La grandezza che la esprime direttamente è quante
+ * righe del listone il radar legge davvero: `candidati × listone` righe se la
+ * scala del cliff si ricostruisce per ogni candidato, `listone` righe se si
+ * prepara una volta sola. È un intero riproducibile bit-per-bit, non una
+ * mediana di campioni. Stessa valuta e stessa postura di
+ * `src/tierOrdering.cache.test.ts` (`builds`/`hits`) e di `countingPool` in
+ * `src/ui/listone.test.ts`.
+ *
+ * DOVE STA LA STRUMENTAZIONE: **negli ingressi, non nel motore.** Nessuna riga
+ * di `packages/engine/src/` sa di essere misurata. Il libro delle ancore e lo
+ * stato passati al radar sono `Proxy` che contano gli accessi, e il codice di
+ * produzione riceve esattamente i valori di prima. Questo è anche l'unico modo
+ * che intercetta ogni forma di attraversamento — `for…of`, `filter`, `map`,
+ * indice a mano — e le chiamate INTERNE a un modulo, che una spia su un binding
+ * ESM non vede (è la stessa ragione scritta accanto a `countingPool`).
+ *
+ * Cosa conta ciascun contatore, esattamente:
+ *  - `listoneRows`: un accesso indicizzato a `book.all`. Su questo percorso
+ *    `book.all` lo legge solo chi costruisce la scala del cliff
+ *    (`cliffLadder`, o `cliffFacts` che se la ricostruisce da sé):
+ *    `currentAnchor` passa da `book.byPlayerId`, che è una `Map`. Quindi
+ *    `listoneRows / book.all.length` è il numero di PASSATE sul listone.
+ *  - `declaredRows`: un accesso indicizzato a `values.all`, cioè un giro del
+ *    ciclo esterno del radar. È la metà «cresce con i candidati» della frase.
+ *  - `teamsReads`: una lettura di `state.teams`. Sul percorso del radar la
+ *    fanno in due: il radar stesso, una volta sola (`state.teams[selfId]`), e
+ *    `competitorSet`, una volta per chiamata. Quindi
+ *    `teamsReads - 1` è il numero di valutazioni dell'insieme eleggibile.
+ */
+export interface RadarWorkCounters {
+  readonly listoneRows: number;
+  readonly declaredRows: number;
+  readonly teamsReads: number;
+}
+
+export interface CountedRadarInput {
+  /** Da passare al radar al posto dell'originale: stessi valori, stessi esiti. */
+  readonly input: OpportunityRadarInput;
+  counters(): RadarWorkCounters;
+  reset(): void;
+}
+
+/** Vero solo per le chiavi indice di un array (`"0"`, `"17"`), mai per
+ *  `"length"`, `"filter"` o un simbolo. */
+function isIndexKey(prop: string | symbol): boolean {
+  return typeof prop === "string" && prop !== "" && String(Number(prop)) === prop;
+}
+
+function countingRows<T>(rows: readonly T[], tick: () => void): readonly T[] {
+  return new Proxy(rows as T[], {
+    get(target, prop, receiver): unknown {
+      if (isIndexKey(prop)) tick();
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+}
+
+/**
+ * Lo stesso ingresso del radar, con i contatori sopra. Non cambia un valore:
+ * ogni lettura viene inoltrata all'oggetto vero con `Reflect.get`.
+ */
+export function countedInput(input: OpportunityRadarInput): CountedRadarInput {
+  let listoneRows = 0;
+  let declaredRows = 0;
+  let teamsReads = 0;
+
+  const book: AnchorBook = {
+    all: countingRows(input.book.all, () => void (listoneRows += 1)),
+    byPlayerId: input.book.byPlayerId,
+  };
+  const values: DeclaredValueBook = {
+    all: countingRows(input.values.all, () => void (declaredRows += 1)),
+    byPlayerId: input.values.byPlayerId,
+  };
+  const state = new Proxy(input.state, {
+    get(target, prop, receiver): unknown {
+      if (prop === "teams") teamsReads += 1;
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+
+  return {
+    input: { ...input, book, values, state },
+    counters: () => ({ listoneRows, declaredRows, teamsReads }),
+    reset: () => {
+      listoneRows = 0;
+      declaredRows = 0;
+      teamsReads = 0;
+    },
+  };
+}

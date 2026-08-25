@@ -1461,6 +1461,40 @@ function cellAttributes(p: ListonePlayer, col: ListoneColumn): string {
   );
 }
 
+/**
+ * IL MARCATORE, IN DUE CANALI CHE NON SI SOSTITUISCONO.
+ *
+ * ERA UNO `<span title="…">` E BASTA, ed è il difetto che questa funzione
+ * chiude (debito dichiarato di #41): un `title` su un elemento non focusabile
+ * lo apre SOLO il passaggio del mouse. Chi legge a voce non lo incontra mai —
+ * un `title` non è contenuto, è un attributo che la maggior parte degli
+ * screen reader non annuncia su un `<span>` generico — e chi naviga da
+ * tastiera nemmeno, perché la cella non riceve il fuoco. La sigla restava
+ * quindi due lettere non spiegate per tutti quelli che non hanno un mouse.
+ *
+ * ADESSO LA FRASE È CONTENUTO. La stessa stringa del `title` vive dentro
+ * l'elemento come testo fuori dalla vista (`.listone-axis-tag__sr`), quindi è
+ * il NOME ACCESSIBILE della cella e si sente senza che nessuna nuvoletta debba
+ * comparire — stesso idioma di `.scheda-icona__sr` in src/ui/schedaIcone.ts,
+ * che questo repository usa già per la striscia di icone del riquadro d'asta.
+ * Il `title` resta per il mouse: non è più l'unico canale, è uno dei due.
+ *
+ * ZERO STOP DI TABULAZIONE AGGIUNTI, ed è una scelta, non una dimenticanza.
+ * La strada ovvia — dare `tabindex="0"` al marcatore — su un listone da 532
+ * righe aggiungerebbe fino a 532 fermate in una tabella che si attraversa già
+ * a fatica, per far comparire una nuvoletta che la frase qui dentro dice
+ * meglio. La sigla visibile è `aria-hidden` perché «BO» letto a voce è un
+ * suono, non una parola: chi ascolta sente «6 Bonus», chi guarda legge «6 BO».
+ */
+function axisMarkerHtml(marker: string, label: string): string {
+  return (
+    `<span class="listone-axis-tag" title="${escHtml(label)}">` +
+    `<span aria-hidden="true">${escHtml(marker)}</span>` +
+    `<span class="listone-axis-tag__sr">${escHtml(label)}</span>` +
+    `</span>`
+  );
+}
+
 function listoneCellHtml(
   p: ListonePlayer,
   col: ListoneColumn,
@@ -1490,16 +1524,13 @@ function listoneCellHtml(
   const text = listoneCellText(p, col.key, signals);
   const mono = col.kind === "number" ? " listone-cell--mono" : "";
   // IL MARCATORE È UN ELEMENTO, non due lettere incollate al numero: così ha
-  // una classe sua (si può rimpicciolire senza toccare la cifra), un `title`
-  // che scrive l'asse per esteso, e un test può chiederlo per selettore invece
-  // di frugare in una stringa. `listoneCellText` resta la sola cifra — è quello
-  // che si ordina e quello che le asserzioni di assenza confrontano.
+  // una classe sua (si può rimpicciolire senza toccare la cifra), porta l'asse
+  // per esteso in DUE canali (vedi `axisMarkerHtml`), e un test può chiederlo
+  // per selettore invece di frugare in una stringa. `listoneCellText` resta la
+  // sola cifra — è quello che si ordina e quello che le asserzioni di assenza
+  // confrontano.
   const axis = expertVoteAxisMarker(p, col.key, signals);
-  const marker =
-    axis === null
-      ? ""
-      : `<span class="listone-axis-tag" title="${escHtml(expertVoteAxisTitle(p, col.key, signals))}">` +
-        `${escHtml(axis)}</span>`;
+  const marker = axis === null ? "" : axisMarkerHtml(axis, expertVoteAxisTitle(p, col.key, signals));
   return `<div class="listone-cell${mono}"${attrs}>${escHtml(text)}${marker}</div>`;
 }
 

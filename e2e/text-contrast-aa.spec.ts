@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { ListonePlayer } from "../src/ui/listone.js";
+import { schedeDeposit } from "./fixtures/synthetic-schede.js";
 import { ROLE_CHIP_CLASS } from "../src/ui/theme.js";
 import {
   AA_NORMAL_TEXT,
@@ -586,6 +587,96 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
     [...rolesSeen].sort(),
     "le pastiglie di ruolo non sono state misurate: classe .role-chip persa o ruolo non renderizzato",
   ).toEqual(["A", "C", "D", "P"]);
+
+  expect(externalRequests).toEqual([]);
+});
+
+// ── IL MARCATORE DELL'ASSE, MISURATO DAVVERO ─────────────────────────────────
+//
+// PERCHÉ SERVE UNA SCENA A PARTE. `.listone-axis-tag` compare SOLO su una
+// cella che porta un voto, e un voto esiste solo se il deposito delle schede
+// porta una pagella. Il test qui sopra non ne serve nessuna — è il ramo di
+// oggi, ogni cella `n/d` — quindi il marcatore non ha mai avuto un rettangolo
+// e la spazzata non ha mai avuto niente da misurare su di lui. Il commento in
+// src/styles/listone.css dichiarava che sta «sulla rampa che la guardia di
+// contrasto misura»: era vero come intenzione e falso come fatto.
+//
+// Non reinventa la misura: stesse funzioni (`measureAllText`, `textContrast`
+// da helpers.ts), stessa soglia, stesse categorie. Cambia solo la SCENA.
+
+const AXIS_PAGELLA_MOVIMENTO = {
+  voti: {
+    pagella_titolarita: 9,
+    pagella_media_voto: 7,
+    pagella_salute: 9,
+    pagella_bonus: 6,
+    pagella_consiglio: 8,
+  },
+  totaleFonte: 39,
+} as const;
+
+const AXIS_PAGELLA_PORTIERE = {
+  voti: {
+    pagella_titolarita: 1,
+    pagella_media_voto: 1,
+    pagella_salute: 8,
+    pagella_porta_inviolata: 1,
+    pagella_consiglio: 1,
+  },
+  totaleFonte: 12,
+} as const;
+
+test("il marcatore dell'asse regge AA — sigla visibile e frase fuori dalla vista", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, POOL, externalRequests);
+  // Registrata DOPO il guard: Playwright valuta i route handler dal più recente.
+  await context.route("**/api/schede", (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: schedeDeposit([
+        {
+          player: "Primo Difensore",
+          club: "ClubTre",
+          titolarita: "titolare",
+          pagella: AXIS_PAGELLA_MOVIMENTO,
+        },
+        {
+          player: "Primo Portiere",
+          club: "ClubUno",
+          titolarita: "titolare",
+          pagella: AXIS_PAGELLA_PORTIERE,
+        },
+      ] as never),
+    }),
+  );
+  await boot(page);
+
+  // La scena deve avere SOSTANZA: senza marcatori a schermo questa spec
+  // sarebbe verde misurando il nulla — lo stesso difetto che la spazzata
+  // d'insieme esiste per non avere.
+  const tags = page.locator(".listone-row .listone-axis-tag");
+  await expect(tags).toHaveCount(2);
+  await expect(page.locator(".listone-axis-tag__sr").first()).toHaveCount(1);
+
+  // I due punti d'uso espliciti: la sigla che si vede e la frase che non si
+  // vede ma che il browser dipinge lo stesso (1px, clippata) e che quindi
+  // entra nella spazzata come qualunque altro testo.
+  for (const sel of [
+    ".listone-axis-tag [aria-hidden='true']", // «PI» / «BO», --text-sec a 9,5px
+    ".listone-axis-tag__sr", // la frase per esteso, stesso colore
+  ]) {
+    expect(await textContrast(page, sel), `marcatore: ${sel}`).toBeGreaterThanOrEqual(
+      AA_NORMAL_TEXT,
+    );
+  }
+
+  // E la spazzata d'insieme sulla stessa scena, con le stesse tre categorie.
+  const swept = await expectAllTextAboveAA(page, "asta/listone-marcatore-asse");
+  expect(swept.measured, "spazzata inerte sulla scena del marcatore").toBeGreaterThan(100);
 
   expect(externalRequests).toEqual([]);
 });

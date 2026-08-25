@@ -39,6 +39,7 @@ import {
   withEditing,
   withScheda,
   type SchedaDraftState,
+  type SchedaBallottaggioValues,
   type SchedaFormValues,
   type SchedaPagellaValues,
 } from "./schedaCompiler.js";
@@ -49,6 +50,7 @@ import {
   LISTA_ESPERTI_VALUES,
   SCHEDA_BALLOTTAGGIO_MAX,
   SCHEDA_BALLOTTAGGIO_SCHEMA_KEYS,
+  SCHEDA_CLUB_NON_DICHIARATA,
   SCHEDA_GERARCHIA_MAX,
   SCHEDA_NAME_MAX,
   SCHEDA_NOTA_MAX,
@@ -64,6 +66,7 @@ import {
   PAGELLA_TOTALE_MAX,
   PAGELLA_VOTI_SCHEMA_KEYS,
 } from "./pagellaEsperti.js";
+import { ballottaggioDettaglio } from "./ui/schedaIcone.js";
 import { listonePlayerKey } from "./ui/listone.js";
 import type { StorageLike } from "./logRecovery.js";
 
@@ -103,6 +106,23 @@ function builtScheda(overrides: Partial<SchedaFormValues> = {}): ExpertScheda {
   return result.scheda;
 }
 
+/**
+ * UNA RIGA «CON CHI» come la rende il DOM: nome, squadra, quota.
+ *
+ * Le tre caselle si scrivono per esteso e non con uno spread di
+ * `EMPTY_SCHEDA_BALLOTTAGGIO_ROW`: qui la SQUADRA è il soggetto della prova —
+ * `""` vuol dire «un deposito scritto prima che questa metà esistesse», e una
+ * scorciatoia che la nascondesse renderebbe illeggibile quale caso ogni prova
+ * stia misurando.
+ */
+function altro(surface: string, club: string, sharePercent = ""): SchedaBallottaggioValues {
+  return { surface, club, sharePercent };
+}
+
+/** La squadra dell'OMONIMO: stesso nome del rivale sopra, un altro club. */
+const CLUB_RIVALE = "ClubUno";
+const CLUB_OMONIMO = "ClubDue";
+
 function stateWith(entries: readonly (readonly [string, ExpertScheda])[]): SchedaDraftState {
   return { schede: new Map(entries), editing: null };
 }
@@ -140,7 +160,7 @@ function fullForm(overrides: Partial<SchedaFormValues> = {}): SchedaFormValues {
   return form({
     titolarita: "ballottaggio",
     percentuale: "60",
-    ballottaggio: [{ surface: "Bruna Placeholder", sharePercent: "40" }],
+    ballottaggio: [altro("Bruna Placeholder", CLUB_RIVALE, "40")],
     gerarchia: "2",
     rigori: "designato",
     piazzati: ["punizioni", "angoli"],
@@ -888,13 +908,20 @@ describe("gli altri del ballottaggio: con chi si gioca il posto", () => {
       titolarita: "ballottaggio",
       percentuale: "50",
       ballottaggio: [
-        { surface: "Bruna Placeholder", sharePercent: "30" },
-        { surface: "Carlo Segnaposto", sharePercent: "" },
+        altro("Bruna Placeholder", CLUB_RIVALE, "30"),
+        altro("Carlo Segnaposto", CLUB_OMONIMO, ""),
       ],
     });
+    // NELL'ORDINE DELLO SCHEMA — nome, squadra, quota — e non in quello delle
+    // caselle: `toEqual` non lo guarda, il round trip byte per byte sì.
     expect(scheda.ballottaggio).toEqual([
-      { surface: "Bruna Placeholder", sharePercent: 30 },
-      { surface: "Carlo Segnaposto" },
+      { surface: "Bruna Placeholder", club: CLUB_RIVALE, sharePercent: 30 },
+      { surface: "Carlo Segnaposto", club: CLUB_OMONIMO },
+    ]);
+    expect(Object.keys(scheda.ballottaggio?.[0] ?? {})).toEqual([
+      "surface",
+      "club",
+      "sharePercent",
     ]);
     // Nessun `?? 0`: la seconda quota manca e resta mancante.
     expect(scheda.ballottaggio?.[1]).not.toHaveProperty("sharePercent");
@@ -911,7 +938,7 @@ describe("gli altri del ballottaggio: con chi si gioca il posto", () => {
     for (const titolarita of ["titolare", "riserva", ""]) {
       const result = buildScheda(
         TARGET,
-        form({ titolarita, ballottaggio: [{ surface: "Bruna Placeholder", sharePercent: "" }] }),
+        form({ titolarita, ballottaggio: [altro("Bruna Placeholder", CLUB_RIVALE)] }),
       );
       expect(result.ok, `titolarità «${titolarita}» non deve portare un ballottaggio`).toBe(false);
       if (result.ok) continue;
@@ -926,13 +953,13 @@ describe("gli altri del ballottaggio: con chi si gioca il posto", () => {
     for (const titolarita of ["", ...TITOLARITA_VALUES]) {
       const result = buildScheda(
         TARGET,
-        form({ titolarita, ballottaggio: [{ surface: "Bruna Placeholder", sharePercent: "40" }] }),
+        form({ titolarita, ballottaggio: [altro("Bruna Placeholder", CLUB_RIVALE, "40")] }),
       );
       const comeSarebbeScritta = {
         player: TARGET.name,
         club: TARGET.club,
         ...(titolarita === "" ? {} : { titolarita: titolarita as (typeof TITOLARITA_VALUES)[number] }),
-        ballottaggio: [{ surface: "Bruna Placeholder", sharePercent: 40 }],
+        ballottaggio: [{ surface: "Bruna Placeholder", club: CLUB_RIVALE, sharePercent: 40 }],
       };
       const mostrati = ballottaggioVisibile(comeSarebbeScritta).length;
       expect(result.ok, `titolarità «${titolarita}»: il salvataggio deve seguire la vista`).toBe(
@@ -946,7 +973,7 @@ describe("gli altri del ballottaggio: con chi si gioca il posto", () => {
       player: TARGET.name,
       club: TARGET.club,
       titolarita: "titolare",
-      ballottaggio: [{ surface: "Bruna Placeholder", sharePercent: 40 }],
+      ballottaggio: [{ surface: "Bruna Placeholder", club: CLUB_RIVALE, sharePercent: 40 }],
     };
     const view = resolveExpertInsight(parseExpertSchedaDeposit(JSON.stringify({ schemaVersion: EXPERT_SCHEDA_SCHEMA_VERSION, schede: [scheda] })), TARGET);
     expect(view.ballottaggio).toEqual([]);
@@ -955,7 +982,7 @@ describe("gli altri del ballottaggio: con chi si gioca il posto", () => {
   it("una quota senza nome NON sparisce in silenzio: si dice", () => {
     const result = buildScheda(
       TARGET,
-      form({ titolarita: "ballottaggio", ballottaggio: [{ surface: "", sharePercent: "40" }] }),
+      form({ titolarita: "ballottaggio", ballottaggio: [altro("", "", "40")] }),
     );
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -966,7 +993,7 @@ describe("gli altri del ballottaggio: con chi si gioca il posto", () => {
   it("una riga del tutto vuota non è un soggetto e non è un errore", () => {
     const scheda = builtScheda({
       titolarita: "ballottaggio",
-      ballottaggio: [{ surface: "", sharePercent: "" }],
+      ballottaggio: [altro("", "", "")],
     });
     expect(scheda).not.toHaveProperty("ballottaggio");
   });
@@ -974,21 +1001,24 @@ describe("gli altri del ballottaggio: con chi si gioca il posto", () => {
   it("il giocatore stesso non entra fra gli altri: la sua quota è scritta una volta sola", () => {
     const result = buildScheda(
       TARGET,
-      form({ titolarita: "ballottaggio", ballottaggio: [{ surface: TARGET.name, sharePercent: "50" }] }),
+      form({
+        titolarita: "ballottaggio",
+        ballottaggio: [altro(TARGET.name, TARGET.club, "50")],
+      }),
     );
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.errors.map((e) => e.field)).toEqual(["ballottaggio"]);
   });
 
-  it("lo stesso nome due volte si rifiuta: due quote per la stessa persona possono divergere", () => {
+  it("la stessa persona due volte si rifiuta: due quote per la stessa persona possono divergere", () => {
     const result = buildScheda(
       TARGET,
       form({
         titolarita: "ballottaggio",
         ballottaggio: [
-          { surface: "Bruna Placeholder", sharePercent: "30" },
-          { surface: "bruna  placeholder", sharePercent: "20" },
+          altro("Bruna Placeholder", CLUB_RIVALE, "30"),
+          altro("bruna  placeholder", CLUB_RIVALE, "20"),
         ],
       }),
     );
@@ -997,11 +1027,24 @@ describe("gli altri del ballottaggio: con chi si gioca il posto", () => {
     expect(result.errors.map((e) => e.field)).toEqual(["ballottaggio"]);
   });
 
+  it("e il rifiuto resta anche quando UNA delle due non dichiara la squadra: fail-closed", () => {
+    // Non si può sapere se siano la stessa persona, e la direzione sicura è
+    // trattarle come tali. Il contrario — «nel dubbio sono due» — lascerebbe
+    // entrare due quote per la stessa persona senza che nessuno lo dica.
+    for (const righe of [
+      [altro("Bruna Placeholder", CLUB_RIVALE, "30"), altro("Bruna Placeholder", "", "20")],
+      [altro("Bruna Placeholder", "", "30"), altro("Bruna Placeholder", CLUB_RIVALE, "20")],
+      [altro("Bruna Placeholder", "", "30"), altro("Bruna Placeholder", "", "20")],
+    ]) {
+      const result = buildScheda(TARGET, form({ titolarita: "ballottaggio", ballottaggio: righe }));
+      expect(result.ok, JSON.stringify(righe)).toBe(false);
+    }
+  });
+
   it("oltre il tetto del contratto si rifiuta, dicendo il tetto", () => {
-    const troppi = Array.from({ length: SCHEDA_BALLOTTAGGIO_MAX + 1 }, (_, i) => ({
-      surface: `Rivale ${i}`,
-      sharePercent: "",
-    }));
+    const troppi = Array.from({ length: SCHEDA_BALLOTTAGGIO_MAX + 1 }, (_, i) =>
+      altro(`Rivale ${i}`, CLUB_RIVALE),
+    );
     const result = buildScheda(TARGET, form({ titolarita: "ballottaggio", ballottaggio: troppi }));
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -1014,8 +1057,8 @@ describe("gli altri del ballottaggio: con chi si gioca il posto", () => {
       form({
         titolarita: "ballottaggio",
         ballottaggio: [
-          { surface: "Bruna Placeholder", sharePercent: "101" },
-          { surface: "L".repeat(SCHEDA_NAME_MAX + 1), sharePercent: "" },
+          altro("Bruna Placeholder", CLUB_RIVALE, "101"),
+          altro("L".repeat(SCHEDA_NAME_MAX + 1), CLUB_RIVALE),
         ],
       }),
     );
@@ -1025,51 +1068,289 @@ describe("gli altri del ballottaggio: con chi si gioca il posto", () => {
     expect(result.errors.every((e) => e.field === "ballottaggio")).toBe(true);
   });
 
+  it("anche una SQUADRA troppo lunga si dice: è la stessa metà d'identità, stesso tetto", () => {
+    const result = buildScheda(
+      TARGET,
+      form({
+        titolarita: "ballottaggio",
+        ballottaggio: [altro("Bruna Placeholder", "C".repeat(SCHEDA_NAME_MAX + 1))],
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.map((e) => e.field)).toEqual(["ballottaggio"]);
+    expect(result.errors[0]?.message).toContain(String(SCHEDA_NAME_MAX));
+  });
+
   it("un nome che il listone caricato non porta si DICHIARA, non si abbina al più simile", () => {
     const pool = [
       { name: "Bruna Placeholder", club: TARGET.club },
-      { name: "Carlo Segnaposto", club: "ClubUno" },
+      { name: "Carlo Segnaposto", club: CLUB_RIVALE },
     ];
     // «Placeholder» somiglia a «Bruna Placeholder» e «Rossini» a «Rossi»:
-    // nessuno dei due viene abbinato, tutti e due vengono detti.
+    // nessuno dei due viene abbinato, tutti e due vengono detti. Qui i soggetti
+    // NON dichiarano la squadra — è la forma vecchia — e il confronto resta sul
+    // solo nome, che è tutto ciò che di loro si sa.
     expect(
       schedaBallottaggioFuoriListone(
         [
-          { surface: "Bruna Placeholder", sharePercent: "" },
-          { surface: "Placeholder", sharePercent: "" },
-          { surface: "Carlo Segnaposto", sharePercent: "" },
+          altro("Bruna Placeholder", ""),
+          altro("Placeholder", ""),
+          altro("Carlo Segnaposto", ""),
         ],
         pool,
       ),
     ).toEqual(["Placeholder"]);
   });
 
-  it("la dichiarazione non ripete lo stesso nome due volte e salta le righe vuote", () => {
+  it("con la squadra dichiarata il confronto è d'IDENTITÀ: l'omonimo di un altro club è fuori", () => {
+    // È il difetto che questa forma esiste per chiudere, visto dal lato della
+    // dichiarazione: col solo nome «Bruna Placeholder (ClubDue)» risultava «nel
+    // listone» perché il listone porta una «Bruna Placeholder (ClubQuattro)»,
+    // cioè un'altra persona. E il nome esce scritto CON la squadra, o non si
+    // saprebbe quale dei due omonimi non corrisponde.
+    const pool = [{ name: "Bruna Placeholder", club: TARGET.club }];
+    expect(
+      schedaBallottaggioFuoriListone([altro("Bruna Placeholder", TARGET.club)], pool),
+    ).toEqual([]);
+    expect(schedaBallottaggioFuoriListone([altro("Bruna Placeholder", CLUB_OMONIMO)], pool)).toEqual(
+      [`Bruna Placeholder (${CLUB_OMONIMO})`],
+    );
+  });
+
+  it("la dichiarazione non ripete la stessa persona due volte e salta le righe vuote", () => {
     expect(
       schedaBallottaggioFuoriListone(
-        [
-          { surface: "Ignoto Uno", sharePercent: "" },
-          { surface: "  ", sharePercent: "10" },
-          { surface: "ignoto uno", sharePercent: "" },
-        ],
+        [altro("Ignoto Uno", ""), altro("  ", "", "10"), altro("ignoto uno", "")],
         [],
       ),
     ).toEqual(["Ignoto Uno"]);
+    // Due omonimi di club diversi NON sono la stessa persona: si dicono tutti e
+    // due, ciascuno con la propria squadra.
+    expect(
+      schedaBallottaggioFuoriListone(
+        [altro("Ignoto Uno", CLUB_RIVALE), altro("Ignoto Uno", CLUB_OMONIMO)],
+        [],
+      ),
+    ).toEqual([`Ignoto Uno (${CLUB_RIVALE})`, `Ignoto Uno (${CLUB_OMONIMO})`]);
   });
 
-  it("il riassunto scrive i nomi e le quote, senza fabbricarne nessuna", () => {
+  it("il riassunto scrive i nomi, le squadre e le quote, senza fabbricarne nessuna", () => {
     const scheda = builtScheda({
       titolarita: "ballottaggio",
       percentuale: "50",
       ballottaggio: [
-        { surface: "Bruna Placeholder", sharePercent: "30" },
-        { surface: "Carlo Segnaposto", sharePercent: "" },
+        altro("Bruna Placeholder", CLUB_RIVALE, "30"),
+        altro("Carlo Segnaposto", CLUB_OMONIMO, ""),
       ],
     });
     const summary = schedaSummary(scheda);
     expect(summary).toContain("ballottaggio 50%");
-    expect(summary).toContain("con: Bruna Placeholder 30%, Carlo Segnaposto");
-    expect(summary).not.toContain("Carlo Segnaposto 0%");
+    expect(summary).toContain(
+      `con: Bruna Placeholder (${CLUB_RIVALE}) 30%, Carlo Segnaposto (${CLUB_OMONIMO})`,
+    );
+    expect(summary).not.toContain(`Carlo Segnaposto (${CLUB_OMONIMO}) 0%`);
+  });
+
+  it("una squadra che la scheda non dichiara si DICE «n/d», e non diventa quella di nessuno", () => {
+    // La forma vecchia, riletta: il riassunto non prende la squadra del
+    // giocatore della riga né quella dell'altro soggetto. Dichiara che manca.
+    const scheda: ExpertScheda = {
+      player: TARGET.name,
+      club: TARGET.club,
+      titolarita: "ballottaggio",
+      ballottaggio: [{ surface: "Bruna Placeholder", sharePercent: 30 }],
+    };
+    const summary = schedaSummary(scheda);
+    expect(summary).toContain(`con: Bruna Placeholder (${SCHEDA_CLUB_NON_DICHIARATA}) 30%`);
+    expect(summary).not.toContain(TARGET.club);
+  });
+});
+
+// ── DUE OMONIMI PIENI, DUE CLUB: IL CASO PER CUI LA SQUADRA È ENTRATA ────────
+//
+// Il resto di questo file è impalcatura per queste prove. Il campo
+// `ballottaggio` portava un nome e basta: due giocatori con lo stesso identico
+// nome in club diversi producevano lo STESSO valore depositato, e dopo il
+// salvataggio non c'era più modo di sapere quale dei due la scheda intendesse.
+// Finché il ballottaggio era testo mostrato era un fastidio; da quando la
+// valutazione del Gruppo Esperti entra nel calcolo — «la concorrenza nel ruolo
+// si legge dai fatti GE: titolarità, ballottaggi» — un accoppiamento sbagliato
+// sposta un numero. Decisione di Pico, 2026-08-24: «Salva anche la squadra».
+//
+// Le prove qui sotto percorrono il giro intero — compilo, salvo, deposito,
+// rileggo, riapro — e a ogni tappa pretendono che i due restino DUE.
+
+describe("due omonimi in club diversi restano distinguibili", () => {
+  const OMONIMO = "Bruna Placeholder";
+
+  /** Il modulo con i due omonimi, ciascuno con la propria squadra e quota. */
+  const DUE_OMONIMI: SchedaFormValues = form({
+    titolarita: "ballottaggio",
+    percentuale: "40",
+    ballottaggio: [altro(OMONIMO, CLUB_RIVALE, "35"), altro(OMONIMO, CLUB_OMONIMO, "25")],
+  });
+
+  it("il modulo li accetta tutti e due: stesso nome, due persone", () => {
+    // Col solo nome questa scheda era impossibile da compilare — il rifiuto del
+    // doppione la fermava — E ALLO STESSO TEMPO indistinguibile se scritta a
+    // mano nel JSON. La squadra risolve tutte e due le metà del difetto.
+    const result = buildScheda(TARGET, DUE_OMONIMI);
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    if (!result.ok) return;
+    expect(result.scheda.ballottaggio).toEqual([
+      { surface: OMONIMO, club: CLUB_RIVALE, sharePercent: 35 },
+      { surface: OMONIMO, club: CLUB_OMONIMO, sharePercent: 25 },
+    ]);
+  });
+
+  it("SENZA la squadra gli stessi due sono un doppione, e il rifiuto lo dice", () => {
+    // La misura del difetto, non il suo ricordo: è la forma vecchia, ed è
+    // ancora esattamente ciò che succede a chi non dichiara la squadra.
+    const result = buildScheda(
+      TARGET,
+      form({
+        titolarita: "ballottaggio",
+        percentuale: "40",
+        ballottaggio: [altro(OMONIMO, "", "35"), altro(OMONIMO, "", "25")],
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.map((e) => e.field)).toEqual(["ballottaggio"]);
+  });
+
+  it("restano due dopo il deposito, la rilettura e il riquadro d'asta", () => {
+    // Il giro vero, con il contratto come oracolo a ogni tappa: non basta che
+    // il modulo li tenga separati, devono arrivare separati DOVE si leggono.
+    const result = buildScheda(TARGET, DUE_OMONIMI);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const deposit = buildSchedaDeposit(new Map([[ROW_KEY, result.scheda]]));
+    expect(deposit.ok).toBe(true);
+    if (!deposit.ok) return;
+
+    const store = parseExpertSchedaDeposit(deposit.text);
+    expect(store.ok).toBe(true);
+    const view = resolveExpertInsight(store, TARGET);
+    expect(view.ballottaggio).toEqual(result.scheda.ballottaggio);
+    // Le due quote NON si sono fuse e non si sono scelte: ce ne sono due, e
+    // ciascuna sta accanto alla squadra a cui appartiene.
+    expect(view.ballottaggio.map((s) => s.club)).toEqual([CLUB_RIVALE, CLUB_OMONIMO]);
+    expect(view.ballottaggio.map((s) => s.sharePercent)).toEqual([35, 25]);
+    // E si LEGGONO come due: il dettaglio dell'icona che il riquadro d'asta
+    // mostra non dice due volte la stessa parola.
+    const dettaglio = ballottaggioDettaglio(view);
+    expect(dettaglio).toContain(`${OMONIMO} (${CLUB_RIVALE}) al 35%`);
+    expect(dettaglio).toContain(`${OMONIMO} (${CLUB_OMONIMO}) al 25%`);
+  });
+
+  it("e restano due riaprendo la scheda: il modulo ricostruito rende la stessa scheda", () => {
+    const result = buildScheda(TARGET, DUE_OMONIMI);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const riaperta = schedaToForm(result.scheda);
+    expect(riaperta.ballottaggio).toEqual([
+      altro(OMONIMO, CLUB_RIVALE, "35"),
+      altro(OMONIMO, CLUB_OMONIMO, "25"),
+    ]);
+    const risalvata = buildScheda(TARGET, riaperta);
+    expect(risalvata.ok).toBe(true);
+    if (!risalvata.ok) return;
+    expect(risalvata.scheda).toEqual(result.scheda);
+  });
+
+  it("il giro si chiude byte per byte: scarico, reimporto, riscarico, stesso file", () => {
+    // L'ordine delle chiavi del soggetto deve essere quello dello schema, o
+    // scarico → reimporto → riscarico renderebbe un file diverso a parità di
+    // contenuto. È il difetto già trovato una volta sui voti della pagella,
+    // un livello più giù: qui la squadra è una chiave NUOVA IN MEZZO, cioè
+    // esattamente il posto in cui si riaprirebbe.
+    const result = buildScheda(TARGET, DUE_OMONIMI);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const primo = buildSchedaDeposit(new Map([[ROW_KEY, result.scheda]]));
+    expect(primo.ok).toBe(true);
+    if (!primo.ok) return;
+
+    const rows = [{ rowKey: ROW_KEY, name: TARGET.name, club: TARGET.club }];
+    const planned = planSchedaImport(primo.text, rows, new Map());
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+    const applied = applySchedaImport(new Map(), planned.plan, null);
+    expect(applied).not.toBeNull();
+    const secondo = buildSchedaDeposit(applied as ReadonlyMap<string, ExpertScheda>);
+    expect(secondo.ok).toBe(true);
+    if (!secondo.ok) return;
+    expect(secondo.text).toBe(primo.text);
+  });
+});
+
+// ── I DEPOSITI GIÀ SCRITTI: LEGGIBILI, E DICHIARATI INCOMPLETI ──────────────
+//
+// Un deposito scritto prima che questa metà esistesse porta il solo nome. Non
+// si può rompere in silenzio — il lettore è fail-closed e rifiuterebbe il file
+// INTERO, cioè due ore di lavoro dietro una chiave che nessuno poteva scrivere
+// — e non gli si può inventare una squadra: non quella del primo omonimo, non
+// quella del giocatore della riga. Resta leggibile e DICHIARA che manca.
+
+describe("un ballottaggio della forma vecchia: leggibile, e dice che la squadra manca", () => {
+  const VECCHIO = JSON.stringify(
+    {
+      schemaVersion: EXPERT_SCHEDA_SCHEMA_VERSION,
+      schede: [
+        {
+          player: TARGET.name,
+          club: TARGET.club,
+          titolarita: "ballottaggio",
+          percentuale: 60,
+          ballottaggio: [{ surface: "Bruna Placeholder", sharePercent: 40 }],
+        },
+      ],
+    },
+    null,
+    2,
+  );
+
+  it("il contratto lo accetta: la squadra è facoltativa, non è sparita una regola", () => {
+    const store = parseExpertSchedaDeposit(VECCHIO);
+    expect(store.ok).toBe(true);
+    const view = resolveExpertInsight(store, TARGET);
+    expect(view.ballottaggio).toEqual([{ surface: "Bruna Placeholder", sharePercent: 40 }]);
+    expect(view.ballottaggio[0]).not.toHaveProperty("club");
+  });
+
+  it("si riprende, si riapre e si risalva SENZA che nessuno gli fabbrichi una squadra", () => {
+    const rows = [{ rowKey: ROW_KEY, name: TARGET.name, club: TARGET.club }];
+    const planned = planSchedaImport(VECCHIO, rows, new Map());
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+    const ripresa = planned.plan.incoming.get(ROW_KEY);
+    expect(ripresa).toBeDefined();
+
+    // Riaperta nel modulo: la casella della squadra è VUOTA, non porta
+    // «ClubQuattro» perché il giocatore della riga sta lì.
+    const riaperta = schedaToForm(ripresa as ExpertScheda);
+    expect(riaperta.ballottaggio).toEqual([altro("Bruna Placeholder", "", "40")]);
+
+    // Risalvata: la chiave `club` non compare. `""` non è una squadra.
+    const risalvata = buildScheda(TARGET, riaperta);
+    expect(risalvata.ok).toBe(true);
+    if (!risalvata.ok) return;
+    expect(risalvata.scheda.ballottaggio?.[0]).not.toHaveProperty("club");
+    expect(risalvata.scheda).toEqual(ripresa);
+  });
+
+  it("e il giro resta byte per byte: reimportarlo non riscrive il file", () => {
+    const rows = [{ rowKey: ROW_KEY, name: TARGET.name, club: TARGET.club }];
+    const planned = planSchedaImport(VECCHIO, rows, new Map());
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+    const applied = applySchedaImport(new Map(), planned.plan, null);
+    const riscaricato = buildSchedaDeposit(applied as ReadonlyMap<string, ExpertScheda>);
+    expect(riscaricato.ok).toBe(true);
+    if (!riscaricato.ok) return;
+    expect(riscaricato.text).toBe(VECCHIO);
   });
 });
 

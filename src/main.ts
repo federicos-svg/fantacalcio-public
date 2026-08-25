@@ -210,9 +210,6 @@ import {
   listoneColumns,
   listoneExpertSignalsNote,
   poolHasAppealIndex,
-  emptyRowSignals,
-  type ListoneRowSignals,
-  type ListoneRowSignalsLookup,
 } from "./ui/listone.js";
 import {
   loadListoneColumnPrefs,
@@ -231,6 +228,7 @@ import {
   PIAZZATI_VALUES,
   RIGORI_VALUES,
   SCHEDA_BALLOTTAGGIO_MAX,
+  SCHEDA_CLUB_NON_DICHIARATA,
   SCHEDA_GERARCHIA_MAX,
   SCHEDA_GERARCHIA_MIN,
   SCHEDA_NOTA_MAX,
@@ -241,7 +239,6 @@ import {
   resolveExpertInsight,
   type ExpertSchedaStore,
   type SchedaTarget,
-  expertSchedeHavePagella,
 } from "./expertScheda.js";
 import {
   PAGELLA_ASSI_COMUNI,
@@ -252,7 +249,6 @@ import {
   PAGELLA_VOTO_MIN,
   pagellaAsseDelRuolo,
   type PagellaAsse,
-  type PagellaView,
 } from "./pagellaEsperti.js";
 import {
   AVVISO_LABELS,
@@ -269,6 +265,11 @@ import {
   withSchedaLink,
   type SchedaLinks,
 } from "./schedaLinks.js";
+import {
+  listoneExpertPagellaViews,
+  listoneRowSignalsLookup,
+  type ListoneSignalsInput,
+} from "./listoneRowSignals.js";
 import {
   EMPTY_SCHEDA_BALLOTTAGGIO_ROW,
   EMPTY_SCHEDA_FORM,
@@ -1938,66 +1939,25 @@ function playerInsightProps(): PlayerInsightProps {
  * listone. È la stessa risoluzione del riquadro INSIGHT GIOCATORE, quindi le
  * due superfici non possono dire due cose diverse sullo stesso giocatore.
  *
- * MEMOIZZATO PER RENDER, e non per comodità: `resolveExpertInsight` confronta
- * i token del nome contro l'indice delle schede, e ordinare la tabella per una
- * di queste colonne lo chiederebbe per OGNI riga del pool (un listone vero ne
- * ha ~530). Una cache costruita all'inizio del render e buttata alla fine
- * garantisce una risoluzione per riga distinta, mai una per confronto.
+ * IL CALCOLO NON VIVE PIÙ QUI: sta in src/listoneRowSignals.ts, memoizzato
+ * ATTRAVERSO i render invece che dentro uno solo. La versione che stava in
+ * questo file costruiva una `Map` all'inizio del giro e la buttava alla fine —
+ * dichiarato nel suo stesso commento — quindi `render()`, che gira a ogni
+ * tasto della ricerca, ripagava tutto da capo. Misurato sul banco a 532 righe
+ * (src/tierOrdering.perfScenario.ts): 4,5-6,4 ms per tasto con le pagelle nel
+ * deposito e 4,4-4,6 ms per tasto OGGI con la tabella ordinata per una colonna
+ * di segnale — quel secondo caso non è dietro `expertSchedeHavePagella` e non
+ * era mai stato misurato. Qui resta solo la lettura dello stato.
  *
  * I CINQUE VOTI SONO SEMPRE VUOTI, OGGI, E LA COLONNA LO DICE (`n/d`).
  * L'estrazione dei voti dalle schede vive fuori da questo ramo e non è ancora
- * atterrata: quando lo farà, QUESTO è l'unico punto da cambiare — i voti
- * arriveranno dentro la vista della scheda e si copiano qui dentro `voti`.
+ * atterrata: quando lo farà, i voti arriveranno dentro la vista della scheda e
+ * `resolveRowSignals` li porterà in tabella senza che questo file cambi.
  * Fino ad allora non si inventa niente: nessuno zero, nessuna media, nessun
  * valore di riempimento. Un voto che nessuno ha scritto non è un voto basso.
  */
-/**
- * Le pagelle risolte da CONTARE nella nota sotto la tabella — e l'elenco vuoto
- * finché non c'è niente da contare.
- *
- * La passata sul pool intero esiste perché i due numeri di #33 («quante
- * divergono dal totale della fonte», «quante portano l'asse di un altro
- * ruolo») valgono solo se sono sul pool e non sulla pagina a schermo. Ma con
- * il deposito senza pagelle — cioè oggi, sempre — la passata conterebbe zero
- * su ~500 righe a ogni render: la guardia la salta del tutto.
- */
-function listoneExpertPagellaViews(signals: ListoneRowSignalsLookup): readonly PagellaView[] {
-  if (!expertSchedeHavePagella(state.expertSchede)) return [];
-  return state.pool.map((p) => signals(p).pagella);
-}
-
-function listoneRowSignalsLookup(): ListoneRowSignalsLookup {
-  const cache = new Map<string, ListoneRowSignals>();
-  return (p) => {
-    const key = listonePlayerKey(p);
-    const cached = cache.get(key);
-    if (cached !== undefined) return cached;
-    // IL RUOLO ENTRA NEL TARGET: serve a una cosa sola, sapere QUALE sia il
-    // quarto asse della pagella per questa riga — e ad accorgersi quando la
-    // scheda ne porta uno di un altro ruolo (`asseIncoerente`, poi «n.a.»
-    // nella cella). Non entra in `listonePlayerKey` né in `schedaLinkRowKey`:
-    // l'identità di una riga resta nome + squadra.
-    const target: SchedaTarget = { name: p.name, club: p.club, role: p.role };
-    const chosen = state.schedaLinks.get(schedaLinkRowKey(target)) ?? null;
-    const view = resolveExpertInsight(state.expertSchede, target, chosen);
-    const signals: ListoneRowSignals =
-      view.rigori === null && view.piazzati.length === 0 && view.pagella.votiPresenti === 0
-        ? emptyRowSignals(p.role)
-        : {
-            // Le parole sono quelle del vocabolario chiuso delle schede, non
-            // riscritte qui: `ui/listone.ts` riceve etichette, non enum, e non
-            // ha nessun modo di inventarne una che il vocabolario non abbia.
-            rigori: view.rigori === null ? null : RIGORI_LABELS[view.rigori],
-            piazzati: view.piazzati.map((kind) => PIAZZATI_LABELS[kind]),
-            // GIÀ RISOLTA, e dalla STESSA vista che alimenta il radar del
-            // riquadro d'asta: una sorgente sola per gli stessi cinque numeri
-            // (decisione del committente, 2026-08-24). Tabella e radar non
-            // possono più divergere su uno stesso giocatore.
-            pagella: view.pagella,
-          };
-    cache.set(key, signals);
-    return signals;
-  };
+function listoneSignalsInput(): ListoneSignalsInput {
+  return { pool: state.pool, schede: state.expertSchede, links: state.schedaLinks };
 }
 
 /**
@@ -4755,17 +4715,37 @@ function renderSchedaForm(target: SchedaTarget, pool: readonly ListonePlayer[]):
 // finirebbe nel deposito con un refuso, e il refuso non lo vedrebbe nessuno —
 // il riquadro d'asta scrive quel nome così com'è.
 //
-// I DUE GRUPPI NON SONO UNA GRADUATORIA. «Stessa squadra» sta in cima perché
-// un ballottaggio è una contesa per un posto in una formazione, e i rivali
-// plausibili sono i compagni: è un raggruppamento per un fatto dichiarato,
-// non un ordinamento per merito, e ogni riga del listone resta scegliibile.
+// E DA OGGI LA RIGA PORTA TUTTE E DUE LE METÀ. Il contratto deposita `surface`
+// E `club` (src/expertScheda.ts): il valore di un'opzione non è più il nome, è
+// l'IDENTITÀ — `listonePlayerKey`, la stessa chiave con cui l'event log
+// registra un acquisto e con cui `planSchedaImport` riaggancia una scheda alla
+// sua riga. La scelta da listone diventa così PIÙ naturale, non meno: la riga
+// porta già nome e squadra, e un gesto solo le scrive tutte e due. Col solo
+// nome, due omonimi pieni in club diversi producevano lo stesso valore
+// depositato ed erano indistinguibili dopo il salvataggio.
+//
+// I DUE GRUPPI NON SONO UNA GRADUATORIA, E NON SONO UN FILTRO. «Stessa
+// squadra» sta in cima perché un ballottaggio è una contesa per un posto in una
+// formazione, e i rivali plausibili sono i compagni: è un raggruppamento per un
+// fatto dichiarato, non un ordinamento per merito, e OGNI riga del listone
+// resta scegliibile. Restringere l'elenco ai soli compagni era una delle tre
+// strade sul tavolo il 2026-08-24, ed è quella che Pico NON ha scelto: la
+// squadra è entrata nel dato proprio perché non servisse restringere la scelta
+// per sapere di chi si parla.
 //
 // UN NOME CHE IL LISTONE NON HA SI DICHIARA, NON SI ABBINA. Riaprendo una
-// scheda ripresa da un deposito scritto altrove, un nome può non corrispondere
-// a nessuna riga caricata: resta scritto COM'È, l'opzione lo porta segnato, e
-// una riga sotto il campo lo dice. Agganciarlo «al più simile» attaccherebbe in
-// silenzio il rivale sbagliato — la stessa cosa che `planSchedaImport` si
-// rifiuta di fare.
+// scheda ripresa da un deposito scritto altrove, un'identità può non
+// corrispondere a nessuna riga caricata: resta scritta COM'È, l'opzione la
+// porta segnata, e una riga sotto il campo lo dice. Agganciarla «alla più
+// simile» attaccherebbe in silenzio il rivale sbagliato — la stessa cosa che
+// `planSchedaImport` si rifiuta di fare.
+//
+// E LO STESSO VALE PER LA SQUADRA CHE MANCA. Un soggetto scritto prima di
+// questa forma porta il solo nome: l'opzione lo mostra con «squadra n/d» e NON
+// gli attacca la squadra del primo omonimo che il listone porta, nemmeno quando
+// ce n'è uno solo. Chi vuole completarlo riapre il `<select>` e sceglie la
+// riga: è un gesto, e un gesto è la sola cosa che può decidere quale dei due
+// omonimi fosse.
 
 /** Le righe che una casella «con chi» può nominare: tutte tranne lui stesso. */
 function ballottaggioOptions(
@@ -4777,10 +4757,39 @@ function ballottaggioOptions(
   const stessoClub: ListonePlayer[] = [];
   const altri: ListonePlayer[] = [];
   for (const row of pool) {
-    if (listonePlayerKey(row) === self) continue;
+    // Per NOME+SQUADRA e non per `listonePlayerKey(row)`: su una riga proxy
+    // quella chiave è `proxy:<id>` e non combacerebbe mai con `self`, cioè il
+    // giocatore della scheda comparirebbe fra i propri rivali. È la stessa
+    // forma con cui `planSchedaImport` indicizza le righe, per la stessa
+    // ragione.
+    if (ballottaggioOptionValue({ surface: row.name, club: row.club }) === self) continue;
     (normalizeIdentityPart(row.club) === club ? stessoClub : altri).push(row);
   }
   return { stessoClub, altri };
+}
+
+/**
+ * IL VALORE DI UN'OPZIONE «CON CHI»: l'identità, non il nome.
+ *
+ * `listonePlayerKey` è la forma di casa per la coppia nome+squadra, e usarla
+ * qui vuol dire che il `<select>` e il deposito parlano della stessa cosa senza
+ * traduzioni in mezzo. Costruita SEMPRE da nome e squadra — mai da `proxyId` —
+ * perché il valore deve essere ricostruibile da un soggetto già depositato, che
+ * un `proxyId` non ce l'ha.
+ *
+ * Un soggetto SENZA squadra (deposito scritto prima di questa forma) prende il
+ * solo nome piegato. I due spazi di valori non possono collidere: la piega di
+ * `normalizeIdentityPart` non emette mai `_`, quindi solo un'identità intera
+ * contiene `__`.
+ */
+function ballottaggioOptionValue(identita: {
+  readonly surface: string;
+  readonly club: string;
+}): string {
+  const surface = identita.surface.trim();
+  const club = identita.club.trim();
+  if (surface === "") return "";
+  return club === "" ? normalizeIdentityPart(surface) : listonePlayerKey({ name: surface, club });
 }
 
 function renderSchedaBallottaggio(target: SchedaTarget, pool: readonly ListonePlayer[]): HTMLElement {
@@ -4817,35 +4826,57 @@ function renderSchedaBallottaggio(target: SchedaTarget, pool: readonly ListonePl
     empty.value = "";
     empty.textContent = "— nessuno —";
     select.appendChild(empty);
+    // L'indice valore -> riga: è ciò che permette al gestore di scrivere
+    // INSIEME le due metà dell'identità. Senza, il `<select>` porterebbe una
+    // chiave e il modulo dovrebbe ripiegarla in nome e squadra, cioè inventarsi
+    // all'indietro le due superfici che la riga ha già scritte giuste.
+    const byValue = new Map<string, ListonePlayer>();
     const appendRows = (rows: readonly ListonePlayer[], label: string): void => {
       if (rows.length === 0) return;
       const optgroup = document.createElement("optgroup");
       optgroup.label = label;
       for (const p of rows) {
         const opt = document.createElement("option");
-        // Il VALORE è il nome: è esattamente ciò che il contratto deposita
-        // (`surface`), quindi fra il controllo e il file non c'è nessuna
-        // traduzione che possa perdersi.
-        opt.value = p.name;
+        // Il VALORE è l'IDENTITÀ, non il nome: due omonimi pieni in club
+        // diversi sono due opzioni distinte, e restano distinte fin dentro il
+        // file. Col solo nome producevano lo stesso valore, e il secondo
+        // vinceva in silenzio.
+        opt.value = ballottaggioOptionValue({ surface: p.name, club: p.club });
         opt.textContent = `${p.name} (${p.club})`;
+        byValue.set(opt.value, p);
         optgroup.appendChild(opt);
       }
       select.appendChild(optgroup);
     };
     appendRows(stessoClub, "Stessa squadra");
     appendRows(altri, "Altre squadre");
-    // Un nome che nessuna riga porta: entra COM'È, segnato, e non viene
-    // riabbinato a niente.
-    const fuori = schedaBallottaggioFuoriListone([riga], pool);
-    for (const nome of fuori) {
+    // Un soggetto che nessuna riga del listone porta — perché è davvero fuori,
+    // o perché è scritto senza squadra e questo pannello non gliene inventa
+    // una: entra COM'È, segnato, e non viene riabbinato a niente. Senza questa
+    // opzione il `<select>` ricadrebbe su «nessuno» al primo ridisegno, cioè
+    // cancellerebbe il soggetto per non avere un posto dove scriverlo.
+    const value = ballottaggioOptionValue(riga);
+    if (value !== "" && !byValue.has(value)) {
       const opt = document.createElement("option");
-      opt.value = nome;
-      opt.textContent = `${nome} — fuori dal listone caricato`;
+      opt.value = value;
+      opt.textContent =
+        riga.club.trim() === ""
+          ? `${riga.surface} (${SCHEDA_CLUB_NON_DICHIARATA})`
+          : `${riga.surface} (${riga.club}) — fuori dal listone caricato`;
       select.appendChild(opt);
     }
-    select.value = riga.surface;
+    select.value = value;
     select.addEventListener("change", (e) => {
-      updateSchedaBallottaggio(i, { surface: (e.target as HTMLSelectElement).value });
+      const scelto = (e.target as HTMLSelectElement).value;
+      const row = byValue.get(scelto);
+      // Le due metà si scrivono INSIEME o non si scrivono: è la scelta della
+      // riga a garantire che combacino. «Nessuno» le toglie tutte e due —
+      // mezza identità rimasta indietro sarebbe un accoppiamento sbagliato che
+      // nessuno vede. L'opzione «com'è scritto» non cambia niente: è già lei.
+      if (scelto === "") updateSchedaBallottaggio(i, { surface: "", club: "" });
+      else if (row !== undefined) {
+        updateSchedaBallottaggio(i, { surface: row.name, club: row.club });
+      }
       persistSchedaEditing();
       // Ridisegna: una riga scelta ne apre una nuova in coda, una riga svuotata
       // sparisce, e gli indici delle altre si spostano.
@@ -4899,7 +4930,9 @@ function updateSchedaBallottaggio(index: number, patch: Partial<SchedaBallottagg
   const righe = [...state.schedaForm.ballottaggio];
   while (righe.length <= index) righe.push(EMPTY_SCHEDA_BALLOTTAGGIO_ROW);
   righe[index] = { ...(righe[index] as SchedaBallottaggioValues), ...patch };
-  const compacted = righe.filter((r) => r.surface.trim() !== "" || r.sharePercent.trim() !== "");
+  const compacted = righe.filter(
+    (r) => r.surface.trim() !== "" || r.club.trim() !== "" || r.sharePercent.trim() !== "",
+  );
   updateSchedaForm({ ballottaggio: compacted });
   // Non persiste qui: come per gli altri numerici, si scrive su `change` e non
   // a ogni tasto (schedaNumberInput). Chi cambia il `<select>` persiste da sé,
@@ -5583,9 +5616,12 @@ function renderMomentoChiamata(
     { text: state.call.playerName, role: state.call.role, club: state.call.club, status: state.poolStatusFilter },
     assignedKeys,
   );
-  // Un lookup solo per tutto il render: la sua memo copre sia le righe a
-  // schermo sia (quando ci sarà da contare) la passata della nota.
-  const rowSignals = listoneRowSignalsLookup();
+  // Un lookup solo per tutto il render, e la sua memo NON muore con il render:
+  // vive in src/listoneRowSignals.ts, indicizzata sull'identità di (pool,
+  // deposito, risposte di Pico). Copre sia le righe a schermo sia la passata
+  // della nota, e un tasto nella ricerca non ne rifà nessuna.
+  const signalsInput = listoneSignalsInput();
+  const rowSignals = listoneRowSignalsLookup(signalsInput);
   listoneWrap.appendChild(
     renderListoneSvincolati(
       {
@@ -5598,7 +5634,7 @@ function renderMomentoChiamata(
         appealIndexNote: listoneAppealIndexNote(state.pool),
         // I conteggi di #33 girano solo quando c'è qualcosa da contare: la
         // nota lo dice, e oggi dice che i voti non sono ancora estratti.
-        expertSignalsNote: listoneExpertSignalsNote(listoneExpertPagellaViews(rowSignals)),
+        expertSignalsNote: listoneExpertSignalsNote(listoneExpertPagellaViews(signalsInput)),
         sort: state.poolSort,
         visibleColumnKeys: listoneVisibleColumnKeys(),
         rowSignals,
