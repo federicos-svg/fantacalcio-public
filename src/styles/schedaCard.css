@@ -1,0 +1,59 @@
+/* LA SCHEDA — le misure del vocabolario dichiarato in src/ui/schedaCard.ts.
+ *
+ * UNA COPIA SOLA. Queste righe stavano scritte tre volte: `.per-me__title` in
+ * perMe.css, `.bait__title` in bait.css e uno `style.cssText` a mano
+ * sull'occhiello del blocco suggerito in src/main.ts. Le prime due erano
+ * identiche, la terza era già divergente (0.06em di spaziatura invece di
+ * 0.04em): la prova che tre copie non sono uno stile. Qui ce n'è una, e i
+ * quattro posti che la usano non possono più separarsi.
+ *
+ * PERCHÉ 0.04em E NON 0.06em. È una misura, non un gusto, e la ragione era già
+ * scritta in bait.css: «la spaziatura extra è la firma dell'occhiello, ma su
+ * tre righe a 390px costa una riga intera di altezza». La copia sopravvissuta
+ * è quella misurata.
+ *
+ * IL RIQUADRO NON HA RIEMPIMENTO, ed è una scelta con un motivo verificabile.
+ * Dentro le schede vivono superfici che si distinguono dal fondo PROPRIO
+ * riempiendosi di `--panel-inner` — le pastiglie dei segnali (`.expert-chip`) e
+ * la barra della quota (`.expert-share__track`). Un riquadro riempito dello
+ * stesso token le avrebbe fatte sparire nel proprio fondo: il contorno dice
+ * «riquadro» senza togliere il fondo su cui quelle superfici si leggono.
+ *
+ * CONTRASTO. Nessun colore nuovo: il titolo porta `--text-sec`, che la rampa di
+ * base.css dichiara ≥ 4,5:1 sul fondo peggiore dell'app (`--panel-inner`), e
+ * e2e/text-contrast-aa.spec.ts lo rimisura a ogni run.
+ *
+ * DUE COLONNE A 900px, e non a una soglia nuova: è la stessa a cui
+ * `.moment-blocks-grid` e la vecchia `.expert-insight__grid` smettevano di
+ * affiancare i pannelli di questa schermata. Due riquadri densi affiancati
+ * smettono di essere leggibili molto prima di smettere di entrarci, e la
+ * schermata deve cambiare forma in UN punto solo. */
+
+.scheda-card__title {
+  color: var(--text-sec);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+.scheda-cards {
+  display: grid;
+  gap: 9px 18px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 900px) {
+  .scheda-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.scheda-card {
+  align-content: start;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  min-width: 0;
+  padding: 8px 10px 9px;
+}

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { E2E_PURCHASE_PRICE, E2E_TARGET_PLAYER, SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { gotoScreen, installSyntheticNetworkGuard, openTableDetail, readLocalStorageJson } from "./helpers.js";
+import { gotoScreen, installSyntheticNetworkGuard, readLocalStorageJson } from "./helpers.js";
 
 // Participants are people, not seats. A person's identity survives moving to
 // another team and survives leaving the league entirely, which is what makes
@@ -38,8 +38,7 @@ test("a participant keeps their identity across seats and across leaving the lea
   // Le etichette dei posti si leggono nella war board COMPLETA (la griglia
   // SQUADRE (LEGA) è stata rimossa su richiesta di Pico, 2026-08-17): stessa
   // domanda — il nome della persona compare al posto della sigla del posto —
-  // su un altro pannello, dietro il gesto IL TAVOLO.
-  await openTableDetail(page);
+  // su un altro pannello, IL TAVOLO, che è sempre aperto.
   await expect(page.locator("#war-board-full")).toContainText("Anna");
   await expect(page.locator("#war-board-full")).toContainText("Bruno");
 
@@ -48,7 +47,6 @@ test("a participant keeps their identity across seats and across leaving the lea
   await seat(page, "Squadra3", "Bruno");
   await expect(page.locator("#seat-person-Squadra2")).toHaveValue("");
   await gotoScreen(page, "Asta");
-  await openTableDetail(page);
   const teams = page.locator("#war-board-full");
   await expect(teams).toContainText("Bruno");
   await expect(teams).toContainText("Squadra2");
@@ -65,7 +63,6 @@ test("a participant keeps their identity across seats and across leaving the lea
 
   await seat(page, "Squadra4", "Bruno");
   await gotoScreen(page, "Asta");
-  await openTableDetail(page);
   await expect(page.locator("#war-board-full")).toContainText("Bruno");
   expect(externalRequests).toEqual([]);
 });

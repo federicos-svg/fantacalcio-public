@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { SYNTHETIC_LISTONE_POOL, E2E_TARGET_PLAYER, E2E_PURCHASE_PRICE } from "./fixtures/synthetic-listone.js";
-import { installSyntheticNetworkGuard, openTableDetail, readLocalStorageJson, selectStatusFilter } from "./helpers.js";
+import { installSyntheticNetworkGuard, readLocalStorageJson, selectStatusFilter } from "./helpers.js";
 
 interface StoredEvent {
   readonly type: "PURCHASE" | "VOID";
@@ -25,8 +25,7 @@ test("opponent assignment keeps budget, slots, history and player state coherent
   // La contabilità per squadra si legge nella war board COMPLETA (la griglia
   // SQUADRE (LEGA) è stata rimossa su richiesta di Pico, 2026-08-17): stessa
   // domanda — budget e slot dell'avversario dopo il suo acquisto — su un altro
-  // pannello, che è dietro il gesto IL TAVOLO.
-  await openTableDetail(page);
+  // pannello, IL TAVOLO, che è sempre aperto: si legge senza gesti.
   const opponent = page.locator("#war-board-full-Squadra2");
   await expect(opponent).toContainText("Squadra2");
   await expect(opponent).toContainText("490 cr");
@@ -43,8 +42,8 @@ test("opponent assignment keeps budget, slots, history and player state coherent
   await expect(page.locator(".listone-row", { hasText: E2E_TARGET_PLAYER.name })).toContainText("Assegnato");
 
   await page.reload();
-  // `tableDetailOpen` è stato dell'app, non del DOM: un reload lo azzera.
-  await openTableDetail(page);
+  // E dopo un reload si legge ancora senza gesti: IL TAVOLO non ha uno stato
+  // da ripristinare, perché non ha uno stato — è sempre aperto.
   await expect(opponent).toContainText("Squadra2");
   await expect(opponent).toContainText("490 cr");
   await expect(history).toContainText("Squadra2");

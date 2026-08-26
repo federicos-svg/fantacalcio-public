@@ -221,6 +221,106 @@ test("i cinque stati: deposito non letto, scheda non scritta, doppia scheda, fon
   expect(requests2).toEqual([]);
 });
 
+test("un vocabolario solo: i riquadri di INSIGHT GIOCATORE hanno la forma delle schede della chiamata", async ({
+  page,
+  context,
+}) => {
+  // RICHIESTA DI PICO, 2026-08-26: il riquadro insight «nella forma delle
+  // schede che già esistono nella schermata di chiamata» — titolo in
+  // maiuscoletto piccolo, corpo sotto, riquadri affiancati su due colonne.
+  //
+  // QUESTA PROVA MISURA LA COSA CHE CONTA, che non è «l'insight ha dei
+  // titoli»: è che i titoli dei DUE POSTI siano LO STESSO STILE. Un test che
+  // guardasse solo il pannello insight resterebbe verde il giorno in cui
+  // qualcuno ritocca una delle due copie — che è esattamente com'era prima di
+  // questo lavoro, quando le copie erano tre e una era già divergente.
+  const externalRequests = await boot(page, context, {
+    kind: "serve",
+    body: schedeDeposit([FULL_SCHEDA]),
+  });
+
+  /** Corpo, peso, spaziatura e colore di un titolo: la sua identità visiva. */
+  async function titleStyles(selector: string): Promise<readonly string[]> {
+    return page.$$eval(selector, (els) =>
+      els.map((el) => {
+        const cs = getComputedStyle(el);
+        return [cs.fontSize, cs.fontWeight, cs.letterSpacing, cs.color, cs.marginBottom].join("|");
+      }),
+    );
+  }
+
+  // 1. LA SCHERMATA DI CHIAMATA. I tre titoli del blocco suggerito —
+  //    «GIOCATORE SUGGERITO — CHI CHIAMARE ORA», «PER ME», «PER FAR SPENDERE
+  //    GLI ALTRI» — portano tutti la classe condivisa.
+  const chiamataTitles = page.locator("#suggested-player .scheda-card__title");
+  await expect(chiamataTitles).toHaveCount(3);
+  await expect(chiamataTitles.nth(0)).toContainText("GIOCATORE SUGGERITO — CHI CHIAMARE ORA");
+  await expect(chiamataTitles.nth(1)).toContainText("PER ME");
+  await expect(chiamataTitles.nth(2)).toContainText("PER FAR SPENDERE GLI ALTRI");
+  const chiamataStyles = await titleStyles("#suggested-player .scheda-card__title");
+  // Tre titoli, UNA identità visiva: è ciò che «una copia sola» vuol dire.
+  expect(new Set(chiamataStyles).size, `tre titoli, ${chiamataStyles.length} stili`).toBe(1);
+
+  // 2. IL PANNELLO INSIGHT, nel momento d'asta: due riquadri, ciascuno col
+  //    proprio titolo, e il titolo è LO STESSO di quelli della chiamata.
+  await callTarget(page);
+  const cards = page.locator("#player-insight-cards > .scheda-card");
+  await expect(cards).toHaveCount(2);
+  await expect(page.locator("#player-insight-card-segnali-title")).toHaveText("SEGNALI DELLA SCHEDA");
+  await expect(page.locator("#player-insight-card-note-title")).toHaveText("NOTE DELLA SCHEDA");
+  const insightStyles = await titleStyles("#player-insight-cards .scheda-card__title");
+  expect(insightStyles).toHaveLength(2);
+  expect(
+    new Set([...chiamataStyles, ...insightStyles]).size,
+    `i due posti sono divergiti: chiamata ${chiamataStyles[0]}, insight ${insightStyles[0]}`,
+  ).toBe(1);
+
+  // 3. I RIQUADRI ETICHETTATI DAL PROPRIO TITOLO, non solo in grassetto: chi
+  //    naviga a voce sente il nome del riquadro in cui si trova.
+  for (const id of ["player-insight-card-segnali", "player-insight-card-note"]) {
+    const labelled = await page.evaluate((cardId) => {
+      const el = document.getElementById(cardId)!;
+      const by = el.getAttribute("aria-labelledby") ?? "";
+      return { by, text: document.getElementById(by)?.textContent ?? null };
+    }, id);
+    expect(labelled.by, `${id}: aria-labelledby`).toBe(`${id}-title`);
+    expect(labelled.text, `${id}: il titolo puntato esiste`).not.toBeNull();
+  }
+
+  // 4. AFFIANCATI DOVE C'È LARGHEZZA, IMPILATI DOVE NON CE N'È. Due riquadri
+  //    densi affiancati a 390px smettono di essere leggibili molto prima di
+  //    smettere di entrarci: la soglia è la stessa del resto della schermata.
+  for (const [width, height, affiancati] of [
+    [1280, 900, true],
+    [390, 844, false],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    const [segnali, note] = await Promise.all([
+      page.locator("#player-insight-card-segnali").boundingBox(),
+      page.locator("#player-insight-card-note").boundingBox(),
+    ]);
+    expect(segnali, `${width}px: riquadro segnali`).not.toBeNull();
+    expect(note, `${width}px: riquadro note`).not.toBeNull();
+    if (affiancati) {
+      expect(note!.x, `${width}px: i due riquadri devono stare affiancati`).toBeGreaterThan(
+        segnali!.x + segnali!.width - 1,
+      );
+    } else {
+      expect(Math.round(note!.x), `${width}px: i due riquadri devono impilarsi`).toBe(
+        Math.round(segnali!.x),
+      );
+      expect(note!.y, `${width}px: le note stanno sotto i segnali`).toBeGreaterThan(segnali!.y);
+    }
+    // E la pagina non scorre mai di lato, a nessuna delle due larghezze.
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+      `${width}px: scorrimento laterale`,
+    ).toBe(true);
+  }
+
+  expect(externalRequests).toEqual([]);
+});
+
 test("la scheda piena: la scala si legge prima del testo, e il testo resta", async ({ page, context }) => {
   const externalRequests = await boot(page, context, {
     kind: "serve",

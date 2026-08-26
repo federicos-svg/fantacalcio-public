@@ -8,7 +8,6 @@ import {
   installSyntheticNetworkGuard,
   measureAllText,
   openSettingsSection,
-  openTableDetail,
   resolveTokenColors,
   selectStatusFilter,
   textContrast,
@@ -102,8 +101,8 @@ async function boot(page: Page): Promise<void> {
   await page.goto("/");
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  // #333: il segnale di «schermata di chiamata pronta» è il campo di ricerca —
-  // SCARSITÀ PER RUOLO ora sta dietro il gesto IL TAVOLO.
+  // #333: il segnale di «schermata di chiamata pronta» è il campo di ricerca,
+  // che è l'unica ragione per cui la schermata esiste.
   await expect(page.locator("#search-player")).toBeVisible();
 }
 
@@ -257,13 +256,12 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
   await page.locator("#critical-roster").click();
   await expect(page.locator("#critical-role-plan-P")).toBeVisible();
 
-  // #333: stessa ragione, secondo gesto. SCARSITÀ PER RUOLO e WAR BOARD
-  // stanno dietro IL TAVOLO: da chiusi non hanno rettangolo, e
-  // `measureAllText` salta ciò che non ne ha — lasciarli chiusi non farebbe
-  // fallire nulla, farebbe SMETTERE DI MISURARE due pannelli interi (compreso
-  // `.scarcity-metric > span`, uno dei punti d'uso espliciti qui sotto).
-  // Anche questo stato resta aperto per le scene successive.
-  await openTableDetail(page);
+  // SCARSITÀ PER RUOLO e WAR BOARD non hanno più bisogno di un gesto: IL
+  // TAVOLO è sempre aperto (2026-08-26), quindi i due pannelli hanno il proprio
+  // rettangolo fin dal boot e `measureAllText` li misura senza che nessuno li
+  // apra. Erano l'unica parte di questa spazzata che dipendeva da uno stato
+  // dell'app — compreso `.scarcity-metric > span`, uno dei punti d'uso
+  // espliciti qui sotto.
 
   // #COLONNE (2026-08-24): il pannello «Colonne visibili» sta dietro un gesto,
   // esattamente come i due qui sopra — da chiuso non ha rettangolo e la

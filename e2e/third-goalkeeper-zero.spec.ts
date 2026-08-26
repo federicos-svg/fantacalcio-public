@@ -56,10 +56,11 @@ interface StoredEvent {
  * prodotto — è un cancello.
  *
  * Era `#role-scarcity-panel`. Quel pannello ha smesso di essere un elemento di
- * primo livello: vive dentro il blocco IL TAVOLO, che nasce CHIUSO, quindi sta
- * nel DOM ma `hidden`. Aspettarne la visibilità significherebbe aspettare per
- * sempre, e aprire il blocco per farlo comparire sarebbe far compiere al
- * cancello un gesto che l'operatore non compie.
+ * primo livello: vive dentro il blocco IL TAVOLO, sotto il listone. Da quando
+ * quel blocco è sempre aperto (2026-08-26) sarebbe di nuovo aspettabile, ma
+ * resta la ragione per cui non lo si aspetta: è un pannello IN FONDO alla
+ * schermata, e un cancello che aspetta l'ultimo blocco della pagina aspetta più
+ * di quanto serva a questa spec.
  *
  * `#search-player` è equivalente e non ha quel problema: è il campo di ricerca
  * del momento CHIAMATA, cioè lo stesso momento e lo stesso passaggio di render
