@@ -45,12 +45,27 @@ describe("clubBadgeHtml", () => {
     expect(html).toContain('title="Napoli"');
   });
 
-  it("always renders the text-initials fallback badge too, hidden until onerror shows it", () => {
+  it("always renders the text-initials fallback badge too, inked in only by onerror", () => {
     const html = clubBadgeHtml("Milan");
     expect(html).toContain("MIL");
     expect(html).toContain("onerror=");
-    // the fallback badge's own style must end in display:none (last write wins in a style attribute)
-    expect(html).toMatch(/display:none;"[^>]*>MIL</);
+    // `visibility:hidden`, NOT `display:none`, and it is load-bearing: the
+    // fallback badge is what declares the mark's box (width, height and
+    // baseline) on BOTH branches, so it has to stay in flow even when the
+    // crest is the thing being painted. `display:none` took the box away
+    // with the ink, and that is exactly the defect this shape closes — see
+    // CLUB_BADGE_SLOT_STYLE in serieA.ts. Last write wins in a style
+    // attribute, so it must be the tail of the badge's own style.
+    expect(html).toMatch(/visibility:hidden;"[^>]*>MIL</);
+    expect(html).not.toMatch(/display:none;"[^>]*>MIL</);
+  });
+
+  it("takes the crest out of flow so a missing asset cannot change the layout", () => {
+    const html = clubBadgeHtml("Milan");
+    // L'immagine è disegnata SOPRA la pastiglia, non accanto: fuori dal
+    // flusso non può dettare né larghezza né altezza né baseline.
+    expect(html).toMatch(/<img [^>]*style="position:absolute;/);
+    expect(html).toContain("position:relative;");
   });
 
   it("renders the club's first three letters, uppercased, in the fallback badge", () => {

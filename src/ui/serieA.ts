@@ -63,17 +63,91 @@ export function clubLogoAssetPath(club: string): string {
   return `/assets/clubs/${slug}.${ext}`;
 }
 
+const CLUB_LOGO_SIZE = 18; // px — matches the text badge's height, "small and consistent" per spec
+
+/**
+ * UNA SOLA SCATOLA PER IL MARCHIO, E NON LA SCEGLIE L'ASSET.
+ *
+ * ═ IL DIFETTO, MISURATO ══════════════════════════════════════════════════
+ *
+ * Fino a qui i due rami — stemma caricato e ripiego testuale — occupavano
+ * DUE SCATOLE DIVERSE, e quale delle due fosse in pagina dipendeva
+ * dall'esistenza di un file. Conseguenza: **questo repository misurava una
+ * schermata che non spedisce**. Nel core pubblico gli stemmi non esistono e
+ * non possono esistere (nessun logo è pubblicabile qui), quindi ogni riga
+ * del listone ripiegava sempre; nell'app privata, che gli stemmi ce li ha,
+ * la stessa riga era più alta. Il libro mastro del budget verticale
+ * (src/ui/callScreenBudget.ts) è stato scritto sulla misura pubblica, e a
+ * schermo nessuno vedeva quei numeri.
+ *
+ * Le due differenze, misurate a 390×844 sulla fixture del mastro:
+ *
+ *   1. LA BASELINE. Il contenitore era `display:inline-flex` e la baseline
+ *      di un contenitore flex viene dal SUO PRIMO FIGLIO IN FLUSSO. Col
+ *      file presente il primo figlio è un `<img>`, cioè un elemento
+ *      rimpiazzato: la sua baseline è il BORDO INFERIORE della sua scatola,
+ *      quindi la cella del club dichiarava 18px sopra la baseline della
+ *      riga. Col ripiego il primo figlio è la pastiglia, la cui baseline è
+ *      quella del suo testo: ~12,8px sopra, MENO di quanto ne chiede il nome
+ *      del giocatore. A 390px la riga del listone allinea le celle per
+ *      baseline (`.listone-row { align-items: baseline }`,
+ *      src/styles/listone.css): nel primo caso la cella del club diventa
+ *      l'ancora della linea e SPINGE IN GIÙ nome e ruolo, nel secondo no.
+ *      Riga alta 96,75px con gli stemmi contro 92,5px senza: 4,25px per
+ *      riga, 42,5px di span su una pagina da dieci.
+ *
+ *   2. LA LARGHEZZA, che è un difetto SUO e non una conseguenza del primo.
+ *      Lo stemma è un quadrato da 18px, la pastiglia chiede fra 28 e 34px
+ *      (tre lettere leggibili non stanno in 18px), e la riga del listone a
+ *      390px va a capo: quegli ~11px in più mandano a capo celle diverse.
+ *      Misurato isolandolo — su una versione intermedia in cui la baseline
+ *      era già pareggiata e la larghezza no — con nomi da 18 caratteri lo
+ *      span faceva 1788px con gli stemmi e 1829px senza: 41px di differenza
+ *      A PARITÀ DI ALTEZZA DI RIGA (112px in entrambi i casi). Pareggiare
+ *      solo la baseline non sarebbe bastato.
+ *
+ * ═ LA RIPARAZIONE ════════════════════════════════════════════════════════
+ *
+ * LA PASTIGLIA È LA SCATOLA, SEMPRE. Resta in flusso in entrambi i rami —
+ * si nasconde con `visibility`, che toglie l'inchiostro e lascia il posto,
+ * non più con `display:none`, che toglieva anche il posto — e lo stemma le
+ * viene disegnato SOPRA, fuori dal flusso (`position:absolute`), dove non
+ * può cambiare né larghezza né altezza né baseline di niente. Quindi:
+ *
+ *   - la scatola è la stessa, px per px, con o senza il file;
+ *   - la baseline è sempre quella del testo della pastiglia;
+ *   - lo stemma resta disegnato 18×18 esattamente come prima, centrato
+ *     nella scatola invece che incollato al suo bordo sinistro.
+ *
+ * Un asset mancante cambia ciò che si vede, non dove sta. Rimisurato il
+ * 2026-08-26 a 390×844 nei sei stati della schermata di chiamata, sui due pin
+ * di lunghezza dei nomi e sulla PROVA 1, una volta senza stemmi e una coi 23
+ * stemmi del privato copiati in public/assets/clubs/: numeri IDENTICI sui due
+ * rami — riga del listone 92,5px, span allo stato `ricerca` 1654px — e
+ * identici a quelli già scritti nel mastro, che quindi non è stato toccato.
+ */
+const CLUB_BADGE_SLOT_STYLE = "position:relative;display:inline-flex;align-items:center;flex:none;";
+
 // Shared visual between the DOM-element badge (renderClubBadge, used where
 // a real HTMLElement is built via createElement) and the HTML-string badge
 // (clubBadgeHtml, used where the caller already assembles innerHTML — e.g.
 // the listone table rows in listone.ts). Keeping one style string means the
 // two never drift apart.
+//
+// È ANCHE LA SCATOLA DELLO SLOT (vedi CLUB_BADGE_SLOT_STYLE): questa
+// pastiglia è l'unico figlio IN FLUSSO del contenitore, quindi larghezza,
+// altezza e baseline del marchio sono le sue, sempre — anche quando è lo
+// stemma a essere disegnato.
 const CLUB_BADGE_STYLE =
   "display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:18px;padding:0 4px;border-radius:4px;flex:none;" +
   `background:${C.panelInner};border:1px solid ${C.border};color:${C.textSec};font-size:9px;font-weight:800;letter-spacing:0.02em;`;
 
-const CLUB_LOGO_SIZE = 18; // px — matches the text badge's height, "small and consistent" per spec
-const CLUB_LOGO_STYLE = `width:${CLUB_LOGO_SIZE}px;height:${CLUB_LOGO_SIZE}px;border-radius:3px;object-fit:contain;flex:none;vertical-align:middle;background:${C.panelInner};`;
+// FUORI DAL FLUSSO, CENTRATO SULLA SCATOLA DELLA PASTIGLIA. Le dimensioni
+// disegnate restano quelle di sempre (18×18, `object-fit:contain`): cambia
+// solo che lo stemma non detta più la scatola, la occupa.
+const CLUB_LOGO_STYLE =
+  `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);` +
+  `width:${CLUB_LOGO_SIZE}px;height:${CLUB_LOGO_SIZE}px;border-radius:3px;object-fit:contain;background:${C.panelInner};`;
 
 function clubBadgeTitle(club: string): string {
   return `${club} — logo non disponibile: nessun asset scaricato per questo club (placeholder testuale, non un logo).`;
@@ -90,12 +164,15 @@ function clubBadgeTitle(club: string): string {
  */
 export function renderClubBadge(club: string): HTMLElement {
   const wrap = document.createElement("span");
-  wrap.style.cssText = "display:inline-flex;align-items:center;";
+  wrap.style.cssText = CLUB_BADGE_SLOT_STYLE;
 
   const badge = document.createElement("span");
   badge.textContent = clubInitials(club);
   badge.title = clubBadgeTitle(club);
-  badge.style.cssText = `${CLUB_BADGE_STYLE}display:none;`;
+  // `visibility`, non `display`: la pastiglia resta in flusso e tiene la
+  // scatola anche quando è lo stemma a essere disegnato — vedi
+  // CLUB_BADGE_SLOT_STYLE.
+  badge.style.cssText = `${CLUB_BADGE_STYLE}visibility:hidden;`;
 
   const img = document.createElement("img");
   img.src = clubLogoAssetPath(club);
@@ -106,7 +183,7 @@ export function renderClubBadge(club: string): HTMLElement {
   img.style.cssText = CLUB_LOGO_STYLE;
   img.onerror = () => {
     img.style.display = "none";
-    badge.style.display = "inline-flex";
+    badge.style.visibility = "visible";
   };
 
   wrap.appendChild(img);
@@ -127,10 +204,10 @@ export function clubBadgeHtml(club: string): string {
   const safePath = escHtml(clubLogoAssetPath(club));
   const safeTitle = escHtml(clubBadgeTitle(club));
   return (
-    `<span style="display:inline-flex;align-items:center;">` +
+    `<span style="${CLUB_BADGE_SLOT_STYLE}">` +
     `<img src="${safePath}" alt="${safeClub}" title="${safeClub}" width="${CLUB_LOGO_SIZE}" height="${CLUB_LOGO_SIZE}" style="${CLUB_LOGO_STYLE}" ` +
-    `onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';">` +
-    `<span style="${CLUB_BADGE_STYLE}display:none;" title="${safeTitle}">${escHtml(clubInitials(club))}</span>` +
+    `onerror="this.style.display='none';this.nextElementSibling.style.visibility='visible';">` +
+    `<span style="${CLUB_BADGE_STYLE}visibility:hidden;" title="${safeTitle}">${escHtml(clubInitials(club))}</span>` +
     `</span>`
   );
 }

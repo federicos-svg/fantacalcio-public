@@ -256,6 +256,39 @@ export const CALL_SCREEN_BUDGET_MEASURED_AT = "4b2833d";
 /** La data della misura. Cambia INSIEME ai numeri, mai da sola. */
 export const CALL_SCREEN_BUDGET_MEASURED_ON = "2026-08-25";
 
+// ⚠️ RIVERIFICA DEL 2026-08-26 — «IL MASTRO ERA TARATO SU UN'APP CHE NON
+// SPEDISCE», e adesso non più. Nessun numero qui sotto è cambiato: la data e
+// il commit della misura restano quelli del 2026-08-25 perché la misura è
+// quella. Cambiata è la ragione per cui vale.
+//
+// COSA ERA SUCCESSO. Ogni numero di questo file era stato preso in QUESTO
+// repository, dove gli stemmi dei club NON ESISTONO e non possono esistere:
+// nessun logo è pubblicabile qui, quindi il marchio del club ripiegava sempre
+// sulla pastiglia testuale. Nel repository privato, che gli stemmi ce li ha,
+// LA STESSA APP misurava altro: la riga del listone passava da 92,5 a 96,75px
+// e lo span allo stato `ricerca` da 1654 a 1697px, perché la scatola occupata
+// dal marchio dipendeva da quale dei due rami fosse in pagina (baseline di un
+// elemento rimpiazzato contro baseline di testo, più ~11px di larghezza in
+// meno). Le stesse otto prove di e2e/call-screen-budget.spec.ts erano verdi
+// qui e rosse là, con lo stesso browser. Non era una misura sbagliata: era una
+// misura presa su una schermata che nessuno vede.
+//
+// COSA È CAMBIATO. `CLUB_BADGE_SLOT_STYLE` in src/ui/serieA.ts dichiara ORA
+// una sola scatola per il marchio — la pastiglia resta in flusso e la tiene,
+// lo stemma le viene disegnato sopra fuori dal flusso — quindi un asset
+// mancante cambia ciò che si vede e non dove sta.
+//
+// COSA DICE LA RIMISURA. Rimisurato il 2026-08-26 a 390×844 nei sei stati
+// della schermata, sui due pin di lunghezza dei nomi e sulla PROVA 1, DUE
+// VOLTE: una volta con questo albero com'è (nessuno stemma) e una volta con i
+// 23 stemmi del privato copiati temporaneamente in public/assets/clubs/ e il
+// build rifatto. Le due colonne di numeri sono IDENTICHE, e identiche a quelle
+// già scritte qui: span 1654 / 956 / 1901 / 2750 / 1654, riga del listone
+// 92,5px, testata 201px, coda 13px, pin dei nomi 1834 e 1854, margine residuo
+// della PROVA 1 a 14px. Nessuna asserzione è stata allentata e nessun numero
+// aggiustato: non ce n'era da aggiustare. Gli stemmi, ovviamente, non sono
+// stati committati — non sono nostri da pubblicare.
+
 const ALL_STATES: readonly CallScreenState[] = CALL_SCREEN_STATES.map((s) => s.id);
 
 const WITH_SELECTION: readonly CallScreenState[] = [
@@ -501,7 +534,11 @@ export const CALL_SCREEN_BUDGET_UNRATIFIED: Readonly<
   MISURE_LEGATE_AL_RENDERING_PINNATO:
     "le allocazioni sono px misurati col browser pinnato di questo repository a 390×844: " +
     "cambiando motore di rendering o font di sistema vanno rimisurate, e il mastro lo dice " +
-    "diventando rosso invece di derivare in silenzio",
+    "diventando rosso invece di derivare in silenzio. Dal 2026-08-26 NON dipendono più " +
+    "dagli asset presenti nell'albero: il marchio del club occupa una scatola sola con o " +
+    "senza il file dello stemma (CLUB_BADGE_SLOT_STYLE, src/ui/serieA.ts), e la rimisura " +
+    "coi 23 stemmi del privato in pagina dà gli stessi numeri. Prima non era così, ed è " +
+    "il motivo per cui questo mastro ha rischiato di misurare un'app che non spedisce",
 };
 
 export interface CallScreenNameLengthPin {
