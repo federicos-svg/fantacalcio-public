@@ -267,7 +267,7 @@ test("la scheda piena: la scala si legge prima del testo, e il testo resta", asy
   });
   expect(prose.size).toBeGreaterThanOrEqual(12);
   expect(prose.height).toBeGreaterThan(20);
-  await expect(page.locator("#player-insight-meta")).toContainText("trascritta a mano prima dell'asta");
+  await expect(page.locator("#player-insight-meta")).toContainText("preparata prima dell'asta");
   await expect(page.locator("#player-insight-meta")).toContainText("scheda ufficiale della squadra");
   await expect(page.locator("#player-insight-meta")).toContainText("30/08/2026");
 

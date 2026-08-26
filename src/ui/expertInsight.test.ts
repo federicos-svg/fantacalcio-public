@@ -132,7 +132,7 @@ describe("la label unica «Scheda Esperto»", () => {
     expect(title).toContain("validated: false");
     expect(title).toContain("directive: false");
     expect(title).toContain("contributesToIndex: false");
-    expect(title).toContain("trascritta a mano prima dell'asta");
+    expect(title).toContain("preparata prima dell'asta");
   });
 
   it("l'etichetta di qualità è portata dal dato, mai ricostruita dal renderer", () => {

@@ -148,10 +148,10 @@ export const APPEAL_INDEX_COLUMN_KEY = "appealIndex";
 // «Colonne visibili».
 //
 // I CINQUE VOTI SONO VOTI, NON GIUDIZI CATEGORICI. Sono su scala 0–10 e
-// arrivano dalle schede del Gruppo Esperti. OGGI NON ESISTONO ANCORA:
-// l'estrazione è in lavorazione altrove, e finché non atterra ogni cella dice
-// `n/d`. Mai uno zero, mai un trattino, mai una media: un voto che nessuno ha
-// scritto non è un voto basso.
+// arrivano dalle schede del Gruppo Esperti. Questo commento diceva «OGGI NON
+// ESISTONO ANCORA»: dal 2026-08-26 l'estrazione privata li produce. Ogni cella
+// che il deposito non copre continua a dire `n/d` — mai uno zero, mai un
+// trattino, mai una media: un voto che nessuno ha scritto non è un voto basso.
 //
 // ── IL QUARTO ASSE: UNA COLONNA SOLA, E L'AMBIGUITÀ SI LEGGE NELLA CELLA ────
 //
