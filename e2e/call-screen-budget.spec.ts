@@ -49,6 +49,15 @@ import {
 // caso «i nomi lunghi sfondano il budget da soli» qui sotto. Nessun dato reale
 // di giocatore: nomi e quotazioni restano sintetici.
 
+// E NON PUÒ MENTIRE NEMMENO SUGLI ASSET. Fino al 2026-08-26 questa spec era
+// verde qui e rossa nel repository privato COL MEDESIMO BROWSER, perché là gli
+// stemmi dei club esistono e qui non possono esistere: il marchio del club
+// occupava due scatole diverse sui due rami (immagine caricata / ripiego
+// testuale), la riga del listone passava da 92,5 a 96,75px e il mastro
+// misurava una schermata che non spedisce. La scatola adesso è una sola
+// (CLUB_BADGE_SLOT_STYLE, src/ui/serieA.ts) e i numeri qui sotto sono stati
+// riverificati con e senza i 23 stemmi in pagina: identici.
+
 // ⚠️ TRAPPOLA DI MANUTENZIONE. Due test qui sotto — «il contesto della chiamata
 // aperto sfonda il totale dichiarato» e «i nomi lunghi sfondano il budget da
 // soli» — ASSERISCONO CHE IL BUDGET È SFORATO, e pinnano gli span alla lettera.
