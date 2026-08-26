@@ -52,6 +52,7 @@ import {
   SCHEDA_BALLOTTAGGIO_SCHEMA_KEYS,
   SCHEDA_CLUB_NON_DICHIARATA,
   SCHEDA_GERARCHIA_MAX,
+  SCHEDA_RANGO_MAX,
   SCHEDA_NAME_MAX,
   SCHEDA_NOTA_MAX,
   SCHEDA_PERCENTUALE_MAX,
@@ -163,7 +164,10 @@ function fullForm(overrides: Partial<SchedaFormValues> = {}): SchedaFormValues {
     ballottaggio: [altro("Bruna Placeholder", CLUB_RIVALE, "40")],
     gerarchia: "2",
     rigori: "designato",
+    rangoRigori: "1",
     piazzati: ["punizioni", "angoli"],
+    rangoPunizioni: "2",
+    rangoAngoli: "3",
     avvisi: ["mercato"],
     lista: "consigliato",
     nota: "Nota sintetica.",
@@ -277,6 +281,67 @@ describe("i rifiuti, uno per campo e tutti insieme", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.errors.map((e) => e.field)).toEqual(["gerarchia"]);
+  });
+
+  // ── I TRE RANGHI ────────────────────────────────────────────────────────
+  //
+  // Il rifiuto arriva QUI, col nome del campo, invece che dal contratto a cose
+  // fatte: là il deposito viene rifiutato in blocco e chi ha compilato non sa
+  // quale casella riscrivere.
+  it("rifiuta un rango fuori scala, dicendo quale scala", () => {
+    const result = buildScheda(
+      TARGET,
+      form({ rigori: "designato", rangoRigori: String(SCHEDA_RANGO_MAX + 1) }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.map((e) => e.field)).toEqual(["rangoRigori"]);
+    expect(result.errors[0]?.message).toContain(String(SCHEDA_RANGO_MAX));
+  });
+
+  it("rifiuta lo zero: un rango parte da 1, e vuoto non è zero", () => {
+    const result = buildScheda(TARGET, form({ rigori: "designato", rangoRigori: "0" }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.map((e) => e.field)).toEqual(["rangoRigori"]);
+  });
+
+  it.each([
+    ["rangoRigori", { rangoRigori: "1" }, "designazione RIGORI"],
+    ["rangoPunizioni", { rangoPunizioni: "1" }, "punizioni"],
+    ["rangoAngoli", { rangoAngoli: "2" }, "angoli"],
+  ])("rifiuta %s scritto senza la fila che ordina, e dice quale fila manca", (campo, values, atteso) => {
+    const result = buildScheda(TARGET, form({ nota: "Solo prosa.", ...values }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.map((e) => e.field)).toEqual([campo]);
+    expect(result.errors[0]?.message).toContain(atteso);
+  });
+
+  it("accetta la fila SENZA rango: la scheda dice una cosa vera e una cosa in meno", () => {
+    const scheda = builtScheda({ rigori: "designato", piazzati: ["angoli"] });
+    expect(scheda.rigori).toBe("designato");
+    expect(scheda.rangoRigori).toBeUndefined();
+    expect(scheda.rangoAngoli).toBeUndefined();
+  });
+
+  it("scrive i ranghi nell'ordine della `shape` del contratto, rango dopo la sua fila", () => {
+    const scheda = builtScheda({
+      rigori: "designato",
+      rangoRigori: "1",
+      piazzati: ["punizioni", "angoli"],
+      rangoPunizioni: "2",
+      rangoAngoli: "3",
+    });
+    expect(Object.keys(scheda)).toEqual([
+      "player",
+      "club",
+      "rigori",
+      "rangoRigori",
+      "piazzati",
+      "rangoPunizioni",
+      "rangoAngoli",
+    ]);
   });
 
   it("una nota troppo lunga viene RIFIUTATA, mai troncata in silenzio", () => {

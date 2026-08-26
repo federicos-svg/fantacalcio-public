@@ -33,7 +33,9 @@ export const FULL_SCHEDA: ExpertScheda = {
   percentuale: 60,
   gerarchia: 2,
   rigori: "designato",
+  rangoRigori: 1,
   piazzati: ["punizioni"],
+  rangoPunizioni: 2,
   avvisi: ["mercato"],
   nota:
     "Ballottaggio aperto da tre amichevoli e rinnovo non ancora firmato: se parte a fine mercato la scheda va riscritta da zero. Da rileggere il 1 settembre.",
@@ -173,7 +175,14 @@ export const PAGELLA_SCHEDA_RUOLO_SBAGLIATO: ExpertScheda = {
 // una regola del contratto — un rivale di un altro club resta ammesso — è la
 // forma normale del caso che queste fixture rappresentano.
 
-/** Tutte e quattro le icone accese: tre segnali più la lista «consigliato». */
+/**
+ * Tutte e cinque le icone accese: quattro segnali più la lista «consigliato».
+ *
+ * I TRE RANGHI SONO TUTTI DIVERSI, ed è deliberato: 1 sui rigori, 2 sulle
+ * punizioni, 3 sugli angoli. Con tre numeri uguali una pastiglia che finisse
+ * sulla casella sbagliata passerebbe inosservata — che è esattamente il difetto
+ * che due file separate esistono per rendere impossibile.
+ */
 export const ICONE_SCHEDA_PIENA: ExpertScheda = {
   player: SCHEDA_PLAYER,
   club: SCHEDA_CLUB,
@@ -181,9 +190,28 @@ export const ICONE_SCHEDA_PIENA: ExpertScheda = {
   percentuale: 60,
   ballottaggio: [{ surface: "Bruna Placeholder", club: SCHEDA_CLUB, sharePercent: 40 }],
   rigori: "designato",
+  rangoRigori: 1,
   piazzati: ["punizioni", "angoli"],
+  rangoPunizioni: 2,
+  rangoAngoli: 3,
   lista: "consigliato",
-  nota: "Scheda sintetica: serve a provare le quattro icone accese insieme.",
+  nota: "Scheda sintetica: serve a provare le cinque icone accese insieme.",
+  aggiornata: "2026-08-30",
+  fonte: "scheda",
+};
+
+/**
+ * LA FILA DICHIARATA SENZA L'ORDINE — il deposito scritto prima che il rango
+ * esistesse, e il caso che «assente = non dichiarato» esiste per rendere
+ * leggibile: le caselle si accendono, nessuna prende un numero, e la didascalia
+ * dice `rango n/d` invece di lasciar credere «il primo».
+ */
+export const ICONE_SCHEDA_SENZA_RANGO: ExpertScheda = {
+  player: SCHEDA_PLAYER,
+  club: SCHEDA_CLUB,
+  rigori: "designato",
+  piazzati: ["punizioni", "angoli"],
+  nota: "Scheda sintetica: le file ci sono, l'ordine no.",
   aggiornata: "2026-08-30",
   fonte: "scheda",
 };
@@ -224,7 +252,7 @@ export const ICONE_SCHEDA_SCONSIGLIATO: ExpertScheda = {
   avvisi: ["sconsigliato"],
 };
 
-/** Le quattro icone INSIEME al radar disegnato: la colonna piena, per la geometria. */
+/** Le cinque icone INSIEME al radar disegnato: la colonna piena, per la geometria. */
 export const ICONE_SCHEDA_CON_PAGELLA: ExpertScheda = {
   ...ICONE_SCHEDA_PIENA,
   pagella: PAGELLA_COMPLETA,

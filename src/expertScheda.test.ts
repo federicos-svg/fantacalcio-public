@@ -2,11 +2,14 @@ import { describe, it, expect } from "vitest";
 import {
   EXPERT_INSIGHT_AVAILABILITIES,
   EXPERT_INSIGHT_QUALITY_LABELS,
+  EXPERT_SCHEDA_SCHEMA_KEYS,
   EXPERT_SCHEDA_SCHEMA_VERSION,
   EXPERT_SCHEDE_ABSENT,
   LISTA_ESPERTI_VALUES,
   SCHEDA_BALLOTTAGGIO_MAX,
   SCHEDA_NOTA_MAX,
+  SCHEDA_RANGO_MAX,
+  SCHEDA_RANGO_MIN,
   expertSchedaStore,
   findSchedaCandidates,
   indexSchede,
@@ -193,7 +196,13 @@ describe("i cinque stati di disponibilità", () => {
       ballottaggio: [],
       gerarchia: 2,
       rigori: "designato",
+      // LA FIXTURE NON DICHIARA NESSUN RANGO, e i tre campi arrivano `null`:
+      // assente vuol dire «non dichiarato», mai uno zero e mai un «1» dedotto
+      // dalla designazione.
+      rangoRigori: null,
       piazzati: ["punizioni", "angoli"],
+      rangoPunizioni: null,
+      rangoAngoli: null,
       avvisi: ["mercato"],
       // `mercato` non è una delle tre liste editoriali: nessuna lista, quindi
       // nessuna quarta icona.
@@ -413,6 +422,120 @@ describe("gli altri in ballottaggio — il contratto", () => {
         ballottaggio: [{ surface: "Bruna Placeholder" }],
       }),
     ).toBe(true);
+  });
+});
+
+// ── IL RANGO DEI TRE INCARICHI ───────────────────────────────────────────────
+//
+// La fonte pubblica ELENCHI ORDINATI, non insiemi: «Rigoristi: A, B, C» dice
+// che A tira, e che B tira quando A non c'è. Le prove qui sotto tengono ferme
+// le tre regole che rendono quel numero un fatto invece di un'opinione:
+//
+//  a. RETRO-COMPATIBILITÀ. I depositi già scritti non hanno i tre campi e
+//     restano validi — se non lo fossero, l'aggiornamento butterebbe ~200
+//     schede tutte insieme, perché il lettore è fail-closed sul FILE e non
+//     sulla riga.
+//  b. ASSENTE = NON DICHIARATO. Mai uno zero, mai un rango dedotto dalla
+//     designazione o dall'ordine in cui le schede sono scritte.
+//  c. UN RANGO SENZA LA SUA FILA È UN RIFIUTO. Non è un'assenza: è una
+//     contraddizione, e sceglierne una lettura significherebbe inventare.
+
+describe("il rango di rigori, punizioni e angoli — il contratto", () => {
+  it("un deposito scritto PRIMA di questa forma resta valido, e i tre ranghi sono `null`", () => {
+    const view = resolveExpertInsight(storeOf([FULL]), TARGET);
+    expect(view.availability).toBe("available");
+    expect(view.rangoRigori).toBeNull();
+    expect(view.rangoPunizioni).toBeNull();
+    expect(view.rangoAngoli).toBeNull();
+  });
+
+  it("porta i tre ranghi fino alla vista quando la scheda li dichiara", () => {
+    const view = resolveExpertInsight(
+      storeOf([{ ...FULL, rangoRigori: 1, rangoPunizioni: 2, rangoAngoli: 3 }]),
+      TARGET,
+    );
+    expect(view.rangoRigori).toBe(1);
+    expect(view.rangoPunizioni).toBe(2);
+    expect(view.rangoAngoli).toBe(3);
+  });
+
+  it("accetta il deposito con i tre ranghi e li rilegge identici", () => {
+    const parsed = parseExpertSchedaDeposit(
+      deposit([{ ...FULL, rangoRigori: 1, rangoPunizioni: 2, rangoAngoli: 3 }]),
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const scheda = parsed.byPlayerKey.get(KEY)?.[0];
+    expect(scheda?.rangoRigori).toBe(1);
+    expect(scheda?.rangoPunizioni).toBe(2);
+    expect(scheda?.rangoAngoli).toBe(3);
+  });
+
+  // FAIL-CLOSED, e sul FILE: metà deposito sarebbe peggio di nessun deposito.
+  it.each([
+    ["rangoRigori", { rangoRigori: 2 }],
+    ["rangoPunizioni", { rangoPunizioni: 1 }],
+    ["rangoAngoli", { rangoAngoli: 1 }],
+  ])("rifiuta %s scritto senza la fila che ordina", (_nome, campo) => {
+    const parsed = parseExpertSchedaDeposit(
+      deposit([{ player: PLAYER, club: CLUB, nota: "Solo prosa.", ...campo }]),
+    );
+    expect(parsed).toEqual({ ok: false, reason: "invalid" });
+  });
+
+  it("rifiuta il rango di una specialità che la scheda non nomina fra i piazzati", () => {
+    // Le punizioni ci sono, gli angoli no: il rango degli angoli è orfano.
+    const parsed = parseExpertSchedaDeposit(
+      deposit([{ player: PLAYER, club: CLUB, piazzati: ["punizioni"], rangoAngoli: 1 }]),
+    );
+    expect(parsed).toEqual({ ok: false, reason: "invalid" });
+  });
+
+  it("la fila SENZA rango resta valida: dice una cosa vera e una cosa in meno", () => {
+    const view = resolveExpertInsight(
+      storeOf([{ player: PLAYER, club: CLUB, piazzati: ["angoli"] }]),
+      TARGET,
+    );
+    expect(view.availability).toBe("available");
+    expect(view.piazzati).toEqual(["angoli"]);
+    expect(view.rangoAngoli).toBeNull();
+  });
+
+  it("rifiuta uno zero, un decimale e un numero oltre il tetto dichiarato", () => {
+    for (const rango of [0, -1, 1.5, SCHEDA_RANGO_MAX + 1]) {
+      expect(
+        parseExpertSchedaDeposit(
+          deposit([{ player: PLAYER, club: CLUB, rigori: "designato", rangoRigori: rango }]),
+        ),
+        String(rango),
+      ).toEqual({ ok: false, reason: "invalid" });
+    }
+    expect(
+      parseExpertSchedaDeposit(
+        deposit([
+          { player: PLAYER, club: CLUB, rigori: "designato", rangoRigori: SCHEDA_RANGO_MIN },
+        ]),
+      ).ok,
+    ).toBe(true);
+  });
+
+  // L'ORDINE DELLE CHIAVI È UN FATTO: zod ricostruisce nell'ordine della
+  // propria `shape` e il compilatore scrive nello stesso. Se divergessero,
+  // scarica → reimporta → riscarica renderebbe file diversi a parità di
+  // contenuto — il difetto già successo una volta sui voti della pagella.
+  it("ogni rango sta nello schema SUBITO DOPO la fila che ordina", () => {
+    const keys = [...EXPERT_SCHEDA_SCHEMA_KEYS];
+    expect(keys[keys.indexOf("rigori") + 1]).toBe("rangoRigori");
+    expect(keys[keys.indexOf("piazzati") + 1]).toBe("rangoPunizioni");
+    expect(keys[keys.indexOf("piazzati") + 2]).toBe("rangoAngoli");
+  });
+
+  // Il rango NON è un fatto in più che rende «compilata» una scheda vuota: non
+  // può esistere senza la propria fila, e la fila da sola già bastava.
+  it("non esiste una scheda che dica soltanto un rango", () => {
+    expect(
+      parseExpertSchedaDeposit(deposit([{ player: PLAYER, club: CLUB, rangoPunizioni: 1 }])),
+    ).toEqual({ ok: false, reason: "invalid" });
   });
 });
 

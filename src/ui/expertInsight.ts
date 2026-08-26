@@ -47,12 +47,16 @@
 //
 // Questo modulo MONTA la striscia di icone (src/ui/schedaIcone.ts) dentro il
 // blocco della pagella, nella colonna del radar. Non è un terzo registro: le
-// prime tre — rigorista, piazzati, ballottaggio — ridicono in forma di segno
-// ciò che le pastiglie qui sopra dicono in parole, per il colpo d'occhio, e
-// aggiungono l'unico dato che a schermo non stava da nessuna parte: i NOMI
-// degli altri in ballottaggio, con la loro quota.
+// prime quattro — rigorista, punizioni, angoli, ballottaggio — ridicono in
+// forma di segno ciò che le pastiglie qui sopra dicono in parole, per il colpo
+// d'occhio, e aggiungono l'unico dato che a schermo non stava da nessuna parte:
+// i NOMI degli altri in ballottaggio, con la loro quota. Ciascuna delle tre
+// famiglie ordinate porta anche IL PROPRIO POSTO NELLA FILA, e le pastiglie qui
+// sopra lo scrivono con le stesse parole: una casella che dice «1°» accanto a
+// una pastiglia che dice solo «designato» costringerebbe a scegliere quale
+// delle due creda.
 //
-// LA QUARTA ICONA È UNA LISTA, NON UN «CONVIENE». Dice in quale delle tre
+// L'ULTIMA ICONA È UNA LISTA, NON UN «CONVIENE». Dice in quale delle tre
 // liste del Gruppo Esperti — consigliati, possibili sorprese, sconsigliati —
 // la FONTE ha messo il giocatore, esattamente come `fonte` dice con quale
 // autorità la fonte parlava: è un fatto sulla scheda, non un giudizio
@@ -74,6 +78,7 @@ import type {
   ExpertInsightView,
   ExpertSchedaCandidate,
   Fonte,
+  Piazzati,
 } from "../expertScheda.js";
 import { TITOLARITA_VALUES } from "../expertScheda.js";
 import { pagellaBlockHtml, pagellaSpoken } from "./pagellaRadar.js";
@@ -84,6 +89,7 @@ import {
   RIGORI_LABELS,
   TITOLARITA_HEAD,
   TITOLARITA_LABELS,
+  conRango,
 } from "./schedaLabels.js";
 import { escHtml } from "./theme.js";
 
@@ -260,20 +266,29 @@ export function expertInsightChips(view: ExpertInsightView): readonly Chip[] {
       value: gerarchiaLabel(view.gerarchia),
     });
   }
+  // IL RANGO ENTRA NELLA PASTIGLIA, con le stesse parole della colonna e
+  // dell'icona (`conRango`): «1° designato», «2° angoli». Una pastiglia che
+  // dicesse solo «designato» accanto a un'icona che mostra «1°» direbbe meno
+  // della casella che le sta sotto, e chi legge non saprebbe quale delle due
+  // ha ragione. Rango assente = nessun numero, mai uno inventato.
   if (view.rigori !== null) {
     chips.push({
       id: "player-insight-chip-rigori",
       kind: "signal",
       label: "rigori",
-      value: RIGORI_LABELS[view.rigori],
+      value: conRango(RIGORI_LABELS[view.rigori], view.rangoRigori),
     });
   }
+  const ranghiPiazzati: Readonly<Record<Piazzati, number | null>> = {
+    punizioni: view.rangoPunizioni,
+    angoli: view.rangoAngoli,
+  };
   for (const kind of view.piazzati) {
     chips.push({
       id: `player-insight-chip-${kind}`,
       kind: "signal",
       label: "piazzati",
-      value: PIAZZATI_LABELS[kind],
+      value: conRango(PIAZZATI_LABELS[kind], ranghiPiazzati[kind]),
     });
   }
   for (const avviso of view.avvisi) {

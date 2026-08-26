@@ -69,6 +69,54 @@ export type Rigori = (typeof RIGORI_VALUES)[number];
 export const PIAZZATI_VALUES = ["punizioni", "angoli"] as const;
 export type Piazzati = (typeof PIAZZATI_VALUES)[number];
 
+/**
+ * IL RANGO — «il quantesimo della fila», per i tre incarichi che la fonte
+ * pubblica IN ORDINE.
+ *
+ * PERCHÉ ESISTE. Le sezioni della scheda sorgente non sono insiemi: sono
+ * ELENCHI ORDINATI. «Rigoristi: A, B, C» non dice che tre giocatori tirano i
+ * rigori, dice che il primo tira, e gli altri due tirano quando il primo non
+ * c'è. Fino a qui il contratto teneva la sola APPARTENENZA — `rigori` una
+ * designazione, `piazzati` un insieme di due tipi — e l'ordine, che è metà del
+ * fatto, si perdeva nel passaggio dalla fonte al deposito. Il secondo dei
+ * rigoristi e il primo si leggevano identici a schermo.
+ *
+ * PERCHÉ TRE CAMPI PIATTI E NON UN OGGETTO `ranghi`. (a) Un oggetto sarebbe un
+ * LIVELLO ANNIDATO in più, cioè un altro posto in cui un campo può nascere
+ * senza una via d'ingresso nel modulo che compila le schede — il difetto che
+ * `EXPERT_SCHEDA_NESTED_SHAPES` esiste per contare. (b) Piatti, i tre campi
+ * possono stare NELLA SHAPE accanto al segnale che ordinano, e in questo
+ * schema la posizione di una chiave è un fatto e non estetica (vedi il
+ * commento sull'ordine in `ballottaggioSoggettoSchema`): il legame fra
+ * `piazzati` e il rango delle punizioni si legge dove i due si toccano.
+ *
+ * PERCHÉ `rigori` E `piazzati` NON SONO DIVENTATI OGGETTI. Sarebbe la forma
+ * più elegante — `{ designazione, rango }` — ed è esattamente quella che NON si
+ * può scrivere: i depositi già scritti portano lì una stringa e un array di
+ * stringhe, e uno schema `.strict()` fail-closed non rifiuta una riga, rifiuta
+ * IL FILE. Cambiare il tipo di quei due campi vorrebbe dire buttare l'intero
+ * deposito di ~200 schede il giorno dell'aggiornamento. È la stessa scelta, e
+ * la stessa ragione, di `BallottaggioSoggetto.club`: il campo nuovo è
+ * FACOLTATIVO e nasce accanto al vecchio, mai al suo posto.
+ *
+ * ASSENTE VUOL DIRE «NON DICHIARATO», mai un rango dedotto e mai uno zero. Una
+ * scheda che dice «tira le punizioni» senza dire in che ordine ha detto una
+ * cosa vera e una cosa in meno: a schermo diventa `n/d`, come ogni altra
+ * assenza di questo repository. Il numero PARTE DA 1 anche per questo — uno
+ * zero non è un rango, e un campo che ammettesse 0 renderebbe indistinguibile
+ * «non dichiarato» da «primo meno uno».
+ */
+export const SCHEDA_RANGO_MIN = 1;
+
+/**
+ * Il tetto del rango. Nove come `SCHEDA_GERARCHIA_MAX`, e NON la stessa
+ * costante: sono due fatti diversi — la gerarchia è il posto nel ruolo, il
+ * rango è il posto nella fila di uno specifico incarico — e due fatti diversi
+ * che oggi hanno lo stesso limite non sono lo stesso limite. Condividere la
+ * costante legherebbe l'uno all'altro il giorno in cui uno dei due cambia.
+ */
+export const SCHEDA_RANGO_MAX = 9;
+
 export const AVVISO_VALUES = ["sconsigliato", "rischio_fisico", "provvisorio", "mercato"] as const;
 export type Avviso = (typeof AVVISO_VALUES)[number];
 
@@ -180,6 +228,17 @@ export interface BallottaggioSoggetto {
  * sbagliato reso invisibile.
  */
 export const SCHEDA_CLUB_NON_DICHIARATA = "squadra n/d";
+
+/**
+ * COME SI SCRIVE UN RANGO CHE LA SCHEDA NON DICHIARA — la stessa parola, e lo
+ * stesso motivo, di `SCHEDA_CLUB_NON_DICHIARATA` qui sopra.
+ *
+ * Serve dove il segnale C'È e l'ordine no: «tira le punizioni, e la scheda non
+ * dice in che ordine». Senza questa riga un'icona accesa senza numero si
+ * leggerebbe come «il primo» — cioè un'assenza travestita da fatto, che è
+ * esattamente ciò che `n/d` esiste per impedire.
+ */
+export const SCHEDA_RANGO_NON_DICHIARATO = "rango n/d";
 
 /** Nome e squadra di un soggetto, ridotti a ciò che serve per confrontarlo. */
 export type BallottaggioIdentita = Pick<BallottaggioSoggetto, "surface" | "club">;
@@ -339,7 +398,24 @@ export interface ExpertScheda {
   /** Posizione nella gerarchia del ruolo (1 = prima scelta). */
   readonly gerarchia?: number;
   readonly rigori?: Rigori;
+  /**
+   * IL QUANTESIMO RIGORISTA (1 = il primo della fila). Assente = la scheda non
+   * lo dichiara — mai un rango dedotto dalla designazione: `designato` non
+   * significa «primo», significa che la fonte lo indica come rigorista, e le
+   * due cose coincidono spesso ma non per definizione.
+   *
+   * NON PUÒ ESISTERE SENZA `rigori`: un rango che ordina una fila a cui il
+   * giocatore non appartiene è un deposito malformato, e lo schema lo rifiuta
+   * invece di renderlo (vedi `schedaSchema`).
+   */
+  readonly rangoRigori?: number;
   readonly piazzati?: readonly Piazzati[];
+  /** Il quantesimo battitore di PUNIZIONI. Vale solo con `punizioni` fra i
+   *  `piazzati`; assente = non dichiarato. */
+  readonly rangoPunizioni?: number;
+  /** Il quantesimo battitore di ANGOLI. Vale solo con `angoli` fra i
+   *  `piazzati`; assente = non dichiarato. */
+  readonly rangoAngoli?: number;
   readonly avvisi?: readonly Avviso[];
   /** In quale delle tre liste editoriali la fonte ha messo il giocatore. */
   readonly lista?: ListaEsperti;
@@ -420,7 +496,20 @@ export const SCHEDA_BALLOTTAGGIO_SCHEMA_KEYS: readonly string[] = Object.keys(
   ballottaggioSoggettoSchema.shape,
 );
 
-const schedaSchema = z
+/** Un rango: intero, da 1 in su, col tetto dichiarato. Scritto una volta e
+ *  usato tre volte — tre copie della stessa regola sarebbero tre regole. */
+const rangoSchema = z.number().int().min(SCHEDA_RANGO_MIN).max(SCHEDA_RANGO_MAX);
+
+/**
+ * LA SCHEDA COME OGGETTO, prima del controllo di coerenza.
+ *
+ * Esiste separata da `schedaSchema` per una ragione meccanica: `.superRefine`
+ * rende uno `ZodEffects`, che NON ha `.shape`, e la `shape` di questo oggetto è
+ * ciò da cui si leggono `EXPERT_SCHEDA_SCHEMA_KEYS` e il censimento dei livelli
+ * annidati. Le chiavi restano quelle vere dello schema — lette da qui, non
+ * riscritte — e il controllo di coerenza ci si avvolge intorno senza toglierle.
+ */
+const schedaObjectSchema = z
   .object({
     player: z.string().trim().min(1).max(SCHEDA_NAME_MAX),
     club: z.string().trim().min(1).max(SCHEDA_NAME_MAX),
@@ -442,7 +531,17 @@ const schedaSchema = z
       .optional(),
     gerarchia: z.number().int().min(SCHEDA_GERARCHIA_MIN).max(SCHEDA_GERARCHIA_MAX).optional(),
     rigori: z.enum(RIGORI_VALUES).optional(),
+    // I TRE RANGHI STANNO ATTACCATI AL SEGNALE CHE ORDINANO, e l'ordine di
+    // queste chiavi è un fatto: zod ricostruisce l'oggetto nell'ordine della
+    // propria `shape` e il compilatore in pagina scrive nello stesso ordine —
+    // se i due divergessero, esporta → reimporta → riesporta renderebbe file
+    // diversi a parità di contenuto (stessa trappola del commento in
+    // `ballottaggioSoggettoSchema`). Qui l'ordine è quello del fatto: prima
+    // «appartiene a questa fila», subito dopo «in che posto».
+    rangoRigori: rangoSchema.optional(),
     piazzati: z.array(z.enum(PIAZZATI_VALUES)).max(PIAZZATI_VALUES.length).optional(),
+    rangoPunizioni: rangoSchema.optional(),
+    rangoAngoli: rangoSchema.optional(),
     avvisi: z.array(z.enum(AVVISO_VALUES)).max(AVVISO_VALUES.length).optional(),
     lista: z.enum(LISTA_ESPERTI_VALUES).optional(),
     nota: z.string().trim().max(SCHEDA_NOTA_MAX).optional(),
@@ -451,6 +550,61 @@ const schedaSchema = z
     pagella: pagellaSchema.optional(),
   })
   .strict();
+
+/**
+ * UN RANGO SENZA LA SUA FILA È UN DEPOSITO MALFORMATO, non un dato da
+ * interpretare a valle.
+ *
+ * Le due direzioni non sono simmetriche, e la differenza è tutto il punto:
+ *
+ *  - FILA SENZA RANGO — «tira le punizioni», niente ordine — è LEGITTIMA e
+ *    resta tale: è ogni deposito scritto prima di questa forma, ed è la scheda
+ *    che dice una cosa vera e una cosa in meno. A schermo diventa `n/d`.
+ *  - RANGO SENZA FILA — «secondo battitore di angoli» su una scheda che non
+ *    dichiara gli angoli — non è un'assenza, è una CONTRADDIZIONE: chi l'ha
+ *    scritta ha perso per strada metà del fatto, e nessuna delle due letture
+ *    possibili («allora batte gli angoli» / «allora il rango non vale») si può
+ *    scegliere senza inventare. Fail-closed: il deposito è rifiutato, come lo
+ *    è per una chiave in più o per un ballottaggio oltre il tetto.
+ *
+ * Il rifiuto NOMINA IL PERCORSO (`path`), perché su un deposito da ~200 schede
+ * un motivo che non dice quale campo l'ha causato costringe a indovinare —
+ * stessa regola già registrata per il setaccio del lato privato.
+ */
+function rangoCoerente(scheda: z.infer<typeof schedaObjectSchema>, ctx: z.RefinementCtx): void {
+  const piazzati: readonly string[] = scheda.piazzati ?? [];
+  const legami = [
+    {
+      chiave: "rangoRigori" as const,
+      rango: scheda.rangoRigori,
+      dichiarato: scheda.rigori !== undefined,
+      fila: "la designazione dei rigori (`rigori`)",
+    },
+    {
+      chiave: "rangoPunizioni" as const,
+      rango: scheda.rangoPunizioni,
+      dichiarato: piazzati.includes("punizioni"),
+      fila: "«punizioni» fra i calci piazzati (`piazzati`)",
+    },
+    {
+      chiave: "rangoAngoli" as const,
+      rango: scheda.rangoAngoli,
+      dichiarato: piazzati.includes("angoli"),
+      fila: "«angoli» fra i calci piazzati (`piazzati`)",
+    },
+  ];
+  for (const legame of legami) {
+    if (legame.rango !== undefined && !legame.dichiarato) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [legame.chiave],
+        message: `\`${legame.chiave}\` senza ${legame.fila}: un rango ordina una fila a cui questa scheda non dichiara che il giocatore appartenga.`,
+      });
+    }
+  }
+}
+
+const schedaSchema = schedaObjectSchema.superRefine(rangoCoerente);
 
 /**
  * LE CHIAVI CHE LO SCHEMA DELLA SCHEDA AMMETTE, lette DALLO SCHEMA e non
@@ -471,7 +625,9 @@ const schedaSchema = z
  * letterale sarebbe una seconda copia del contratto, e divergerebbe in silenzio
  * esattamente come il modulo che questa guardia esiste per sorvegliare.
  */
-export const EXPERT_SCHEDA_SCHEMA_KEYS: readonly string[] = Object.keys(schedaSchema.shape);
+export const EXPERT_SCHEDA_SCHEMA_KEYS: readonly string[] = Object.keys(
+  schedaObjectSchema.shape,
+);
 
 // ── IL CENSIMENTO DEI LIVELLI ANNIDATI ───────────────────────────────────────
 //
@@ -558,7 +714,7 @@ function censusNestedShapes(
  */
 export const EXPERT_SCHEDA_NESTED_SHAPES: ReadonlyMap<string, readonly string[]> = (() => {
   const out = new Map<string, readonly string[]>();
-  censusNestedShapes(schedaSchema, "", out);
+  censusNestedShapes(schedaObjectSchema, "", out);
   return out;
 })();
 
@@ -845,7 +1001,23 @@ export interface ExpertInsightView {
   readonly ballottaggio: readonly BallottaggioSoggetto[];
   readonly gerarchia: number | null;
   readonly rigori: Rigori | null;
+  /**
+   * IL RANGO DEI TRE INCARICHI, o `null` quando la scheda non lo dichiara.
+   *
+   * `null` E NON `0`, e non «l'ultimo posto»: è la stessa postura di
+   * `percentuale` e `gerarchia` qui sopra. Chi rende una colonna o un'icona
+   * scrive `n/d` — un rango inventato metterebbe un giocatore in una fila in
+   * un posto che nessuno gli ha dato, che è il modo esatto in cui un'assenza
+   * si traveste da fatto.
+   *
+   * Ciascuno sopravvive solo insieme alla propria fila: lo schema lo impone
+   * già in lettura (`rangoCoerente`), e `resolveExpertInsight` non lo rimette
+   * in circolo per conto proprio.
+   */
+  readonly rangoRigori: number | null;
   readonly piazzati: readonly Piazzati[];
+  readonly rangoPunizioni: number | null;
+  readonly rangoAngoli: number | null;
   readonly avvisi: readonly Avviso[];
   /** La lista editoriale in cui la fonte lo ha messo, o `null`. */
   readonly lista: ListaEsperti | null;
@@ -888,7 +1060,10 @@ export function unknownExpertInsight(
     ballottaggio: [],
     gerarchia: null,
     rigori: null,
+    rangoRigori: null,
     piazzati: [],
+    rangoPunizioni: null,
+    rangoAngoli: null,
     avvisi: [],
     lista: null,
     nota: "",
@@ -1088,7 +1263,18 @@ export function resolveExpertInsight(
     ballottaggio: ballottaggioVisibile(scheda),
     gerarchia: scheda.gerarchia ?? null,
     rigori: scheda.rigori ?? null,
+    // IL RANGO SOPRAVVIVE SOLO INSIEME ALLA PROPRIA FILA — la stessa regola di
+    // `percentuale` e del ballottaggio, ripetuta qui perché la vista non
+    // dipenda dalla validazione per essere coerente: questa funzione riceve
+    // anche schede costruite a mano nei test e nel compilatore, che non passano
+    // dallo schema. Un rango orfano non arriva a schermo, non diventa `0` e non
+    // accende un'icona.
+    rangoRigori: scheda.rigori === undefined ? null : scheda.rangoRigori ?? null,
     piazzati: scheda.piazzati ?? [],
+    rangoPunizioni: (scheda.piazzati ?? []).includes("punizioni")
+      ? scheda.rangoPunizioni ?? null
+      : null,
+    rangoAngoli: (scheda.piazzati ?? []).includes("angoli") ? scheda.rangoAngoli ?? null : null,
     avvisi: scheda.avvisi ?? [],
     lista: resolveListaEsperti(scheda),
     nota: (scheda.nota ?? "").trim(),

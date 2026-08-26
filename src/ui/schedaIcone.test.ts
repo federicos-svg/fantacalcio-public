@@ -21,18 +21,23 @@ import {
   type ExpertScheda,
 } from "../expertScheda.js";
 
-// LE QUATTRO ICONE ACCANTO AL RADAR.
+// LE CINQUE ICONE ACCANTO AL RADAR.
 //
 // Solo fixture sintetiche: nomi segnaposto, quote inventate, nessun giocatore
 // e nessuna squadra reale.
 //
 // Che cosa provano questi test, e perché ognuno esiste:
 //
-//  a. ACCESO/SPENTO. Un'icona accesa quando la scheda dichiara il segnale, e
+//  a. ACCESO/SPENTO E IL RANGO. Un'icona accesa quando la scheda dichiara il
+//     segnale, e il POSTO NELLA FILA quando la scheda dichiara anche quello:
+//     rigori, punizioni e angoli sono tre file ordinate, non tre insiemi.
+//     Un'icona accesa senza rango dichiarato non prende nessun numero — un «1»
+//     di comodo si leggerebbe «il primo» — e lo DICE con `rango n/d`.
+//  a-bis. ACCESO/SPENTO. Un'icona accesa quando la scheda dichiara il segnale, e
 //     SPENTA — non assente, non accesa con un valore di comodo — quando non lo
 //     dichiara. È la regola «n/d non si finge» applicata a una superficie che
 //     non ha parole proprie a schermo.
-//  b. LA QUARTA ICONA. Tre stati, tre glifi diversi e tre toni diversi; e
+//  b. L'ICONA DELLE LISTE. Tre stati, tre glifi diversi e tre toni diversi; e
 //     ASSENTE quando il giocatore non è in nessuna delle tre liste. «Appare
 //     solo se» è una condizione, non una preferenza estetica.
 //  c. IL BALLOTTAGGIO A PIÙ DI DUE. Due nomi e tre nomi, tutti con la loro
@@ -58,20 +63,40 @@ function iconaDi(view: ExpertInsightView, kind: string) {
 
 // ── a. ACCESO E SPENTO ───────────────────────────────────────────────────────
 
-describe("le tre icone che si accendono e si spengono", () => {
-  it("le prime tre ci sono SEMPRE: una casella che sparisce non si distingue da una che non c'è mai stata", () => {
+describe("le quattro icone che si accendono e si spengono", () => {
+  it("le prime quattro ci sono SEMPRE: una casella che sparisce non si distingue da una che non c'è mai stata", () => {
     const vuota = schedaIcone(viewOf({ nota: "Nessun segnale strutturato." }));
-    expect(vuota.map((i) => i.kind)).toEqual(["rigorista", "piazzati", "ballottaggio"]);
+    expect(vuota.map((i) => i.kind)).toEqual([
+      "rigorista",
+      "punizioni",
+      "angoli",
+      "ballottaggio",
+    ]);
     expect(vuota.every((i) => !i.acceso)).toBe(true);
+    // Nessuna casella spenta porta un numero: non c'è nessuna fila di cui
+    // essere il quantesimo.
+    expect(vuota.every((i) => i.rango === null)).toBe(true);
   });
 
   it.each([
     ["designato", "designato"],
     ["possibile", "possibile"],
   ] as const)("rigorista acceso quando la scheda lo dichiara: %s", (valore, parola) => {
-    const icona = iconaDi(viewOf({ rigori: valore }), "rigorista");
+    const icona = iconaDi(viewOf({ rigori: valore, rangoRigori: 1 }), "rigorista");
     expect(icona?.acceso).toBe(true);
-    expect(icona?.dettaglio).toBe(parola);
+    expect(icona?.dettaglio).toBe(`1\u00b0 ${parola}`);
+    expect(icona?.rango).toBe(1);
+  });
+
+  // IL RANGO NON SI DEDUCE DALLA DESIGNAZIONE. «designato» non vuol dire
+  // «primo»: le due cose coincidono spesso e non per definizione, e un numero
+  // messo qui sarebbe un'assenza travestita da fatto.
+  it("rigorista acceso SENZA rango: nessun numero, e la didascalia lo dichiara", () => {
+    const icona = iconaDi(viewOf({ rigori: "designato" }), "rigorista");
+    expect(icona?.acceso).toBe(true);
+    expect(icona?.rango).toBeNull();
+    expect(icona?.dettaglio).toBe("designato — rango n/d");
+    expect(icona?.dettaglio).not.toContain("1");
   });
 
   it("rigorista spento quando la scheda non lo dichiara, e lo DICE", () => {
@@ -82,17 +107,46 @@ describe("le tre icone che si accendono e si spengono", () => {
     expect(icona?.parlato).not.toContain("designato");
   });
 
-  it("piazzati acceso con uno e con entrambi i tipi, scritti per esteso", () => {
-    expect(iconaDi(viewOf({ piazzati: ["punizioni"] }), "piazzati")?.dettaglio).toBe("punizioni");
-    const due = iconaDi(viewOf({ piazzati: ["punizioni", "angoli"] }), "piazzati");
-    expect(due?.acceso).toBe(true);
-    expect(due?.dettaglio).toBe("punizioni e angoli");
+  // DUE CASELLE DOVE PRIMA CE N'ERA UNA. Il motivo è il rango: un giocatore può
+  // essere primo sulle punizioni e terzo sugli angoli, e un'icona sola non
+  // potrebbe dire quale dei due numeri sta mostrando.
+  it("punizioni e angoli sono due caselle, ciascuna col proprio posto nella fila", () => {
+    const view = viewOf({
+      piazzati: ["punizioni", "angoli"],
+      rangoPunizioni: 1,
+      rangoAngoli: 3,
+    });
+    const punizioni = iconaDi(view, "punizioni");
+    const angoli = iconaDi(view, "angoli");
+    expect(punizioni?.acceso).toBe(true);
+    expect(punizioni?.rango).toBe(1);
+    expect(punizioni?.dettaglio).toBe("1\u00b0 battitore");
+    expect(angoli?.acceso).toBe(true);
+    expect(angoli?.rango).toBe(3);
+    expect(angoli?.dettaglio).toBe("3\u00b0 battitore");
   });
 
-  it("piazzati spento con una lista vuota: una lista vuota non è un segnale", () => {
-    const icona = iconaDi(viewOf({ piazzati: [] }), "piazzati");
-    expect(icona?.acceso).toBe(false);
-    expect(icona?.dettaglio).toBe("la scheda non ne dichiara");
+  it("una specialità dichiarata e l'altra no: una accesa, l'altra spenta, e lo dicono diverso", () => {
+    const view = viewOf({ piazzati: ["punizioni"], rangoPunizioni: 2 });
+    expect(iconaDi(view, "punizioni")?.acceso).toBe(true);
+    const angoli = iconaDi(view, "angoli");
+    expect(angoli?.acceso).toBe(false);
+    expect(angoli?.rango).toBeNull();
+    expect(angoli?.dettaglio).toBe("la scheda non li dichiara");
+  });
+
+  it("specialità dichiarata senza ordine: accesa, senza numero, e lo dice", () => {
+    const icona = iconaDi(viewOf({ piazzati: ["angoli"] }), "angoli");
+    expect(icona?.acceso).toBe(true);
+    expect(icona?.rango).toBeNull();
+    expect(icona?.dettaglio).toBe("battitore — rango n/d");
+  });
+
+  it("le due spente con una lista vuota: una lista vuota non è un segnale", () => {
+    const view = viewOf({ piazzati: [] });
+    expect(iconaDi(view, "punizioni")?.acceso).toBe(false);
+    expect(iconaDi(view, "punizioni")?.dettaglio).toBe("la scheda non le dichiara");
+    expect(iconaDi(view, "angoli")?.acceso).toBe(false);
   });
 
   it("ballottaggio acceso solo sulla titolarità «ballottaggio»", () => {
@@ -112,19 +166,20 @@ describe("le tre icone che si accendono e si spengono", () => {
     expect(titolare?.dettaglio).not.toBe(muta?.dettaglio);
   });
 
-  it("negli stati «non lo so» le tre icone sono tutte spente: nessun segnale sopravvive", () => {
+  it("negli stati «non lo so» le quattro icone sono tutte spente: nessun segnale sopravvive", () => {
     const icone = schedaIcone(unknownExpertInsight("no_expert_signal"));
-    expect(icone).toHaveLength(3);
+    expect(icone).toHaveLength(4);
     expect(icone.every((i) => !i.acceso)).toBe(true);
+    expect(icone.every((i) => i.rango === null)).toBe(true);
   });
 });
 
-// ── b. LA QUARTA ICONA ───────────────────────────────────────────────────────
+// ── b. L'ICONA DELLE LISTE ───────────────────────────────────────────────────
 
-describe("la quarta icona — le tre liste del Gruppo Esperti", () => {
+describe("l'icona delle liste — le tre liste del Gruppo Esperti", () => {
   it("assente quando il giocatore non è in nessuna delle tre liste", () => {
     expect(iconaDi(viewOf({ rigori: "designato" }), "lista")).toBeUndefined();
-    expect(schedaIcone(viewOf({ rigori: "designato" }))).toHaveLength(3);
+    expect(schedaIcone(viewOf({ rigori: "designato" }))).toHaveLength(4);
     // FAIL-CLOSED: gli avvisi che NON sono liste non la fanno comparire.
     expect(iconaDi(viewOf({ avvisi: ["mercato", "rischio_fisico"] }), "lista")).toBeUndefined();
   });
@@ -149,7 +204,7 @@ describe("la quarta icona — le tre liste del Gruppo Esperti", () => {
 
   // IL COLORE NON È IL PRIMO CANALE: tre glifi diversi, non lo stesso glifo
   // ridipinto. Chi non distingue verde da rosso deve leggere la forma.
-  it("tre glifi diversi, e diversi anche dalle prime tre icone", () => {
+  it("tre glifi diversi, e diversi anche dalle prime quattro icone", () => {
     const chiavi = LISTA_ESPERTI_VALUES.map((lista) => {
       const view = viewOf({ lista });
       return glifoKey(iconaDi(view, "lista")!, view.lista);
@@ -157,7 +212,7 @@ describe("la quarta icona — le tre liste del Gruppo Esperti", () => {
     expect(new Set(chiavi).size).toBe(LISTA_ESPERTI_VALUES.length);
     expect(chiavi).toEqual([...LISTA_ESPERTI_VALUES]);
     for (const chiave of chiavi) {
-      expect(["rigorista", "piazzati", "ballottaggio"]).not.toContain(chiave);
+      expect(["rigorista", "punizioni", "angoli", "ballottaggio"]).not.toContain(chiave);
     }
   });
 
@@ -317,16 +372,39 @@ describe("ogni icona si legge senza il colore", () => {
       percentuale: 60,
       ballottaggio: [{ surface: "Bruna Placeholder", club: "ClubUno", sharePercent: 40 }],
       rigori: "designato",
+      rangoRigori: 1,
       piazzati: ["punizioni"],
+      rangoPunizioni: 2,
       lista: "possibile_sorpresa",
     });
     const icone = schedaIcone(view);
-    expect(icone).toHaveLength(4);
+    expect(icone).toHaveLength(5);
     for (const icona of icone) {
       expect(icona.nome.trim()).not.toBe("");
       expect(icona.dettaglio.trim()).not.toBe("");
       expect(icona.parlato).toContain(icona.dettaglio);
     }
+    // IL NUMERO È NELLA FRASE PARLATA, non solo nella pastiglia dipinta: chi
+    // naviga a voce non vede l'angolo della casella.
+    expect(icone.find((i) => i.kind === "punizioni")?.parlato).toContain("2\u00b0");
+  });
+
+  // LA PASTIGLIA È IL SECONDO CANALE DEL RANGO, e c'è SOLO dove un rango c'è.
+  it("l'HTML porta la pastiglia del rango dove il rango è dichiarato, e da nessun'altra parte", () => {
+    const html = schedaIconeHtml(
+      viewOf({
+        rigori: "designato",
+        rangoRigori: 1,
+        piazzati: ["punizioni", "angoli"],
+        rangoAngoli: 3,
+      }),
+    );
+    expect(html.match(/class="scheda-icona__rango"/g)).toHaveLength(2);
+    expect(html).toContain(">1\u00b0<");
+    expect(html).toContain(">3\u00b0<");
+    // Le punizioni sono dichiarate SENZA ordine: nessun numero di comodo.
+    const punizioni = html.slice(html.indexOf('id="player-insight-icona-punizioni"'));
+    expect(punizioni.slice(0, punizioni.indexOf("</li>"))).not.toContain("scheda-icona__rango");
   });
 
   it("l'HTML porta lo stato in un attributo e in una classe, non nel solo colore", () => {
@@ -339,7 +417,7 @@ describe("ogni icona si legge senza il colore", () => {
 
   it("ogni icona è un BOTTONE, cioè raggiungibile da tastiera e col dito", () => {
     const html = schedaIconeHtml(viewOf({ titolarita: "ballottaggio" }));
-    expect(html.match(/<button class="scheda-icona__hit" type="button">/g)).toHaveLength(3);
+    expect(html.match(/<button class="scheda-icona__hit" type="button">/g)).toHaveLength(4);
     // La frase intera è il contenuto del bottone: non un `title`, che né la
     // tastiera né il dito raggiungono.
     expect(html).not.toContain("title=");
@@ -369,6 +447,7 @@ describe("ogni icona si legge senza il colore", () => {
     expect(parlato).toContain("Bruna Placeholder (ClubUno) al 40%");
     expect(parlato).toContain("Consigliato");
     expect(parlato).toContain("Rigorista");
-    expect(parlato).toContain("Piazzati");
+    expect(parlato).toContain("Punizioni");
+    expect(parlato).toContain("Angoli");
   });
 });

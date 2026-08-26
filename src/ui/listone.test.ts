@@ -35,7 +35,8 @@ import {
   APPEAL_INDEX_COLUMN_KEY,
   EXPERT_VOTE_COLUMN_KEYS,
   NO_MALUS_BONUS_COLUMN_KEY,
-  PIAZZATI_COLUMN_KEY,
+  PUNIZIONI_COLUMN_KEY,
+  ANGOLI_COLUMN_KEY,
   RIGORISTA_COLUMN_KEY,
   SIGNAL_COLUMN_KEYS,
   VALUE_NOT_AVAILABLE,
@@ -317,7 +318,12 @@ describe("listoneColumns", () => {
   // cinque voti del Gruppo Esperti, rigorista, piazzati — e la QUOTAZIONE sta
   // dopo di loro, perché non è più fra le colonne visibili di default. Le
   // colonne extra del file caricato restano in coda, alfabetiche.
-  it("lists the columns in Pico's order, quotation after the eleven, extras last", () => {
+  // AGGIORNATO ANCORA: «piazzati» è diventata DUE colonne, «Punizioni» e
+  // «Angoli», perché la fonte pubblica due file ORDINATE e non un insieme
+  // (src/expertScheda.ts §rango). L'ultima voce dell'elenco di Pico si è
+  // spaccata in due al proprio posto: nessuna colonna è comparsa altrove e
+  // nessuna è sparita.
+  it("lists the columns in Pico's order, quotation after the twelve, extras last", () => {
     const columns = listoneColumns([]);
     expect(columns.map((c) => c.key)).toEqual([
       "name",
@@ -329,7 +335,8 @@ describe("listoneColumns", () => {
       NO_MALUS_BONUS_COLUMN_KEY,
       "pagella_consiglio",
       RIGORISTA_COLUMN_KEY,
-      PIAZZATI_COLUMN_KEY,
+      PUNIZIONI_COLUMN_KEY,
+      ANGOLI_COLUMN_KEY,
       "quotation",
     ]);
   });
@@ -368,7 +375,7 @@ describe("DEFAULT_VISIBLE_COLUMN_KEYS", () => {
   // Esperti, rigorista, piazzati». Erano le quattro colonne del pool;
   // l'asserzione non è stata tolta né allentata, dice le undici nuove — e
   // dice, riga sotto, che la QUOTAZIONE non è più fra loro.
-  it("is exactly Pico's eleven columns, in his order", () => {
+  it("is exactly Pico's list, in his order — with «piazzati» split into its two ordered queues", () => {
     expect(DEFAULT_VISIBLE_COLUMN_KEYS).toEqual([
       "name",
       "role",
@@ -380,9 +387,10 @@ describe("DEFAULT_VISIBLE_COLUMN_KEYS", () => {
       NO_MALUS_BONUS_COLUMN_KEY,
       "pagella_consiglio",
       RIGORISTA_COLUMN_KEY,
-      PIAZZATI_COLUMN_KEY,
+      PUNIZIONI_COLUMN_KEY,
+      ANGOLI_COLUMN_KEY,
     ]);
-    expect(DEFAULT_VISIBLE_COLUMN_KEYS).toHaveLength(11);
+    expect(DEFAULT_VISIBLE_COLUMN_KEYS).toHaveLength(12);
   });
 
   it("no longer shows the listino quotation by default — hidden, never removed", () => {
@@ -391,7 +399,7 @@ describe("DEFAULT_VISIBLE_COLUMN_KEYS", () => {
     expect(listoneColumns([]).map((c) => c.key)).toContain("quotation");
   });
 
-  it("keeps the seven Gruppo Esperti columns even for a pool that carries nothing", () => {
+  it("keeps the eight Gruppo Esperti columns even for a pool that carries nothing", () => {
     // Sono sempre presenti apposta: la loro assenza È un dato (`n/d`), e una
     // colonna che sparisce non lo dice a nessuno.
     expect(defaultVisibleColumnKeys([VALID_PLAYER])).toEqual(
@@ -461,9 +469,9 @@ describe("le tre colonne d'identità sono BLINDATE", () => {
   it("leaves the other columns exactly as switchable as before", () => {
     const columns = listoneColumns(withExtras);
     const defaults = defaultVisibleColumnKeys(withExtras);
-    const prefs: ListoneColumnPrefs = { hidden: [PIAZZATI_COLUMN_KEY], shown: ["quotation", "fvm"] };
+    const prefs: ListoneColumnPrefs = { hidden: [ANGOLI_COLUMN_KEY], shown: ["quotation", "fvm"] };
     const visible = visibleColumnKeys(columns, defaults, prefs);
-    expect(visible).not.toContain(PIAZZATI_COLUMN_KEY);
+    expect(visible).not.toContain(ANGOLI_COLUMN_KEY);
     expect(visible).toContain("quotation");
     expect(visible).toContain("fvm");
   });
@@ -602,7 +610,8 @@ describe("listoneRowHtml — visible columns", () => {
 describe("listoneTableHeadHtml (empty-state static header)", () => {
   // AGGIORNATO IL 2026-08-24, richiesta del committente: lo scheletro della
   // tabella vuota mostra le colonne di default, quindi «Quotazione» non c'è
-  // più (nascosta, non tolta) e ci sono le sette del Gruppo Esperti.
+  // più (nascosta, non tolta) e ci sono le OTTO del Gruppo Esperti — «Piazzati»
+  // è diventata «Punizioni» e «Angoli», due file ordinate invece di un insieme.
   it("has no Appetibilità column (not honestly derivable yet)", () => {
     const html = listoneTableHeadHtml();
     expect(html).not.toContain("Appetibilità");
@@ -612,7 +621,8 @@ describe("listoneTableHeadHtml (empty-state static header)", () => {
     expect(html).toContain("Titolarità");
     expect(html).toContain("No malus / Bonus");
     expect(html).toContain("Rigorista");
-    expect(html).toContain("Piazzati");
+    expect(html).toContain("Punizioni");
+    expect(html).toContain("Angoli");
     expect(html).not.toContain("Quotazione");
   });
 });
@@ -1443,11 +1453,11 @@ describe("listoneAppealIndexNote", () => {
   });
 });
 
-// ── LE SETTE COLONNE DEL GRUPPO ESPERTI ──────────────────────────────────────
+// ── LE OTTO COLONNE DEL GRUPPO ESPERTI ───────────────────────────────────────
 //
 // Richiesta del committente, 2026-08-24. Cinque VOTI su 10 (Titolarità, Media
-// voto, Salute, No malus / Bonus, Consiglio esperti) e due SEGNALI di scheda
-// (rigorista, piazzati). I voti non sono ancora estratti: il valore di quelle
+// voto, Salute, No malus / Bonus, Consiglio esperti) e TRE SEGNALI di scheda
+// ordinati (rigorista, punizioni, angoli). I voti non sono ancora estratti: il valore di quelle
 // caselle è oggi sempre assente, e la prova che conta è che l'assenza si
 // scriva `n/d` e non uno zero, un trattino o una media.
 
@@ -1456,13 +1466,19 @@ const KEEPER: ListonePlayer = { name: "Test Portiere", role: "P", club: "Club Al
 /** Un lookup che risponde solo su una riga — ogni altra riga resta senza segnali. */
 function signalsFor(
   name: string,
-  signals: { rigori?: string | null; piazzati?: readonly string[]; voti?: Record<string, number> },
+  signals: {
+    rigori?: string | null;
+    punizioni?: string | null;
+    angoli?: string | null;
+    voti?: Record<string, number>;
+  },
 ): ListoneRowSignalsLookup {
   return (p) =>
     p.name === name
       ? {
           rigori: signals.rigori ?? null,
-          piazzati: signals.piazzati ?? [],
+          punizioni: signals.punizioni ?? null,
+          angoli: signals.angoli ?? null,
           // I voti arrivano dal deposito già risolti dal contratto: qui si
           // risolve la stessa forma che `resolveExpertInsight` consegna a
           // main.ts, così il test non inventa una seconda strada per i numeri.
@@ -1498,18 +1514,47 @@ describe("colonne del Gruppo Esperti — un voto assente è n/d, mai uno zero", 
     expect(listoneCellText(VALID_PLAYER, "pagella_media_voto", signals)).toBe(VALUE_NOT_AVAILABLE);
   });
 
-  it("says n/d — not a dash — for rigorista and piazzati with no scheda", () => {
-    expect(listoneCellText(VALID_PLAYER, RIGORISTA_COLUMN_KEY)).toBe(VALUE_NOT_AVAILABLE);
-    expect(listoneCellText(VALID_PLAYER, PIAZZATI_COLUMN_KEY)).toBe(VALUE_NOT_AVAILABLE);
+  it("says n/d — not a dash — for the three ordered signals with no scheda", () => {
+    for (const key of [RIGORISTA_COLUMN_KEY, PUNIZIONI_COLUMN_KEY, ANGOLI_COLUMN_KEY]) {
+      expect(listoneCellText(VALID_PLAYER, key)).toBe(VALUE_NOT_AVAILABLE);
+    }
   });
 
-  it("renders rigorista and piazzati from the scheda, both kinds together", () => {
+  it("renders the three ordered signals from the scheda, each in its own column", () => {
     const signals = signalsFor(VALID_PLAYER.name, {
-      rigori: "designato",
-      piazzati: ["punizioni", "angoli"],
+      rigori: "1\u00b0 designato",
+      punizioni: "2\u00b0 battitore",
+      angoli: "battitore",
     });
-    expect(listoneCellText(VALID_PLAYER, RIGORISTA_COLUMN_KEY, signals)).toBe("designato");
-    expect(listoneCellText(VALID_PLAYER, PIAZZATI_COLUMN_KEY, signals)).toBe("punizioni · angoli");
+    expect(listoneCellText(VALID_PLAYER, RIGORISTA_COLUMN_KEY, signals)).toBe("1\u00b0 designato");
+    expect(listoneCellText(VALID_PLAYER, PUNIZIONI_COLUMN_KEY, signals)).toBe("2\u00b0 battitore");
+    // La fila dichiarata SENZA ordine non diventa un «1°» di comodo: resta la
+    // sola parola, e non è `n/d` — che direbbe un'altra cosa.
+    expect(listoneCellText(VALID_PLAYER, ANGOLI_COLUMN_KEY, signals)).toBe("battitore");
+  });
+
+  // L'ORDINAMENTO DELLA COLONNA È L'ORDINE DELLA FILA, ed è la ragione per cui
+  // il numero sta DAVANTI alla parola e non in coda fra parentesi.
+  it("sorts a queue column by rank: 1° before 2°, the unranked after both", () => {
+    const pool = [
+      VALID_PLAYER,
+      KEEPER,
+      { name: "Test Terzo", role: "C", club: "Club Gamma" },
+    ] as const;
+    const signals: ListoneRowSignalsLookup = (p) => ({
+      ...emptyRowSignals(p.role),
+      angoli:
+        p.name === VALID_PLAYER.name
+          ? "2\u00b0 battitore"
+          : p.name === KEEPER.name
+            ? "1\u00b0 battitore"
+            : "battitore",
+    });
+    expect(sortListonePool(pool, ANGOLI_COLUMN_KEY, "asc", signals).map((p) => p.name)).toEqual([
+      KEEPER.name,
+      VALID_PLAYER.name,
+      "Test Terzo",
+    ]);
   });
 
   it("keeps a missing extra column on the em dash — that hole belongs to the file", () => {
@@ -1536,8 +1581,8 @@ describe("colonne del Gruppo Esperti — un voto assente è n/d, mai uno zero", 
     const pool = [VALID_PLAYER, KEEPER] as const;
     const signals: ListoneRowSignalsLookup = (p) =>
       p.name === KEEPER.name
-        ? { rigori: null, piazzati: [], pagella: resolvePagella({ voti: { pagella_salute: 3 } }, p.role) }
-        : { rigori: null, piazzati: [], pagella: resolvePagella({ voti: { pagella_salute: 9 } }, p.role) };
+        ? { ...emptyRowSignals(p.role), pagella: resolvePagella({ voti: { pagella_salute: 3 } }, p.role) }
+        : { ...emptyRowSignals(p.role), pagella: resolvePagella({ voti: { pagella_salute: 9 } }, p.role) };
     expect(sortListonePool(pool, "pagella_salute", "asc", signals).map((p) => p.name)).toEqual([
       KEEPER.name,
       VALID_PLAYER.name,

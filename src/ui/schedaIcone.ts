@@ -4,15 +4,36 @@
 //
 // ── CHE COSA SONO, E DOVE STANNO ─────────────────────────────────────────────
 //
-// Quattro icone nella COLONNA DEL RADAR, sotto il disegno: tre che si accendono
-// e si spengono — rigorista, piazzati, ballottaggio — più una quarta che
-// COMPARE SOLO se la fonte ha messo il giocatore in una delle sue tre liste.
+// Cinque icone nella COLONNA DEL RADAR, sotto il disegno: quattro che si
+// accendono e si spengono — rigorista, punizioni, angoli, ballottaggio — più
+// una quinta che COMPARE SOLO se la fonte ha messo il giocatore in una delle
+// sue tre liste.
+//
+// ERANO QUATTRO, E «PIAZZATI» ERA UNA SOLA. Le due specialità stavano dentro
+// un'icona sola perché il contratto le teneva in un insieme: `piazzati:
+// ["punizioni", "angoli"]`. Da quando la fonte porta anche IL POSTO NELLA FILA
+// (src/expertScheda.ts §rango) un'icona sola non basta più — un giocatore può
+// essere primo sulle punizioni e terzo sugli angoli, e un solo numero non
+// potrebbe dire quale dei due sta mostrando. Due caselle, due numeri, nessuna
+// ambiguità da risolvere a mente.
+//
+// IL NUMERO DELLA POSIZIONE È UNA PASTIGLIA SULL'ANGOLO della casella, non una
+// riga sotto: la striscia sta su UNA riga alta 30px (e2e/scheda-icone.spec.ts)
+// dentro la colonna del disegno, e una riga di numeri sotto le
+// caselle costerebbe l'altezza di una riga di testo su una schermata che è già
+// oltre il proprio budget verticale. La pastiglia è fuori dal flusso, quindi
+// non gonfia niente; porta il colore della propria icona, quindi la spazzata di
+// contrasto la misura come misura ogni altro testo.
 //
 // Stanno lì e non altrove per una ragione misurata, non estetica. La colonna
-// del radar è larga 116px e alta quanto l'elenco dei cinque assi che le sta
-// accanto: a 1440px il disegno ne occupa 116 e ne restano 62 vuoti sotto. La
+// del disegno è alta quanto l'elenco dei cinque assi che le sta accanto: a
+// 1440px il radar ne occupa 116 di altezza e ne restano 62 vuoti sotto. La
 // striscia ci entra intera, quindi il blocco della pagella NON CRESCE di un
-// pixel dove il suo tetto è misurato (240px, e2e/pagella-radar.spec.ts). Nello
+// pixel dove il suo tetto è misurato (240px, e2e/pagella-radar.spec.ts). In
+// LARGHEZZA la colonna è 136px e non più 116: cinque caselle da 24 con quattro
+// spazi da 4 non stanno nel lato del radar, e le ultime due sarebbero uscite
+// dalla colonna invece di andare a capo (src/styles/asta.css,
+// `--pagella-figure-col`). Il radar resta 116px: i 20 in più sono aria. Nello
 // stato senza voti — cioè oggi, su ogni giocatore — il radar non c'è e la
 // striscia ne prende il posto nella stessa colonna, accanto alla frase: il
 // blocco resta sotto gli 80px che quella stessa spec gli impone. Le icone
@@ -47,8 +68,14 @@
 // accesa con un valore di comodo. E «spento» non è una parola sola: il
 // ballottaggio spento perché la scheda lo dà titolare e il ballottaggio spento
 // perché la scheda non dichiara la titolarità dicono due cose diverse, e la
-// didascalia le scrive diverse. La quarta icona, quando la lista non c'è,
+// didascalia le scrive diverse. L'ultima icona, quando la lista non c'è,
 // NON COMPARE: è ciò che «appare solo se» significa.
+//
+// E VALE ANCHE UN LIVELLO PIÙ GIÙ, sul numero. Un'icona accesa senza rango
+// dichiarato NON prende la pastiglia — nessun «1» di comodo, che si leggerebbe
+// come «il primo della fila» — e la sua didascalia lo DICE: `rango n/d`, la
+// parola con cui il contratto dichiara ciò che manca. Un'icona spenta non ha
+// mai una pastiglia: non c'è nessuna fila di cui essere il quantesimo.
 //
 // ── L'HOVER NON È L'UNICA VIA ────────────────────────────────────────────────
 //
@@ -61,7 +88,10 @@
 // raggiungibile né da tastiera né col dito, ed è esattamente la superficie che
 // serve durante un'asta dal vivo.
 
-import { SCHEDA_CLUB_NON_DICHIARATA } from "../expertScheda.js";
+import {
+  SCHEDA_CLUB_NON_DICHIARATA,
+  SCHEDA_RANGO_NON_DICHIARATO,
+} from "../expertScheda.js";
 import type {
   BallottaggioSoggetto,
   ExpertInsightView,
@@ -69,14 +99,22 @@ import type {
 } from "../expertScheda.js";
 import {
   LISTA_ESPERTI_LABELS,
+  PIAZZATI_BATTITORE,
   PIAZZATI_LABELS,
   RIGORI_LABELS,
   TITOLARITA_LABELS,
+  conRango,
+  rangoText,
 } from "./schedaLabels.js";
 import { escHtml } from "./theme.js";
 
-/** Le quattro famiglie. `lista` è la sola che può non esserci. */
-export type SchedaIconaKind = "rigorista" | "piazzati" | "ballottaggio" | "lista";
+/** Le cinque famiglie. `lista` è la sola che può non esserci. */
+export type SchedaIconaKind =
+  | "rigorista"
+  | "punizioni"
+  | "angoli"
+  | "ballottaggio"
+  | "lista";
 
 /**
  * Il tono di un'icona. `neutro` è l'inchiostro della rampa — le prime tre non
@@ -95,6 +133,15 @@ export interface SchedaIcona {
   readonly nome: string;
   /** Che cosa la scheda dice — o che cosa NON dice. Mai vuoto. */
   readonly dettaglio: string;
+  /**
+   * IL POSTO NELLA FILA, o `null`. `null` in tre casi diversi che a schermo si
+   * vedono uguali (nessuna pastiglia) e nella didascalia no: l'icona è spenta
+   * (nessuna fila), la famiglia non ha una fila (ballottaggio, lista), oppure
+   * la scheda dichiara la fila e non l'ordine — e quel terzo caso è l'unico che
+   * scrive `rango n/d`, perché è l'unico in cui un numero MANCA invece di non
+   * esistere.
+   */
+  readonly rango: number | null;
   /** La frase intera: contenuto accessibile del bottone e forma parlata. */
   readonly parlato: string;
 }
@@ -169,6 +216,7 @@ function icona(
   tono: SchedaIconaTono,
   nome: string,
   dettaglio: string,
+  rango: number | null = null,
 ): SchedaIcona {
   return {
     id: `player-insight-icona-${kind}`,
@@ -177,17 +225,30 @@ function icona(
     tono,
     nome,
     dettaglio,
+    rango,
     parlato: `${maiuscola(nome)}: ${dettaglio}.`,
   };
+}
+
+/**
+ * La didascalia di un'icona ACCESA che ha una fila: la parola del segnale col
+ * proprio posto davanti, o la parola più la dichiarazione che l'ordine manca.
+ *
+ * Scritta una volta per tutte e tre le famiglie ordinate — rigorista, punizioni,
+ * angoli — perché le tre frasi non possano divergere: sono lo stesso fatto
+ * detto su tre file diverse, e tre copie sarebbero tre modi di dire `n/d`.
+ */
+export function dettaglioConRango(parola: string, rango: number | null): string {
+  return rango === null ? `${parola} — ${SCHEDA_RANGO_NON_DICHIARATO}` : conRango(parola, rango);
 }
 
 // ── Il modello: quali icone, accese o spente, e perché ───────────────────────
 
 /**
- * Le icone di questa vista. SEMPRE le prime tre — accese o spente, ma sempre
- * presenti: una casella che sparisce quando il segnale manca è indistinguibile
- * da una casella che non è mai esistita, e chi legge in due secondi conta le
- * caselle. La quarta c'è SOLO quando la lista esiste.
+ * Le icone di questa vista. SEMPRE le prime quattro — accese o spente, ma
+ * sempre presenti: una casella che sparisce quando il segnale manca è
+ * indistinguibile da una casella che non è mai esistita, e chi legge in due
+ * secondi conta le caselle. La quinta c'è SOLO quando la lista esiste.
  */
 export function schedaIcone(view: ExpertInsightView): readonly SchedaIcona[] {
   const icone: SchedaIcona[] = [
@@ -196,16 +257,34 @@ export function schedaIcone(view: ExpertInsightView): readonly SchedaIcona[] {
       view.rigori !== null,
       "neutro",
       "rigorista",
-      view.rigori === null ? "la scheda non lo dichiara" : RIGORI_LABELS[view.rigori],
+      view.rigori === null
+        ? "la scheda non lo dichiara"
+        : dettaglioConRango(RIGORI_LABELS[view.rigori], view.rangoRigori),
+      view.rigori === null ? null : view.rangoRigori,
+    ),
+    // DUE FAMIGLIE DOVE PRIMA CE N'ERA UNA. La condizione di accensione resta
+    // quella di sempre — la specialità è dichiarata fra i `piazzati` — ma
+    // ciascuna porta il proprio numero, che è la ragione per cui si sono
+    // divise.
+    icona(
+      "punizioni",
+      view.piazzati.includes("punizioni"),
+      "neutro",
+      PIAZZATI_LABELS.punizioni,
+      view.piazzati.includes("punizioni")
+        ? dettaglioConRango(PIAZZATI_BATTITORE, view.rangoPunizioni)
+        : "la scheda non le dichiara",
+      view.rangoPunizioni,
     ),
     icona(
-      "piazzati",
-      view.piazzati.length > 0,
+      "angoli",
+      view.piazzati.includes("angoli"),
       "neutro",
-      "piazzati",
-      view.piazzati.length === 0
-        ? "la scheda non ne dichiara"
-        : elencoItaliano(view.piazzati.map((p) => PIAZZATI_LABELS[p])),
+      PIAZZATI_LABELS.angoli,
+      view.piazzati.includes("angoli")
+        ? dettaglioConRango(PIAZZATI_BATTITORE, view.rangoAngoli)
+        : "la scheda non li dichiara",
+      view.rangoAngoli,
     ),
     icona(
       "ballottaggio",
@@ -239,25 +318,39 @@ export function schedaIcone(view: ExpertInsightView): readonly SchedaIcona[] {
 
 // ── I glifi ──────────────────────────────────────────────────────────────────
 //
-// Quattro silhouette che non si somigliano, in un riquadro di 24 unità:
+// Silhouette che non si somigliano, in un riquadro di 24 unità:
 //
 //  - RIGORISTA: il pallone sul dischetto — un tondo grande e un tondo piccolo.
-//  - PIAZZATI: la bandierina d'angolo — asta verticale e triangolo.
+//  - PUNIZIONI: la barriera e la palla piazzata davanti — tre sbarre e un tondo.
+//  - ANGOLI: la bandierina d'angolo — asta verticale e triangolo.
 //  - BALLOTTAGGIO: due punte che si fronteggiano attorno a una sbarra — «due
 //    che si giocano un posto», e non un tondo né un triangolo.
 //  - LISTE: spunta, scintilla, croce. Tre segni che restano diversi in bianco
-//    e nero, e che nessuno confonde con le tre icone qui sopra.
+//    e nero, e che nessuno confonde con le icone qui sopra.
+//
+// L'ANGOLO IN BASSO A DESTRA DI OGNI GLIFO ORDINATO È TENUTO LIBERO: è dove si
+// posa la pastiglia del rango. Il pallone del rigorista sta in alto e il suo
+// dischetto a sinistra; la palla della punizione sta in basso a sinistra e la
+// barriera in alto a destra, corta abbastanza da non arrivare all'angolo;
+// l'asta della bandierina è tutta a sinistra. Non è un vezzo di disegno: una
+// pastiglia sopra la parte che identifica il glifo toglierebbe il primo dei
+// tre canali con cui acceso/spento si legge senza colore.
 //
 // `scheda-icona__tratto` è il glifo che cambia con lo stato (pieno da acceso,
 // contorno da spento). `scheda-icona__segno` è il tracciato che resta sempre
-// tracciato — la spunta e la croce non hanno un dentro da riempire, e la
-// quarta icona non ha uno stato spento perché quando non c'è non compare.
+// tracciato — la spunta e la croce non hanno un dentro da riempire, e l'icona
+// delle liste non ha uno stato spento perché quando non c'è non compare.
 
 const GLIFI: Readonly<Record<string, string>> = {
   rigorista:
-    `<circle class="scheda-icona__tratto" cx="12" cy="9.5" r="6"></circle>` +
-    `<circle class="scheda-icona__tratto" cx="12" cy="20" r="1.9"></circle>`,
-  piazzati:
+    `<circle class="scheda-icona__tratto" cx="11" cy="9" r="5.6"></circle>` +
+    `<circle class="scheda-icona__tratto" cx="5.6" cy="19.4" r="1.9"></circle>`,
+  punizioni:
+    `<circle class="scheda-icona__tratto" cx="4.6" cy="18.8" r="2.7"></circle>` +
+    `<path class="scheda-icona__tratto" d="M9.4 3.2h3.4v11.4H9.4z"></path>` +
+    `<path class="scheda-icona__tratto" d="M14.2 3.2h3.4v11.4h-3.4z"></path>` +
+    `<path class="scheda-icona__tratto" d="M19 3.2h3.4v11.4H19z"></path>`,
+  angoli:
     `<path class="scheda-icona__tratto" d="M6.6 2.5h2.2v19H6.6z"></path>` +
     `<path class="scheda-icona__tratto" d="M9.6 3.4l9.2 3.4-9.2 3.4z"></path>`,
   ballottaggio:
@@ -270,9 +363,25 @@ const GLIFI: Readonly<Record<string, string>> = {
   sconsigliato: `<path class="scheda-icona__segno" d="M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"></path>`,
 };
 
-/** Il nome del glifo di un'icona: per la quarta è lo STATO, non la famiglia. */
+/** Il nome del glifo di un'icona: per quella delle liste è lo STATO, non la
+ *  famiglia. */
 export function glifoKey(icona: SchedaIcona, lista: ListaEsperti | null): string {
   return icona.kind === "lista" ? (lista ?? "sconsigliato") : icona.kind;
+}
+
+/**
+ * LA PASTIGLIA DEL RANGO, o stringa vuota.
+ *
+ * `aria-hidden` non è una svista: il numero è GIÀ nella frase accessibile del
+ * bottone («Angoli: 2° battitore.»), e leggerlo due volte a chi naviga a voce
+ * sarebbe rumore. Resta testo dipinto, quindi la spazzata di contrasto lo
+ * misura — porta il colore della propria icona, come la didascalia.
+ */
+export function schedaIconaRangoHtml(icona: SchedaIcona): string {
+  if (icona.rango === null) return "";
+  return `<span class="scheda-icona__rango" aria-hidden="true">${escHtml(
+    rangoText(icona.rango),
+  )}</span>`;
 }
 
 // ── L'HTML ───────────────────────────────────────────────────────────────────
@@ -291,7 +400,9 @@ export function schedaIconaHtml(icona: SchedaIcona, lista: ListaEsperti | null):
     icona.acceso ? "si" : "no"
   }">
     <button class="scheda-icona__hit" type="button">
-      <svg class="scheda-icona__glifo" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${glifo}</svg>
+      <svg class="scheda-icona__glifo" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${glifo}</svg>${schedaIconaRangoHtml(
+        icona,
+      )}
       <span class="scheda-icona__sr">${escHtml(icona.parlato)}</span>
     </button>
     <span class="scheda-icona__pop" aria-hidden="true"><b class="scheda-icona__pop-nome">${escHtml(
