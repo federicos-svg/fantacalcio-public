@@ -22,14 +22,19 @@ import { LISTONE_IDENTITY_COLUMN_KEYS, VALUE_NOT_AVAILABLE } from "../src/ui/lis
 // «Nascondile, ma lasciale attivabili».
 //
 // LE CINQUE COSE CHE QUESTA SPEC DIFENDE:
-//  1. le undici ci sono, in QUELL'ordine, e la quotazione non c'è;
+//  1. le colonne dell'elenco ci sono, in QUELL'ordine, e la quotazione non c'è
+//     — dal 2026-08-26 sono DODICI, perché «piazzati» si è spaccata nelle due
+//     file ordinate che la fonte pubblica davvero, «Punizioni» e «Angoli»
+//     (src/expertScheda.ts §rango): l'ultima voce dell'elenco di Pico è
+//     diventata due colonne al proprio posto, nessuna è comparsa altrove;
 //  2. una colonna nascosta si riaccende, SOPRAVVIVE AL RELOAD e si rispegne —
 //     la memoria della scelta è l'unica parte che il primo giro non aveva;
 //  3. un voto che nessuno ha ancora estratto dice `n/d`: mai 0, mai un
 //     trattino, mai una media;
-//  4. rigorista e piazzati portano quello che la scheda dice, e `n/d` quando
-//     la scheda non lo dice — non «no»;
-//  5. undici colonne stanno su un telefono senza perdere niente e senza far
+//  4. le tre file ordinate — rigorista, punizioni, angoli — portano quello che
+//     la scheda dice, col POSTO NELLA FILA quando la scheda lo dichiara, e
+//     `n/d` quando la scheda non lo dice — non «no»;
+//  5. tutte le colonne stanno su un telefono senza perdere niente e senza far
 //     scorrere la pagina in orizzontale;
 //  6. LE TRE COLONNE D'IDENTITÀ NON SI SPENGONO (aggiunto il 2026-08-24 dopo
 //     la review di PR #41, che eseguendo l'app ha spento «Nome» dal pannello e
@@ -55,7 +60,8 @@ const DEFAULT_HEADERS = [
   "No malus / Bonus",
   "Consiglio esperti",
   "Rigorista",
-  "Piazzati",
+  "Punizioni",
+  "Angoli",
 ] as const;
 
 /** Il giocatore su cui la scheda sintetica dichiara rigori e piazzati. */
@@ -95,7 +101,7 @@ async function openColumnPanel(page: Page): Promise<void> {
   await expect(page.locator("#listone-column-panel")).toBeVisible();
 }
 
-test("il listone parte con le undici colonne di Pico, nel suo ordine, e senza la quotazione", async ({
+test("il listone parte con le colonne di Pico, nel suo ordine, e senza la quotazione", async ({
   page,
   context,
 }) => {
@@ -115,7 +121,7 @@ test("il listone parte con le undici colonne di Pico, nel suo ordine, e senza la
   await expect(quotation).toHaveAttribute("aria-pressed", "false");
   // E ogni colonna di default dichiara di essere accesa.
   await expect(page.locator("#listone-column-toggle-name")).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("#listone-column-toggle-scheda_piazzati")).toHaveAttribute(
+  await expect(page.locator("#listone-column-toggle-scheda_angoli")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -182,12 +188,12 @@ test("spegnere una colonna di default la nasconde, e anche quello si ricorda", a
   await boot(page);
 
   await openColumnPanel(page);
-  await page.locator("#listone-column-toggle-scheda_piazzati").click();
-  expect(await headerTexts(page)).toEqual(DEFAULT_HEADERS.filter((h) => h !== "Piazzati"));
+  await page.locator("#listone-column-toggle-scheda_angoli").click();
+  expect(await headerTexts(page)).toEqual(DEFAULT_HEADERS.filter((h) => h !== "Angoli"));
 
   await page.reload();
   await expect(page.locator(".listone-row").first()).toBeVisible();
-  expect(await headerTexts(page)).toEqual(DEFAULT_HEADERS.filter((h) => h !== "Piazzati"));
+  expect(await headerTexts(page)).toEqual(DEFAULT_HEADERS.filter((h) => h !== "Angoli"));
   expect(externalRequests).toEqual([]);
 });
 
@@ -389,7 +395,7 @@ test("una scheda con l'asse dell'altro ruolo dice n.a., non n/d e non il voto st
   expect(externalRequests).toEqual([]);
 });
 
-test("rigorista e piazzati portano quello che la scheda dice, e n/d quando non lo dice", async ({
+test("le tre file ordinate portano quello che la scheda dice — col rango — e n/d quando non lo dice", async ({
   page,
   context,
 }) => {
@@ -398,18 +404,23 @@ test("rigorista e piazzati portano quello che la scheda dice, e n/d quando non l
   await routeSchede(context, [FULL_SCHEDA]);
   await boot(page);
 
-  // La scheda sintetica dichiara `rigori: "designato"` e `piazzati: ["punizioni"]`.
-  await expect(cell(page, WITH_SCHEDA.name, "scheda_rigorista")).toHaveText("designato");
-  await expect(cell(page, WITH_SCHEDA.name, "scheda_piazzati")).toHaveText("punizioni");
+  // La scheda sintetica dichiara `rigori: "designato"` col rango 1 e
+  // `piazzati: ["punizioni"]` col rango 2. Il numero sta DAVANTI alla parola:
+  // è ciò che rende l'ordinamento della colonna l'ordine della fila.
+  await expect(cell(page, WITH_SCHEDA.name, "scheda_rigorista")).toHaveText("1\u00b0 designato");
+  await expect(cell(page, WITH_SCHEDA.name, "scheda_punizioni")).toHaveText("2\u00b0 battitore");
+  // La stessa scheda NON dichiara gli angoli: `n/d`, e non «zero angoli».
+  await expect(cell(page, WITH_SCHEDA.name, "scheda_angoli")).toHaveText(VALUE_NOT_AVAILABLE);
 
   // Un giocatore su cui il deposito non dice niente: `n/d`, non «no». La
   // scheda che tace non è una scheda che nega.
-  await expect(cell(page, WITHOUT_SCHEDA.name, "scheda_rigorista")).toHaveText(VALUE_NOT_AVAILABLE);
-  await expect(cell(page, WITHOUT_SCHEDA.name, "scheda_piazzati")).toHaveText(VALUE_NOT_AVAILABLE);
+  for (const key of ["scheda_rigorista", "scheda_punizioni", "scheda_angoli"]) {
+    await expect(cell(page, WITHOUT_SCHEDA.name, key)).toHaveText(VALUE_NOT_AVAILABLE);
+  }
   expect(externalRequests).toEqual([]);
 });
 
-test("undici colonne alle tre larghezze, senza perdere niente e senza scorrimento orizzontale", async ({
+test("tutte le colonne alle tre larghezze, senza perdere niente e senza scorrimento orizzontale", async ({
   page,
   context,
 }) => {
@@ -606,19 +617,19 @@ test("il tentativo di spegnere un'identità non scrive niente, nemmeno dopo un r
   // E LE ALTRE RESTANO SPEGNIBILI COME PRIMA: la blindatura è di tre colonne,
   // non un irrigidimento del pannello.
   await openColumnPanel(page);
-  await page.locator("#listone-column-toggle-scheda_piazzati").click();
-  await expect(page.locator("#listone-column-toggle-scheda_piazzati")).toHaveAttribute(
+  await page.locator("#listone-column-toggle-scheda_angoli").click();
+  await expect(page.locator("#listone-column-toggle-scheda_angoli")).toHaveAttribute(
     "aria-pressed",
     "false",
   );
-  expect(await headerTexts(page)).toEqual(DEFAULT_HEADERS.filter((h) => h !== "Piazzati"));
+  expect(await headerTexts(page)).toEqual(DEFAULT_HEADERS.filter((h) => h !== "Angoli"));
   await page.locator("#listone-column-toggle-quotation").click();
   expect(await headerTexts(page)).toEqual([
-    ...DEFAULT_HEADERS.filter((h) => h !== "Piazzati"),
+    ...DEFAULT_HEADERS.filter((h) => h !== "Angoli"),
     "Quotazione",
   ]);
   expect(JSON.parse((await saved())!)).toMatchObject({
-    hidden: ["scheda_piazzati"],
+    hidden: ["scheda_angoli"],
     shown: ["quotation"],
   });
   expect(externalRequests).toEqual([]);

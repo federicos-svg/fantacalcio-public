@@ -281,15 +281,20 @@ export const CALL_SCREEN_BUDGET_MEASURED_ON = "2026-08-26";
 // scelta. Adesso il riquadro c'è anche qui, sotto CONTESTO CHIAMATA, e ha la
 // propria riga: `scheda-esperto`.
 //
-// CHE COSA È STATO RIMISURATO, e con quale esito. Tutti e cinque gli stati
-// misurabili a 390×844, sui due pin di lunghezza dei nomi e sulla PROVA 1:
+// CHE COSA È STATO RIMISURATO, e con quale esito. Tutti gli stati misurabili a
+// 390×844, sui due pin di lunghezza dei nomi e sulla PROVA 1:
 //
 //   stato                          prima      dopo
 //   ricerca                        1654       1654   (invariato)
 //   riga-selezionata                956       1106   (+150)
 //   contesto-aperto                1901       2051   (+150)
 //   contesto-aperto-ricerca-vuota  2750       2901   (+151)
-//   tavolo-aperto                  1654       1654   (invariato)
+//
+// RIMISURATO DUE VOLTE, e la seconda conta: la prima passata è di prima che
+// `main` portasse i due riquadri titolati dell'insight (#61). Rifatta dopo
+// averlo fuso, ogni numero qui sopra è risultato IDENTICO — col deposito vuoto
+// il riquadro misura 151 px in entrambe le forme. Col deposito PIENO no, e
+// quella differenza è scritta in SCHEDA_ESPERTO_CON_DEPOSITO_NON_DICHIARATA.
 //
 // I DUE STATI SENZA SELEZIONE NON SI MUOVONO DI UN PIXEL, ed è per costruzione:
 // senza una riga cliccata non c'è nessun giocatore di cui leggere la scheda, e
@@ -438,7 +443,7 @@ export const CALL_SCREEN_BUDGET_LEDGER: readonly CallScreenBlockAllocation[] = [
       "perché nessun altro blocco ha perso qualcosa. " +
       "ATTENZIONE, E NON È UN DETTAGLIO: 151 px è l'altezza col DEPOSITO VUOTO, cioè lo stato " +
       "che l'intera suite misura oggi. Con una scheda piena in pagina lo stesso blocco misura " +
-      "980 px — vedi SCHEDA_ESPERTO_CON_DEPOSITO_NON_DICHIARATA.",
+      "1109 px — vedi SCHEDA_ESPERTO_CON_DEPOSITO_NON_DICHIARATA.",
   },
   {
     id: "giocatore-suggerito",
@@ -610,8 +615,9 @@ export const CALL_SCREEN_BUDGET_UNRATIFIED: Readonly<
     "l'allocazione di INSIGHT GIOCATORE (151 px) è l'altezza che il blocco ha col DEPOSITO " +
     "DELLE SCHEDE VUOTO, cioè lo stato che l'intera suite misura oggi. Misurato il 2026-08-26 " +
     "con una scheda piena in pagina — cinque icone, radar, pastiglie, prosa — lo stesso blocco " +
-    "occupa 980 px e porta lo stato `riga-selezionata` a 1974 px, cioè 286 px OLTRE il totale " +
-    "dichiarato, senza che nessun altro blocco sia cresciuto. Nessuno ha dichiarato quanto " +
+    "occupa 1109 px e porta lo stato `riga-selezionata` a 2103 px, cioè 415 px OLTRE il totale " +
+    "dichiarato, senza che nessun altro blocco sia cresciuto. Erano 980 e 1974 prima che #61 " +
+    "portasse i due riquadri titolati, che a 390px si impilano. Nessuno ha dichiarato quanto " +
     "questo riquadro possa occupare nella schermata di chiamata, e la scelta su che cosa " +
     "mostrarne qui (tutto, come nel momento d'asta; il solo blocco della pagella; oppure dietro " +
     "il gesto che apre CONTESTO CHIAMATA) è una decisione di prodotto, non di un worker: " +
