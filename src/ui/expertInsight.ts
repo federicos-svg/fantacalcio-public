@@ -82,6 +82,7 @@ import type {
 } from "../expertScheda.js";
 import { TITOLARITA_VALUES } from "../expertScheda.js";
 import { pagellaBlockHtml, pagellaSpoken } from "./pagellaRadar.js";
+import { SCHEDA_CARDS_CLASS, schedaCardHtml } from "./schedaCard.js";
 import { schedaIconeHtml, schedaIconeSpoken } from "./schedaIcone.js";
 import {
   AVVISO_LABELS,
@@ -94,6 +95,19 @@ import {
 import { escHtml } from "./theme.js";
 
 export const EXPERT_INSIGHT_TITLE = "INSIGHT GIOCATORE";
+
+/**
+ * I NOMI DEI DUE RIQUADRI AFFIANCATI, e sono nomi di PROVENIENZA, non giudizi.
+ *
+ * Entrambi dicono «della scheda» perché è la cosa che chi legge deve sapere in
+ * due secondi: quello che sta nei due riquadri l'ha scritto la fonte del Gruppo
+ * Esperti, non l'ha calcolato l'app. È la stessa garanzia che la label in alto
+ * a destra porta per l'intero pannello, ripetuta dove serve — sopra il
+ * contenuto — e non un secondo caveat: qui non compare nessun «conviene»,
+ * nessun punteggio e nessuna banda.
+ */
+export const EXPERT_INSIGHT_SEGNALI_TITLE = "SEGNALI DELLA SCHEDA";
+export const EXPERT_INSIGHT_NOTE_TITLE = "NOTE DELLA SCHEDA";
 
 // ── Etichette utente ─────────────────────────────────────────────────────────
 //
@@ -584,9 +598,24 @@ export function expertInsightSpoken(view: ExpertInsightView): string {
 }
 
 /**
- * Il corpo intero. Due colonne su desktop (visivo | prosa), impilate sotto i
- * 900px — la stessa soglia a cui `.moment-blocks-grid` smette di affiancare i
- * due pannelli qui sotto, così la schermata cambia forma in un punto solo.
+ * Il corpo intero: DUE RIQUADRI TITOLATI, AFFIANCATI SU DUE COLONNE su desktop
+ * (segnali | note) e impilati sotto i 900px — la stessa soglia a cui
+ * `.moment-blocks-grid` smette di affiancare i due pannelli qui sotto, così la
+ * schermata cambia forma in un punto solo.
+ *
+ * LA FORMA È QUELLA DELLE SCHEDE DELLA SCHERMATA DI CHIAMATA (richiesta di
+ * Pico, 2026-08-26): titolo in maiuscoletto piccolo, corpo di testo sotto,
+ * riquadri affiancati. Non è uno stile nuovo e non è una seconda copia di
+ * quello: `.scheda-card`, `.scheda-card__title` e `.scheda-cards` vivono in un
+ * posto solo (src/ui/schedaCard.ts, src/styles/schedaCard.css) e li usano sia
+ * questo riquadro sia i tre titoli della schermata di chiamata — «GIOCATORE
+ * SUGGERITO — CHI CHIAMARE ORA», «PER ME», «PER FAR SPENDERE GLI ALTRI».
+ *
+ * LE DUE COLONNE ADESSO DICONO IL PROPRIO NOME. Erano due celle mute di una
+ * griglia anonima: chi leggeva la colonna di destra doveva dedurre che quelle
+ * frasi venissero dalla scheda e non dall'app. Il titolo lo dichiara — ed è
+ * l'unica cosa che i due riquadri aggiungono al contenuto, che è identico a
+ * quello di prima, pastiglia per pastiglia e riga per riga.
  *
  * NEGLI STATI VUOTI l'etichetta di qualità e la frase stanno nello STESSO
  * paragrafo. Non è compattezza fine a sé stessa: su questa schermata ogni riga
@@ -625,13 +654,18 @@ export function expertInsightBodyHtml(view: ExpertInsightView, notPersisted = fa
   // scala numerica della fonte. Sono separati a schermo come sono separati nel
   // contratto (src/pagellaEsperti.ts), e la parola «Titolarità» compare in
   // entrambi i posti proprio per questo con due scritte diverse.
-  return `${schedaMatchNoteHtml(view)}<div class="expert-insight__grid">
-    <div class="expert-insight__visual">
-      ${titolaritaHtml(view)}
-      ${expertInsightChipsHtml(view)}
-    </div>
-    ${expertInsightProseHtml(view)}
-  </div>${pagellaBlockHtml(view.pagella, schedaIconeHtml(view))}${choice}`;
+  return `${schedaMatchNoteHtml(view)}<div class="${SCHEDA_CARDS_CLASS}" id="player-insight-cards">${schedaCardHtml(
+    {
+      title: EXPERT_INSIGHT_SEGNALI_TITLE,
+      id: "player-insight-card-segnali",
+      bodyClass: "expert-insight__visual",
+      bodyHtml: `${titolaritaHtml(view)}${expertInsightChipsHtml(view)}`,
+    },
+  )}${schedaCardHtml({
+    title: EXPERT_INSIGHT_NOTE_TITLE,
+    id: "player-insight-card-note",
+    bodyHtml: expertInsightProseHtml(view),
+  })}</div>${pagellaBlockHtml(view.pagella, schedaIconeHtml(view))}${choice}`;
 }
 
 /** L'etichetta di qualità, PORTATA DAL DATO e mai ricostruita dal renderer. */

@@ -21,13 +21,9 @@
   margin-top: 8px;
 }
 
-.per-me__title {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--text-sec);
-  margin-bottom: 6px;
-}
+/* Il titolo del sottoblocco NON è più qui: è `.scheda-card__title`, il
+   vocabolario condiviso di src/styles/schedaCard.css. Era identico a
+   `.bait__title`, riga per riga. */
 
 .per-me__empty {
   font-size: 13px;

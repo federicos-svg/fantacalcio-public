@@ -4,7 +4,6 @@ import {
   AA_NORMAL_TEXT,
   gotoScreen,
   installSyntheticNetworkGuard,
-  openTableDetail,
   textContrast,
 } from "./helpers.js";
 import {
@@ -91,8 +90,8 @@ async function buy(page: Page, name: string, teamId: string, price: number): Pro
   await page.locator("#assign-price").fill(String(price));
   await page.getByRole("button", { name: "Registra acquisto", exact: true }).click();
   // A recorded purchase returns to the chiamata moment. #333: the marker of
-  // that moment is the search field — SCARSITÀ PER RUOLO now lives behind the
-  // IL TAVOLO gesture, so its visibility no longer tracks the moment.
+  // that moment is the search field — SCARSITÀ PER RUOLO lives under IL TAVOLO,
+  // below the whole call panel, so its visibility no longer tracks the moment.
   await expect(page.locator("#search-player")).toBeVisible();
 }
 
@@ -249,7 +248,7 @@ test("ruolo esaurito e budget esaurito restano due fatti distinti, e restano VIS
   await buy(page, "Primo Attaccante", "Squadra3", 473);
 
   // ── Gli slot per ruolo, squadra per squadra: war board COMPLETA ───────────
-  await openTableDetail(page);
+  // IL TAVOLO è sempre aperto: nessun gesto prima di leggere.
   await expect(page.locator("#war-board-full-Squadra2 .war-board__slots")).toHaveAttribute(
     "aria-label",
     /Slot residui per ruolo: P 0/,
@@ -469,10 +468,10 @@ test("senza listone caricato la disponibilità resta n/d, mai uno 0 travestito d
 
   // Il pannello scarsità del momento CHIAMATA mostra già l'onestà attesa,
   // ed è la stessa che il momento LIVE mostrerebbe: n/d, mai 0.
-  // #333: sta dietro il gesto IL TAVOLO, quindi lo si APRE prima di leggerlo —
-  // `toHaveText` passerebbe anche su un elemento nascosto, e un verde letto su
-  // DOM invisibile non dimostrerebbe che l'operatore vede quel «n/d».
-  await openTableDetail(page);
+  // Sta dentro IL TAVOLO, che è sempre aperto: quel «n/d» l'operatore lo vede
+  // senza compiere nessun gesto, ed è per questo che `toBeVisible()` qui sotto
+  // vale come prova — `toHaveText` da solo passerebbe anche su DOM nascosto.
+  await expect(page.locator("#scarcity-pool-P")).toBeVisible();
   await expect(page.locator("#scarcity-pool-P")).toHaveText("n/d");
   await expect(page.locator("#scarcity-slots-P")).toHaveText("24");
 

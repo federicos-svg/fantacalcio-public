@@ -456,7 +456,6 @@ describe("gli stati della schermata sono dichiarati, non improvvisati", () => {
       "riga-selezionata",
       "contesto-aperto",
       "contesto-aperto-ricerca-vuota",
-      "tavolo-aperto",
       "listone-non-caricabile",
     ];
     expect(CALL_SCREEN_STATES.map((s) => s.id)).toEqual(ids);
@@ -464,7 +463,18 @@ describe("gli stati della schermata sono dichiarati, non improvvisati", () => {
     expect(CALL_SCREEN_STATES.filter((s) => s.listoneFullPage).map((s) => s.id)).toEqual([
       "ricerca",
       "contesto-aperto-ricerca-vuota",
-      "tavolo-aperto",
     ]);
+  });
+
+  // IL TAVOLO È SEMPRE APERTO dal 2026-08-26: uno stato «tavolo aperto»
+  // distinto da `ricerca` dichiarerebbe una differenza che la schermata non ha
+  // più. Questo test è ciò che impedisce di rimetterlo per abitudine, o di
+  // ricomparire con un altro nome: il mastro non deve MAI dichiarare uno stato
+  // irraggiungibile, perché una riga che non si può misurare è una riga che
+  // nessuno può smentire.
+  it("non dichiara nessuno stato del tavolo: aperto è l'unico che esiste", () => {
+    const ids = CALL_SCREEN_STATES.map((s) => s.id);
+    expect(ids).not.toContain("tavolo-aperto" as CallScreenState);
+    expect(ids.filter((id) => id.includes("tavolo"))).toEqual([]);
   });
 });

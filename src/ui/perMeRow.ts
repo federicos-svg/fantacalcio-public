@@ -54,6 +54,7 @@ import { perMeShownCandidates } from "../perMeCandidates.js";
 import { MAX_BID_LABEL } from "./budgetLabels.js";
 import { formatSignedPercent } from "./liveFacts.js";
 import type { ListonePlayer } from "./listone.js";
+import { renderSchedaCardTitle } from "./schedaCard.js";
 
 /** Il NOME del sottoblocco. Nomina il contenuto, non l'intenzione. */
 export const PER_ME_TITLE_SHORT = "PER ME";
@@ -357,11 +358,10 @@ export function renderPerMeSection(
   section.className = "per-me";
   section.setAttribute("aria-labelledby", "per-me-title");
 
-  const title = document.createElement("h3");
-  title.id = "per-me-title";
-  title.className = "per-me__title";
-  title.textContent = perMeTitleFor(reading);
-  section.appendChild(title);
+  // Il titolo è quello CONDIVISO (src/ui/schedaCard.ts): `.per-me__title` era
+  // una copia byte per byte di `.bait__title`, e due copie della stessa forma
+  // divergono al primo ritocco.
+  section.appendChild(renderSchedaCardTitle(perMeTitleFor(reading), { id: "per-me-title" }));
 
   if (reading.kind === "empty") {
     const empty = document.createElement("p");

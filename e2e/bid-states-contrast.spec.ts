@@ -6,7 +6,6 @@ import {
   AA_NORMAL_TEXT,
   installSyntheticNetworkGuard,
   measureAllText,
-  openTableDetail,
   textContrast,
 } from "./helpers.js";
 
@@ -478,7 +477,7 @@ test("il tetto della war board si legge in tutti e tre i suoi stati, in tutte e 
   await bootWithLog(page, warBoardLog);
 
   // ── La variante COMPLETA (momento chiamata) ───────────────────────────────
-  await openTableDetail(page);
+  // IL TAVOLO è sempre aperto: la war board COMPLETA si legge senza gesti.
   await expect(page.locator("#war-board-full")).toBeVisible();
   // Le tre squadre sono davvero dove le vogliamo, detto in parole e non solo
   // in colore: è la stessa informazione che il colore porta, letta dal testo.

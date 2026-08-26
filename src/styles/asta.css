@@ -213,23 +213,25 @@
   font-style: normal;
 }
 
-/* ── IL TAVOLO, DIETRO UN GESTO (#333, momento chiamata) ──────────────────────
+/* ── IL TAVOLO, SEMPRE APERTO (momento chiamata) ──────────────────────────────
    SCARSITÀ PER RUOLO + TAVOLO — WAR BOARD sono le stesse otto squadre lette
    due volte, e occupavano più di metà della pagina mentre il
    campo di ricerca — l'unica ragione per cui la schermata esiste — stava sotto
-   la piega. Qui il gruppo è una riga sola con un solo controllo; il corpo resta
-   nel DOM da chiuso (`hidden`), esattamente come .critical-roster-detail.
+   la piega. #333 le ha spostate qui, sotto l'intero pannello della chiamata, e
+   ce le ha messe dietro un gesto.
 
-   Stesso idioma della fascia critica (#331 punto 5), non un secondo
-   meccanismo: un <button> con aria-expanded/aria-controls, tastiera nativa,
-   e `[hidden]` riaffermato perché la regola dello user agent (display:none)
-   perde contro il `display` di questa classe. */
+   IL GESTO NON C'È PIÙ (decisione di Pico, 2026-08-26): il gruppo è sempre
+   aperto. Ciò che il gesto proteggeva se lo tiene la posizione — quello che sta
+   sotto il listone non spinge giù niente che gli stia sopra — quindi qui resta
+   una TESTATA e non un controllo: nessun <button>, nessun `aria-expanded`,
+   nessun `[hidden]` da riaffermare. La testata continua a dire il nome del
+   gruppo e che cosa contiene, che è ciò per cui la si legge. */
 .table-detail {
   display: flex;
   flex-direction: column;
   min-width: 0;
 }
-.table-detail__toggle {
+.table-detail__head {
   display: flex;
   align-items: center;
   gap: 6px 14px;
@@ -239,28 +241,20 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--panel);
-  font-family: inherit;
   text-align: left;
-  cursor: pointer;
 }
-.table-detail__toggle:hover { border-color: var(--text-dim); }
-/* La descrizione dice cosa c'è dentro PRIMA di aprirlo: un gesto che non
-   dichiara il proprio contenuto nasconde informazione invece di riordinarla. */
+/* La descrizione dice che cosa c'è nel gruppo: era il motivo per cui il gesto
+   dichiarava il proprio contenuto prima di essere aperto, e resta valido su
+   una testata — nomina i due pannelli che seguono. */
 .table-detail__what {
   color: var(--text-sec);
   font-size: 12px;
   min-width: 0;
 }
-.table-detail__caret {
-  margin-left: auto;
-  color: var(--text-sec);
-  font-size: 10px;
-}
 .table-detail__body {
   display: block;
   padding-top: 18px;
 }
-.table-detail__body[hidden] { display: none; }
 /* Dentro il gruppo l'ultimo pannello non porta il margine di coda: la
    spaziatura fra i tre la danno già i loro margin-bottom. */
 .table-detail__body > :last-child { margin-bottom: 0; }
@@ -1251,10 +1245,11 @@
   .moment-facts--inline .moment-scarcity__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 /* Il gesto che apre gli altri tre ruoli e il censimento MERCATO. Stesso idioma
-   di .table-detail__toggle — un <button> con aria-expanded/aria-controls,
-   tastiera nativa, `[hidden]` riaffermato sul corpo — non un secondo
-   meccanismo: qui è solo più basso, perché sta dentro una scheda e non è il
-   titolo di una sezione. */
+   della fascia critica (#331 punto 5, .critical-roster-detail) — un <button>
+   con aria-expanded/aria-controls, tastiera nativa, `[hidden]` riaffermato sul
+   corpo — non un secondo meccanismo: qui è solo più basso, perché sta dentro
+   una scheda e non è il titolo di una sezione. (Il gemello di .table-detail
+   non c'è più: IL TAVOLO è sempre aperto dal 2026-08-26.) */
 .moment-facts__toggle {
   display: flex;
   align-items: center;
@@ -1483,16 +1478,14 @@
   font-weight: 700;
   line-height: 1.35;
 }
-.expert-insight__grid { margin-top: 8px; }
+/* I DUE RIQUADRI AFFIANCATI. La griglia non è più qui: è `.scheda-cards`, il
+   vocabolario condiviso di src/styles/schedaCard.css, lo stesso che porta il
+   titolo in maiuscoletto piccolo delle schede della schermata di chiamata
+   (richiesta di Pico, 2026-08-26). Qui resta solo il respiro CHE APPARTIENE A
+   QUESTO PANNELLO — quanto la griglia stacca dalla testata — perché è una
+   misura di questo riquadro e non del vocabolario. */
+.player-insight .scheda-cards { margin-top: 8px; }
 
-.expert-insight__grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 9px 18px;
-}
-@media (min-width: 900px) {
-  .expert-insight__grid { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); }
-}
 .expert-insight__visual {
   display: grid;
   align-content: start;
