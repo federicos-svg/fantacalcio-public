@@ -42,7 +42,6 @@ import { CONFIRMATIONS_STORAGE_KEY, CONFIRMATIONS_SCHEMA_VERSION } from "../src/
 import { SYNTHETIC_LISTONE_POOL, E2E_TARGET_PLAYER } from "./fixtures/synthetic-listone.js";
 import {
   installSyntheticNetworkGuard,
-  openTableDetail,
   readLocalStorageJson,
   selectStatusFilter,
   LISTONE_REMOTE_PATH,
@@ -98,10 +97,10 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
     });
     await page.goto("/");
     await buyTarget(page);
-    // #333 — il contatore di scarsità sta dietro il gesto IL TAVOLO. Lo si
-    // apre invece di leggerlo nascosto: `toHaveText` passa anche su DOM
-    // invisibile, e questa PROBE deve restare una prova di ciò che si vede.
-    await openTableDetail(page);
+    // Il contatore di scarsità sta dentro IL TAVOLO, che è sempre aperto: la
+    // PROBE resta una prova di ciò che si VEDE, e la visibilità è asserita —
+    // `toHaveText` da solo passerebbe anche su DOM invisibile.
+    await expect(page.locator("#scarcity-pool-A")).toBeVisible();
     await expect(page.locator("#scarcity-pool-A")).toHaveText("0");
 
     const logAfterPurchase = await readLocalStorageJson<{ playerId: string }[]>(page, LOG_STORAGE_KEY);
@@ -132,10 +131,10 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
     // and the scarcity counter has NOT gone back up (PROBE M).
     await expect(page.locator("#critical-budget")).toHaveText(`${500 - PURCHASE_PRICE} cr`);
     await expect(page.locator("#critical-roster")).toContainText("1/7");
-    // #333 — il contatore di scarsità sta dietro il gesto IL TAVOLO. Lo si
-    // apre invece di leggerlo nascosto: `toHaveText` passa anche su DOM
-    // invisibile, e questa PROBE deve restare una prova di ciò che si vede.
-    await openTableDetail(page);
+    // Il contatore di scarsità sta dentro IL TAVOLO, che è sempre aperto: la
+    // PROBE resta una prova di ciò che si VEDE, e la visibilità è asserita —
+    // `toHaveText` da solo passerebbe anche su DOM invisibile.
+    await expect(page.locator("#scarcity-pool-A")).toBeVisible();
     await expect(page.locator("#scarcity-pool-A")).toHaveText("0");
     await selectStatusFilter(page, "assigned");
     await expect(page.locator(".listone-row", { hasText: E2E_TARGET_PLAYER.name })).toContainText("Assegnato");
@@ -198,10 +197,10 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
     // player is still off the available list.
     await expect(page.locator("#critical-budget")).toHaveText(`${500 - PURCHASE_PRICE} cr`);
     await expect(page.locator("#critical-roster")).toContainText("1/7");
-    // #333 — il contatore di scarsità sta dietro il gesto IL TAVOLO. Lo si
-    // apre invece di leggerlo nascosto: `toHaveText` passa anche su DOM
-    // invisibile, e questa PROBE deve restare una prova di ciò che si vede.
-    await openTableDetail(page);
+    // Il contatore di scarsità sta dentro IL TAVOLO, che è sempre aperto: la
+    // PROBE resta una prova di ciò che si VEDE, e la visibilità è asserita —
+    // `toHaveText` da solo passerebbe anche su DOM invisibile.
+    await expect(page.locator("#scarcity-pool-A")).toBeVisible();
     await expect(page.locator("#scarcity-pool-A")).toHaveText("0");
     await selectStatusFilter(page, "assigned");
     await expect(page.locator(".listone-row", { hasText: E2E_TARGET_PLAYER.name })).toContainText("Assegnato");

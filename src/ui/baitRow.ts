@@ -48,6 +48,7 @@ import {
 import type { PrecedentFact } from "../../packages/opponent-profiles/src/types.js";
 import { precedentEvidence, precedentMotive, seasonsSpan } from "./liveFacts.js";
 import type { ListonePlayer } from "./listone.js";
+import { renderSchedaCardTitle } from "./schedaCard.js";
 
 /** Il NOME del sottoblocco. Nomina il contenuto, non l'intenzione. */
 export const BAIT_TITLE_SHORT = "PER FAR SPENDERE GLI ALTRI";
@@ -290,11 +291,9 @@ export function renderBaitSection(
   section.className = "bait";
   section.setAttribute("aria-labelledby", "bait-title");
 
-  const title = document.createElement("h3");
-  title.id = "bait-title";
-  title.className = "bait__title";
-  title.textContent = baitTitleFor(reading);
-  section.appendChild(title);
+  // Il titolo è quello CONDIVISO (src/ui/schedaCard.ts) — vedi la nota gemella
+  // in renderPerMeSection.
+  section.appendChild(renderSchedaCardTitle(baitTitleFor(reading), { id: "bait-title" }));
 
   if (reading.kind === "empty") {
     const empty = document.createElement("p");

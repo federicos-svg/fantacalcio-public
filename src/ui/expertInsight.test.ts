@@ -8,6 +8,8 @@ import {
   FONTE_NON_DICHIARATA,
   EXPERT_INSIGHT_LABEL_TEXT,
   EXPERT_INSIGHT_CHOICE_PENDING_TEXT,
+  EXPERT_INSIGHT_NOTE_TITLE,
+  EXPERT_INSIGHT_SEGNALI_TITLE,
   SCHEDA_CHOICE_CLEAR_VALUE,
   SCHEDA_CHOICE_LINKED_NOTE,
   SCHEDA_CHOICE_NOT_PERSISTED,
@@ -30,6 +32,11 @@ import {
   sharePercentHtml,
   titolaritaHtml,
 } from "./expertInsight.js";
+import {
+  SCHEDA_CARDS_CLASS,
+  SCHEDA_CARD_CLASS,
+  SCHEDA_CARD_TITLE_CLASS,
+} from "./schedaCard.js";
 import {
   AVVISO_VALUES,
   EXPERT_INSIGHT_AVAILABILITIES,
@@ -297,6 +304,69 @@ describe("i quattro stati «non lo so» si vedono che non sanno", () => {
     expect(html).toContain("expert-insight__visual");
     expect(html).toContain("expert-prose");
     expect(html).not.toContain('id="player-insight-empty"');
+  });
+});
+
+// LA FORMA DEL RIQUADRO — richiesta di Pico, 2026-08-26: «nella forma delle
+// schede della schermata di chiamata», cioè titolo in maiuscoletto piccolo,
+// corpo sotto, riquadri affiancati su due colonne.
+//
+// I test qui cercano LE COSTANTI DEL VOCABOLARIO CONDIVISO (src/ui/schedaCard.
+// ts), non le stringhe delle classi: se qualcuno riscrivesse a mano
+// `class="scheda-card"` qui dentro, il vocabolario resterebbe uno per caso e
+// non per costruzione, e il giorno in cui la classe cambia nome i due posti si
+// separerebbero in silenzio. Cercare la costante è ciò che rende quel silenzio
+// impossibile.
+describe("la forma: due riquadri titolati, affiancati", () => {
+  const full = () =>
+    expertInsightBodyHtml(viewOf({ titolarita: "titolare", nota: "Contesto di mercato." }));
+
+  it("i due riquadri stanno nella griglia condivisa, non in una griglia locale", () => {
+    const html = full();
+    expect(html).toContain(`class="${SCHEDA_CARDS_CLASS}"`);
+    expect(html).toContain('id="player-insight-cards"');
+    // La griglia anonima di prima non deve tornare: era la copia da cui la
+    // forma condivisa è stata estratta.
+    expect(html).not.toContain("expert-insight__grid");
+  });
+
+  it("sono DUE, e sono i due strati di sempre: segnali e prosa", () => {
+    const html = full();
+    expect(html.match(new RegExp(`class="${SCHEDA_CARD_CLASS}"`, "g"))).toHaveLength(2);
+    expect(html).toContain('id="player-insight-card-segnali"');
+    expect(html).toContain('id="player-insight-card-note"');
+    // Il contenuto è quello di prima, pastiglia per pastiglia: la forma cambia,
+    // i fatti no.
+    expect(html).toContain('id="player-insight-track"');
+    expect(html).toContain('id="player-insight-prose"');
+  });
+
+  it("ciascuno porta il titolo condiviso, e i segnali vengono prima delle note", () => {
+    const html = full();
+    expect(html.match(new RegExp(`class="${SCHEDA_CARD_TITLE_CLASS}"`, "g"))).toHaveLength(2);
+    expect(html).toContain(EXPERT_INSIGHT_SEGNALI_TITLE);
+    expect(html).toContain(EXPERT_INSIGHT_NOTE_TITLE);
+    expect(html.indexOf(EXPERT_INSIGHT_SEGNALI_TITLE)).toBeLessThan(
+      html.indexOf(EXPERT_INSIGHT_NOTE_TITLE),
+    );
+  });
+
+  it("i due titoli dichiarano la PROVENIENZA e non danno un giudizio", () => {
+    // Il perimetro del riquadro è descrittivo per costruzione: i titoli non
+    // possono essere la prima crepa. Stessa guardia di deriva delle altre
+    // corsie — si cerca il vocabolario vietato per nome.
+    for (const title of [EXPERT_INSIGHT_SEGNALI_TITLE, EXPERT_INSIGHT_NOTE_TITLE]) {
+      expect(title).toContain("SCHEDA");
+      expect(title).not.toMatch(/convien|prezz|valore|max|banda|consigl|target/i);
+      expect(title).toBe(title.toUpperCase());
+    }
+  });
+
+  it("negli stati vuoti non nasce un riquadro: non c'è niente da affiancare", () => {
+    const html = expertInsightBodyHtml(unknownExpertInsight("no_expert_signal"));
+    expect(html).not.toContain(`class="${SCHEDA_CARDS_CLASS}"`);
+    expect(html).not.toContain(`class="${SCHEDA_CARD_CLASS}"`);
+    expect(html).toContain('id="player-insight-empty"');
   });
 });
 

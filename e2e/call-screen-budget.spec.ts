@@ -16,7 +16,6 @@ import {
 import {
   LISTONE_ASSET_PATH,
   installSyntheticNetworkGuard,
-  openTableDetail,
   sweepCallScreen,
   waitForCallScreenSettled,
 } from "./helpers.js";
@@ -146,9 +145,6 @@ async function enterState(page: Page, state: CallScreenState): Promise<void> {
       // il contesto: due gesti, ed è lo stato peggiore raggiungibile.
       await page.locator("#search-player").fill("");
       await expect(page.locator(".listone-row")).toHaveCount(LISTONE_PAGE_SIZE);
-      break;
-    case "tavolo-aperto":
-      await openTableDetail(page);
       break;
   }
   await page.evaluate(() => window.scrollTo(0, 0));

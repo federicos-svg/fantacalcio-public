@@ -138,10 +138,25 @@ export type CallScreenState =
   | "contesto-aperto"
   /** Contesto aperto E ricerca svuotata: il listone torna a pagina piena. */
   | "contesto-aperto-ricerca-vuota"
-  /** IL TAVOLO è aperto (sta sotto la paginazione: non consuma questo span). */
-  | "tavolo-aperto"
   /** Nessun pool caricabile: il listone rende il suo stato vuoto, senza pagine. */
   | "listone-non-caricabile";
+
+// ⚠️ LO STATO `tavolo-aperto` NON C'È PIÙ, ed è una riga in meno per una
+// ragione, non per pulizia. Esisteva perché IL TAVOLO era un accordion e la
+// schermata poteva quindi trovarsi in due forme diverse: col gruppo chiuso
+// (che è ciò che lo stato `ricerca` misurava) e col gruppo aperto. Dal
+// 2026-08-26 IL TAVOLO è SEMPRE APERTO (decisione di Pico, vedi
+// renderTableDetail in src/main.ts): il chiuso non esiste, quindi
+// `tavolo-aperto` sarebbe stato lo stato `ricerca` con un altro nome — cioè
+// una riga di mastro che dichiara uno stato irraggiungibile, che è esattamente
+// la cosa che questo file esiste per non fare.
+//
+// NIENTE COPERTURA È STATA PERSA, anzi: il gruppo è aperto in TUTTI E CINQUE
+// gli stati rimasti, quindi ogni misura di questo mastro è presa con la war
+// board e la scarsità in pagina, e non più solo una su sei. Le misure non si
+// sono mosse di un pixel perché IL TAVOLO sta SOTTO l'indicatore di pagina del
+// listone, cioè fuori dallo span che questo budget governa (§1): era vero
+// quando era chiuso, resta vero adesso che è aperto.
 
 export interface CallScreenStateSpec {
   readonly id: CallScreenState;
@@ -164,7 +179,6 @@ export const CALL_SCREEN_STATES: readonly CallScreenStateSpec[] = [
     label: "contesto aperto e ricerca svuotata",
     listoneFullPage: true,
   },
-  { id: "tavolo-aperto", label: "IL TAVOLO aperto", listoneFullPage: true },
   { id: "listone-non-caricabile", label: "listone non caricabile", listoneFullPage: false },
 ];
 

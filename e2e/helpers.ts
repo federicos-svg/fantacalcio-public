@@ -187,25 +187,13 @@ export async function selectStatusFilter(
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
 }
 
-/**
- * #333 — Opens "IL TAVOLO" on the chiamata screen: the one gesture behind
- * which SCARSITÀ PER RUOLO and TAVOLO — WAR BOARD now live.
- *
- * Every spec that reads one of those two panels goes through here. They were
- * not removed and their markup is byte-identical — they are one click away
- * instead of occupying the top half of the screen, so what changed in those
- * specs is the single line that opens them, never what they then assert.
- *
- * Idempotent: `state.tableDetailOpen` survives re-renders (a purchase returns
- * to the chiamata moment with the group still open), so a spec that opens it
- * once can keep asserting through the rest of its flow.
- */
-export async function openTableDetail(page: Page): Promise<void> {
-  const toggle = page.locator("#table-detail-toggle");
-  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(page.locator("#table-detail-body")).toBeVisible();
-}
+// `openTableDetail()` NON ESISTE PIÙ, e la sua assenza è la firma del cambio:
+// IL TAVOLO è SEMPRE APERTO dal 2026-08-26 (decisione di Pico), quindi non c'è
+// più un gesto da compiere prima di leggere SCARSITÀ PER RUOLO o TAVOLO — WAR
+// BOARD. Le spec che li leggono non aprono niente: li leggono. Che il gruppo
+// sia davvero aperto senza gesti — e che nessun controllo possa richiuderlo —
+// è provato in un posto solo, e2e/call-screen-order.spec.ts, invece di essere
+// riasserito quindici volte.
 
 /**
  * Picks an Impostazioni area from the left menu. Only the selected area's

@@ -26,6 +26,7 @@ import "./styles/asta.css";
 import "./styles/listone.css";
 import "./styles/bait.css";
 import "./styles/perMe.css";
+import "./styles/schedaCard.css";
 import {
   type AuctionEvent,
   type AuctionState,
@@ -263,6 +264,7 @@ import {
   TITOLARITA_LABELS,
 } from "./ui/expertInsight.js";
 import { LISTA_ESPERTI_LABELS } from "./ui/schedaLabels.js";
+import { renderSchedaCardTitle } from "./ui/schedaCard.js";
 import {
   loadSchedaLinks,
   saveSchedaLinks,
@@ -520,15 +522,6 @@ interface AppState {
   // it reachable, and it is deliberately app state (not DOM state) because
   // render() rebuilds the strip from scratch on every keystroke.
   criticalPlanOpen: boolean;
-  // #333 — the table-side block (scarsità per ruolo, war board, squadre della
-  // lega) sits behind ONE gesture on the chiamata screen. It answers none of
-  // the four questions asked at auction speed from MY seat (quanto posso
-  // spendere / chi me lo contende / quanto mi serve il ruolo / quanto mi
-  // resta), and its three panels used to cost more than half the page. Nothing
-  // was removed: all three stay in the DOM, one click/Invio away, and the flag
-  // is app state (not DOM state) because render() rebuilds the tree on every
-  // keystroke of the search box.
-  tableDetailOpen: boolean;
   // #331 punto 2 — MOMENTO DELL'ASTA è ridotto al ruolo chiamato dentro la
   // scheda del giocatore; gli altri tre ruoli, il censimento MERCATO e la nota
   // metodologica stanno dietro questo gesto. Come le due bandiere qui sopra è
@@ -970,7 +963,6 @@ const state: AppState = {
   callInteractions: 0,
   nominationContextOpen: false,
   criticalPlanOpen: false,
-  tableDetailOpen: false,
   momentFactsDetailOpen: false,
   chiamataFocusPending: true,
   assign: { fantaTeamId: SELF_ID, price: "" },
@@ -1592,22 +1584,13 @@ function toggleNominationContext(): void {
 }
 
 /**
- * #333 — the one gesture that opens the table-side block. Same shape as
- * toggleNominationContext/the critical strip's roster toggle: app state, a
- * full re-render, and the keyboard put back on the control that now carries
- * the new `aria-expanded` value.
- */
-function toggleTableDetail(): void {
-  state.tableDetailOpen = !state.tableDetailOpen;
-  render();
-  focusAfterRender("table-detail-toggle");
-}
-
-/**
  * #331 punto 2 — il gesto che apre gli altri tre ruoli e il censimento MERCATO
- * dentro la scheda del giocatore. Stessa forma di toggleTableDetail: stato
- * dell'app, re-render intero, tastiera rimessa sul controllo che adesso porta
- * il nuovo `aria-expanded`.
+ * dentro la scheda del giocatore. Stessa forma di toggleNominationContext:
+ * stato dell'app, re-render intero, tastiera rimessa sul controllo che adesso
+ * porta il nuovo `aria-expanded`.
+ *
+ * (Il gemello che apriva IL TAVOLO non esiste più: quel gruppo è SEMPRE
+ * APERTO dal 2026-08-26 — vedi renderTableDetail.)
  */
 function toggleMomentFactsDetail(): void {
   state.momentFactsDetailOpen = !state.momentFactsDetailOpen;
@@ -3056,12 +3039,13 @@ function renderAsta(): HTMLElement {
 
   // #333 — where the table lives, per moment.
   //
-  // CHIAMATA: scarsità per ruolo + war board are one block behind one gesture
-  // (renderTableDetail). They read the same eight seats from the TABLE's side,
-  // and together they were more than half of this screen's height while the
-  // search field — the reason the screen exists — sat below the fold. Moved
-  // and grouped, not removed: every number is still one click/Invio away, in
-  // the DOM, in the same panels.
+  // CHIAMATA: scarsità per ruolo + war board are one block (renderTableDetail),
+  // below the whole call panel. They read the same eight seats from the TABLE's
+  // side, and together they were more than half of this screen's height while
+  // the search field — the reason the screen exists — sat below the fold. Moved
+  // and grouped, not removed: every number is still in the DOM, in the same
+  // panels, and since 2026-08-26 in plain sight — the group is ALWAYS OPEN
+  // (Pico's decision; see renderTableDetail).
   //
   // ASTA: il momento live non ha questo gruppo. La contabilità di tutto il
   // tavolo lì è la striscia WAR BOARD (MINI), renderWarBoardMini in
@@ -5745,20 +5729,36 @@ function renderOperatingModeStatus(): HTMLElement {
   return panel;
 }
 
-// ── #333 — Il tavolo, dietro un gesto (momento chiamata) ─────────────────────
-// SCARSITÀ PER RUOLO e TAVOLO — WAR BOARD sono le stesse otto squadre lette
-// due volte, e nessuna delle due risponde alle quattro domande dal MIO posto
-// (quanto posso spendere per questo · chi me lo contende · quanto mi serve
-// questo ruolo adesso · quanto mi resta se lo prendo): quelle risposte stanno
-// nella fascia critica e nel CONTESTO CHIAMATA. Sono il contorno con cui si
-// decide fra una chiamata e l'altra, non nei due secondi in cui qualcuno urla
-// un prezzo — quindi stanno dietro un gesto solo.
+// ── IL TAVOLO — sempre aperto (momento chiamata) ─────────────────────────────
 //
-// I due pannelli restano nel DOM anche da chiusi (attributo `hidden`, non
-// rimozione), identici a se stessi, raggiungibili da tastiera con
-// aria-expanded/aria-controls — lo stesso idioma della fascia critica
-// (#331 punto 5, `.critical-roster` / `.critical-roster-detail`), non un
-// secondo meccanismo inventato qui.
+// COM'ERA (#333). SCARSITÀ PER RUOLO e TAVOLO — WAR BOARD sono le stesse otto
+// squadre lette due volte, e nessuna delle due risponde alle quattro domande
+// dal MIO posto (quanto posso spendere per questo · chi me lo contende · quanto
+// mi serve questo ruolo adesso · quanto mi resta se lo prendo): quelle risposte
+// stanno nella fascia critica e nel CONTESTO CHIAMATA. Occupavano più di metà
+// della pagina mentre il campo di ricerca — l'unica ragione per cui la
+// schermata esiste — stava sotto la piega, e #333 le ha spostate QUI, fuori dal
+// pannello della chiamata e sotto il listone, mettendole per giunta dietro un
+// gesto.
+//
+// COM'È (decisione di Pico, 2026-08-26): SEMPRE APERTO, e non «aperto di
+// default». Il gesto non c'è più — nessun controllo può richiuderlo — perché
+// «aperto ma richiudibile» non è quello che è stato chiesto, e perché ciò che
+// il gesto proteggeva se lo tiene ormai la POSIZIONE:
+//
+//  - il campo di ricerca sopra la piega non dipende più da questo blocco. Il
+//    gruppo sta DOPO l'intero pannello della chiamata, quindi qualunque sia la
+//    sua altezza non spinge giù niente che gli stia sopra
+//    (`e2e/call-screen-order.spec.ts`, il confronto fra `#table-detail` e
+//    `#search-player`, resta verde per costruzione);
+//  - il budget verticale della schermata non lo vede nemmeno: lo span che il
+//    mastro governa finisce all'indicatore di pagina del listone, e IL TAVOLO
+//    sta sotto — vedi `src/ui/callScreenBudget.ts`, che per questa ragione non
+//    distingue più uno stato «tavolo aperto» da uno «chiuso»: da oggi
+//    l'unico stato è aperto, in tutti e cinque gli stati della schermata.
+//
+// Ciò che resta di #333 è la parte che contava: i due pannelli NON sono più in
+// mezzo alla schermata di chiamata. Non sono più nemmeno dietro un gesto.
 function renderTableDetail(
   aState: AuctionState,
   scarcity: Readonly<Record<Role, RoleScarcity>>,
@@ -5771,25 +5771,23 @@ function renderTableDetail(
   section.className = "table-detail";
   section.setAttribute("aria-label", "Tavolo: scarsità e war board");
 
-  const open = state.tableDetailOpen;
-
-  const toggle = document.createElement("button");
-  toggle.type = "button";
-  toggle.id = "table-detail-toggle";
-  toggle.className = "table-detail__toggle";
-  toggle.setAttribute("aria-expanded", String(open));
-  toggle.setAttribute("aria-controls", "table-detail-body");
-  toggle.innerHTML =
+  // LA TESTATA NON È PIÙ UN CONTROLLO, quindi non è più un `<button>`: un
+  // bottone che non fa niente è una promessa non mantenuta per chi naviga da
+  // tastiera, e `aria-expanded` su un pannello che non si può chiudere
+  // dichiarerebbe uno stato che non esiste. Resta ciò che la testata diceva —
+  // il nome e il proprio contenuto — perché serviva a leggere il gruppo, non
+  // ad aprirlo.
+  const head = document.createElement("div");
+  head.id = "table-detail-head";
+  head.className = "table-detail__head";
+  head.innerHTML =
     `<span class="panel-title">IL TAVOLO</span>` +
-    `<span class="table-detail__what">scarsità per ruolo · war board</span>` +
-    `<span class="table-detail__caret" aria-hidden="true">${open ? "▴" : "▾"}</span>`;
-  toggle.addEventListener("click", toggleTableDetail);
-  section.appendChild(toggle);
+    `<span class="table-detail__what">scarsità per ruolo · war board</span>`;
+  section.appendChild(head);
 
   const body = document.createElement("div");
   body.id = "table-detail-body";
   body.className = "table-detail__body";
-  if (!open) body.hidden = true;
   body.appendChild(renderRoleScarcityPanel(scarcity, state.pool.length > 0));
   // War board COMPLETA — #231 tranche 3, decisione di Owner #222 voce 18
   // (revisione registrata dell'invariante #86, docs/FRONTEND_STRUCTURE.md).
@@ -6111,10 +6109,22 @@ function renderMomentoChiamata(
   // che arma la CTA «Avvia», riusata e non duplicata.
   const suggestedFirst = document.createElement("section");
   suggestedFirst.id = "suggested-player-mine";
-  const suggestedEyebrow = document.createElement("div");
-  suggestedEyebrow.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.06em;color:${C.textSec};margin-bottom:4px;`;
-  suggestedEyebrow.textContent = "GIOCATORE SUGGERITO — CHI CHIAMARE ORA";
-  suggestedFirst.appendChild(suggestedEyebrow);
+  // L'occhiello porta il titolo CONDIVISO (src/ui/schedaCard.ts) e non più uno
+  // `style.cssText` a mano: era la terza copia della stessa forma, ed era già
+  // divergente dalle altre due (0.06em di spaziatura invece di 0.04em).
+  //
+  // LA MISURA, perché una riga in più qui la pagherebbe il mastro del budget:
+  // rimisurato a 390×844 dopo il cambio, lo span della schermata di chiamata è
+  // IDENTICO — 1654px allo stato `ricerca`, gli stessi pin di
+  // e2e/call-screen-budget.spec.ts, nessun numero del mastro toccato.
+  // L'occhiello sta sulle stesse righe con entrambe le spaziature, e i 2px di
+  // margine in più si perdono nel collasso col `margin-top` di `.per-me`.
+  suggestedFirst.appendChild(
+    renderSchedaCardTitle("GIOCATORE SUGGERITO — CHI CHIAMARE ORA", {
+      id: "suggested-player-mine-title",
+      tag: "div",
+    }),
+  );
   suggestedFirst.appendChild(
     renderPerMeSection(perMeSectionProps(aState), selectListonePlayer),
   );

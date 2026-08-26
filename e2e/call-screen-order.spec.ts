@@ -9,7 +9,6 @@ import {
 } from "../src/ui/callScreenBudget.js";
 import {
   installSyntheticNetworkGuard,
-  openTableDetail,
   sweepCallScreen,
   waitForCallScreenSettled,
 } from "./helpers.js";
@@ -249,78 +248,75 @@ test("con 532 righe la paginazione è un controllo raggiungibile, non la sesta s
   expect(externalRequests).toEqual([]);
 });
 
-test("ridurre non toglie: il tavolo è dietro UN gesto, nel DOM, raggiungibile da tastiera", async ({
+test("IL TAVOLO è sempre aperto: nessun gesto lo apre, nessun controllo lo chiude", async ({
   page,
   context,
 }) => {
+  // DECISIONE DI PICO, 2026-08-26: «sempre aperto». La lettura scelta è la
+  // letterale — NON È PIÙ UN ACCORDION — e questa prova misura esattamente
+  // quella: non «nasce aperto» (che un accordion soddisfa e che si romperebbe
+  // al primo click), ma «non esiste un modo di chiuderlo».
+  //
+  // Ciò che #333 aveva ottenuto NON viene disfatto e resta provato qui sotto:
+  // il gruppo sta SOTTO l'intero pannello della chiamata, quindi la sua altezza
+  // non spinge giù il campo di ricerca (la prova d'ordine, più in alto in
+  // questo file, confronta le due posizioni assolute).
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SMALL_POOL, externalRequests);
   await boot(page, { width: 1280, height: 720 });
 
-  const toggle = page.locator("#table-detail-toggle");
   const body = page.locator("#table-detail-body");
+  const head = page.locator("#table-detail-head");
 
-  // 1. CHIUSO DI DEFAULT, MA NEL DOM. I due pannelli non sono stati rimossi:
-  //    sono presenti e nascosti, che è una cosa diversa e verificabile.
-  await expect(body).toBeHidden();
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await expect(toggle).toHaveAttribute("aria-controls", "table-detail-body");
-  // Il gesto dichiara cosa contiene PRIMA di essere aperto.
-  await expect(toggle).toContainText("IL TAVOLO");
-  await expect(toggle).toContainText("scarsità per ruolo");
-  await expect(toggle).toContainText("war board");
-  for (const selector of [
-    "#role-scarcity-panel",
-    "#war-board-full",
-    "#war-board-full-grid",
-    "#role-scarcity-grid",
-  ]) {
-    await expect(page.locator(selector), `${selector} nel DOM da chiuso`).toHaveCount(1);
-    await expect(page.locator(selector), `${selector} nascosto da chiuso`).toBeHidden();
-  }
-  // La griglia SQUADRE (LEGA) è stata RIMOSSA su richiesta di Pico
-  // (2026-08-17): non deve tornare né qui dentro né altrove nella schermata.
-  await expect(page.locator(".panel", { hasText: "SQUADRE (LEGA)" })).toHaveCount(0);
-
-  // 2. RAGGIUNGIBILE DA TASTIERA. Un <button> vero, tabbabile, che si apre con
-  //    Invio — non un div con un listener di click.
-  const control = await page.evaluate(() => {
-    const el = document.getElementById("table-detail-toggle")!;
-    return { tag: el.tagName, tabIndex: el.tabIndex, disabled: (el as HTMLButtonElement).disabled };
-  });
-  expect(control.tag).toBe("BUTTON");
-  expect(control.tabIndex).toBeGreaterThanOrEqual(0);
-  expect(control.disabled).toBe(false);
-
-  await toggle.focus();
-  await expect(toggle).toBeFocused();
-  await page.keyboard.press("Enter");
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  // 1. APERTO AL BOOT, senza che nessuno abbia toccato niente.
   await expect(body).toBeVisible();
-  // La tastiera resta sul controllo che ora porta il valore nuovo: render()
-  // ricostruisce l'albero da zero, quindi senza il rientro esplicito il fuoco
-  // finirebbe sul body.
-  await expect(toggle).toBeFocused();
+  // La testata dice ancora il nome del gruppo e che cosa contiene: era la
+  // ragione per cui il vecchio gesto lo dichiarava prima di aprirsi, e resta
+  // valida su una testata che non apre nulla.
+  await expect(head).toContainText("IL TAVOLO");
+  await expect(head).toContainText("scarsità per ruolo");
+  await expect(head).toContainText("war board");
 
-  // 3. APERTO, I DUE PANNELLI SONO QUELLI DI SEMPRE — stessi numeri, stessa
-  //    struttura: otto schede di war board, quattro celle di scarsità.
-  //    Nessuna informazione è stata tolta lungo la strada.
+  // 2. NON C'È NIENTE DA CLICCARE. Il vecchio controllo non esiste più, e non
+  //    è tornato con un altro nome: dentro il gruppo non c'è nessun bottone e
+  //    nessun `aria-expanded`, che è ciò che distingue «sempre aperto» da
+  //    «aperto di default».
+  await expect(page.locator("#table-detail-toggle")).toHaveCount(0);
+  expect(
+    await page.evaluate(() => ({
+      buttons: document.querySelectorAll("#table-detail > button, #table-detail__head button").length,
+      headButtons: document.querySelectorAll("#table-detail-head button").length,
+      expanded: document.querySelectorAll("#table-detail [aria-expanded]").length,
+      hidden: document.querySelectorAll("#table-detail [hidden]").length,
+    })),
+    "IL TAVOLO non deve avere un controllo che lo chiuda",
+  ).toEqual({ buttons: 0, headButtons: 0, expanded: 0, hidden: 0 });
+
+  // 3. I DUE PANNELLI SONO QUELLI DI SEMPRE — stessi numeri, stessa struttura:
+  //    otto schede di war board, quattro celle di scarsità. Nessuna
+  //    informazione è stata tolta lungo la strada, in nessuno dei due passaggi
+  //    (dietro il gesto con #333, davanti a tutti oggi).
   await expect(page.locator("#role-scarcity-panel")).toBeVisible();
   await expect(page.locator("#role-scarcity-grid > .scarcity-cell")).toHaveCount(4);
   await expect(page.locator("#war-board-full")).toBeVisible();
   await expect(page.locator("#war-board-full-grid > .war-board__card")).toHaveCount(8);
+  // La griglia SQUADRE (LEGA) è stata RIMOSSA su richiesta di Pico
+  // (2026-08-17): non deve tornare né qui dentro né altrove nella schermata.
+  await expect(page.locator(".panel", { hasText: "SQUADRE (LEGA)" })).toHaveCount(0);
 
-  // 4. REVERSIBILE, E LO STATO SOPRAVVIVE A UN RE-RENDER (la schermata si
-  //    ricostruisce a ogni battuta di tasto nella ricerca).
+  // 4. RESTA APERTO ATTRAVERSO I RE-RENDER. La schermata si ricostruisce a ogni
+  //    battuta di tasto nella ricerca: prima ciò che sopravviveva era uno stato
+  //    dell'app, adesso non c'è nessuno stato da far sopravvivere — e la
+  //    differenza si vede solo provandolo.
   await page.locator("#search-player").fill("Sint");
   await expect(body).toBeVisible();
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await page.locator("#search-player").fill("");
-  // `locator.press` mette il fuoco sul controllo e poi batte il tasto: dopo la
-  // fill() la tastiera è nel campo di ricerca, dove Invio significa «Avvia».
-  await toggle.press("Enter");
-  await expect(body).toBeHidden();
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(body).toBeVisible();
+  // E attraverso un reload: nessuna preferenza salvata, nessuno stato azzerato.
+  await page.reload();
+  await expect(page.locator("#search-player")).toBeVisible();
+  await expect(body).toBeVisible();
+  await expect(page.locator("#table-detail-toggle")).toHaveCount(0);
 
   // 5. GIOCATORE SUGGERITO non è stato cancellato: sta sotto la ricerca e
   //    sopra il listone, visibile, e dice ancora esattamente quello che diceva.
@@ -402,9 +398,9 @@ test("il gruppo IL TAVOLO esiste solo nella chiamata: nel momento d'asta c'è la
   await installSyntheticNetworkGuard(context, SMALL_POOL, externalRequests);
   await boot(page, { width: 1280, height: 720 });
 
-  // Nella chiamata: la war board COMPLETA è dentro il gruppo, dietro il gesto.
+  // Nella chiamata: la war board COMPLETA è dentro il gruppo, in chiaro.
   await expect(page.locator("#table-detail")).toHaveCount(1);
-  await expect(page.locator("#war-board-full")).toBeHidden();
+  await expect(page.locator("#war-board-full")).toBeVisible();
 
   await page.locator(".listone-row--clickable").first().click();
   await page.getByRole("button", { name: /^Avvia/ }).click();
