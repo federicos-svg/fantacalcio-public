@@ -18,10 +18,11 @@
 // ricerca giocatore (`app.innerHTML = ""` e ricostruzione dell'intero DOM).
 //
 // Il costo era inerte solo perché una guardia lo teneva spento:
-// `expertSchedeHavePagella` è falsa finché il deposito non porta pagelle —
-// cioè oggi, sempre, perché l'estrazione vive nel repository privato e non è
-// ancora atterrata. Il giorno in cui atterra, la passata sul pool intero
-// (~530 righe) riparte a ogni tasto senza che nessuno debba riaccenderla.
+// `expertSchedeHavePagella` è falsa finché il deposito non porta pagelle.
+// Quando questo modulo è nato quella condizione era «oggi, sempre»; dal
+// 2026-08-26 l'estrazione privata produce i voti, quindi **il giorno in cui
+// atterra è arrivato** e la passata sul pool intero (~530 righe) riparte a
+// ogni tasto senza che nessuno debba riaccenderla.
 // Questo modulo la memoizza PRIMA di quel giorno, e la guardia stessa — che
 // scandisce il deposito intero, ~200 schede, a ogni chiamata — finisce dentro
 // la stessa voce di cache invece di rifarsi a ogni tasto.

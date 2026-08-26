@@ -149,7 +149,7 @@ export function expertInsightLabel(view: ExpertInsightView): ExpertInsightLabel 
   // smettesse di essere `false` la frase corrispondente sparirebbe dal
   // tooltip, e il test che le cerca tutte e tre diventerebbe rosso invece di
   // restare verde su un payload cambiato sotto.
-  const facts: string[] = ["Scheda trascritta a mano prima dell'asta dalle fonti del Gruppo Esperti."];
+  const facts: string[] = ["Scheda preparata prima dell'asta dalle fonti del Gruppo Esperti."];
   if (view.validated === false) {
     facts.push("validated: false — nessuno ha verificato questo segnale contro un dato misurato.");
   }
@@ -304,14 +304,25 @@ export function expertInsightChipsHtml(view: ExpertInsightView): string {
 /**
  * La provenienza, l'attribuzione e la data, in UNA riga sola sotto la prosa.
  *
- * Perché la provenienza sta qui e non in una nota a piè di pannello: «scritta a
- * mano prima dell'asta» è un fatto sulla FRESCHEZZA — dice che questo non è un
- * dato live — e il posto in cui si legge quel fatto è accanto alla data, non
- * tre righe più sotto in corpo minore. Una riga di nota in fondo costava,
- * misurata a 390px, 47px di altezza su una schermata che è già la più lunga
- * dell'app, per dire una cosa che qui sta in cinque parole.
+ * Perché la provenienza sta qui e non in una nota a piè di pannello: è un fatto
+ * sulla FRESCHEZZA — dice che questo non è un dato live — e il posto in cui si
+ * legge quel fatto è accanto alla data, non tre righe più sotto in corpo
+ * minore. Una riga di nota in fondo costava, misurata a 390px, 47px di altezza
+ * su una schermata che è già la più lunga dell'app, per dire una cosa che qui
+ * sta in quattro parole.
+ *
+ * **PERCHÉ NON DICE PIÙ «trascritta a mano» (decisione di Pico, 2026-08-26).**
+ * Lo diceva, e il giorno in cui il deposito ha smesso di essere battuto a mano
+ * quella frase è diventata **falsa e stampata a schermo** sotto ogni giocatore:
+ * le schede oggi escono da una catena di estrazione, non dalle dita di
+ * qualcuno. Fra le due metà della vecchia frase, quella che il riquadro aveva
+ * davvero bisogno di dire era la FRESCHEZZA — «questo non è un dato live» — e
+ * quella metà resta vera qualunque cosa produca il deposito. Il meccanismo, che
+ * è la metà diventata falsa, esce: nominarlo avrebbe rimesso la stessa frase in
+ * scadenza al prossimo cambio di catena, e avrebbe anche introdotto a schermo
+ * una distinzione di provenienza che la decisione del 2026-08-25 tiene fuori.
  */
-export const EXPERT_INSIGHT_PROVENANCE = "trascritta a mano prima dell'asta";
+export const EXPERT_INSIGHT_PROVENANCE = "preparata prima dell'asta";
 
 export function expertInsightMetaText(view: ExpertInsightView): string {
   const fonte = view.fonte === null ? FONTE_NON_DICHIARATA : FONTE_LABELS[view.fonte];

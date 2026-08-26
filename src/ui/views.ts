@@ -1126,7 +1126,7 @@ export function renderPlayerInsightsBlock(props: PlayerInsightProps): HTMLElemen
   // spiegare. I tre caveat che una nota porterebbe sono già a schermo, e più in
   // alto: le pastiglie di onestà nella testata (parere di terzi, non validato,
   // non è un consiglio, fuori dal calcolo) e la riga di provenienza sotto la
-  // prosa, che dice che la scheda è trascritta a mano prima dell'asta. Una nota
+  // prosa, che dice che la scheda è preparata prima dell'asta. Una nota
   // che ripetesse quelle cose costava 47px misurati a 390px su una schermata
   // che è già la più lunga dell'app.
   return panel;

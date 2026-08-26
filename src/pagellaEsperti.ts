@@ -12,9 +12,15 @@
 // Questo modulo porta il CONTRATTO di quella riga: forma, intervallo,
 // dipendenza dal ruolo, che cosa significa un valore assente e la regola con
 // cui il totale si verifica. Non porta nessun estrattore: leggere le schede e
-// riempire il deposito è lavoro del repository privato, e oggi NON esiste
-// ancora — quindi lo stato normale di ogni campo qui dentro è «assente», e
-// l'app lo dichiara invece di mostrare uno zero.
+// riempire il deposito è lavoro del repository privato.
+//
+// AGGIORNAMENTO (2026-08-26): quell'estrattore **ESISTE**. Questo commento
+// diceva «oggi NON esiste ancora», ed è rimasto a dirlo dopo che l'estrazione
+// privata è arrivata fino ai cinque voti. Resta vero, e per un'altra ragione,
+// che lo stato normale di ogni campo qui dentro sia «assente»: un deposito lo
+// porta solo per i giocatori di cui la fonte ha davvero scritto la riga di
+// voti, e l'app dichiara l'assenza invece di mostrare uno zero — un voto che
+// nessuno ha scritto non è un voto basso.
 //
 // ── PERCHÉ UN MODULO A SÉ, E NON UN CAMPO IN PIÙ IN expertScheda.ts ──────────
 //
@@ -359,10 +365,11 @@ function asseView(
  * La pagella VUOTA di una riga: cinque assi, nessun voto, il quarto già
  * nominato dal ruolo quando il ruolo si conosce.
  *
- * È lo stato normale di oggi — l'estrazione privata non esiste ancora — e non
- * è un caso degenere da nascondere: è ciò che l'app mostra su ogni giocatore,
- * quindi deve essere una vista completa e leggibile come le altre, non un
- * `null` che ogni chiamante deve ricordarsi di gestire.
+ * Non è un caso degenere da nascondere: è ciò che l'app mostra su ogni
+ * giocatore che il deposito non copre, quindi deve essere una vista completa e
+ * leggibile come le altre, non un `null` che ogni chiamante deve ricordarsi di
+ * gestire. (Diceva «l'estrazione privata non esiste ancora»: dal 2026-08-26
+ * esiste, e la vista vuota è la copertura parziale, non l'assenza totale.)
  */
 export function pagellaVuota(role: Role | null | undefined = null): PagellaView {
   return resolvePagella(undefined, role);
