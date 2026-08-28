@@ -42,9 +42,20 @@ import type { GenSelectionStatus } from "./selection.js";
 /** La versione della ricetta (§K). Cambia con la sua FORMA, non col suo contenuto. */
 export const GEN_RECIPE_VERSION = "GEN-RECIPE@1.0.0";
 
-/** Il protocollo che l'ha prodotta, e la sua versione (§C, sigillo). */
+/**
+ * Il protocollo che l'ha prodotta (§C, sigillo).
+ *
+ * L'ID e' una costante perche' dice QUALE protocollo questo codice implementa:
+ * cambiarlo vorrebbe dire riscrivere i moduli, quindi il codice lo sa di se'.
+ * La VERSIONE no, ed e' la ragione per cui non vive qui: il documento di
+ * protocollo si emenda senza che una riga di questo package cambi, quindi una
+ * costante cablata resta indietro in silenzio e la ricetta finisce per
+ * dichiarare una provenienza falsa — chi la legge per sapere sotto quale
+ * protocollo e' nata leggerebbe la versione sbagliata. La versione arriva
+ * percio' dal chiamante, per la stessa strada di `protocolHash` e dalla stessa
+ * fonte: il documento. Una sola fonte di verita', mai due che possono divergere.
+ */
 export const GEN_RECIPE_PROTOCOL_ID = "GEN-PROTOCOL-A";
-export const GEN_RECIPE_PROTOCOL_VERSION = "2.0.0";
 
 export class GenRecipeError extends Error {
   constructor(message: string) {
@@ -154,6 +165,17 @@ export interface GenRecipe {
 
 export interface BuildRecipeInput {
   readonly coreVersion: string;
+  /**
+   * La versione del documento di protocollo sotto cui il run e' girato (§C).
+   *
+   * Viaggia insieme a `protocolHash` perche' e' la stessa dichiarazione letta
+   * in due modi — il nome e l'impronta dello stesso documento — e separarne le
+   * fonti significherebbe poter scrivere un hash e una versione che non
+   * parlano dello stesso testo. Il campo e' OBBLIGATORIO di proposito: un
+   * default silenzioso sarebbe di nuovo una seconda fonte, e sbaglierebbe
+   * proprio nel momento in cui il protocollo viene emendato.
+   */
+  readonly protocolVersion: string;
   readonly protocolHash: string;
   readonly datasetContentFingerprint: string;
   readonly seeds: Readonly<Record<string, number>>;
@@ -166,13 +188,23 @@ export interface BuildRecipeInput {
 /**
  * Costruisce la ricetta.
  *
- * Le uniche cose che questa funzione decide sono le costanti di versione e la
- * copia della tabella dei tetti: tutto il resto arriva dal chiamante, che e'
- * l'orchestratore che ha fatto girare la selezione. Una funzione che
- * ricalcolasse qualcosa qui produrrebbe una ricetta che non e' quella che e'
- * stata validata.
+ * Le uniche cose che questa funzione decide sono l'identita' dell'artefatto —
+ * la versione della sua FORMA e l'ID del protocollo, che il codice sa di se' —
+ * e la copia della tabella dei tetti: tutto il resto, versione del protocollo
+ * compresa, arriva dal chiamante, che e' l'orchestratore che ha fatto girare la
+ * selezione. Una funzione che ricalcolasse qualcosa qui produrrebbe una ricetta
+ * che non e' quella che e' stata validata.
  */
 export function buildGenRecipe(input: BuildRecipeInput): GenRecipe {
+  // Un campo di provenienza vuoto non e' una provenienza piu' debole: e' una
+  // dichiarazione che non dice nulla, scritta dove si andra' a cercare sotto
+  // quale protocollo la ricetta e' nata. Si rifiuta subito, dove si sa ancora
+  // di chi e' la colpa.
+  if (input.protocolVersion.trim() === "") {
+    throw new GenRecipeError(
+      "buildGenRecipe: `protocolVersion` e' vuota — la versione del protocollo si legge dal documento e si dichiara, non si omette",
+    );
+  }
   for (const entry of input.layer.entries) {
     if (!input.layer.gSet.includes(entry.G)) {
       throw new GenRecipeError(
@@ -183,7 +215,7 @@ export function buildGenRecipe(input: BuildRecipeInput): GenRecipe {
   return {
     recipeVersion: GEN_RECIPE_VERSION,
     protocolId: GEN_RECIPE_PROTOCOL_ID,
-    protocolVersion: GEN_RECIPE_PROTOCOL_VERSION,
+    protocolVersion: input.protocolVersion,
     coreVersion: input.coreVersion,
     protocolHash: input.protocolHash,
     datasetContentFingerprint: input.datasetContentFingerprint,

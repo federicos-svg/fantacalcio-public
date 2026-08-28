@@ -63,6 +63,9 @@ import { isValidPresence, type GenFeatureRow, type GenRole, type GenSeason } fro
 // sigillata, cosi' i fold prodotti sono ESATTAMENTE i sette di §B.1.
 const WORLD_OPTIONS = { seasons: 11, firstSeason: "2015_16" as GenSeason };
 
+/** La versione del protocollo dichiarata dal chiamante: qui sintetica, come l'hash. */
+const PROTOCOL_VERSION = "9.9.9-sintetica";
+
 /** Il set attivo del giro completo: i due lag del blocco X, le sette piantate, le due di rumore. */
 const ACTIVE_FEATURES = [
   "fantamediaLag1",
@@ -273,6 +276,7 @@ function runT2Pipeline(world: SyntheticWorld, activeFeatures: readonly string[])
 
   const recipe = buildGenRecipe({
     coreVersion: GEN_PROTOCOL_CORE_VERSION,
+    protocolVersion: PROTOCOL_VERSION,
     protocolHash: "0".repeat(64),
     datasetContentFingerprint: `synthetic-${String(world.seed)}`,
     seeds: { ...GEN_SEEDS },
@@ -708,6 +712,7 @@ describe("GEN-PROTOCOL-A end-to-end — il layer prime giornate (§D.15)", () =>
     const entries = GEN_EARLY_SEASON_G_SET.map((G) => runLayerPipeline(shocked, G).entry);
     const recipe = buildGenRecipe({
       coreVersion: GEN_PROTOCOL_CORE_VERSION,
+      protocolVersion: PROTOCOL_VERSION,
       protocolHash: "0".repeat(64),
       datasetContentFingerprint: "synthetic-layer",
       seeds: { ...GEN_SEEDS },

@@ -161,8 +161,17 @@ const layerEntries: EarlyLayerRecipeEntry[] = [
   { G: 3, winner: "U1", ridgeByRole: {}, selectionStatus: "winner" },
 ];
 
+/**
+ * La versione del protocollo e' un INPUT, non una costante del core: qui vale
+ * un valore sintetico che nessuna costante potrebbe eguagliare per caso, cosi'
+ * il test verifica il PASSAGGIO del valore e non un numero che il codice
+ * conosce gia'.
+ */
+const PROTOCOL_VERSION = "9.9.9-sintetica";
+
 const recipe: GenRecipe = buildGenRecipe({
   coreVersion: GEN_PROTOCOL_CORE_VERSION,
+  protocolVersion: PROTOCOL_VERSION,
   protocolHash: "a".repeat(64),
   datasetContentFingerprint: "fingerprint-sintetico",
   seeds: { ...GEN_SEEDS },
@@ -178,8 +187,45 @@ describe("genProtocol/recipeArtifact — identita' e forma (§K)", () => {
     expect(GEN_RECIPE_VERSION).toBe("GEN-RECIPE@1.0.0");
     expect(recipe.protocolId).toBe("GEN-PROTOCOL-A");
     expect(GEN_RECIPE_PROTOCOL_ID).toBe("GEN-PROTOCOL-A");
-    expect(recipe.protocolVersion).toBe("2.0.0");
+    expect(recipe.protocolVersion).toBe(PROTOCOL_VERSION);
     expect(recipe.coreVersion).toBe(GEN_PROTOCOL_CORE_VERSION);
+  });
+
+  it("la versione del protocollo e' quella DICHIARATA dal chiamante, non una costante del core", () => {
+    const build = (protocolVersion: string): GenRecipe =>
+      buildGenRecipe({
+        coreVersion: GEN_PROTOCOL_CORE_VERSION,
+        protocolVersion,
+        protocolHash: "d".repeat(64),
+        datasetContentFingerprint: "f",
+        seeds: {},
+        targetSeason: SEASON,
+        entries,
+        priceCurves: [],
+        layer: { gSet: [...GEN_EARLY_SEASON_G_SET], entries: [] },
+      });
+    // Due run sotto due versioni del documento: ciascuna ricetta porta la
+    // PROPRIA. Una costante cablata le farebbe coincidere — ed e' esattamente
+    // il difetto che rendeva falsa la provenienza dell'artefatto reale.
+    expect(build("2.1.3").protocolVersion).toBe("2.1.3");
+    expect(build("3.0.0").protocolVersion).toBe("3.0.0");
+    expect(build("2.1.3").protocolVersion).not.toBe(build("3.0.0").protocolVersion);
+  });
+
+  it("una versione di protocollo vuota non entra nella ricetta: un sigillo che non dice nulla si rifiuta", () => {
+    expect(() =>
+      buildGenRecipe({
+        coreVersion: GEN_PROTOCOL_CORE_VERSION,
+        protocolVersion: "   ",
+        protocolHash: "e".repeat(64),
+        datasetContentFingerprint: "f",
+        seeds: {},
+        targetSeason: SEASON,
+        entries,
+        priceCurves: [],
+        layer: { gSet: [...GEN_EARLY_SEASON_G_SET], entries: [] },
+      }),
+    ).toThrow(GenRecipeError);
   });
 
   it("copia i tetti ratificati e la sezione layer, con il G di ciascuna entry", () => {
@@ -193,6 +239,7 @@ describe("genProtocol/recipeArtifact — identita' e forma (§K)", () => {
     expect(() =>
       buildGenRecipe({
         coreVersion: GEN_PROTOCOL_CORE_VERSION,
+        protocolVersion: PROTOCOL_VERSION,
         protocolHash: "b".repeat(64),
         datasetContentFingerprint: "f",
         seeds: {},
@@ -396,6 +443,7 @@ describe("genProtocol/recipeArtifact — FAM-3: ogni fattore con le osservazioni
   it("la catena completa: `applyRecipe` su una entry FAM-3 serve il composto corretto", () => {
     const compositeRecipe = buildGenRecipe({
       coreVersion: GEN_PROTOCOL_CORE_VERSION,
+      protocolVersion: PROTOCOL_VERSION,
       protocolHash: "c".repeat(64),
       datasetContentFingerprint: "fingerprint-sintetico",
       seeds: { ...GEN_SEEDS },
