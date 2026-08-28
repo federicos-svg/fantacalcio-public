@@ -16,7 +16,9 @@ import type { RolePriceFacts } from "../nominationContext.js";
 import { C, escHtml, renderRoleChip, roleChipHtml } from "./theme.js";
 import { ROLE_LABELS, ROLE_LABEL_SING } from "./labels.js";
 import { devStaticPanel, devStaticBadge } from "./devStatic.js";
+import { genForecastInsightHtml } from "./genForecastInsight.js";
 import {
+  type ListoneGenForecast,
   type ListonePlayer,
   type ListoneColumn,
   type ListoneRowSignalsLookup,
@@ -137,6 +139,10 @@ export interface ListonePanelState {
   /** Line qualifying the "Indice" column — quality label and recipe version,
    *  both carried by the served rows. `null` when the pool carries no index. */
   readonly appealIndexNote: string | null;
+  /** Riga che qualifica le tre colonne delle previsioni — ricetta, protocollo,
+   *  run e autorità, tutti portati dalle righe servite. `null` quando il pool
+   *  non porta nessuna previsione (vedi `listoneGenForecastNote`). */
+  readonly genForecastNote: string | null;
   /** Riga che qualifica le sette colonne del Gruppo Esperti — vedi
    *  `listoneExpertSignalsNote` in ui/listone.ts. Mai vuota. */
   readonly expertSignalsNote: string;
@@ -196,6 +202,7 @@ export function renderListoneSvincolati(
     loadError,
     sourceNote,
     appealIndexNote,
+    genForecastNote,
     expertSignalsNote,
     sort,
     visibleColumnKeys,
@@ -350,6 +357,18 @@ export function renderListoneSvincolati(
     indexNote.style.cssText = `font-size:11px;color:${C.textDim};margin-top:4px;`;
     indexNote.textContent = appealIndexNote;
     panel.appendChild(indexNote);
+  }
+
+  // Subito sotto quella dell'indice, e con la stessa regola: c'è solo se c'è
+  // qualcosa da qualificare. Vedi `listoneGenForecastNote` in ui/listone.ts —
+  // nomina ricetta, protocollo, run e autorità, e dice dove si accendono le tre
+  // colonne, che di default sono spente.
+  if (genForecastNote !== null) {
+    const forecastNote = document.createElement("div");
+    forecastNote.id = "listone-gen-forecast-note";
+    forecastNote.style.cssText = `font-size:11px;color:${C.textDim};margin-top:4px;`;
+    forecastNote.textContent = genForecastNote;
+    panel.appendChild(forecastNote);
   }
 
   // Sempre presente, anche (soprattutto) quando i voti non ci sono: cinque
@@ -1084,6 +1103,16 @@ export interface PlayerInsightProps {
    * modo di creare un aggancio a mano, e non deve essercene uno.
    */
   readonly onChooseScheda: (schedaKey: string | null) => void;
+  /**
+   * LE PREVISIONI DELLA RIGA CHIAMATA, o `null` quando non ce ne sono (nessun
+   * giocatore selezionato, oppure un giocatore che il deposito non serve).
+   *
+   * Arrivano dalla RIGA DI LISTONE e non dal deposito delle schede: sono due
+   * fonti diverse, e questa prop le tiene distinte invece di farle passare per
+   * la vista della scheda, dove diventerebbero indistinguibili da un parere
+   * degli esperti.
+   */
+  readonly genForecast: ListoneGenForecast | null;
 }
 
 export function renderPlayerInsightsBlock(props: PlayerInsightProps): HTMLElement {
@@ -1105,6 +1134,25 @@ export function renderPlayerInsightsBlock(props: PlayerInsightProps): HTMLElemen
   const body = document.createElement("div");
   body.innerHTML = expertInsightBodyHtml(props.view, !props.choicePersisted);
   panel.appendChild(body);
+
+  // LA RIGA DELLE PREVISIONI, in fondo al riquadro: DOPO tutto ciò che viene
+  // dalla scheda, tendina della scelta compresa. Sono due fonti diverse, e
+  // infilare una lettura del deposito del listone in mezzo al blocco della
+  // scheda — fra la scheda e la domanda «quale di queste è sua?» — le farebbe
+  // sembrare la stessa cosa.
+  //
+  // ESISTE SOLO SE IL DATO C'È, e questo è anche ciò che tiene fermo il libro
+  // mastro del budget verticale (src/ui/callScreenBudget.ts): nessuna fixture
+  // e2e porta previsioni, quindi nessuna altezza dichiarata lì cambia. Il
+  // giorno in cui il deposito le servirà davvero, l'altezza di questo riquadro
+  // va RIMISURATA a 390px e il mastro aggiornato con quella misura — non con
+  // una stima scritta qui.
+  const forecastHtml = genForecastInsightHtml(props.genForecast);
+  if (forecastHtml !== "") {
+    const forecast = document.createElement("div");
+    forecast.innerHTML = forecastHtml;
+    panel.appendChild(forecast);
+  }
 
   // La tendina esiste solo quando c'è più di un candidato (schedaChoiceHtml
   // rende stringa vuota altrimenti), quindi questa query è null nella

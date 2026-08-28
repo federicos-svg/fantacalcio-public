@@ -20,6 +20,11 @@ import {
 } from "../pagellaEsperti.js";
 import { escHtml, roleChipHtml } from "./theme.js";
 import { clubBadgeHtml } from "./serieA.js";
+// La formattazione decimale italiana deterministica di questo repository —
+// niente `Intl`, virgola, un decimale. Importata e non ricopiata: una seconda
+// implementazione dello stesso numero è il modo in cui due schermate finiscono
+// per scrivere «6,4» e «6.42» dello stesso dato.
+import { formatDecimal1 } from "./liveFacts.js";
 
 export type ListoneCellValue = string | number;
 
@@ -46,6 +51,10 @@ export interface ListonePlayer {
   readonly extra?: Readonly<Record<string, ListoneCellValue>>;
   /** Present only when the served payload carries one — see below. */
   readonly appealIndex?: ListoneAppealIndex;
+  /** Le previsioni del motore GEN-PROTOCOL-A per questa riga, quando il
+   *  deposito le serve. Assente = giocatore non servibile, e la UI lo dice
+   *  (`n/d`) invece di inventarne una — vedi `ListoneGenForecast`. */
+  readonly genForecast?: ListoneGenForecast;
 }
 
 /**
@@ -68,6 +77,103 @@ export interface ListoneAppealIndex {
   readonly quality: string;
   readonly recipe: string;
   readonly components: Readonly<Record<string, number | null>>;
+}
+
+// ── LE PREVISIONI DEL MOTORE (GEN-PROTOCOL-A) — CONTRATTO DI SOLA LETTURA ────
+//
+// L'APP LEGGE, NON CALCOLA, e questo non è un modo di dire: il barrel del
+// pacchetto dell'indice resta NON importabile da `src/`, e nessuna riga di
+// questo file conosce la ricetta. Qui arriva un payload già prodotto altrove, e
+// l'unica cosa che questo modulo può fare con un payload malformato è
+// RIFIUTARLO: mai un default, mai un numero inventato, mai un caveat aggiunto o
+// tolto rispetto a quello che il dato dice.
+//
+// (Il percorso di quel barrel non è scritto qui apposta: l'invariante è pinnata
+// da un test che cerca la stringa nel TESTO dei file di `src/` — import o
+// commento che sia — quindi nominarlo la farebbe diventare rossa.)
+//
+// I TRE BERSAGLI, nel vocabolario della ricetta (GEN-RECIPE@1.0.0):
+//   T2 — fantamedia prevista;
+//   TN — presenze previste, con l'eventuale tetto degli esperti già applicato
+//        a monte (§D.10.2) e DICHIARATO dal dato (`capApplied`);
+//   T1 — totale previsto (composto).
+// Sono tutti e tre obbligatori quando `genForecast` c'è: due bersagli su tre
+// sarebbero una previsione monca che la tabella mostrerebbe come completa.
+//
+// UNA RIGA PUÒ NON AVERNE. Un giocatore non servibile non ha `genForecast`, e
+// questo è un dato — la cella dice `n/d`, come per l'indice.
+export type GenForecastTargetId = "T2" | "TN" | "T1";
+
+/** L'ordine in cui i tre bersagli si leggono: prima la fantamedia, poi le
+ *  presenze, poi il totale che le compone. Dichiarato una volta — colonne,
+ *  riga d'insight e nota sotto la tabella lo condividono invece di riscriverlo. */
+export const GEN_FORECAST_TARGET_IDS: readonly GenForecastTargetId[] = ["T2", "TN", "T1"];
+
+/**
+ * Lo stato di un bersaglio COME LO DICHIARA IL DATO. Vocabolario chiuso: la
+ * ricetta ne conosce un terzo (`NO_VERDICT`, vedi schemas/gen-recipe.schema.json
+ * §entry.status), ma un bersaglio senza verdetto non produce una previsione da
+ * servire — la riga arriva senza `genForecast` e l'assenza si legge `n/d`. Un
+ * `status` fuori da questi due non è una parola che questo modulo possa
+ * mostrare senza inventarne il significato: il pool si rifiuta.
+ */
+export type GenForecastStatus = "winner" | "B0";
+
+const GEN_FORECAST_STATUSES: readonly string[] = ["winner", "B0"];
+
+/** I campi che un bersaglio può portare, e nient'altro — vedi
+ *  `isGenForecastTarget` per perché qui l'ignoto si rifiuta. */
+const GEN_FORECAST_TARGET_FIELDS: readonly string[] = ["value", "interval", "status", "capApplied"];
+
+/**
+ * L'AUTORITÀ, e perché il vocabolario è chiuso a una parola sola.
+ *
+ * L'etichetta a schermo la porta il DATO (`authority`), mai il renderer — ma
+ * l'unico valore che questa superficie può mostrare è `advisory`: un payload
+ * che dichiarasse un'autorità diversa chiederebbe al sito di esporre un output
+ * direttivo, che è un no-go finché il gate che lo valida non esiste. Quindi non
+ * si cabla la parola «advisory» nella resa (verrebbe mostrata anche su un dato
+ * che dice altro): si RIFIUTA il pool e non si mostra niente.
+ */
+export const GEN_FORECAST_AUTHORITY_ADVISORY = "advisory";
+
+/**
+ * Il raggio conformal di un bersaglio, `null` quando non c'è — ed è il caso di
+ * oggi, perché i raggi non esistono ancora. È nel contratto lo stesso, perché
+ * il formato di trasporto lo prevede e un payload valido non deve mai essere
+ * rifiutato da questa parte del confine.
+ */
+export interface ListoneGenForecastInterval {
+  readonly lo: number;
+  readonly hi: number;
+}
+
+export interface ListoneGenForecastTarget {
+  readonly value: number;
+  readonly interval: ListoneGenForecastInterval | null;
+  readonly status: GenForecastStatus;
+  /** SOLO su TN: il tetto degli esperti (§D.10.2) è stato applicato a questa
+   *  previsione. Booleano dichiarato dal dato; sugli altri due bersagli il
+   *  campo non esiste e la sua presenza invalida il pool. */
+  readonly capApplied?: boolean;
+}
+
+/**
+ * Le previsioni di una riga, esattamente come il deposito privato le serve.
+ *
+ * Ogni qualificatore VIAGGIA COL NUMERO — versione della ricetta, versione del
+ * protocollo, identificativo del run, autorità — perché una previsione senza la
+ * ricetta che l'ha prodotta non è ispezionabile, e questo file non è
+ * autorizzato a supplire con una costante. Display-only, come il resto del
+ * pool: non alimenta nessun motore, nessuna fascia, nessun gate, e NON entra
+ * nel riquadro del valore (`ValueSlotId` è chiuso a quattro, src/valueBox.ts).
+ */
+export interface ListoneGenForecast {
+  readonly recipeVersion: string;
+  readonly protocolVersion: string;
+  readonly runId: string;
+  readonly authority: string;
+  readonly targets: Readonly<Record<GenForecastTargetId, ListoneGenForecastTarget>>;
 }
 
 export type ColumnKind = "string" | "number" | "role";
@@ -137,6 +243,75 @@ const QUOTATION_COLUMN: ListoneColumn = CORE_COLUMNS[3] as ListoneColumn;
 /** Column key of the appeal index. Not a core column: it exists only when the
  *  served pool actually carries an index, and disappears with it. */
 export const APPEAL_INDEX_COLUMN_KEY = "appealIndex";
+
+/** Il nome del campo di riga che porta le previsioni. Non è una chiave di
+ *  colonna — le colonne sono tre, una per bersaglio — ed è qui perché la
+ *  validazione deve sapere che non è una colonna extra del file caricato. */
+export const GEN_FORECAST_FIELD = "genForecast";
+
+/**
+ * LE TRE COLONNE DELLE PREVISIONI, una per bersaglio.
+ *
+ * Tre e non una: sono tre grandezze diverse (un voto medio, un conteggio di
+ * partite, un totale di punti) e una colonna sola le renderebbe non ordinabili
+ * — la stessa ragione per cui «punizioni» e «angoli» sono due colonne e non una
+ * cella con dentro due numeri.
+ *
+ * La chiave porta il nome del bersaglio COME LO CHIAMA LA RICETTA (`T2`, `TN`,
+ * `T1`): l'etichetta a schermo è in italiano, ma la chiave — che finisce
+ * nell'archivio delle preferenze e in `data-col` — resta agganciata al
+ * vocabolario del contratto, così una colonna riaccesa nel 2027 parla ancora
+ * della stessa cosa.
+ */
+export const GEN_FORECAST_COLUMN_KEY_BY_TARGET: Readonly<Record<GenForecastTargetId, string>> = {
+  T2: "genForecast_T2",
+  TN: "genForecast_TN",
+  T1: "genForecast_T1",
+};
+
+export const GEN_FORECAST_COLUMN_KEYS: readonly string[] = GEN_FORECAST_TARGET_IDS.map(
+  (target) => GEN_FORECAST_COLUMN_KEY_BY_TARGET[target],
+);
+
+/** Dalla chiave di colonna al bersaglio, o `undefined` se quella chiave non è
+ *  una delle tre. Derivata dalla mappa qui sopra e mai riscritta a mano. */
+const GEN_FORECAST_TARGET_BY_COLUMN_KEY: ReadonlyMap<string, GenForecastTargetId> = new Map(
+  GEN_FORECAST_TARGET_IDS.map((target) => [GEN_FORECAST_COLUMN_KEY_BY_TARGET[target], target]),
+);
+
+/**
+ * LE ETICHETTE — le parole del prodotto, non le sigle del protocollo.
+ *
+ * «prev.» sta per «prevista/previste/previsto» e compare in tutte e tre:
+ * l'abbreviazione è la stessa parola in tre concordanze diverse, e ripeterla
+ * per esteso mangerebbe la larghezza della cifra su una tabella che a 390px si
+ * legge già stretta. Che siano previsioni, e di chi, lo dicono per esteso il
+ * tooltip della colonna e la nota sotto la tabella.
+ */
+export const GEN_FORECAST_COLUMN_LABELS: Readonly<Record<GenForecastTargetId, string>> = {
+  T2: "Fantamedia prev.",
+  TN: "Presenze prev.",
+  T1: "Totale prev.",
+};
+
+/**
+ * IL MARCATORE DEL TETTO — un segno accanto alla cifra delle presenze, e la
+ * frase per esteso nell'altro canale (`GEN_FORECAST_CAP_LABEL`).
+ *
+ * Discreto ma non muto, e soprattutto NON un colore: la cella è larga un
+ * pollice, la stampa è in bianco e nero e chi legge a voce non vede nessuna
+ * tinta. Stesso idioma dei marcatori d'asse «PI»/«BO» (`cellMarkerHtml`), che è
+ * già misurato dalla guardia di contrasto.
+ *
+ * La freccia verso il basso dice la direzione del tetto: la previsione è stata
+ * TAGLIATA verso il basso, mai alzata.
+ */
+export const GEN_FORECAST_CAP_MARKER = "▾";
+
+/** La frase per esteso del marcatore. Dichiara UN FATTO DEL DATO — il tetto è
+ *  stato applicato — e non lo interpreta: quanto abbia tagliato, e perché, non
+ *  è qualcosa che il payload dica e questa cella non lo indovina. */
+export const GEN_FORECAST_CAP_LABEL = "tetto esperti applicato";
 
 // ── LE COLONNE DEL GRUPPO ESPERTI ────────────────────────────────────────────
 //
@@ -337,6 +512,10 @@ export const VALUE_NOT_APPLICABLE = PAGELLA_NON_APPLICABILE;
 const CORE_KEYS = new Set(CORE_COLUMNS.map((c) => c.key));
 CORE_KEYS.add("proxyId");
 CORE_KEYS.add(APPEAL_INDEX_COLUMN_KEY);
+// Le previsioni sono un campo STRUTTURATO della riga, non una colonna extra:
+// senza questa riga `isListonePlayer` le vedrebbe come una cella con dentro un
+// oggetto e rifiuterebbe ogni pool che le porta.
+CORE_KEYS.add(GEN_FORECAST_FIELD);
 
 // Gate OFF means local/static display data cannot create decision surfaces by
 // choosing a suggestive extra-column name. Reject the whole pool fail-closed.
@@ -446,6 +625,17 @@ export function isGatedListoneExtraKey(key: string): boolean {
  * `appealIndex` è nell'elenco ma la sua colonna esiste solo quando il pool
  * porta davvero un indice — regola invariata, vedi `listoneColumns`: qui
  * cambia il POSTO che occupa quando c'è, non la condizione che la fa esistere.
+ *
+ * LE TRE PREVISIONI DEL MOTORE NON SONO IN QUESTO ELENCO, ed è una scelta
+ * dichiarata e non una dimenticanza. L'elenco è di Pico (2026-08-24) e la
+ * risposta sulle colonne fuori da esso è testuale: «Nascondile, ma lasciale
+ * attivabili». Le tre colonne esistono quindi nel listone di un pool che porta
+ * previsioni, al loro posto (subito dopo l'indice), spente finché non le si
+ * accende dal pannello «Colonne visibili» — e la nota sotto la tabella dice che
+ * ci sono. Accenderle di default sarebbe anche un cambio di altezza della riga
+ * a 390px che nessuno ha ancora MISURATO su un pool con previsioni, e il libro
+ * mastro del budget verticale (src/ui/callScreenBudget.ts) si aggiorna con una
+ * misura, non con una stima.
  */
 export const DEFAULT_VISIBLE_COLUMN_KEYS: readonly string[] = [
   ...IDENTITY_COLUMNS.map((c) => c.key),
@@ -509,6 +699,122 @@ function isAppealIndex(v: unknown): v is ListoneAppealIndex {
   return names.every((name) => isScaleValue(components[name]));
 }
 
+/** Un numero servito: finito, e nient'altro. `NaN`/`Infinity` arriverebbero a
+ *  schermo verbatim (o farebbero comparare l'incomparabile nell'ordinamento). */
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v);
+}
+
+/** `null` oppure due estremi finiti col basso non sopra l'alto. Un intervallo
+ *  rovesciato non è un intervallo stretto: è un dato sbagliato. */
+function isGenForecastInterval(v: unknown): v is ListoneGenForecastInterval | null {
+  if (v === null) return true;
+  if (typeof v !== "object" || Array.isArray(v)) return false;
+  const o = v as Record<string, unknown>;
+  if (Object.keys(o).some((k) => k !== "lo" && k !== "hi")) return false;
+  if (!isFiniteNumber(o.lo) || !isFiniteNumber(o.hi)) return false;
+  return o.lo <= o.hi;
+}
+
+/**
+ * Un bersaglio, con la stessa postura fail-closed del resto del validatore: un
+ * valore non finito, uno stato fuori vocabolario, un intervallo malformato o un
+ * `capApplied` su un bersaglio che non è TN invalidano il POOL INTERO invece di
+ * essere mostrati senza ciò che li qualifica.
+ *
+ * `capApplied` SOLO SU TN, e la simmetria è voluta: il campo dichiara il tetto
+ * degli esperti (§D.10.2), che si applica alle presenze e a nient'altro.
+ * Trovarlo su T2 o T1 significa che chi ha prodotto il payload sta parlando di
+ * un'altra cosa, e questo modulo non è nella posizione di indovinare quale.
+ */
+function isGenForecastTarget(v: unknown, target: GenForecastTargetId): v is ListoneGenForecastTarget {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
+  const o = v as Record<string, unknown>;
+  // NIENTE CHIAVI SCONOSCIUTE QUI DENTRO, ed è l'unico posto del contratto in
+  // cui l'ignoto è un rifiuto invece di un'omissione (vedi `isGenForecast`).
+  // Una chiave in più su un BERSAGLIO qualifica un numero che questa superficie
+  // mostra — un livello di copertura, un'unità, un troncamento — e mostrare il
+  // numero senza il suo qualificatore è esattamente il difetto che questo
+  // contratto esiste per non avere.
+  if (Object.keys(o).some((k) => !GEN_FORECAST_TARGET_FIELDS.includes(k))) return false;
+  if (!isFiniteNumber(o.value)) return false;
+  if (!("interval" in o) || !isGenForecastInterval(o.interval)) return false;
+  if (typeof o.status !== "string" || !GEN_FORECAST_STATUSES.includes(o.status)) return false;
+  if (target === "TN") {
+    if (o.capApplied !== undefined && typeof o.capApplied !== "boolean") return false;
+  } else if (o.capApplied !== undefined) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Le previsioni di una riga. Tutti e tre i bersagli o nessuno: `genForecast`
+ * presente con due bersagli su tre è una previsione monca, e mostrarla come
+ * completa sarebbe esattamente il difetto che questo contratto esiste per non
+ * avere.
+ *
+ * L'autorità è controllata QUI e non alla resa: vedi
+ * `GEN_FORECAST_AUTHORITY_ADVISORY` per perché il vocabolario è chiuso a una
+ * parola sola.
+ *
+ * CIÒ CHE NON È RICONOSCIUTO SI IGNORA, e non è un cedimento: un campo in più
+ * accanto a `runId`, o un quarto bersaglio dentro `targets`, è dato che questa
+ * superficie non mostra — non un qualificatore di un numero che mostra. Non
+ * entra nel pool (`copyGenForecast` ricompone campo per campo) e non fa
+ * sparire il listone il giorno in cui il produttore aggiunge un bersaglio.
+ * Dentro un bersaglio la regola si ribalta: lì l'ignoto è un rifiuto.
+ */
+function isGenForecast(v: unknown): v is ListoneGenForecast {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
+  const o = v as Record<string, unknown>;
+  for (const field of ["recipeVersion", "protocolVersion", "runId"] as const) {
+    if (typeof o[field] !== "string" || (o[field] as string).trim() === "") return false;
+  }
+  if (o.authority !== GEN_FORECAST_AUTHORITY_ADVISORY) return false;
+  if (typeof o.targets !== "object" || o.targets === null || Array.isArray(o.targets)) return false;
+  const targets = o.targets as Record<string, unknown>;
+  return GEN_FORECAST_TARGET_IDS.every((target) => isGenForecastTarget(targets[target], target));
+}
+
+/**
+ * La copia campo per campo di una previsione già validata: solo ciò che questo
+ * contratto nomina entra nel pool. `capApplied` resta un campo OPZIONALE e non
+ * diventa `false` per comodità — «il tetto non è stato applicato» e «il dato
+ * non lo dichiara» sono due frasi diverse, e la seconda non si trasforma nella
+ * prima passando di qui.
+ */
+function copyGenForecast(forecast: ListoneGenForecast): ListoneGenForecast {
+  const targets = Object.fromEntries(
+    GEN_FORECAST_TARGET_IDS.map((id) => {
+      const target = forecast.targets[id];
+      return [
+        id,
+        {
+          value: target.value,
+          interval: target.interval === null ? null : { lo: target.interval.lo, hi: target.interval.hi },
+          status: target.status,
+          ...(target.capApplied !== undefined ? { capApplied: target.capApplied } : {}),
+        },
+      ];
+    }),
+  ) as Record<GenForecastTargetId, ListoneGenForecastTarget>;
+  return {
+    recipeVersion: forecast.recipeVersion,
+    protocolVersion: forecast.protocolVersion,
+    runId: forecast.runId,
+    authority: forecast.authority,
+    targets,
+  };
+}
+
+/** La tripla che identifica il run che ha prodotto una previsione. Un pool è un
+ *  run solo, quindi è una tripla sola — vedi il controllo in
+ *  `validateListonePool`. */
+function genForecastRunKey(forecast: ListoneGenForecast): string {
+  return JSON.stringify([forecast.recipeVersion, forecast.protocolVersion, forecast.runId]);
+}
+
 function isListonePlayer(v: unknown): v is Record<string, unknown> {
   if (typeof v !== "object" || v === null) return false;
   const o = v as Record<string, unknown>;
@@ -533,6 +839,7 @@ function isListonePlayer(v: unknown): v is Record<string, unknown> {
     (typeof o.quotation !== "number" || !Number.isFinite(o.quotation) || o.quotation < 0)
   ) return false;
   if (o.appealIndex !== undefined && !isAppealIndex(o.appealIndex)) return false;
+  if (o[GEN_FORECAST_FIELD] !== undefined && !isGenForecast(o[GEN_FORECAST_FIELD])) return false;
   for (const key of Object.keys(o)) {
     if (CORE_KEYS.has(key)) continue;
     if (isGatedListoneExtraKey(key)) return false;
@@ -559,6 +866,7 @@ export type ListonePoolValidation =
         | "duplicate-identity"
         | "ambiguous-identity"
         | "inconsistent-appeal-index"
+        | "inconsistent-gen-forecast"
         | "mixed-extra-column-type"
         | "mixed-identity-scheme";
       readonly identity?: string;
@@ -581,6 +889,14 @@ export function validateListonePool(json: unknown): ListonePoolValidation {
       club: item.club as string,
       ...(item.quotation !== undefined ? { quotation: item.quotation as number } : {}),
       ...(item.appealIndex !== undefined ? { appealIndex: item.appealIndex as ListoneAppealIndex } : {}),
+      // SOLO I CAMPI RICONOSCIUTI, ricomposti uno per uno invece di copiare
+      // l'oggetto servito: ciò che `isGenForecast` ignora (un campo in più
+      // accanto a `runId`, un quarto bersaglio) si ferma QUI. La riga che
+      // finisce nel pool — e quindi in `localStorage`, e nella sessione di
+      // domani — non trasporta nulla che questo file non abbia nominato.
+      ...(item[GEN_FORECAST_FIELD] !== undefined
+        ? { genForecast: copyGenForecast(item[GEN_FORECAST_FIELD] as ListoneGenForecast) }
+        : {}),
       ...(extraKeys.length > 0
         ? { extra: Object.fromEntries(extraKeys.map((k) => [k, item[k] as ListoneCellValue])) }
         : {}),
@@ -592,6 +908,13 @@ export function validateListonePool(json: unknown): ListonePoolValidation {
   // table could no longer name the recipe the column was computed with.
   const recipes = new Set(out.flatMap((p) => (p.appealIndex ? [p.appealIndex.recipe] : [])));
   if (recipes.size > 1) return { ok: false, reason: "inconsistent-appeal-index" };
+  // Gemello del controllo qui sopra, sulle previsioni: un pool è UN run del
+  // motore, quindi UNA tripla ricetta+protocollo+run. Due triple nello stesso
+  // pool significano righe di run diversi mescolate, e la nota sotto la tabella
+  // non potrebbe più nominare la ricetta con cui le colonne sono state
+  // calcolate senza scegliere arbitrariamente una delle due.
+  const runs = new Set(out.flatMap((p) => (p.genForecast ? [genForecastRunKey(p.genForecast)] : [])));
+  if (runs.size > 1) return { ok: false, reason: "inconsistent-gen-forecast" };
   // listonePlayerKey uses proxy:<id> when a row carries proxyId, and
   // <name>__<club> otherwise: the SAME physical player represented once with
   // proxyId and once without resolves to two different keys, so neither the
@@ -803,6 +1126,50 @@ export function listoneAppealIndexNote(pool: readonly ListonePlayer[]): string |
 }
 
 /**
+ * La riga che qualifica le tre colonne delle previsioni, `null` quando il pool
+ * non ne porta nessuna (niente da qualificare, quindi nessuna affermazione).
+ *
+ * Gemella di `listoneAppealIndexNote`, e per la stessa ragione: ogni parola che
+ * conta viene dalle righe — la versione della ricetta, quella del protocollo,
+ * l'identificativo del run e l'AUTORITÀ, che è la parola con cui il dato stesso
+ * dichiara di non essere direttivo. I conteggi sono solo quante righe hanno
+ * avuto una previsione e quante no.
+ *
+ * DICE ANCHE DOVE SONO LE COLONNE. Le tre non sono accese di default (vedi
+ * `DEFAULT_VISIBLE_COLUMN_KEYS`): una previsione che esiste e non si vede, con
+ * nessuna riga che lo dica, sarebbe indistinguibile da una che non è arrivata.
+ */
+export function listoneGenForecastNote(pool: readonly ListonePlayer[]): string | null {
+  const forecasts = pool.flatMap((p) => (p.genForecast ? [p.genForecast] : []));
+  if (forecasts.length === 0) return null;
+  // Il pool è già stato rifiutato se le triple divergono (`inconsistent-gen-
+  // forecast`), quindi qui la prima riga parla per tutte. Resta un `[...new
+  // Set()]` e non un `forecasts[0]` perché un pool costruito a mano nei test —
+  // o il giorno in cui quel controllo cambiasse — deve far comparire la
+  // divergenza nella nota, non nasconderla dietro la prima riga incontrata.
+  const recipes = [...new Set(forecasts.map((f) => f.recipeVersion))].sort();
+  const protocols = [...new Set(forecasts.map((f) => f.protocolVersion))].sort();
+  const runs = [...new Set(forecasts.map((f) => f.runId))].sort();
+  const authorities = [...new Set(forecasts.map((f) => f.authority))].sort();
+  const capped = forecasts.filter((f) => f.targets.TN.capApplied === true).length;
+  const fallback = forecasts.filter((f) =>
+    GEN_FORECAST_TARGET_IDS.some((target) => f.targets[target].status !== "winner"),
+  ).length;
+  const labels = GEN_FORECAST_TARGET_IDS.map(
+    (target) => `${GEN_FORECAST_COLUMN_LABELS[target]} (${target})`,
+  ).join(", ");
+  return (
+    `Previsioni di ricerca — ${labels}: ${authorities.join(" / ")}, ricetta ` +
+    `${recipes.join(" / ")}, protocollo ${protocols.join(" / ")}, run ${runs.join(" / ")}. ` +
+    `${forecasts.length} righe con previsione, ${pool.length - forecasts.length} senza (${VALUE_NOT_AVAILABLE}). ` +
+    `Presenze col tetto degli esperti applicato (${GEN_FORECAST_CAP_MARKER}): ${capped}. ` +
+    `Righe con almeno un bersaglio non «winner»: ${fallback}. ` +
+    `Le tre colonne si accendono dal pannello «Colonne visibili». ` +
+    DISPLAY_ONLY_CLAUSE
+  );
+}
+
+/**
  * LA RIGA CHE QUALIFICA LE SETTE COLONNE DEL GRUPPO ESPERTI — e che, finché i
  * voti non ci sono, DICE che non ci sono.
  *
@@ -927,12 +1294,36 @@ export function poolHasAppealIndex(pool: readonly ListonePlayer[]): boolean {
   return pool.some((p) => p.appealIndex !== undefined);
 }
 
+/** Gemella della funzione qui sopra: vero solo se ALMENO UNA riga porta le
+ *  previsioni. Senza previsioni le tre colonne non esistono — tre colonne di
+ *  `n/d` su un pool che non ne porta nessuna non direbbero niente a nessuno e
+ *  costerebbero larghezza a una tabella che a 390px si legge già stretta. */
+export function poolHasGenForecast(pool: readonly ListonePlayer[]): boolean {
+  return pool.some((p) => p.genForecast !== undefined);
+}
+
+/**
+ * Le tre colonne delle previsioni, nell'ordine dei bersagli.
+ *
+ * `kind: "number"` come l'indice: si ordinano numericamente sul VALORE SERVITO,
+ * non sul testo arrotondato — l'arrotondamento avviene solo alla resa (vedi
+ * `listoneCellText`), quindi due previsioni che a schermo dicono «24» restano
+ * ordinate fra loro come il dato le distingue.
+ */
+const GEN_FORECAST_COLUMNS: readonly ListoneColumn[] = GEN_FORECAST_TARGET_IDS.map((target) => ({
+  key: GEN_FORECAST_COLUMN_KEY_BY_TARGET[target],
+  label: GEN_FORECAST_COLUMN_LABELS[target],
+  kind: "number" as ColumnKind,
+  core: false,
+}));
+
 /** Le chiavi che questo file calcola da sé. Una colonna extra del file
  *  caricato che portasse uno di questi nomi sarebbe una SECONDA colonna con
  *  la stessa chiave: due intestazioni identiche e un ordinamento ambiguo. */
 const RESERVED_COLUMN_KEYS: ReadonlySet<string> = new Set([
   ...CORE_COLUMNS.map((c) => c.key),
   APPEAL_INDEX_COLUMN_KEY,
+  ...GEN_FORECAST_COLUMN_KEYS,
   ...SIGNAL_COLUMN_KEYS,
   // I due assi di ruolo del contratto non sono colonne — la colonna che li
   // mostra è `pagella_no_malus_bonus` — ma una colonna extra del file caricato
@@ -945,15 +1336,17 @@ const RESERVED_COLUMN_KEYS: ReadonlySet<string> = new Set([
  * che è quello dell'elenco di Pico (2026-08-24) e non più quello della forma
  * della riga:
  *
- *   nome, ruolo, squadra, [indice], i cinque voti, rigorista, piazzati,
- *   quotazione, poi le colonne extra del file caricato (alfabetiche).
+ *   nome, ruolo, squadra, [indice], [le tre previsioni], i cinque voti,
+ *   rigorista, piazzati, quotazione, poi le colonne extra del file caricato
+ *   (alfabetiche).
  *
  * L'ordine sta QUI e non nella lista delle colonne visibili apposta: una
  * colonna riaccesa dal pannello torna al suo posto invece di comparire in
  * fondo, e due utenti che accendono le stesse colonne vedono la stessa
  * tabella. La visibilità decide CHI si vede, mai DOVE.
  *
- * L'indice compare solo quando il pool ne porta uno: regola invariata.
+ * L'indice compare solo quando il pool ne porta uno: regola invariata, ed è la
+ * stessa che vale per le tre previsioni del motore.
  * I sette segnali invece ci sono SEMPRE, perché la loro assenza è un dato —
  * `n/d` — e una colonna che sparisce non dice niente a nessuno.
  */
@@ -974,6 +1367,12 @@ export function listoneColumns(pool: readonly ListonePlayer[]): ListoneColumn[] 
   return [
     ...IDENTITY_COLUMNS,
     ...(poolHasAppealIndex(pool) ? [APPEAL_INDEX_COLUMN] : []),
+    // SUBITO DOPO L'INDICE, e come l'indice esistono solo se il pool le porta.
+    // Il posto non è estetico: l'indice è la lettura sintetica del modello e le
+    // tre previsioni sono le grandezze da cui quella lettura nasce, quindi si
+    // leggono di seguito invece di essere separate dalle sette colonne del
+    // Gruppo Esperti, che sono una fonte diversa.
+    ...(poolHasGenForecast(pool) ? GEN_FORECAST_COLUMNS : []),
     ...SIGNAL_COLUMNS,
     QUOTATION_COLUMN,
     ...extraColumns,
@@ -1019,6 +1418,9 @@ export function listoneColumnFlex(key: string): number {
   if (key === "club") return 1.5;
   if (key === "role") return 0.8;
   if (key === APPEAL_INDEX_COLUMN_KEY) return 0.9;
+  // Le tre previsioni: l'etichetta («Fantamedia prev.») è più lunga della
+  // cifra, ed è l'etichetta a decidere la larghezza minima di queste colonne.
+  if (GEN_FORECAST_COLUMN_KEYS.includes(key)) return 1.1;
   if ((EXPERT_VOTE_COLUMN_KEYS as readonly string[]).includes(key)) return 0.85;
   // I tre segnali ordinati: il rigorista porta la parola più lunga
   // («designato») col numero davanti, le due specialità la sola parola
@@ -1055,6 +1457,25 @@ const COLUMN_TOOLTIPS: Readonly<Record<string, string>> = {
     "Indice di appetibilità 0–100, percentile entro la coorte del proprio ruolo. " +
     "Etichetta di qualità e versione della ricetta nella nota sotto la tabella. " +
     "n/d quando il modello non ha un verdetto per quel giocatore.",
+  [GEN_FORECAST_COLUMN_KEY_BY_TARGET.T2]:
+    "Fantamedia PREVISTA (bersaglio T2) dal motore di ricerca, servita già calcolata. " +
+    "Previsione advisory, non validata: non è un consiglio, non entra in nessun calcolo " +
+    "di questa applicazione e non tocca il riquadro del valore. Arrotondata a un decimale " +
+    "solo a schermo. n/d quando il deposito non serve una previsione per quel giocatore. " +
+    "Ricetta, protocollo e run nella nota sotto la tabella.",
+  [GEN_FORECAST_COLUMN_KEY_BY_TARGET.TN]:
+    "Presenze PREVISTE (bersaglio TN) dal motore di ricerca, servite già calcolate. " +
+    "Il marcatore «" +
+    GEN_FORECAST_CAP_MARKER +
+    "» accanto al numero dice che la previsione porta il tetto degli esperti già " +
+    "applicato — lo dichiara il dato, non questa tabella. Previsione advisory, non " +
+    "validata, fuori da ogni calcolo. Arrotondata all'intero solo a schermo. " +
+    "n/d quando il deposito non serve una previsione per quel giocatore.",
+  [GEN_FORECAST_COLUMN_KEY_BY_TARGET.T1]:
+    "Totale PREVISTO (bersaglio T1, composto) dal motore di ricerca, servito già calcolato. " +
+    "Previsione advisory, non validata: non è un consiglio e non entra in nessun calcolo " +
+    "di questa applicazione. Arrotondato all'intero solo a schermo. " +
+    "n/d quando il deposito non serve una previsione per quel giocatore.",
   // Le etichette NON portano il prefisso «GE» che #33 aveva introdotto: l'elenco
   // del committente (2026-08-24) nomina le colonne «Titolarità, Media Voto,
   // Salute, No Malus/Bonus, Consiglio Esperti» e quelle parole si vedono in
@@ -1352,6 +1773,15 @@ export function listoneCellValue(
       // A withheld verdict has no value to compare: `undefined` sorts last in
       // both directions, exactly like a missing cell, and renders `n/d`.
       return p.appealIndex?.score ?? undefined;
+    case GEN_FORECAST_COLUMN_KEY_BY_TARGET.T2:
+    case GEN_FORECAST_COLUMN_KEY_BY_TARGET.TN:
+    case GEN_FORECAST_COLUMN_KEY_BY_TARGET.T1:
+      // IL VALORE SERVITO, non quello arrotondato: l'arrotondamento è una
+      // scelta di resa (`listoneCellText`) e non deve fondere in un pareggio
+      // due previsioni che il dato distingue. Una riga senza previsione è
+      // `undefined`, come una cella che non c'è: `n/d` a schermo, ultima in
+      // entrambe le direzioni dell'ordinamento.
+      return genForecastTarget(p, columnKey)?.value ?? undefined;
     // I TRE SEGNALI ORDINATI. Il valore è la stringa già composta col rango
     // davanti («1° designato»), e questo rende l'ORDINAMENTO ALFABETICO della
     // colonna l'ordine della fila: `1°…` prima di `2°…`, e le celle senza
@@ -1371,6 +1801,32 @@ export function listoneCellValue(
       }
       return p.extra?.[columnKey];
   }
+}
+
+/** Il bersaglio che una delle tre colonne mostra su QUESTA riga, `undefined`
+ *  quando la colonna non è una delle tre o la riga non porta previsioni. */
+function genForecastTarget(
+  p: ListonePlayer,
+  columnKey: string,
+): ListoneGenForecastTarget | undefined {
+  const target = GEN_FORECAST_TARGET_BY_COLUMN_KEY.get(columnKey);
+  return target === undefined ? undefined : p.genForecast?.targets[target];
+}
+
+/**
+ * IL TESTO DI UNA PREVISIONE, arrotondato QUI E SOLO QUI.
+ *
+ * Un decimale per la fantamedia — è un voto, e il decimo è la differenza fra
+ * un titolare da 6,4 e uno da 6,0 — e l'intero per presenze e totale, che sono
+ * conteggi: mostrare «24,1 presenze» prometterebbe una precisione che una
+ * previsione di partite giocate non ha.
+ *
+ * La virgola decimale viene da `formatDecimal1` (src/ui/liveFacts.ts), che è
+ * già la formattazione italiana deterministica di questo repository: una
+ * funzione, non una terza copia con un `toFixed` scritto a mano.
+ */
+export function genForecastValueText(target: GenForecastTargetId, value: number): string {
+  return target === "T2" ? formatDecimal1(value) : String(Math.round(value));
 }
 
 /**
@@ -1412,6 +1868,16 @@ export function expertVoteAxisTitle(
   return axis?.asse === null || axis === undefined ? "" : PAGELLA_ETICHETTE[axis.asse];
 }
 
+/**
+ * Vero SOLO sulla colonna delle presenze previste, e solo quando il dato
+ * dichiara il tetto applicato. Esportata perché la riga d'insight della
+ * schermata d'asta dice lo stesso fatto a parole invece che col segno, e le due
+ * superfici devono leggere la stessa condizione.
+ */
+export function genForecastCapApplied(p: ListonePlayer, columnKey: string): boolean {
+  return genForecastTarget(p, columnKey)?.capApplied === true;
+}
+
 export function expertVoteAxisMarker(
   p: ListonePlayer,
   columnKey: string,
@@ -1448,6 +1914,15 @@ export function listoneCellText(
     // Rounding happens here and nowhere else: the served score keeps its full
     // precision (Phase 5 `roundingPoint: "render_only"`).
     return typeof value === "number" ? String(Math.round(value)) : VALUE_NOT_AVAILABLE;
+  }
+  const forecastTarget = GEN_FORECAST_TARGET_BY_COLUMN_KEY.get(columnKey);
+  if (forecastTarget !== undefined) {
+    // Stessa regola dell'indice: si arrotonda alla resa e mai nel dato. La
+    // cifra e basta — il marcatore del tetto è un ELEMENTO che
+    // `listoneCellHtml` aggiunge accanto (due canali, vedi `cellMarkerHtml`),
+    // così questa stringa resta ciò che si ordina e ciò che un'asserzione di
+    // assenza confronta.
+    return typeof value === "number" ? genForecastValueText(forecastTarget, value) : VALUE_NOT_AVAILABLE;
   }
   if (columnKey === NO_MALUS_BONUS_COLUMN_KEY && value === undefined) {
     return signals(p).pagella.asseIncoerente ? VALUE_NOT_APPLICABLE : VALUE_NOT_AVAILABLE;
@@ -1539,6 +2014,13 @@ function cellAttributes(p: ListonePlayer, col: ListoneColumn): string {
  * che questo repository usa già per la striscia di icone del riquadro d'asta.
  * Il `title` resta per il mouse: non è più l'unico canale, è uno dei due.
  *
+ * DUE USI, UNA FORMA. Nato per i marcatori d'asse «PI»/«BO» della colonna
+ * promiscua, porta oggi anche il «▾» del tetto degli esperti sulle presenze
+ * previste: sono due fatti diversi, ma la domanda che pongono alla cella è la
+ * stessa — «qualifica questa cifra senza rubarle il posto, e dillo anche a chi
+ * non ha un mouse». Una seconda forma per la stessa domanda sarebbe una
+ * seconda classe da misurare e da tenere allineata.
+ *
  * ZERO STOP DI TABULAZIONE AGGIUNTI, ed è una scelta, non una dimenticanza.
  * La strada ovvia — dare `tabindex="0"` al marcatore — su un listone da 532
  * righe aggiungerebbe fino a 532 fermate in una tabella che si attraversa già
@@ -1546,7 +2028,7 @@ function cellAttributes(p: ListonePlayer, col: ListoneColumn): string {
  * meglio. La sigla visibile è `aria-hidden` perché «BO» letto a voce è un
  * suono, non una parola: chi ascolta sente «6 Bonus», chi guarda legge «6 BO».
  */
-function axisMarkerHtml(marker: string, label: string): string {
+function cellMarkerHtml(marker: string, label: string): string {
   return (
     `<span class="listone-axis-tag" title="${escHtml(label)}">` +
     `<span aria-hidden="true">${escHtml(marker)}</span>` +
@@ -1590,8 +2072,16 @@ function listoneCellHtml(
   // sola cifra — è quello che si ordina e quello che le asserzioni di assenza
   // confrontano.
   const axis = expertVoteAxisMarker(p, col.key, signals);
-  const marker = axis === null ? "" : axisMarkerHtml(axis, expertVoteAxisTitle(p, col.key, signals));
-  return `<div class="listone-cell${mono}"${attrs}>${escHtml(text)}${marker}</div>`;
+  const marker = axis === null ? "" : cellMarkerHtml(axis, expertVoteAxisTitle(p, col.key, signals));
+  // Il tetto degli esperti sulle presenze previste: stesso elemento a due
+  // canali, e solo quando il DATO lo dichiara applicato. `capApplied: false` e
+  // un dato che non lo nomina affatto non aggiungono niente alla cella — non
+  // c'è nessun fatto da dire — e riempirla di segni renderebbe illeggibile il
+  // caso in cui il fatto c'è.
+  const cap = genForecastCapApplied(p, col.key)
+    ? cellMarkerHtml(GEN_FORECAST_CAP_MARKER, GEN_FORECAST_CAP_LABEL)
+    : "";
+  return `<div class="listone-cell${mono}"${attrs}>${escHtml(text)}${marker}${cap}</div>`;
 }
 
 /**
