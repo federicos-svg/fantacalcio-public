@@ -7,7 +7,10 @@ import {
   EXPERT_SCHEDE_ABSENT,
   LISTA_ESPERTI_VALUES,
   SCHEDA_BALLOTTAGGIO_MAX,
+  SCHEDA_NOTA_MARCATURA_MODELLO,
+  SCHEDA_NOTA_MARCATURA_PAROLE,
   SCHEDA_NOTA_MAX,
+  leggiNota,
   SCHEDA_RANGO_MAX,
   SCHEDA_RANGO_MIN,
   expertSchedaStore,
@@ -208,6 +211,9 @@ describe("i cinque stati di disponibilità", () => {
       // nessuna quarta icona.
       lista: null,
       nota: "Rinnovo non firmato: se parte a fine mercato la scheda cambia.",
+      // La fixture scrive la prosa a mano: nessuna marcatura, e il campo dice
+      // `false` invece di dedurre una provenienza umana che nessuno dichiara.
+      notaGenerataDaModello: false,
       aggiornata: "2026-08-30",
       fonte: "scheda",
       // La scheda di questa fixture NON porta la pagella: la vista la rende
@@ -800,5 +806,63 @@ describe("l'indice per squadra e i confini della ricerca", () => {
     expect(findSchedaCandidates(store, { name: "···", club: CLUB })).toEqual([]);
     expect(findSchedaCandidates(store, null)).toEqual([]);
     expect(findSchedaCandidates(EXPERT_SCHEDE_ABSENT, TARGET)).toEqual([]);
+  });
+});
+
+describe("la marcatura di provenienza della prosa", () => {
+  const TESTO = "La scheda lo dà titolare e non riporta ballottaggi.";
+
+  it("le parole della pastiglia sono la marcatura senza le parentesi", () => {
+    expect(SCHEDA_NOTA_MARCATURA_MODELLO).toBe(`[${SCHEDA_NOTA_MARCATURA_PAROLE}]`);
+  });
+
+  it("una nota marcata si separa in testo e provenienza", () => {
+    expect(leggiNota(`${SCHEDA_NOTA_MARCATURA_MODELLO} ${TESTO}`)).toEqual({
+      testo: TESTO,
+      generataDaModello: true,
+    });
+  });
+
+  it("una nota scritta a mano resta intera e non dichiara nessuna provenienza", () => {
+    expect(leggiNota(TESTO)).toEqual({ testo: TESTO, generataDaModello: false });
+  });
+
+  it("assente o vuota: testo vuoto, mai `undefined` da gestire a valle", () => {
+    expect(leggiNota(undefined)).toEqual({ testo: "", generataDaModello: false });
+    expect(leggiNota("   ")).toEqual({ testo: "", generataDaModello: false });
+  });
+
+  it("il prefisso vale solo IN TESTA: a metà frase è testo della fonte", () => {
+    const dentro = `Il forum scrive ${SCHEDA_NOTA_MARCATURA_MODELLO} a metà riga.`;
+    expect(leggiNota(dentro)).toEqual({ testo: dentro, generataDaModello: false });
+  });
+
+  it("la marcatura sta DENTRO il tetto della nota, con spazio per il testo", () => {
+    // Se un giorno la marcatura si allungasse fino a mangiarsi la prosa, il
+    // produttore privato non avrebbe più margine e il difetto si vedrebbe solo
+    // a valle, come depositi rifiutati in blocco.
+    expect(SCHEDA_NOTA_MARCATURA_MODELLO.length).toBeLessThan(SCHEDA_NOTA_MAX);
+  });
+
+  it("la vista porta i due fatti separati: testo pulito e provenienza dichiarata", () => {
+    const view = resolveExpertInsight(
+      storeOf([
+        { player: PLAYER, club: CLUB, nota: `${SCHEDA_NOTA_MARCATURA_MODELLO} ${TESTO}` },
+      ]),
+      TARGET,
+    );
+    expect(view.nota).toBe(TESTO);
+    expect(view.notaGenerataDaModello).toBe(true);
+  });
+
+  it("il deposito conserva la marcatura: è la vista che la stacca, non il dato", () => {
+    // La verificabilità sta nell'artefatto. Se un giorno lo strato di lettura
+    // ripulisse la stringa PRIMA di depositarla, la provenienza sparirebbe dal
+    // solo posto in cui è una prova.
+    const nota = `${SCHEDA_NOTA_MARCATURA_MODELLO} ${TESTO}`;
+    const store = parseExpertSchedaDeposit(deposit([{ player: PLAYER, club: CLUB, nota }]));
+    expect(store.ok).toBe(true);
+    if (!store.ok) return;
+    expect([...store.byPlayerKey.values()][0]?.[0]?.nota).toBe(nota);
   });
 });

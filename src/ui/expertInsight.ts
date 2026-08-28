@@ -80,7 +80,7 @@ import type {
   Fonte,
   Piazzati,
 } from "../expertScheda.js";
-import { TITOLARITA_VALUES } from "../expertScheda.js";
+import { SCHEDA_NOTA_MARCATURA_PAROLE, TITOLARITA_VALUES } from "../expertScheda.js";
 import { pagellaBlockHtml, pagellaSpoken } from "./pagellaRadar.js";
 import { SCHEDA_CARDS_CLASS, schedaCardHtml } from "./schedaCard.js";
 import { schedaIconeHtml, schedaIconeSpoken } from "./schedaIcone.js";
@@ -360,6 +360,40 @@ export function expertInsightMetaText(view: ExpertInsightView): string {
 }
 
 /**
+ * LA MARCATURA DI PROVENIENZA DELLA PROSA, come PASTIGLIA e non come parentesi
+ * quadra in mezzo alla frase (decisione di Pico, 2026-08-26).
+ *
+ * Il prefisso resta nel DATO — è lì che è verificabile, ed è la sola forma di
+ * provenienza che sopravvive a uno schema `.strict()` che non ammette campi
+ * fratelli. Ma il posto in cui Pico legge quelle due righe è la schermata
+ * d'asta, con pochi secondi per decidere: davanti alla frase, `[sintesi
+ * automatica]` si legge come un refuso della fonte, non come un fatto sulla
+ * fonte. La stessa informazione, staccata, si legge per quello che è.
+ *
+ * **PERCHÉ RIUSA `.expert-chip` E NON UNA FORMA PROPRIA.** È la regola che
+ * Pico ha posto sul riquadro insight lo stesso giorno: il vocabolario visivo
+ * si riusa, non si duplica. Una pastiglia nuova qui sarebbe stata la seconda
+ * lingua di una schermata che ne parla già una.
+ *
+ * **NON DICE «generata da un modello» PIÙ DI QUANTO LO DICA IL DATO.** Le
+ * parole sono quelle della marcatura, derivate dalla costante del contratto
+ * (`SCHEDA_NOTA_MARCATURA_PAROLE`) e non riscritte: se un giorno la marcatura
+ * cambiasse parola, questa pastiglia cambierebbe con lei invece di restare
+ * indietro senza che nessun test se ne accorga.
+ *
+ * Quando la prosa non è marcata la pastiglia NON esiste: una pastiglia spenta
+ * che dice «scritta da una persona» sarebbe un'affermazione che nessuno ha
+ * fatto — il contratto non ha un campo per la provenienza umana, e l'assenza
+ * di marcatura non è una prova.
+ */
+export function expertInsightProseMarkHtml(view: ExpertInsightView): string {
+  if (!view.notaGenerataDaModello || view.nota === "") return "";
+  return `<span class="expert-chip expert-prose__mark" id="player-insight-prose-mark"><b>${escHtml(
+    SCHEDA_NOTA_MARCATURA_PAROLE,
+  )}</b></span>`;
+}
+
+/**
  * La prosa. Esiste anche da sola: una scheda con due righe di testo e nessun
  * segnale è una scheda legittima, e questo blocco la rende per intero.
  * Quando la prosa manca ma i segnali ci sono, il posto della prosa dichiara
@@ -371,6 +405,7 @@ export function expertInsightProseHtml(view: ExpertInsightView): string {
       ? `<p class="expert-prose__empty" id="player-insight-prose-empty">La scheda non porta note scritte: solo i segnali qui accanto.</p>`
       : `<p class="expert-prose__text" id="player-insight-prose">${escHtml(view.nota)}</p>`;
   return `<div class="expert-prose">
+    ${expertInsightProseMarkHtml(view)}
     ${body}
     <span class="expert-prose__meta" id="player-insight-meta">${escHtml(expertInsightMetaText(view))}</span>
   </div>`;
@@ -589,7 +624,15 @@ export function expertInsightSpoken(view: ExpertInsightView): string {
   const chips = expertInsightChips(view)
     .map((chip) => `${chip.label} ${chip.value}`)
     .join(", ");
-  const nota = view.nota === "" ? "nessuna nota scritta" : view.nota;
+  // LA MARCATURA ENTRA NELLA FORMA PARLATA, e prima del testo: chi ascolta il
+  // riquadro non vede la pastiglia, e sentire la provenienza DOPO due righe di
+  // prosa significa averle già ascoltate come se le avesse scritte una persona.
+  const nota =
+    view.nota === ""
+      ? "nessuna nota scritta"
+      : view.notaGenerataDaModello
+        ? `${SCHEDA_NOTA_MARCATURA_PAROLE}: ${view.nota}`
+        : view.nota;
   // LE ICONE ENTRANO NELLA FORMA PARLATA, e non sono un doppione delle
   // pastiglie qui sopra: portano i NOMI degli altri in ballottaggio e la lista
   // editoriale, che a schermo stanno solo lì. Senza questa riga chi naviga a

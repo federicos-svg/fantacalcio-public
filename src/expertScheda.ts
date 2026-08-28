@@ -344,6 +344,73 @@ export const EXPERT_SCHEDA_ENDPOINT = "/api/schede";
 export const SCHEDA_NOTA_MAX = 400;
 
 /**
+ * LA MARCATURA DI PROVENIENZA DELLA PROSA, e perché è un PREFISSO DENTRO LA
+ * STRINGA invece di un campo accanto.
+ *
+ * Non è la forma che si sarebbe scelta a tavolino: un `generatoDaModello:
+ * true` accanto a `nota` sarebbe più pulito da leggere e più facile da
+ * cercare. Non esiste, e non per pigrizia — `nota` è una `string` dentro uno
+ * schema `.strict()`: un campo fratello non sopravvive alla soglia, e un
+ * deposito che ci provasse verrebbe rifiutato IN BLOCCO, cioè zero schede
+ * lette in silenzio su ogni giocatore. Il prefisso è l'unico posto in cui la
+ * provenienza attraversa il contratto insieme al testo che qualifica.
+ *
+ * **QUESTO MODULO LEGGE LA MARCATURA, NON LA AUTENTICA.** Chi scrive la prosa
+ * decide se apporla; il riquadro riporta ciò che il dato dichiara. La
+ * resistenza alla contraffazione sta nel PRODUTTORE (privato: una bozza che
+ * contiene una parentesi quadra è scartata prima che il prefisso venga
+ * apposto), non qui: un lettore che provasse a dedurre da sé se una frase l'ha
+ * scritta un modello starebbe indovinando, ed è esattamente ciò che una
+ * marcatura esiste per non far fare a nessuno.
+ *
+ * Il tetto non cambia: la marcatura sta DENTRO `SCHEDA_NOTA_MAX`, e il
+ * produttore privato tiene il proprio tetto sotto questo (`RIASSUNTO_NOTA_MAX`,
+ * legato a questo dal seam test che vede i due lati).
+ */
+export const SCHEDA_NOTA_MARCATURA_MODELLO = "[sintesi automatica]";
+
+/**
+ * LE PAROLE DELLA MARCATURA SENZA LE PARENTESI — derivate, mai riscritte.
+ *
+ * Le legge la pastiglia del riquadro (src/ui/expertInsight.ts). Scriverle una
+ * seconda volta a mano avrebbe creato due dizionari per lo stesso fatto: il
+ * giorno in cui la marcatura nel dato cambiasse parola, a schermo resterebbe
+ * la vecchia — e nessun test se ne accorgerebbe, perché ciascuno dei due
+ * confronterebbe la propria copia con sé stessa.
+ */
+export const SCHEDA_NOTA_MARCATURA_PAROLE = SCHEDA_NOTA_MARCATURA_MODELLO.slice(1, -1);
+
+/** La prosa letta: il testo senza la marcatura, e se la marcatura c'era. */
+export interface NotaLetta {
+  /** Il testo da mostrare, SENZA il prefisso e già ripulito ai bordi. */
+  readonly testo: string;
+  /** `true` se la stringa portava la marcatura di provenienza. */
+  readonly generataDaModello: boolean;
+}
+
+/**
+ * Stacca la marcatura dal testo, una volta sola per tutte le superfici.
+ *
+ * La marcatura resta nel DATO — è lì che è verificabile — ma non deve restare
+ * in mezzo alla frase che Pico legge durante l'asta: una parentesi quadra
+ * davanti a due righe di prosa si legge come un refuso, non come una
+ * provenienza. Chi rende la stacca e la mostra per quello che è.
+ *
+ * Il prefisso è riconosciuto solo IN TESTA e solo esatto: un `[sintesi
+ * automatica]` a metà frase è testo, non una marcatura, e non accende niente.
+ */
+export function leggiNota(nota: string | undefined | null): NotaLetta {
+  const testo = (nota ?? "").trim();
+  if (!testo.startsWith(SCHEDA_NOTA_MARCATURA_MODELLO)) {
+    return { testo, generataDaModello: false };
+  }
+  return {
+    testo: testo.slice(SCHEDA_NOTA_MARCATURA_MODELLO.length).trim(),
+    generataDaModello: true,
+  };
+}
+
+/**
  * Il tetto di `player` e `club`. Esportato perché la schermata che COMPILA le
  * schede (src/schedaCompiler.ts) deve poter rifiutare un'identità troppo lunga
  * dicendo il perché, invece di offrire un deposito che questo stesso schema
@@ -1021,7 +1088,18 @@ export interface ExpertInsightView {
   readonly avvisi: readonly Avviso[];
   /** La lista editoriale in cui la fonte lo ha messo, o `null`. */
   readonly lista: ListaEsperti | null;
+  /** La prosa SENZA la marcatura di provenienza: quella sta nel campo accanto. */
   readonly nota: string;
+  /**
+   * `true` quando la prosa portava la marcatura `SCHEDA_NOTA_MARCATURA_MODELLO`.
+   *
+   * È un campo della VISTA e non del contratto: nel deposito la provenienza
+   * viaggia dentro la stringa, perché lo schema `.strict()` non ammette un
+   * campo fratello. Qui i due fatti si separano una volta sola, e le due
+   * superfici che li mostrano — il riquadro e la sua forma parlata — leggono
+   * lo stesso, invece di ritagliare ciascuna il proprio prefisso.
+   */
+  readonly notaGenerataDaModello: boolean;
   readonly aggiornata: string | null;
   readonly fonte: Fonte | null;
   /**
@@ -1067,6 +1145,7 @@ export function unknownExpertInsight(
     avvisi: [],
     lista: null,
     nota: "",
+    notaGenerataDaModello: false,
     aggiornata: null,
     fonte: null,
     // La pagella VUOTA porta comunque il ruolo, quando lo si conosce: così il
@@ -1247,6 +1326,7 @@ export function resolveExpertInsight(
   if (!schedaHasContent(scheda)) {
     return { ...unknownExpertInsight("no_expert_signal", role), ...link };
   }
+  const notaLetta = leggiNota(scheda.nota);
   return {
     availability: "available",
     quality: EXPERT_INSIGHT_QUALITY_LABELS.available,
@@ -1277,7 +1357,11 @@ export function resolveExpertInsight(
     rangoAngoli: (scheda.piazzati ?? []).includes("angoli") ? scheda.rangoAngoli ?? null : null,
     avvisi: scheda.avvisi ?? [],
     lista: resolveListaEsperti(scheda),
-    nota: (scheda.nota ?? "").trim(),
+    // LA PROSA SI SDOPPIA QUI, e in nessun altro posto: il testo da leggere da
+    // una parte, la marcatura di provenienza dall'altra. Il dato resta intero
+    // — questa è la vista, non il deposito.
+    nota: notaLetta.testo,
+    notaGenerataDaModello: notaLetta.generataDaModello,
     aggiornata: scheda.aggiornata ?? null,
     fonte: scheda.fonte ?? null,
     // Il RUOLO viene dalla riga di listone, non dalla scheda: la scheda non

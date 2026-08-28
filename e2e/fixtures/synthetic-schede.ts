@@ -14,7 +14,10 @@
 // servizio aperta apposta per i test.
 
 import type { ExpertScheda } from "../../src/expertScheda.js";
-import { EXPERT_SCHEDA_SCHEMA_VERSION } from "../../src/expertScheda.js";
+import {
+  EXPERT_SCHEDA_SCHEMA_VERSION,
+  SCHEDA_NOTA_MARCATURA_MODELLO,
+} from "../../src/expertScheda.js";
 import type { PagellaScheda } from "../../src/pagellaEsperti.js";
 
 /** Il giocatore su cui la spec apre il momento LIVE. Ruolo A del listone sintetico. */
@@ -48,6 +51,25 @@ export const PROSE_ONLY_SCHEDA: ExpertScheda = {
   player: SCHEDA_PLAYER,
   club: SCHEDA_CLUB,
   nota: "Nessun segnale strutturato: la scheda dice solo che è rientrato in gruppo martedì.",
+};
+
+/**
+ * LA PROSA MODEL-GENERATED, marcata come tale nel dato.
+ *
+ * Il testo è sintetico come tutte le fixture di questa cartella: nessuna
+ * scheda reale, nessun modello chiamato. Ciò che è FEDELE è la FORMA — il
+ * prefisso letterale in testa alla stringa, che è il solo posto in cui la
+ * provenienza attraversa uno schema `.strict()` insieme al testo.
+ *
+ * PARTE DALLA SCHEDA PIENA e non da quella di sola prosa: la pastiglia della
+ * provenienza va misurata accanto alle pastiglie di segnale, che sono le
+ * pastiglie di cui deve parlare la lingua.
+ */
+export const NOTA_MODELLO_TESTO =
+  "La scheda lo dà in ballottaggio aperto e segnala il rinnovo non firmato.";
+export const MODEL_PROSE_SCHEDA: ExpertScheda = {
+  ...FULL_SCHEDA,
+  nota: `${SCHEDA_NOTA_MARCATURA_MODELLO} ${NOTA_MODELLO_TESTO}`,
 };
 
 /** Fonte non di staff: il contenuto c'è ma non è attribuibile. */

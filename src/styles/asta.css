@@ -1633,6 +1633,13 @@
   font-size: 10.5px;
   line-height: 1.3;
 }
+/* LA PASTIGLIA DELLA PROSA MODEL-GENERATED. Riusa .expert-chip per intero: qui
+   resta solo ciò che il contesto cambia — dentro una griglia la pastiglia si
+   stirerebbe per tutta la colonna, e una pastiglia larga quanto il pannello
+   smette di leggersi come una pastiglia. */
+.expert-prose__mark {
+  justify-self: start;
+}
 
 /* ── L'AGGANCIO: la dichiarazione e la domanda ──────────────────────────────
    Due superfici che nel caso normale NON esistono (i costruttori rendono

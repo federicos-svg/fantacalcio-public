@@ -4,6 +4,8 @@ import {
   COMMUNITY_SCHEDA,
   FULL_NAME_SCHEDA,
   FULL_SCHEDA,
+  MODEL_PROSE_SCHEDA,
+  NOTA_MODELLO_TESTO,
   OTHER_CLUB,
   OTHER_PLAYER,
   OTHER_PLAYER_SCHEDA,
@@ -22,7 +24,11 @@ import {
   resolveTokenColors,
   textContrast,
 } from "./helpers.js";
-import { EXPERT_INSIGHT_QUALITY_LABELS } from "../src/expertScheda.js";
+import {
+  EXPERT_INSIGHT_QUALITY_LABELS,
+  SCHEDA_NOTA_MARCATURA_MODELLO,
+  SCHEDA_NOTA_MARCATURA_PAROLE,
+} from "../src/expertScheda.js";
 import {
   EXPERT_INSIGHT_CHOICE_PENDING_TEXT,
   EXPERT_INSIGHT_EMPTY_TEXT,
@@ -385,6 +391,68 @@ test("una scheda di sola prosa è legittima: nessun segnale, il testo per intero
   await expect(page.locator("#player-insight-chips")).toHaveCount(0);
   await expect(page.locator("#player-insight-meta")).toContainText("fonte non dichiarata");
   await expectHonestyVisible(page, EXPERT_INSIGHT_QUALITY_LABELS.available);
+});
+
+test("la prosa scritta da un modello si legge come pastiglia, non come parentesi quadra", async ({
+  page,
+  context,
+}) => {
+  // LA PROVA CHE MORDE su una decisione di prodotto: la marcatura resta nel
+  // DATO (verificabile, non forgiabile) e ESCE dalla frase che Pico legge
+  // durante l'asta. Le due metà si misurano insieme, perché soddisfarne una
+  // sola sarebbe il difetto: sparita dalla frase E sparita dal dato vorrebbe
+  // dire aver perso la provenienza; restata nel dato E restata nella frase
+  // vorrebbe dire non aver fatto niente.
+  await boot(page, context, { kind: "serve", body: schedeDeposit([MODEL_PROSE_SCHEDA]) });
+  await callTarget(page);
+
+  const mark = page.locator("#player-insight-prose-mark");
+  await expect(mark).toBeVisible();
+  await expect(mark).toHaveText(SCHEDA_NOTA_MARCATURA_PAROLE);
+
+  const prose = page.locator("#player-insight-prose");
+  await expect(prose).toContainText(NOTA_MODELLO_TESTO);
+  await expect(prose).not.toContainText(SCHEDA_NOTA_MARCATURA_MODELLO);
+
+  // LA PASTIGLIA PARLA LA LINGUA DELLE ALTRE, e questa è la riga che lo prova:
+  // confronta gli stili CALCOLATI della marcatura con quelli di una pastiglia
+  // di segnale della STESSA schermata. Un confronto sul nome della classe
+  // sarebbe stato il template che verifica sé stesso.
+  const shape = (locator: typeof mark) =>
+    locator.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return {
+        radius: cs.borderRadius,
+        border: `${cs.borderTopWidth} ${cs.borderTopStyle} ${cs.borderTopColor}`,
+        background: cs.backgroundColor,
+        padding: cs.padding,
+      };
+    });
+  // Il confronto è con una pastiglia di SEGNALE e non con quella di avviso:
+  // l'avviso si distingue di proposito per il colore del bordo, e misurarsi su
+  // quella avrebbe chiesto alla provenienza di sembrare un allarme.
+  expect(await shape(mark)).toEqual(await shape(page.locator("#player-insight-chip-rigori")));
+
+  // Non si stira per tutta la colonna: una pastiglia larga quanto il pannello
+  // smette di leggersi come una pastiglia.
+  const markWidth = await mark.evaluate((el) => el.getBoundingClientRect().width);
+  const proseWidth = await prose.evaluate((el) => el.getBoundingClientRect().width);
+  expect(markWidth).toBeLessThan(proseWidth);
+});
+
+test("una prosa scritta a mano non porta nessuna pastiglia di provenienza", async ({
+  page,
+  context,
+}) => {
+  // L'assenza di marcatura non è una prova che l'abbia scritta una persona: il
+  // contratto non ha un campo per la provenienza umana, e una pastiglia qui
+  // sarebbe un'affermazione che nessuno ha fatto.
+  await boot(page, context, { kind: "serve", body: schedeDeposit([PROSE_ONLY_SCHEDA]) });
+  await callTarget(page);
+  await expect(page.locator("#player-insight-prose")).toContainText(
+    PROSE_ONLY_SCHEDA.nota as string,
+  );
+  await expect(page.locator("#player-insight-prose-mark")).toHaveCount(0);
 });
 
 test("il riquadro pieno regge AA e non fa traboccare la schermata a 390, 1280, 1440 e 1920", async ({

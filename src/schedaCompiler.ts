@@ -63,6 +63,7 @@ import {
   SCHEDA_GERARCHIA_MAX,
   SCHEDA_GERARCHIA_MIN,
   SCHEDA_NAME_MAX,
+  SCHEDA_NOTA_MARCATURA_PAROLE,
   SCHEDA_NOTA_MAX,
   SCHEDA_PERCENTUALE_MAX,
   SCHEDA_PERCENTUALE_MIN,
@@ -71,6 +72,7 @@ import {
   TITOLARITA_VALUES,
   ballottaggioVisibile,
   isValidIsoDate,
+  leggiNota,
   parseExpertSchedaDeposit,
   schedaHasContent,
   stessoSoggettoBallottaggio,
@@ -1549,8 +1551,21 @@ export function schedaSummary(scheda: ExpertScheda): string {
     );
   }
   for (const avviso of scheda.avvisi ?? []) parts.push(`! ${AVVISO_LABELS[avviso]}`);
-  const nota = (scheda.nota ?? "").trim();
-  if (nota !== "") parts.push(`nota (${nota.length} caratteri)`);
+  // LA MARCATURA SI VEDE ANCHE QUI, e non è una rifinitura: il compilatore è
+  // il posto in cui una persona RIVEDE le schede importate dal modulo, cioè il
+  // solo momento in cui può decidere di riscrivere una prosa che ha scritto un
+  // modello. Senza questa parola le due prose si distinguono solo aprendo il
+  // campo e leggendo la parentesi quadra.
+  //
+  // IL CONTEGGIO RESTA SULLA STRINGA INTERA, marcatura compresa: è un budget di
+  // caratteri contro `SCHEDA_NOTA_MAX`, e il tetto lo misura tutto.
+  const notaGrezza = (scheda.nota ?? "").trim();
+  if (notaGrezza !== "") {
+    const marcata = leggiNota(notaGrezza).generataDaModello
+      ? `, ${SCHEDA_NOTA_MARCATURA_PAROLE}`
+      : "";
+    parts.push(`nota (${notaGrezza.length} caratteri${marcata})`);
+  }
   // La lista COME LA SCHEDA LA SCRIVE, non `resolveListaEsperti`: qui si
   // rilegge ciò che si è compilato, e l'avviso `sconsigliato` — che nella vista
   // avrebbe la precedenza — è già scritto due righe più su come avviso. La

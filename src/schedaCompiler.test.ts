@@ -54,6 +54,8 @@ import {
   SCHEDA_GERARCHIA_MAX,
   SCHEDA_RANGO_MAX,
   SCHEDA_NAME_MAX,
+  SCHEDA_NOTA_MARCATURA_MODELLO,
+  SCHEDA_NOTA_MARCATURA_PAROLE,
   SCHEDA_NOTA_MAX,
   SCHEDA_PERCENTUALE_MAX,
   TITOLARITA_VALUES,
@@ -795,6 +797,21 @@ describe("il riassunto di una scheda salvata", () => {
 
   it("una scheda magra rende una riga magra", () => {
     expect(schedaSummary(builtScheda({ titolarita: "titolare" }))).toBe("titolare");
+  });
+
+  it("una prosa model-generated lo dice, e il conteggio resta sulla stringa intera", () => {
+    // Il compilatore è il posto in cui una persona RIVEDE ciò che il modulo ha
+    // importato: senza questa parola le due prose si distinguono solo aprendo
+    // il campo. Il conteggio comprende la marcatura perché il tetto la conta.
+    const nota = `${SCHEDA_NOTA_MARCATURA_MODELLO} Due righe.`;
+    const summary = schedaSummary(builtScheda({ titolarita: "titolare", nota }));
+    expect(summary).toContain(`nota (${nota.length} caratteri, ${SCHEDA_NOTA_MARCATURA_PAROLE})`);
+  });
+
+  it("una prosa scritta a mano NON viene marcata dal riassunto", () => {
+    const summary = schedaSummary(builtScheda({ titolarita: "titolare", nota: "Due righe." }));
+    expect(summary).toContain("nota (10 caratteri)");
+    expect(summary).not.toContain(SCHEDA_NOTA_MARCATURA_PAROLE);
   });
 });
 

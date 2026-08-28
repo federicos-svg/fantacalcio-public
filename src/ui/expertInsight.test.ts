@@ -25,6 +25,7 @@ import {
   expertInsightLabel,
   expertInsightLabelHtml,
   expertInsightProseHtml,
+  expertInsightProseMarkHtml,
   expertInsightQualityHtml,
   expertInsightSpoken,
   formatSchedaDate,
@@ -41,6 +42,8 @@ import {
   AVVISO_VALUES,
   EXPERT_INSIGHT_AVAILABILITIES,
   EXPERT_INSIGHT_QUALITY_LABELS,
+  SCHEDA_NOTA_MARCATURA_MODELLO,
+  SCHEDA_NOTA_MARCATURA_PAROLE,
   expertSchedaStore,
   resolveExpertInsight,
   unknownExpertInsight,
@@ -280,6 +283,70 @@ describe("lo strato di prosa", () => {
     const html = expertInsightProseHtml(viewOf({ nota: "x" }));
     expect(html).toContain(FONTE_NON_DICHIARATA);
     expect(html).toContain("senza data");
+  });
+});
+
+describe("la marcatura della prosa model-generated", () => {
+  const TESTO = "La scheda lo dà titolare e non riporta ballottaggi.";
+  const MARCATA = `${SCHEDA_NOTA_MARCATURA_MODELLO} ${TESTO}`;
+
+  it("il prefisso esce dalla frase e diventa una pastiglia", () => {
+    const html = expertInsightProseHtml(viewOf({ nota: MARCATA }));
+    expect(html).toContain('id="player-insight-prose-mark"');
+    expect(html).toContain(SCHEDA_NOTA_MARCATURA_PAROLE);
+    expect(html).toContain(TESTO);
+    // LA PARENTESI QUADRA NON RESTA A SCHERMO: è la cosa chiesta, e senza
+    // questa riga il test passerebbe anche lasciandola in mezzo alla frase.
+    expect(html).not.toContain(SCHEDA_NOTA_MARCATURA_MODELLO);
+  });
+
+  it("la pastiglia riusa .expert-chip invece di inventarsi una forma propria", () => {
+    // Il vocabolario visivo si riusa, non si duplica (decisione di Pico sul
+    // riquadro insight, stesso giorno): se un giorno questa pastiglia si
+    // staccasse dalle altre, sarebbe la seconda lingua della stessa schermata.
+    expect(expertInsightProseMarkHtml(viewOf({ nota: MARCATA }))).toContain('class="expert-chip ');
+  });
+
+  it("le parole della pastiglia sono DERIVATE dalla marcatura, non riscritte", () => {
+    // Confronta la costante del contratto con sé stessa attraverso la sola
+    // strada che le lega: se qualcuno riscrivesse le parole a mano nel
+    // template, questa riga resterebbe verde ma il legame sarebbe rotto — per
+    // questo la prova sta anche sulla costante, non solo sull'HTML.
+    expect(`[${SCHEDA_NOTA_MARCATURA_PAROLE}]`).toBe(SCHEDA_NOTA_MARCATURA_MODELLO);
+    expect(expertInsightProseMarkHtml(viewOf({ nota: MARCATA }))).toContain(
+      SCHEDA_NOTA_MARCATURA_PAROLE,
+    );
+  });
+
+  it("una prosa NON marcata non porta nessuna pastiglia: l'assenza non è una prova", () => {
+    // Una pastiglia «scritta da una persona» sarebbe un'affermazione che
+    // nessuno ha fatto: il contratto non ha un campo per la provenienza umana.
+    const html = expertInsightProseHtml(viewOf({ nota: TESTO }));
+    expect(html).not.toContain('id="player-insight-prose-mark"');
+    expect(expertInsightProseMarkHtml(viewOf({ nota: TESTO }))).toBe("");
+  });
+
+  it("senza prosa non c'è marcatura da mostrare", () => {
+    expect(expertInsightProseMarkHtml(viewOf({ titolarita: "titolare" }))).toBe("");
+  });
+
+  it("la marcatura vale solo IN TESTA: a metà frase è testo, e resta testo", () => {
+    const dentro = `Il forum scrive ${SCHEDA_NOTA_MARCATURA_MODELLO} a metà riga.`;
+    const html = expertInsightProseHtml(viewOf({ nota: dentro }));
+    expect(html).not.toContain('id="player-insight-prose-mark"');
+    expect(html).toContain(SCHEDA_NOTA_MARCATURA_MODELLO);
+  });
+
+  it("chi ascolta sente la provenienza PRIMA del testo, non dopo", () => {
+    const spoken = expertInsightSpoken(viewOf({ nota: MARCATA }));
+    expect(spoken).toContain(`${SCHEDA_NOTA_MARCATURA_PAROLE}: ${TESTO}`);
+    expect(spoken.indexOf(SCHEDA_NOTA_MARCATURA_PAROLE)).toBeLessThan(spoken.indexOf(TESTO));
+  });
+
+  it("la forma parlata di una prosa non marcata resta quella di sempre", () => {
+    expect(expertInsightSpoken(viewOf({ nota: TESTO }))).not.toContain(
+      SCHEDA_NOTA_MARCATURA_PAROLE,
+    );
   });
 });
 
