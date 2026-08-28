@@ -5,15 +5,18 @@ import {
   GEN_RECIPE_PROTOCOL_ID,
   GEN_RECIPE_VERSION,
   GenRecipeError,
+  GenRecipeMissingObservationsError,
   applyModel,
   applyRecipe,
   buildGenRecipe,
+  type GenApplyInput,
   type GenRecipe,
   type GenRecipeEntry,
+  type GenSerializedModel,
 } from "../src/genProtocol/recipeArtifact.js";
 import { GEN_PROTOCOL_CORE_VERSION } from "../src/genProtocol/index.js";
 import { fitElasticNet, predictWithElasticNet } from "../src/genProtocol/elasticNet.js";
-import { fitMarcel, predictMarcel } from "../src/genProtocol/shrinkageMarcel.js";
+import { fitMarcel, predictMarcel, type MarcelObservation } from "../src/genProtocol/shrinkageMarcel.js";
 import { fitBoostedStumps, predictWithBoostedStumps } from "../src/genProtocol/boostedStumps.js";
 import { fitB0, predictB0N, predictB0T1, predictB0T2 } from "../src/genProtocol/baselinesB0.js";
 import { buildPriceCurve, residualQuantilesByRankBand, type GenAuctionRow } from "../src/genProtocol/priceCurve.js";
@@ -64,6 +67,23 @@ const marcel = fitMarcel(
     role: "C" as const,
     season: "2024_25" as GenSeason,
     value: 6 + (i % 5) * 0.2,
+    presences: 10 + i,
+  })),
+  { k: 10, halfLife: 3 },
+  "2024_25",
+);
+
+/**
+ * Il SECONDO artefatto FAM-1, fittato su un'altra grandezza: presenze, non
+ * fantamedia. Serve a rendere visibile cio' che il composto FAM-3 mescolava —
+ * due fattori su due bersagli, con due storie diverse dello stesso giocatore.
+ */
+const marcelPresenze = fitMarcel(
+  Array.from({ length: 20 }, (_, i) => ({
+    playerKey: `K${String(i)}`,
+    role: "C" as const,
+    season: "2024_25" as GenSeason,
+    value: 18 + (i % 7) * 2,
     presences: 10 + i,
   })),
   { k: 10, halfLife: 3 },
@@ -254,6 +274,209 @@ describe("genProtocol/recipeArtifact — il ROUNDTRIP fit → serialize → appl
 
   it("un bersaglio-ruolo non selezionato non si serve: si dice, non si inventa", () => {
     expect(() => applyRecipe(serialized, { target: "T2", role: "A", features })).toThrow(GenRecipeError);
+  });
+});
+
+describe("genProtocol/recipeArtifact — FAM-3: ogni fattore con le osservazioni del PROPRIO bersaglio", () => {
+  const features = { x1: 3, x2: 2 };
+
+  // Due storie dello stesso giocatore, su due grandezze diverse: la fantamedia
+  // (T2) e le presenze (T-N). Nei round di misura il candidato T2 vede la
+  // prima e il candidato T-N la seconda; il composto applicato deve fare lo
+  // stesso, o non e' il composto che e' stato misurato.
+  const obsT2: readonly MarcelObservation[] = [
+    { season: "2023_24" as GenSeason, value: 6.8, presences: 25 },
+    { season: "2024_25" as GenSeason, value: 7.2, presences: 30 },
+  ];
+  const obsTN: readonly MarcelObservation[] = [
+    { season: "2023_24" as GenSeason, value: 25, presences: 25 },
+    { season: "2024_25" as GenSeason, value: 30, presences: 30 },
+  ];
+
+  /** Il caso che rende il difetto visibile: FAM-1 su ENTRAMBI i fattori. */
+  const composite: GenSerializedModel = {
+    family: "FAM-3",
+    t2: { family: "FAM-1", parameters: marcel },
+    tN: { family: "FAM-1", parameters: marcelPresenze },
+  };
+
+  const corretto =
+    predictMarcel(marcel, "C", obsT2).prediction * predictMarcel(marcelPresenze, "C", obsTN).prediction;
+
+  it("il composto applicato E' il prodotto dei due fattori, ciascuno col suo bersaglio", () => {
+    const applied = applyModel(composite, {
+      target: "T1",
+      role: "C",
+      features,
+      marcelObservationsByTarget: { T2: obsT2, TN: obsTN },
+    });
+    expect(applied).toBe(corretto);
+  });
+
+  it("il vecchio comportamento — le STESSE osservazioni a entrambi i fattori — dava un altro numero", () => {
+    // Riproduzione fedele del difetto: `applyModel` inoltrava a t2 e a tN lo
+    // stesso `input.marcelObservations`. Qui lo si ottiene passando le
+    // osservazioni di T2 anche a T-N.
+    const vecchio = applyModel(composite, {
+      target: "T1",
+      role: "C",
+      features,
+      marcelObservationsByTarget: { T2: obsT2, TN: obsT2 },
+    });
+    expect(vecchio).toBe(
+      predictMarcel(marcel, "C", obsT2).prediction * predictMarcel(marcelPresenze, "C", obsT2).prediction,
+    );
+    expect(vecchio).not.toBe(corretto);
+    // Non e' un epsilon di arrotondamento: sono grandezze diverse, e il
+    // composto sigillato T1|DCA e' proprio un FAM-3.
+    expect(Math.abs(vecchio - corretto)).toBeGreaterThan(1);
+  });
+
+  it("un fattore FAM-1 senza le sue osservazioni LANCIA, non degrada alla media di ruolo", () => {
+    // La forma breve non basta a un composto: il chiamante non sa quali
+    // fattori contenga, quindi il suo silenzio non e' una dichiarazione.
+    const scoppia = (): number => applyModel(composite, { target: "T1", role: "C", features, marcelObservations: obsT2 });
+    expect(scoppia).toThrow(GenRecipeMissingObservationsError);
+    expect(scoppia).toThrow(GenRecipeError);
+    expect(scoppia).toThrow(/marcelObservationsByTarget/);
+
+    let caught: unknown;
+    try {
+      scoppia();
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(GenRecipeMissingObservationsError);
+    expect((caught as GenRecipeMissingObservationsError).missingTarget).toBe("T2");
+    expect((caught as GenRecipeMissingObservationsError).compositeTarget).toBe("T1");
+  });
+
+  it("e lancia anche se la mappa copre UN solo fattore: l'errore nomina quello che manca", () => {
+    let caught: unknown;
+    try {
+      applyModel(composite, { target: "T1", role: "C", features, marcelObservationsByTarget: { T2: obsT2 } });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(GenRecipeMissingObservationsError);
+    expect((caught as GenRecipeMissingObservationsError).missingTarget).toBe("TN");
+  });
+
+  it("una lista VUOTA e' una dichiarazione, e vale la media di ruolo (§D.2, giocatore nuovo)", () => {
+    const applied = applyModel(composite, {
+      target: "T1",
+      role: "C",
+      features,
+      marcelObservationsByTarget: { T2: [], TN: [] },
+    });
+    expect(applied).toBe(marcel.roleMeans.C! * marcelPresenze.roleMeans.C!);
+    expect(Number.isNaN(applied)).toBe(false);
+  });
+
+  it("un composto SENZA fattori FAM-1 non chiede osservazioni: nulla cambia per lui", () => {
+    const b0Input = { role: "C" as const, presenzeLag1: 20, fantamediaLag1: 6.4 };
+    const senzaMarcel = applyModel(
+      { family: "FAM-3", t2: { family: "FAM-2", parameters: elastic }, tN: { family: "B0", parameters: b0 } },
+      { target: "T1", role: "C", features, b0Input },
+    );
+    expect(senzaMarcel).toBeCloseTo(predictWithElasticNet(elastic, features) * predictB0N(b0, b0Input), 12);
+  });
+
+  it("la mappa attraversa `JSON.stringify`: l'input di serving resta serializzabile come la ricetta", () => {
+    const input: GenApplyInput = {
+      target: "T1",
+      role: "C",
+      features,
+      marcelObservationsByTarget: { T2: obsT2, TN: obsTN },
+    };
+    const roundtrip = JSON.parse(JSON.stringify(input)) as GenApplyInput;
+    expect(applyModel(composite, roundtrip)).toBe(corretto);
+  });
+
+  it("la catena completa: `applyRecipe` su una entry FAM-3 serve il composto corretto", () => {
+    const compositeRecipe = buildGenRecipe({
+      coreVersion: GEN_PROTOCOL_CORE_VERSION,
+      protocolHash: "c".repeat(64),
+      datasetContentFingerprint: "fingerprint-sintetico",
+      seeds: { ...GEN_SEEDS },
+      targetSeason: SEASON,
+      entries: [
+        {
+          target: "T1",
+          role: "C",
+          status: "winner",
+          servedCandidateId: "FAM-3",
+          model: composite,
+          featureSet: null,
+          conformalRadius: null,
+        },
+      ],
+      priceCurves: [],
+      layer: { gSet: [...GEN_EARLY_SEASON_G_SET], entries: layerEntries },
+    });
+    const serialized = JSON.parse(JSON.stringify(compositeRecipe)) as GenRecipe;
+
+    const applied = applyRecipe(serialized, {
+      target: "T1",
+      role: "C",
+      features,
+      marcelObservationsByTarget: { T2: obsT2, TN: obsTN },
+    });
+    expect(applied.prediction).toBe(corretto);
+    expect(applied.modelPrediction).toBe(corretto);
+    expect(() => applyRecipe(serialized, { target: "T1", role: "C", features, marcelObservations: obsT2 })).toThrow(
+      GenRecipeMissingObservationsError,
+    );
+  });
+});
+
+describe("genProtocol/recipeArtifact — retro-compatibilita' delle famiglie NON composte", () => {
+  const features = { x1: 3, x2: 2 };
+  const observations: readonly MarcelObservation[] = [
+    { season: "2024_25" as GenSeason, value: 6.5, presences: 20 },
+  ];
+
+  it("FAM-1 alla radice con la forma breve: la predizione e' quella di sempre", () => {
+    expect(applyModel({ family: "FAM-1", parameters: marcel }, { target: "TD", role: "C", features, marcelObservations: observations })).toBe(
+      predictMarcel(marcel, "C", observations).prediction,
+    );
+  });
+
+  it("FAM-1 alla radice SENZA osservazioni resta il fallback dichiarato: media di ruolo, nessun errore", () => {
+    // Qui il silenzio del chiamante E' una dichiarazione sul giocatore — il
+    // bersaglio e' uno solo, ed e' quello che ha chiesto lui.
+    expect(applyModel({ family: "FAM-1", parameters: marcel }, { target: "TD", role: "C", features })).toBe(
+      marcel.roleMeans.C!,
+    );
+  });
+
+  it("alla radice la mappa per bersaglio vince sulla forma breve, che resta un'abbreviazione", () => {
+    expect(
+      applyModel(
+        { family: "FAM-1", parameters: marcel },
+        {
+          target: "TD",
+          role: "C",
+          features,
+          marcelObservations: [],
+          marcelObservationsByTarget: { TD: observations },
+        },
+      ),
+    ).toBe(predictMarcel(marcel, "C", observations).prediction);
+  });
+
+  it("FAM-2, FAM-4 e B0 non leggono osservazioni: la mappa non li tocca", () => {
+    const b0Input = { role: "C" as const, presenzeLag1: 20, fantamediaLag1: 6.4 };
+    const byTarget = { T2: observations, TN: observations, T1: observations };
+    expect(applyModel({ family: "FAM-2", parameters: elastic }, { target: "T2", role: "C", features, marcelObservationsByTarget: byTarget })).toBe(
+      predictWithElasticNet(elastic, features),
+    );
+    expect(applyModel({ family: "FAM-4", parameters: boosted }, { target: "T1", role: "C", features, marcelObservationsByTarget: byTarget })).toBe(
+      predictWithBoostedStumps(boosted, features),
+    );
+    expect(
+      applyModel({ family: "B0", parameters: b0 }, { target: "TN", role: "C", features, b0Input, marcelObservationsByTarget: byTarget }),
+    ).toBe(predictB0N(b0, b0Input));
   });
 });
 

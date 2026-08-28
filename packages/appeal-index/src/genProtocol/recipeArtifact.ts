@@ -54,6 +54,38 @@ export class GenRecipeError extends Error {
 }
 
 /**
+ * Un fattore di un composto chiede le osservazioni del PROPRIO bersaglio e non
+ * le trova.
+ *
+ * Non e' un `GenRecipeError` qualunque perche' non e' un errore qualunque: e'
+ * l'unico punto in cui il silenzio del chiamante produrrebbe un numero
+ * plausibile e sbagliato. Un fattore FAM-1 senza osservazioni predice la media
+ * di ruolo — che alla radice e' la definizione della famiglia (il giocatore
+ * nuovo, §D.2), dentro un composto e' invece una degradazione muta: il
+ * chiamante non sa quali fattori il composto contenga, quindi la sua omissione
+ * non e' una dichiarazione sul giocatore, e' un'informazione mancante.
+ * Si dice, non si stima.
+ */
+export class GenRecipeMissingObservationsError extends GenRecipeError {
+  /** Il bersaglio del FATTORE che ha chiesto le osservazioni. */
+  readonly missingTarget: GenTargetId;
+  /** Il bersaglio del COMPOSTO che lo contiene: serve a dire dove guardare. */
+  readonly compositeTarget: GenTargetId;
+
+  constructor(missingTarget: GenTargetId, compositeTarget: GenTargetId) {
+    super(
+      `applyModel: il fattore '${missingTarget}' del composto '${compositeTarget}' e' FAM-1 e chiede le osservazioni del PROPRIO bersaglio, ` +
+        `che non sono in \`marcelObservationsByTarget\`. Ogni fattore misura una grandezza diversa: passare le osservazioni di un bersaglio all'altro ` +
+        `applicherebbe un composto diverso da quello misurato. Per dichiarare che il giocatore non ha stagioni osservate su '${missingTarget}', ` +
+        `passare una lista VUOTA — l'assenza della chiave non e' una dichiarazione.`,
+    );
+    this.name = "GenRecipeMissingObservationsError";
+    this.missingTarget = missingTarget;
+    this.compositeTarget = compositeTarget;
+  }
+}
+
+/**
  * Un modello serializzato, una variante per famiglia.
  *
  * FAM-3 e' ricorsiva perche' e' un COMPOSTO: `T1̂ = T2̂ × N̂` coi vincitori dei
@@ -164,14 +196,50 @@ export function buildGenRecipe(input: BuildRecipeInput): GenRecipe {
   };
 }
 
+/**
+ * Le osservazioni storiche del giocatore, indicizzate per BERSAGLIO.
+ *
+ * Le osservazioni di FAM-1 non sono «la storia del giocatore» in astratto: sono
+ * la storia di UNA grandezza (fantamedia per T2, presenze per T-N, …), perche'
+ * `value` e' «il valore osservato del bersaglio in quella stagione»
+ * (`shrinkageMarcel.MarcelObservation`). Nei round di misura ogni candidato
+ * riceve le osservazioni del bersaglio che sta misurando; un composto che le
+ * mescolasse applicherebbe un modello diverso da quello misurato.
+ *
+ * E' una mappa di dati, non una lookup function, per una ragione precisa: la
+ * forma applicabile della ricetta resta JSON-serializzabile, quindi un input di
+ * serving puo' attraversare un confine di processo come lo attraversa la
+ * ricetta (§K). Una funzione di lookup non sopravviverebbe a `JSON.stringify`.
+ */
+export type GenMarcelObservationsByTarget = Readonly<Partial<Record<GenTargetId, readonly MarcelObservation[]>>>;
+
 /** Tutto cio' che serve ad applicare la ricetta a UNA riga. */
 export interface GenApplyInput {
   readonly target: GenTargetId;
   readonly role: GenRole;
   /** Le feature della riga (`featureCatalog.buildGenFeatureRows`). */
   readonly features: Readonly<Record<string, number>>;
-  /** Le osservazioni storiche del giocatore: servono a FAM-1. */
+  /**
+   * Le osservazioni storiche del giocatore per il bersaglio `target`: la forma
+   * breve, sufficiente finche' il modello NON e' un composto.
+   *
+   * Vale solo alla radice: un fattore di FAM-3 misura un altro bersaglio e non
+   * legge mai questo campo. Dove entrambi i campi parlano dello stesso
+   * bersaglio vince `marcelObservationsByTarget`, che e' il piu' esplicito.
+   */
   readonly marcelObservations?: readonly MarcelObservation[];
+  /**
+   * Le osservazioni storiche per bersaglio: la forma che un composto richiede.
+   *
+   * FAM-3 e' `T1̂ = T2̂ × N̂` (§D.2): i due fattori vivono su bersagli diversi,
+   * quindi un fattore FAM-1 va servito con le osservazioni del proprio. Se il
+   * fattore le chiede e la chiave manca, `applyModel` lancia
+   * `GenRecipeMissingObservationsError` invece di degradare in silenzio alla
+   * media di ruolo. Una lista VUOTA e' invece una dichiarazione legittima
+   * («nessuna stagione osservata su quel bersaglio») e produce la media di
+   * ruolo, che per §D.2 e' esattamente il caso del giocatore nuovo.
+   */
+  readonly marcelObservationsByTarget?: GenMarcelObservationsByTarget;
   /** I fatti di `s−1`: servono a B0. */
   readonly b0Input?: B0PredictionInput;
   /** Evidenza delle prime giornate: se presente, il layer di §D.15 si applica a T-N. */
@@ -266,20 +334,50 @@ export function applyRecipe(recipe: GenRecipe, input: GenApplyInput): GenApplyRe
  * senza osservazioni predice la media di ruolo (che e' la sua definizione),
  * B0 senza i fatti di `s−1` lancia. La differenza e' che nel primo caso il
  * fallback e' scritto nel protocollo, nel secondo mancherebbe un ingrediente.
+ *
+ * Dentro un composto quella simmetria si rompe, ed e' il motivo di
+ * `GenRecipeMissingObservationsError`: la media di ruolo di un FATTORE non e'
+ * un fallback dichiarato dal protocollo, e' un ingrediente mancante travestito
+ * da numero.
  */
 export function applyModel(model: GenSerializedModel, input: GenApplyInput): number {
+  return applyModelForTarget(model, input, input.target, null);
+}
+
+/**
+ * Il motore di `applyModel`, con il bersaglio ESPLICITO invece che implicito
+ * nell'input.
+ *
+ * Il bersaglio viaggia come parametro e non come campo riscritto dell'input
+ * (`{ ...input, target: "T2" }`) perche' un fattore di FAM-3 non e' l'input con
+ * un campo diverso: e' una domanda diversa, su un'altra grandezza. Rendere la
+ * differenza un parametro e' cio' che permette di risolvere le osservazioni sul
+ * bersaglio giusto — e di sapere, in `factorOf`, se stiamo servendo la radice o
+ * un pezzo di un composto.
+ *
+ * @param target il bersaglio di QUESTO modello: `input.target` alla radice, il
+ *   bersaglio del fattore dentro un composto.
+ * @param factorOf `null` alla radice; dentro un composto, il bersaglio del
+ *   composto che ha chiamato questo fattore.
+ */
+function applyModelForTarget(
+  model: GenSerializedModel,
+  input: GenApplyInput,
+  target: GenTargetId,
+  factorOf: GenTargetId | null,
+): number {
   switch (model.family) {
     case "FAM-2":
       return predictWithElasticNet(model.parameters, input.features);
     case "FAM-4":
       return predictWithBoostedStumps(model.parameters, input.features);
     case "FAM-1":
-      return predictMarcel(model.parameters, input.role, input.marcelObservations ?? []).prediction;
+      return predictMarcel(model.parameters, input.role, resolveMarcelObservations(input, target, factorOf)).prediction;
     case "B0": {
       if (input.b0Input === undefined) {
         throw new GenRecipeError("applyModel: B0 ha bisogno dei fatti di s−1 (`b0Input`), che non sono stati passati");
       }
-      switch (input.target) {
+      switch (target) {
         case "TN":
           return predictB0N(model.parameters, input.b0Input);
         case "T2":
@@ -287,16 +385,39 @@ export function applyModel(model: GenSerializedModel, input: GenApplyInput): num
         case "T1":
           return predictB0T1(model.parameters, input.b0Input);
         default:
-          throw new GenRecipeError(
-            `applyModel: B0 non ha una forma per il bersaglio '${input.target}' in questa ricetta`,
-          );
+          throw new GenRecipeError(`applyModel: B0 non ha una forma per il bersaglio '${target}' in questa ricetta`);
       }
     }
     case "FAM-3": {
-      // Il composto: `T1̂ = T2̂ × N̂`, coi due fattori applicati alla stessa riga.
-      const t2 = applyModel(model.t2, { ...input, target: "T2" });
-      const tN = applyModel(model.tN, { ...input, target: "TN" });
+      // Il composto: `T1̂ = T2̂ × N̂`, coi due fattori applicati alla stessa riga
+      // ma ciascuno sul PROPRIO bersaglio — la stessa semantica dei round di
+      // misura, dove il candidato T2 vede le osservazioni di T2 e il candidato
+      // T-N quelle di T-N. Un composto applicato con le osservazioni mescolate
+      // non e' il composto che e' stato misurato.
+      const t2 = applyModelForTarget(model.t2, input, "T2", target);
+      const tN = applyModelForTarget(model.tN, input, "TN", target);
       return t2 * tN;
     }
   }
+}
+
+/**
+ * Le osservazioni FAM-1 del bersaglio richiesto.
+ *
+ * L'ordine e': la mappa per bersaglio, poi — solo alla radice — la forma breve,
+ * poi il fallback di §D.2. Dentro un composto l'ultimo gradino non c'e': si
+ * lancia.
+ */
+function resolveMarcelObservations(
+  input: GenApplyInput,
+  target: GenTargetId,
+  factorOf: GenTargetId | null,
+): readonly MarcelObservation[] {
+  const byTarget = input.marcelObservationsByTarget?.[target];
+  if (byTarget !== undefined) return byTarget;
+  if (factorOf !== null) throw new GenRecipeMissingObservationsError(target, factorOf);
+  // Alla radice il bersaglio e' quello che il chiamante ha chiesto: l'assenza di
+  // osservazioni e' una dichiarazione sul giocatore («nessuna stagione
+  // osservata»), e §D.2 le risponde con la media di ruolo.
+  return input.marcelObservations ?? [];
 }
