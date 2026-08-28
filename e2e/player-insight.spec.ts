@@ -459,7 +459,12 @@ test("il riquadro pieno regge AA e non fa traboccare la schermata a 390, 1280, 1
   page,
   context,
 }) => {
-  await boot(page, context, { kind: "serve", body: schedeDeposit([FULL_SCHEDA]) });
+  // LA SPAZZATA GIRA SULLA SCHEDA MARCATA, non su quella piena senza marcatura:
+  // `MODEL_PROSE_SCHEDA` è `FULL_SCHEDA` più il prefisso di provenienza, quindi
+  // questa riga non toglie niente a ciò che la spazzata misurava già — aggiunge
+  // la pastiglia della marcatura, che altrimenti sarebbe l'unica superficie
+  // nuova di questa PR mai misurata a 390px né per contrasto né per traboccamento.
+  await boot(page, context, { kind: "serve", body: schedeDeposit([MODEL_PROSE_SCHEDA]) });
   const tokens = await resolveTokenColors(page, ["--text-dim", "--text-sec", "--text-mid", "--text-primary"]);
   const byColor = new Map(Object.entries(tokens).map(([token, hex]) => [hex, token]));
 

@@ -330,6 +330,29 @@ describe("la marcatura della prosa model-generated", () => {
     expect(expertInsightProseMarkHtml(viewOf({ titolarita: "titolare" }))).toBe("");
   });
 
+  it("una nota che è SOLO la marcatura non accende la pastiglia: non qualifica niente", () => {
+    // Il caso limite che il ramo `view.nota === ""` esiste per coprire: una
+    // stringa fatta del solo prefisso è marcata E vuota. La pastiglia dice «le
+    // due righe qui sotto le ha scritte un modello»: senza le due righe è una
+    // provenienza di nessun testo, e il riquadro deve dire che la prosa manca —
+    // non decorare il vuoto.
+    const view = viewOf({ titolarita: "titolare", nota: SCHEDA_NOTA_MARCATURA_MODELLO });
+    expect(view.nota).toBe("");
+    expect(view.notaGenerataDaModello).toBe(true);
+    expect(expertInsightProseMarkHtml(view)).toBe("");
+    const html = expertInsightProseHtml(view);
+    expect(html).toContain('id="player-insight-prose-empty"');
+    expect(html).not.toContain(SCHEDA_NOTA_MARCATURA_PAROLE);
+  });
+
+  it("e chi ascolta sente «nessuna nota scritta», non una provenienza senza testo", () => {
+    const spoken = expertInsightSpoken(
+      viewOf({ titolarita: "titolare", nota: SCHEDA_NOTA_MARCATURA_MODELLO }),
+    );
+    expect(spoken).toContain("nessuna nota scritta");
+    expect(spoken).not.toContain(SCHEDA_NOTA_MARCATURA_PAROLE);
+  });
+
   it("la marcatura vale solo IN TESTA: a metà frase è testo, e resta testo", () => {
     const dentro = `Il forum scrive ${SCHEDA_NOTA_MARCATURA_MODELLO} a metà riga.`;
     const html = expertInsightProseHtml(viewOf({ nota: dentro }));
