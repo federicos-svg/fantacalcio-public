@@ -240,6 +240,8 @@ import {
   SCHEDA_NOTA_MAX,
   SCHEDA_PERCENTUALE_MAX,
   SCHEDA_PERCENTUALE_MIN,
+  SCHEDA_RANGO_MAX,
+  SCHEDA_RANGO_MIN,
   TITOLARITA_VALUES,
   parseExpertSchedaDeposit,
   resolveExpertInsight,
@@ -4984,6 +4986,25 @@ function renderSchedaForm(
     ),
   );
 
+  // IL RANGO DEI RIGORI, subito dopo la designazione che ordina — nella stessa
+  // posizione che ha nella `shape` del contratto. Vuoto è «non dichiarato» e
+  // NON è zero: la casella non ha un valore di partenza, e `buildScheda`
+  // rifiuta un rango scritto senza la sua fila invece di lasciarlo passare
+  // fino al deposito, dove il rifiuto sarebbe del file intero.
+  grid.appendChild(
+    schedaField(
+      "schede-rango-rigori",
+      `RANGO RIGORI (${SCHEDA_RANGO_MIN}–${SCHEDA_RANGO_MAX}, 1 = IL PRIMO DELLA FILA)`,
+      schedaNumberInput(
+        "schede-rango-rigori",
+        SCHEDA_RANGO_MIN,
+        SCHEDA_RANGO_MAX,
+        state.schedaForm.rangoRigori,
+        (value) => updateSchedaForm({ rangoRigori: value }),
+      ),
+    ),
+  );
+
   grid.appendChild(
     schedaField(
       "schede-fonte",
@@ -5040,6 +5061,35 @@ function renderSchedaForm(
       (next) => updateSchedaForm({ piazzati: next }),
     ),
   );
+
+  // I DUE RANGHI DELLE SPECIALITÀ, attaccati alle caselle che li rendono
+  // scrivibili. Vivono in una griglia loro e non in quella dei campi generali
+  // per una ragione sola: il rango di una specialità ha senso solo accanto
+  // alla spunta che la dichiara, e a due schermate di distanza si compila
+  // guardando la casella sbagliata.
+  const ranghiPiazzati = document.createElement("div");
+  ranghiPiazzati.className = "league-team-grid";
+  ranghiPiazzati.id = "schede-ranghi-piazzati";
+  for (const [kind, id] of [
+    ["punizioni", "schede-rango-punizioni"],
+    ["angoli", "schede-rango-angoli"],
+  ] as const) {
+    const campo = kind === "punizioni" ? ("rangoPunizioni" as const) : ("rangoAngoli" as const);
+    ranghiPiazzati.appendChild(
+      schedaField(
+        id,
+        `RANGO ${PIAZZATI_LABELS[kind].toUpperCase()} (${SCHEDA_RANGO_MIN}–${SCHEDA_RANGO_MAX})`,
+        schedaNumberInput(
+          id,
+          SCHEDA_RANGO_MIN,
+          SCHEDA_RANGO_MAX,
+          state.schedaForm[campo],
+          (value) => updateSchedaForm({ [campo]: value } as Partial<SchedaFormValues>),
+        ),
+      ),
+    );
+  }
+  form.appendChild(ranghiPiazzati);
 
   form.appendChild(
     schedaCheckGroup(
@@ -6081,6 +6131,37 @@ function renderMomentoChiamata(
         toggleNominationContext,
       ),
     );
+
+    // ── INSIGHT GIOCATORE (col radar della pagella) ANCHE QUI ──────────────
+    //
+    // IL FATTO, VERIFICATO PRIMA DI TOCCARE NIENTE. Il riquadro — e con lui il
+    // radar della pagella — esisteva SOLO nel momento `asta`, montato da
+    // `renderMomentoAsta`: nella schermata di CHIAMATA non era «non raggiunto»,
+    // era proprio assente dal DOM. Cercato prima di aggiungerlo: nessun
+    // documento canonico e nessuna spec dichiara quell'assenza come una scelta
+    // — `#333` fissa l'ORDINE dei blocchi della schermata di chiamata e non ne
+    // esclude questo, e la decisione del 2026-08-16 («i due segnaposto vuoti si
+    // riempiono, non si tolgono») va nella direzione opposta. Quindi si monta.
+    //
+    // PERCHÉ PROPRIO QUI, sotto CONTESTO CHIAMATA. I due blocchi hanno lo
+    // STESSO SOGGETTO — la riga che Pico ha appena cliccato — e nascono e
+    // spariscono insieme con lei: senza selezione non c'è nessun giocatore di
+    // cui leggere la scheda, e un riquadro che dicesse «nessun segnale» prima
+    // ancora che ci sia un soggetto sarebbe rumore che costa altezza. Sopra
+    // GIOCATORE SUGGERITO perché quello parla di CHI chiamare, questo del
+    // giocatore già scelto.
+    //
+    // È LO STESSO COMPONENTE, non una seconda resa: stesse pastiglie di
+    // onestà, stessa striscia di icone, stesso radar, stessi id — e i due
+    // momenti non sono mai in pagina insieme, quindi nessun id si duplica. Una
+    // seconda resa qui avrebbe potuto dire una cosa diversa dalla prima sullo
+    // stesso giocatore, che è il difetto che questo riquadro esiste per non
+    // avere.
+    //
+    // COSTA ALTEZZA, ED È DICHIARATO: ha la propria riga nel libro mastro del
+    // budget verticale (src/ui/callScreenBudget.ts, `scheda-esperto`), misurata
+    // e sottratta alla riserva nello stesso diff.
+    wrap.appendChild(renderPlayerInsightsBlock(playerInsightProps()));
   }
 
   // Suggested player block — design slot "CHI CHIAMARE ORA".

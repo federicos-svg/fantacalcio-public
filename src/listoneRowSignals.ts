@@ -1,8 +1,9 @@
 // I SEGNALI DI RIGA DEL LISTONE — dove vivono, e perché non si rifanno a ogni
 // tasto.
 //
-// CHE COSA SONO. I cinque voti del Gruppo Esperti e i due campi «rigorista» e
-// «piazzati» che la tabella mostra e che la riga di listone NON porta. Il loro
+// CHE COSA SONO. I cinque voti del Gruppo Esperti e i tre campi ordinati —
+// «rigorista», «punizioni», «angoli» — che la tabella mostra e che la riga di
+// listone NON porta. Il loro
 // valore arriva dal DEPOSITO DELLE SCHEDE, agganciato per NOME + SQUADRA
 // (`resolveExpertInsight`, src/expertScheda.ts): è la stessa risoluzione del
 // riquadro INSIGHT GIOCATORE, quindi tabella e radar non possono dire due cose
@@ -41,7 +42,7 @@ import {
 } from "./expertScheda.js";
 import type { PagellaView } from "./pagellaEsperti.js";
 import { schedaLinkRowKey, type SchedaLinks } from "./schedaLinks.js";
-import { PIAZZATI_LABELS, RIGORI_LABELS } from "./ui/schedaLabels.js";
+import { PIAZZATI_BATTITORE, RIGORI_LABELS, conRango } from "./ui/schedaLabels.js";
 import {
   emptyRowSignals,
   type ListonePlayer,
@@ -73,9 +74,10 @@ export interface ListoneSignalsInput {
  * I SEGNALI DI UNA RIGA, risolti. Puro: stessi ingressi → stessa uscita, e
  * nessuno dei tre ingressi viene toccato.
  *
- * Le parole di «rigorista» e «piazzati» arrivano dal vocabolario chiuso delle
- * schede (src/ui/schedaLabels.ts): questo modulo non traduce e non inventa —
- * se una parola non è nel vocabolario, non è arrivata da qui.
+ * Le parole dei tre segnali ordinati arrivano dal vocabolario chiuso delle
+ * schede (src/ui/schedaLabels.ts) e il rango si scrive con `conRango`, la
+ * stessa funzione di ogni altra superficie: questo modulo non traduce e non
+ * inventa — se una parola non è nel vocabolario, non è arrivata da qui.
  *
  * `pagella` è la vista GIÀ RISOLTA dal contratto, la stessa che alimenta il
  * radar del riquadro d'asta: il quarto asse è già stato scelto dal ruolo della
@@ -97,9 +99,16 @@ export function resolveRowSignals(
   if (view.rigori === null && view.piazzati.length === 0 && view.pagella.votiPresenti === 0) {
     return emptyRowSignals(p.role);
   }
+  // LE TRE CELLE SI COMPONGONO QUI, con `conRango` — la stessa funzione che
+  // scrive il rango nella pastiglia del riquadro e sotto l'icona. Il rango
+  // assente non produce nessun numero e non degrada a zero: resta la sola
+  // parola, e la colonna lo dichiara nel proprio tooltip.
+  const battitore = (kind: "punizioni" | "angoli", rango: number | null): string | null =>
+    view.piazzati.includes(kind) ? conRango(PIAZZATI_BATTITORE, rango) : null;
   return {
-    rigori: view.rigori === null ? null : RIGORI_LABELS[view.rigori],
-    piazzati: view.piazzati.map((kind) => PIAZZATI_LABELS[kind]),
+    rigori: view.rigori === null ? null : conRango(RIGORI_LABELS[view.rigori], view.rangoRigori),
+    punizioni: battitore("punizioni", view.rangoPunizioni),
+    angoli: battitore("angoli", view.rangoAngoli),
     pagella: view.pagella,
   };
 }

@@ -388,3 +388,54 @@ test("ogni testo del blocco pagella si legge: sopra AA, in tutti gli stati", asy
 
   expect(external).toEqual([]);
 });
+
+// ── e. IL RADAR NELLA SCHERMATA DI CHIAMATA ──────────────────────────────────
+//
+// IL DIFETTO CHE QUESTA PROVA IMPEDISCE DI RIFARE, segnalato da Pico: il radar
+// «durante l'asta» non compariva, e non perché fosse scrollato via — il
+// riquadro che lo contiene era montato SOLO dal momento d'asta, cioè dopo
+// «Avvia». Nella schermata di CHIAMATA, dove si guarda il giocatore prima di
+// decidere se chiamarlo, non esisteva nel DOM.
+//
+// Le due asserzioni sono complementari e nessuna delle due basta da sola:
+// PRIMA della selezione il riquadro NON c'è (non c'è nessun soggetto di cui
+// leggere la scheda, e un riquadro «nessun segnale» prima ancora del soggetto
+// costerebbe altezza per niente), DOPO c'è col radar disegnato.
+
+test("il radar c'è già nella schermata di chiamata, appena una riga è selezionata", async ({
+  page,
+  context,
+}) => {
+  const external = await boot(page, context, [PAGELLA_SCHEDA]);
+
+  // Prima del clic: nessun soggetto, nessun riquadro.
+  await expect(page.locator("#player-insight-panel")).toHaveCount(0);
+
+  // Un clic sulla riga — NON «Avvia»: si resta nella schermata di chiamata.
+  await page.getByText(TARGET.name, { exact: true }).click();
+  await expect(page.locator("#nomination-context")).toBeVisible();
+  await expect(page.locator("#assign-price")).toHaveCount(0);
+
+  // Il riquadro c'è, col radar disegnato e i cinque assi.
+  await expect(page.locator("#player-insight-panel")).toBeVisible();
+  await expect(page.locator("#player-insight-radar")).toBeVisible();
+  await expect(page.locator("#player-insight-pagella-assi li")).toHaveCount(PAGELLA_ASSI);
+  await expect(page.locator("#player-insight-pagella-totale")).toContainText("39/50");
+  // E la striscia delle icone, che è l'altra metà della colonna del disegno:
+  // QUATTRO, perché questa scheda non mette il giocatore in nessuna delle tre
+  // liste editoriali e la quinta casella «appare solo se» — fail-closed.
+  await expect(page.locator("#player-insight-icone > li")).toHaveCount(4);
+  // Il rango della fila arriva fin qui: la scheda dichiara 1° sui rigori.
+  await expect(page.locator("#player-insight-icona-rigorista .scheda-icona__rango")).toHaveText(
+    "1\u00b0",
+  );
+
+  // STA SOTTO CONTESTO CHIAMATA e sopra GIOCATORE SUGGERITO: stesso soggetto
+  // del primo, mentre il secondo parla di chi chiamare e non del già scelto.
+  const top = async (sel: string): Promise<number> =>
+    page.locator(sel).evaluate((el) => el.getBoundingClientRect().top + window.scrollY);
+  expect(await top("#player-insight-panel")).toBeGreaterThan(await top("#nomination-context"));
+  expect(await top("#player-insight-panel")).toBeLessThan(await top("#suggested-player"));
+
+  expect(external).toEqual([]);
+});

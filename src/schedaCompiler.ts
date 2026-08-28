@@ -63,12 +63,16 @@ import {
   SCHEDA_GERARCHIA_MAX,
   SCHEDA_GERARCHIA_MIN,
   SCHEDA_NAME_MAX,
+  SCHEDA_NOTA_MARCATURA_PAROLE,
   SCHEDA_NOTA_MAX,
   SCHEDA_PERCENTUALE_MAX,
   SCHEDA_PERCENTUALE_MIN,
+  SCHEDA_RANGO_MAX,
+  SCHEDA_RANGO_MIN,
   TITOLARITA_VALUES,
   ballottaggioVisibile,
   isValidIsoDate,
+  leggiNota,
   parseExpertSchedaDeposit,
   schedaHasContent,
   stessoSoggettoBallottaggio,
@@ -109,7 +113,7 @@ import {
   formatSchedaDate,
   gerarchiaLabel,
 } from "./ui/expertInsight.js";
-import { LISTA_ESPERTI_LABELS } from "./ui/schedaLabels.js";
+import { LISTA_ESPERTI_LABELS, conRango } from "./ui/schedaLabels.js";
 
 // ── L'archivio locale ────────────────────────────────────────────────────────
 
@@ -148,7 +152,20 @@ export interface SchedaFormValues {
   readonly ballottaggio: readonly SchedaBallottaggioValues[];
   readonly gerarchia: string;
   readonly rigori: string;
+  /**
+   * IL RANGO DEI TRE INCARICHI — «il quantesimo della fila» — come lo rende il
+   * DOM: stringa, `""` per «non dichiarato». `""` NON è `0`: la distinzione fra
+   * «la scheda non lo dice» e un numero vale in scrittura esattamente come in
+   * lettura (src/expertScheda.ts §rango), o non vale.
+   *
+   * Ognuno vive accanto al proprio segnale nel modulo, come nella `shape` del
+   * contratto: un rango battuto senza la sua fila è un rifiuto che si legge —
+   * `buildScheda` lo dice con la stessa parola con cui lo direbbe il deposito.
+   */
+  readonly rangoRigori: string;
   readonly piazzati: readonly string[];
+  readonly rangoPunizioni: string;
+  readonly rangoAngoli: string;
   readonly avvisi: readonly string[];
   /**
    * La lista editoriale. `""` è L'ASSENZA e non un quarto valore del
@@ -246,7 +263,10 @@ export const EMPTY_SCHEDA_FORM: SchedaFormValues = {
   ballottaggio: [],
   gerarchia: "",
   rigori: "",
+  rangoRigori: "",
   piazzati: [],
+  rangoPunizioni: "",
+  rangoAngoli: "",
   avvisi: [],
   lista: "",
   nota: "",
@@ -325,7 +345,15 @@ const formSchema = z
       .default([]),
     gerarchia: z.string(),
     rigori: z.string(),
+    // I TRE RANGHI PORTANO UN `.default("")` per la stessa ragione dei campi
+    // che ne hanno già uno: una scheda APERTA salvata prima di oggi non ha
+    // queste chiavi, e senza il default cadrebbe fuori da `formSchema` — cioè
+    // fino a 90 secondi di battitura trasformati in «nessuna scheda aperta»
+    // per tre caselle che nessuno aveva ancora potuto compilare.
+    rangoRigori: z.string().default(""),
     piazzati: z.array(z.string()),
+    rangoPunizioni: z.string().default(""),
+    rangoAngoli: z.string().default(""),
     avvisi: z.array(z.string()),
     lista: z.string().default(""),
     nota: z.string(),
@@ -466,7 +494,10 @@ export type SchedaField =
   | "ballottaggio"
   | "gerarchia"
   | "rigori"
+  | "rangoRigori"
   | "piazzati"
+  | "rangoPunizioni"
+  | "rangoAngoli"
   | "avvisi"
   | "lista"
   | "nota"
@@ -517,7 +548,10 @@ export const SCHEDA_ENTRY_POINTS = {
   ballottaggio: { kind: "form", field: "ballottaggio" },
   gerarchia: { kind: "form", field: "gerarchia" },
   rigori: { kind: "form", field: "rigori" },
+  rangoRigori: { kind: "form", field: "rangoRigori" },
   piazzati: { kind: "form", field: "piazzati" },
+  rangoPunizioni: { kind: "form", field: "rangoPunizioni" },
+  rangoAngoli: { kind: "form", field: "rangoAngoli" },
   avvisi: { kind: "form", field: "avvisi" },
   lista: { kind: "form", field: "lista" },
   nota: { kind: "form", field: "nota" },
@@ -1033,6 +1067,62 @@ export function buildScheda(target: SchedaTarget, values: SchedaFormValues): Sch
   if (piazzatiPick.unknown.length > 0) {
     errors.push({ field: "piazzati", message: "Calci piazzati fuori dal vocabolario della scheda." });
   }
+
+  // ── I TRE RANGHI ─────────────────────────────────────────────────────────
+  //
+  // Due rifiuti, e sono due cose diverse. Il primo è di FORMA: un rango è un
+  // intero fra 1 e 9, e lo dice col limite letto dal contratto, non con una
+  // copia scritta qui. Il secondo è di COERENZA: un rango senza la sua fila
+  // («secondo battitore d'angoli» su una scheda che non dichiara gli angoli)
+  // è la contraddizione che il deposito rifiuta fail-closed — e rifiutarla
+  // QUI, con la parola giusta e il campo giusto, è la differenza fra una
+  // correzione di dieci secondi e un file rifiutato in blocco a cose fatte.
+  //
+  // L'ordine dei due controlli non è indifferente: si guarda prima la forma,
+  // così un refuso non viene raccontato come un problema di coerenza.
+  const rango = (
+    field: SchedaField & ("rangoRigori" | "rangoPunizioni" | "rangoAngoli"),
+    raw: string,
+    fila: string,
+    dichiarata: boolean,
+  ): number | undefined => {
+    if (raw.trim() === "") return undefined;
+    const parsed = parseInteger(raw);
+    if (parsed === null || parsed < SCHEDA_RANGO_MIN || parsed > SCHEDA_RANGO_MAX) {
+      errors.push({
+        field,
+        message: `Il rango è un intero fra ${SCHEDA_RANGO_MIN} e ${SCHEDA_RANGO_MAX} (1 = il primo della fila). Lascia vuoto se la scheda non lo dichiara: vuoto non è zero.`,
+      });
+      return undefined;
+    }
+    if (!dichiarata) {
+      errors.push({
+        field,
+        message: `Rango scritto senza ${fila}: un rango ordina una fila, e questa scheda non dice che il giocatore ne faccia parte.`,
+      });
+      return undefined;
+    }
+    return parsed;
+  };
+
+  const rangoRigori = rango(
+    "rangoRigori",
+    values.rangoRigori,
+    "la designazione RIGORI",
+    rigori !== undefined,
+  );
+  const rangoPunizioni = rango(
+    "rangoPunizioni",
+    values.rangoPunizioni,
+    "«punizioni» fra i CALCI PIAZZATI",
+    piazzatiPick.values.includes("punizioni"),
+  );
+  const rangoAngoli = rango(
+    "rangoAngoli",
+    values.rangoAngoli,
+    "«angoli» fra i CALCI PIAZZATI",
+    piazzatiPick.values.includes("angoli"),
+  );
   const avvisiPick = pickVocabulary<Avviso>(values.avvisi, AVVISO_VALUES);
   if (avvisiPick.unknown.length > 0) {
     errors.push({ field: "avvisi", message: "Avvisi fuori dal vocabolario della scheda." });
@@ -1103,7 +1193,14 @@ export function buildScheda(target: SchedaTarget, values: SchedaFormValues): Sch
     ...(soggetti.length === 0 ? {} : { ballottaggio: soggetti }),
     ...(gerarchia === undefined ? {} : { gerarchia }),
     ...(rigori === undefined ? {} : { rigori }),
+    // NELL'ORDINE DELLA `shape` DEL CONTRATTO, rango subito dopo la sua fila:
+    // zod ricostruisce in quell'ordine e questo file scrive nello stesso, o
+    // scarica → reimporta → riscarica renderebbe due file diversi a parità di
+    // contenuto (src/expertScheda.ts, il commento sull'ordine delle chiavi).
+    ...(rangoRigori === undefined ? {} : { rangoRigori }),
     ...(piazzatiPick.values.length === 0 ? {} : { piazzati: piazzatiPick.values }),
+    ...(rangoPunizioni === undefined ? {} : { rangoPunizioni }),
+    ...(rangoAngoli === undefined ? {} : { rangoAngoli }),
     ...(avvisiPick.values.length === 0 ? {} : { avvisi: avvisiPick.values }),
     ...(lista === undefined ? {} : { lista }),
     ...(nota === "" ? {} : { nota }),
@@ -1169,7 +1266,13 @@ export function schedaToForm(scheda: ExpertScheda): SchedaFormValues {
     })),
     gerarchia: scheda.gerarchia === undefined ? "" : String(scheda.gerarchia),
     rigori: scheda.rigori ?? "",
+    // Un rango assente torna `""`, mai `"0"` e mai un numero dedotto
+    // dall'ordine in cui le schede sono state scritte: riaprire una scheda del
+    // deposito vecchio non è il momento in cui inventarle una posizione.
+    rangoRigori: scheda.rangoRigori === undefined ? "" : String(scheda.rangoRigori),
     piazzati: [...(scheda.piazzati ?? [])],
+    rangoPunizioni: scheda.rangoPunizioni === undefined ? "" : String(scheda.rangoPunizioni),
+    rangoAngoli: scheda.rangoAngoli === undefined ? "" : String(scheda.rangoAngoli),
     avvisi: [...(scheda.avvisi ?? [])],
     lista: scheda.lista ?? "",
     nota: scheda.nota ?? "",
@@ -1430,12 +1533,39 @@ export function schedaSummary(scheda: ExpertScheda): string {
     parts.push(`con: ${nomi.join(", ")}`);
   }
   if (scheda.gerarchia !== undefined) parts.push(gerarchiaLabel(scheda.gerarchia));
-  if (scheda.rigori !== undefined) parts.push(`rigori: ${RIGORI_LABELS[scheda.rigori]}`);
+  // IL RANGO SI RILEGGE INSIEME AL SEGNALE CHE ORDINA, con le stesse parole di
+  // ogni altra superficie (`conRango`, src/ui/schedaLabels.ts): chi rilegge la
+  // scheda che ha appena scritto deve vedere «1° designato», cioè quello che
+  // vedrà nel listone e sotto l'icona, non una terza forma inventata qui.
+  if (scheda.rigori !== undefined) {
+    parts.push(`rigori: ${conRango(RIGORI_LABELS[scheda.rigori], scheda.rangoRigori)}`);
+  }
   const piazzati = scheda.piazzati ?? [];
-  if (piazzati.length > 0) parts.push(`piazzati: ${piazzati.map((p) => PIAZZATI_LABELS[p]).join(", ")}`);
+  if (piazzati.length > 0) {
+    const ranghi: Readonly<Record<Piazzati, number | undefined>> = {
+      punizioni: scheda.rangoPunizioni,
+      angoli: scheda.rangoAngoli,
+    };
+    parts.push(
+      `piazzati: ${piazzati.map((p) => conRango(PIAZZATI_LABELS[p], ranghi[p])).join(", ")}`,
+    );
+  }
   for (const avviso of scheda.avvisi ?? []) parts.push(`! ${AVVISO_LABELS[avviso]}`);
-  const nota = (scheda.nota ?? "").trim();
-  if (nota !== "") parts.push(`nota (${nota.length} caratteri)`);
+  // LA MARCATURA SI VEDE ANCHE QUI, e non è una rifinitura: il compilatore è
+  // il posto in cui una persona RIVEDE le schede importate dal modulo, cioè il
+  // solo momento in cui può decidere di riscrivere una prosa che ha scritto un
+  // modello. Senza questa parola le due prose si distinguono solo aprendo il
+  // campo e leggendo la parentesi quadra.
+  //
+  // IL CONTEGGIO RESTA SULLA STRINGA INTERA, marcatura compresa: è un budget di
+  // caratteri contro `SCHEDA_NOTA_MAX`, e il tetto lo misura tutto.
+  const notaGrezza = (scheda.nota ?? "").trim();
+  if (notaGrezza !== "") {
+    const marcata = leggiNota(notaGrezza).generataDaModello
+      ? `, ${SCHEDA_NOTA_MARCATURA_PAROLE}`
+      : "";
+    parts.push(`nota (${notaGrezza.length} caratteri${marcata})`);
+  }
   // La lista COME LA SCHEDA LA SCRIVE, non `resolveListaEsperti`: qui si
   // rilegge ciò che si è compilato, e l'avviso `sconsigliato` — che nella vista
   // avrebbe la precedenza — è già scritto due righe più su come avviso. La

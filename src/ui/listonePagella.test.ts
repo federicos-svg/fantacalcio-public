@@ -88,7 +88,7 @@ function signalsFrom(map: Readonly<Record<string, PagellaScheda>>): ListoneRowSi
   return (p): ListoneRowSignals => {
     const pagella = map[p.name];
     if (pagella === undefined) return emptyRowSignals(p.role);
-    return { rigori: null, piazzati: [], pagella: resolvePagella(pagella, p.role) };
+    return { ...emptyRowSignals(p.role), pagella: resolvePagella(pagella, p.role) };
   };
 }
 

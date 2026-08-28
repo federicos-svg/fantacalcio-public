@@ -4,6 +4,7 @@ import {
   ICONE_SCHEDA_CON_PAGELLA,
   ICONE_SCHEDA_PIENA,
   ICONE_SCHEDA_SCONSIGLIATO,
+  ICONE_SCHEDA_SENZA_RANGO,
   ICONE_SCHEDA_SORPRESA,
   ICONE_SCHEDA_SPENTA,
   ICONE_SCHEDA_TRE_NOMI,
@@ -14,16 +15,21 @@ import {
 import { AA_NORMAL_TEXT, installSyntheticNetworkGuard, measureAllText } from "./helpers.js";
 import type { ExpertScheda } from "../src/expertScheda.js";
 
-// LE QUATTRO ICONE ACCANTO AL RADAR, SUL DOM VIVO.
+// LE CINQUE ICONE ACCANTO AL RADAR, SUL DOM VIVO.
 //
 // Costruttori e ragioni: src/ui/schedaIcone.ts. Qui si prova ciò che solo il
 // browser può dire, e ogni famiglia esiste per un vincolo dichiarato:
 //
-//  a. ACCESO E SPENTO. Tre icone sempre presenti, accese quando la scheda
+//  a. ACCESO E SPENTO. Quattro icone sempre presenti, accese quando la scheda
 //     dichiara il segnale e spente — con la cornice tratteggiata e il glifo in
 //     solo contorno — quando non lo dichiara. Lo stato si legge SENZA IL
 //     COLORE, e qui lo si verifica sui pixel: `border-style` e `fill` resi.
-//  b. LA QUARTA ICONA. Tre stati, tre disegni diversi, tre colori diversi; e
+//  a-bis. IL POSTO NELLA FILA. Rigori, punizioni e angoli sono file ORDINATE:
+//     ciascuna casella porta il proprio numero, e sono tre numeri diversi
+//     perché uno solo non direbbe di quale fila parla. La pastiglia c'è SOLO
+//     dove la scheda dichiara l'ordine, e sta DENTRO la casella: la striscia
+//     non cresce di un pixel e non apre scorrimento a 390px.
+//  b. L'ICONA DELLE LISTE. Tre stati, tre disegni diversi, tre colori diversi; e
 //     assente quando il giocatore non è in nessuna delle tre liste — che è il
 //     comportamento fail-closed richiesto, visto che due delle tre liste il
 //     lato privato non le produce ancora.
@@ -47,7 +53,8 @@ const TARGET = SYNTHETIC_LISTONE_POOL.find((p) => p.name === SCHEDA_PLAYER)!;
 
 const STRISCIA = "#player-insight-icone";
 const RIGORISTA = "#player-insight-icona-rigorista";
-const PIAZZATI = "#player-insight-icona-piazzati";
+const PUNIZIONI = "#player-insight-icona-punizioni";
+const ANGOLI = "#player-insight-icona-angoli";
 const BALLOTTAGGIO = "#player-insight-icona-ballottaggio";
 const LISTA = "#player-insight-icona-lista";
 
@@ -86,7 +93,7 @@ function disegno(icona: Locator): Promise<string> {
 
 // ── a. ACCESO E SPENTO ───────────────────────────────────────────────────────
 
-test("le tre icone si accendono quando il segnale c'è e si spengono quando non c'è", async ({
+test("le quattro icone si accendono quando il segnale c'è e si spengono quando non c'è", async ({
   page,
   context,
 }) => {
@@ -94,7 +101,7 @@ test("le tre icone si accendono quando il segnale c'è e si spengono quando non 
   await call(page, TARGET.name);
 
   await expect(page.locator(STRISCIA)).toBeVisible();
-  for (const sel of [RIGORISTA, PIAZZATI, BALLOTTAGGIO]) {
+  for (const sel of [RIGORISTA, PUNIZIONI, ANGOLI, BALLOTTAGGIO]) {
     await expect(page.locator(sel), `${sel} acceso`).toHaveAttribute("data-acceso", "si");
   }
 
@@ -113,10 +120,13 @@ test("le tre icone si accendono quando il segnale c'è e si spengono quando non 
   await expect(page.locator("#search-player")).toBeVisible();
   await call(page, TARGET.name);
 
-  await expect(page.locator(`${STRISCIA} > li`)).toHaveCount(3);
-  for (const sel of [RIGORISTA, PIAZZATI, BALLOTTAGGIO]) {
+  await expect(page.locator(`${STRISCIA} > li`)).toHaveCount(4);
+  for (const sel of [RIGORISTA, PUNIZIONI, ANGOLI, BALLOTTAGGIO]) {
     await expect(page.locator(sel), `${sel} spento`).toHaveAttribute("data-acceso", "no");
   }
+  // Nessuna casella spenta porta un numero: non c'è nessuna fila di cui essere
+  // il quantesimo, e una pastiglia qui si leggerebbe come un rango inventato.
+  await expect(page.locator(`${STRISCIA} .scheda-icona__rango`)).toHaveCount(0);
 
   expect(external).toEqual([]);
 });
@@ -176,24 +186,24 @@ test("acceso e spento si leggono SENZA il colore: cornice e riempimento resi", a
   expect(external).toEqual([]);
 });
 
-// ── b. LA QUARTA ICONA ───────────────────────────────────────────────────────
+// ── b. L'ICONA DELLE LISTE ───────────────────────────────────────────────────
 
-test("la quarta icona compare SOLO se il giocatore è in una delle tre liste", async ({
+test("l'icona delle liste compare SOLO se il giocatore è in una delle tre", async ({
   page,
   context,
 }) => {
   const external = await boot(page, context, [ICONE_SCHEDA_SPENTA]);
   await call(page, TARGET.name);
 
-  // FAIL-CLOSED: nessuna lista dichiarata, nessuna quarta icona — e nessun
+  // FAIL-CLOSED: nessuna lista dichiarata, nessuna quinta icona — e nessun
   // segnaposto al suo posto.
   await expect(page.locator(LISTA)).toHaveCount(0);
-  await expect(page.locator(`${STRISCIA} > li`)).toHaveCount(3);
+  await expect(page.locator(`${STRISCIA} > li`)).toHaveCount(4);
 
   expect(external).toEqual([]);
 });
 
-test("i tre stati della quarta icona: tre disegni diversi e tre colori diversi", async ({
+test("i tre stati dell'icona delle liste: tre disegni diversi e tre colori diversi", async ({
   page,
   context,
 }) => {
@@ -237,16 +247,115 @@ test("i tre stati della quarta icona: tre disegni diversi e tre colori diversi",
   expect(external).toEqual([]);
 });
 
-test("i disegni delle quattro icone non si somigliano fra loro", async ({ page, context }) => {
+test("i disegni delle cinque icone non si somigliano fra loro", async ({ page, context }) => {
   const external = await boot(page, context, [ICONE_SCHEDA_PIENA]);
   await call(page, TARGET.name);
 
   const disegni = await Promise.all(
-    [RIGORISTA, PIAZZATI, BALLOTTAGGIO, LISTA].map((sel) => disegno(page.locator(sel))),
+    [RIGORISTA, PUNIZIONI, ANGOLI, BALLOTTAGGIO, LISTA].map((sel) => disegno(page.locator(sel))),
   );
-  expect(new Set(disegni).size, "quattro disegni distinti").toBe(4);
+  expect(new Set(disegni).size, "cinque disegni distinti").toBe(5);
 
   expect(external).toEqual([]);
+});
+
+// ── a-bis. IL POSTO NELLA FILA ───────────────────────────────────────────────
+
+test("ogni fila ordinata porta il PROPRIO numero, e sono tre numeri diversi", async ({
+  page,
+  context,
+}) => {
+  // La fixture dichiara 1° sui rigori, 2° sulle punizioni, 3° sugli angoli:
+  // tre numeri diversi apposta, perché una pastiglia finita sulla casella
+  // sbagliata non possa passare inosservata.
+  const external = await boot(page, context, [ICONE_SCHEDA_PIENA]);
+  await call(page, TARGET.name);
+
+  for (const [sel, atteso] of [
+    [RIGORISTA, "1\u00b0"],
+    [PUNIZIONI, "2\u00b0"],
+    [ANGOLI, "3\u00b0"],
+  ] as const) {
+    await expect(page.locator(`${sel} .scheda-icona__rango`), sel).toHaveText(atteso);
+  }
+  // Le due caselle senza fila ordinata non ne hanno nessuno.
+  await expect(page.locator(`${BALLOTTAGGIO} .scheda-icona__rango`)).toHaveCount(0);
+  await expect(page.locator(`${LISTA} .scheda-icona__rango`)).toHaveCount(0);
+
+  // E IL NUMERO È ANCHE NELLA FRASE PARLATA: chi naviga a voce non vede
+  // l'angolo della casella, e la pastiglia è `aria-hidden` proprio perché il
+  // numero è già lì dentro.
+  await expect(page.locator(`${ANGOLI} .scheda-icona__sr`)).toContainText("3\u00b0");
+
+  expect(external).toEqual([]);
+});
+
+test("fila dichiarata SENZA ordine: casella accesa, nessun numero, e lo dice", async ({
+  page,
+  context,
+}) => {
+  // FAIL-CLOSED sul numero: «designato» non vuol dire «primo», e una pastiglia
+  // «1» qui sarebbe un rango inventato — il difetto che `n/d` esiste per non
+  // avere.
+  const external = await boot(page, context, [ICONE_SCHEDA_SENZA_RANGO]);
+  await call(page, TARGET.name);
+
+  for (const sel of [RIGORISTA, PUNIZIONI, ANGOLI]) {
+    await expect(page.locator(sel), `${sel} acceso`).toHaveAttribute("data-acceso", "si");
+  }
+  await expect(page.locator(`${STRISCIA} .scheda-icona__rango`)).toHaveCount(0);
+  await expect(page.locator(`${PUNIZIONI} .scheda-icona__sr`)).toContainText("rango n/d");
+
+  expect(external).toEqual([]);
+});
+
+test.describe("il numero si legge, e non gonfia la striscia", () => {
+  test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+
+  test("a 390px la pastiglia sta dentro la casella e non apre scorrimento", async ({
+    page,
+    context,
+  }) => {
+    const external = await boot(page, context, [ICONE_SCHEDA_PIENA]);
+    await call(page, TARGET.name);
+    await expect(page.locator(STRISCIA)).toBeVisible();
+
+    const g = await page.evaluate(() => {
+      const striscia = document.getElementById("player-insight-icone");
+      if (striscia === null) throw new Error("icone: la striscia non è a schermo");
+      const rango = document.querySelector<HTMLElement>(
+        "#player-insight-icona-angoli .scheda-icona__rango",
+      );
+      if (rango === null) throw new Error("icone: la pastiglia del rango non è a schermo");
+      const casella = rango.closest("li")!.getBoundingClientRect();
+      const box = rango.getBoundingClientRect();
+      return {
+        altezzaStriscia: Math.round(striscia.getBoundingClientRect().height),
+        dentro:
+          box.right <= casella.right + 1 &&
+          box.bottom <= casella.bottom + 1 &&
+          box.left >= casella.left - 1,
+        corpo: parseFloat(getComputedStyle(rango).fontSize),
+        senzaScorrimento: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      };
+    });
+
+    // LA STRISCIA NON CRESCE: stesso tetto di prima delle pastiglie, perché il
+    // numero è fuori dal flusso.
+    expect(g.altezzaStriscia, `striscia alta ${g.altezzaStriscia}px`).toBeLessThanOrEqual(30);
+    expect(g.dentro, "la pastiglia sborda dalla propria casella").toBe(true);
+    expect(g.senzaScorrimento, "390px: nessuno scorrimento orizzontale").toBe(true);
+    // Corpo dichiarato, non «quello che ci sta»: è quello del titolo del blocco.
+    expect(g.corpo, `corpo della pastiglia ${g.corpo}px`).toBeGreaterThanOrEqual(9);
+
+    // Il bersaglio tattile resta quello di prima: la pastiglia sta DENTRO il
+    // bottone e non gliene toglie un pixel.
+    const box = await page.locator(`${ANGOLI} .scheda-icona__hit`).boundingBox();
+    expect(box!.width).toBeGreaterThanOrEqual(24);
+    expect(box!.height).toBeGreaterThanOrEqual(24);
+
+    expect(external).toEqual([]);
+  });
 });
 
 // ── c. IL BALLOTTAGGIO: MOUSE, TASTIERA, DITO ────────────────────────────────
@@ -355,7 +464,7 @@ test.describe("col dito, dove l'hover non esiste", () => {
 
 // ── d. IL CONTRASTO ──────────────────────────────────────────────────────────
 
-test("ogni testo delle icone si legge: sopra AA, nei tre stati della quarta", async ({
+test("ogni testo delle icone si legge: sopra AA, nei tre stati dell'icona delle liste", async ({
   page,
   context,
 }) => {
@@ -494,7 +603,7 @@ test("nello stato senza voti — cioè oggi — le icone ci sono e il blocco res
 
   await expect(page.locator("#player-insight-radar")).toHaveCount(0);
   await expect(page.locator(STRISCIA)).toBeVisible();
-  await expect(page.locator(`${STRISCIA} > li`)).toHaveCount(4);
+  await expect(page.locator(`${STRISCIA} > li`)).toHaveCount(5);
 
   // LO STESSO TETTO della spec del radar per lo stato assente: le icone non
   // possono comprarsi il proprio posto con l'altezza di quel blocco.

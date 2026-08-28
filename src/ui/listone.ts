@@ -217,21 +217,48 @@ export const ROLE_AXIS_MARKERS: Readonly<Record<string, string>> = {
   pagella_bonus: "BO",
 };
 
-/** Rigori e calci piazzati: due segnali della scheda, non due voti. Il dato
- *  c'è già oggi (`designato`/`possibile`, `punizioni`/`angoli`). */
+// ── I TRE SEGNALI ORDINATI: RIGORI, PUNIZIONI, ANGOLI ───────────────────────
+//
+// ERANO DUE COLONNE, «Rigorista» e «Piazzati», e la seconda fondeva le due
+// specialità in una cella sola («punizioni · angoli»). Da oggi sono TRE, e la
+// ragione è nel dato: la fonte non pubblica insiemi, pubblica ELENCHI
+// ORDINATI — chi tira per primo, chi per secondo (src/expertScheda.ts §rango).
+//
+// PERCHÉ DUE COLONNE E NON UNA CON DENTRO DUE NUMERI. «Punizioni 1° · angoli
+// 3°» in una cella larga un pollice è una cella che si legge due volte: non si
+// può ORDINARE per una delle due (una colonna sola ha un valore solo per riga,
+// e ordinarla confronterebbe la punizione di uno con l'angolo di un altro), e
+// nella resa stretta va a capo perdendo l'accoppiamento fra la parola e il suo
+// numero. Due colonne rendono ciascuna fila ordinabile per il proprio rango,
+// che è esattamente la domanda che Pico si fa davanti al listone: «di questi
+// che restano, chi batte per primo?».
+//
+// PICO HA CHIESTO «LA COLONNA ANGOLI PIÙ TUTTI I DATI»: la colonna esiste, e
+// «tutti i dati» è il rango accanto alla specialità — non un dato in più
+// inventato per riempirla.
+//
+// LE UNDICI COLONNE DI DEFAULT DIVENTANO DODICI. L'elenco del 2026-08-24
+// («…rigorista, piazzati») resta quello, con la sua ultima voce spaccata in
+// due: nessuna colonna è sparita e nessuna è comparsa che non fosse già in
+// quell'elenco sotto un altro nome. Misurato prima di scriverlo: a 390px la
+// riga del listone NON cresce (la casella in più entra nella riga a capo che
+// c'era già), quindi il libro mastro del budget verticale non cambia di un
+// pixel — vedi src/ui/callScreenBudget.ts.
 export const RIGORISTA_COLUMN_KEY = "scheda_rigorista";
-export const PIAZZATI_COLUMN_KEY = "scheda_piazzati";
+export const PUNIZIONI_COLUMN_KEY = "scheda_punizioni";
+export const ANGOLI_COLUMN_KEY = "scheda_angoli";
 
 /**
- * Le sette colonne che NON vivono sulla riga del listone: i cinque voti e i
- * due segnali di scheda. Il loro valore arriva dall'esterno, riga per riga
+ * Le otto colonne che NON vivono sulla riga del listone: i cinque voti e i
+ * tre segnali di scheda. Il loro valore arriva dall'esterno, riga per riga
  * (vedi `ListoneRowSignals`), perché il deposito delle schede è un'altra
  * fonte con un'altra identità di aggancio — nome + squadra, non la riga.
  */
 export const SIGNAL_COLUMN_KEYS: readonly string[] = [
   ...EXPERT_VOTE_COLUMN_KEYS,
   RIGORISTA_COLUMN_KEY,
-  PIAZZATI_COLUMN_KEY,
+  PUNIZIONI_COLUMN_KEY,
+  ANGOLI_COLUMN_KEY,
 ];
 
 /**
@@ -259,18 +286,27 @@ export const SIGNAL_COLUMN_KEYS: readonly string[] = [
  * non di chi disegna una tabella.
  */
 export interface ListoneRowSignals {
-  /** «designato» / «possibile», o `null` quando la scheda non lo dice. */
+  /**
+   * LE TRE CELLE ORDINATE, GIÀ IN PAROLE: «1° designato», «2° battitore»,
+   * `null` quando la scheda non dichiara quella fila.
+   *
+   * Sono STRINGHE GIÀ COMPOSTE e non una coppia (parola, numero) da unire qui:
+   * il rango si scrive con `conRango` (src/ui/schedaLabels.ts), una volta, per
+   * tutte le superfici che lo mostrano — la colonna, la pastiglia del riquadro,
+   * l'icona accanto al radar. Comporre la stringa in tre posti sarebbe tre modi
+   * di scrivere lo stesso ordinale, e il giorno in cui uno cambia gli altri
+   * due restano indietro senza che nulla diventi rosso.
+   */
   readonly rigori: string | null;
-  /** «punizioni» / «angoli» — vuoto quando la scheda non lo dice. */
-  readonly piazzati: readonly string[];
+  readonly punizioni: string | null;
+  readonly angoli: string | null;
   readonly pagella: PagellaView;
 }
 
 /** Nessun segnale, col quarto asse già nominato dal ruolo della riga: lo stato
- *  onesto quando il deposito delle schede non porta niente su questo giocatore
- *  — che oggi è ogni giocatore. */
+ *  onesto quando il deposito delle schede non porta niente su questo giocatore. */
 export function emptyRowSignals(role: Role | null = null): ListoneRowSignals {
-  return { rigori: null, piazzati: [], pagella: pagellaVuota(role) };
+  return { rigori: null, punizioni: null, angoli: null, pagella: pagellaVuota(role) };
 }
 
 export type ListoneRowSignalsLookup = (p: ListonePlayer) => ListoneRowSignals;
@@ -846,9 +882,21 @@ const NO_MALUS_BONUS_CLAUSE =
 
 /** Rigorista e piazzati: riportano la scheda, e il silenzio non è un «no». */
 const SCHEDA_SIGNALS_CLAUSE =
-  `«Rigorista» e «Piazzati» riportano la scheda: «${VALUE_NOT_AVAILABLE}» significa che la ` +
-  `scheda non lo dice, non che il giocatore non li calci. `;
+  `«Rigorista», «Punizioni» e «Angoli» riportano la scheda, col posto nella fila quando la ` +
+  `scheda lo dichiara: «${VALUE_NOT_AVAILABLE}» significa che la scheda non lo dice, non che ` +
+  `il giocatore non li calci. `;
 
+
+/** Le due colonne delle specialità dicono la stessa cosa su due file diverse:
+ *  una frase sola, con dentro la fila di cui parla. Due testi scritti a mano
+ *  divergerebbero alla prima correzione, e il lettore leggerebbe due regole
+ *  dove ce n'è una. */
+const PIAZZATI_TOOLTIP = (specialita: string, di: string): string =>
+  `Battitore ${di} secondo la scheda del Gruppo Esperti, col POSTO NELLA FILA davanti ` +
+  `quando la scheda lo dichiara: «1° battitore» è il primo della fila. Senza numero la ` +
+  `scheda dichiara la specialità e non l'ordine. ` +
+  `«${VALUE_NOT_AVAILABLE}» quando la scheda non nomina «${specialita}» fra i calci ` +
+  `piazzati — non significa che non li batta.`;
 
 const APPEAL_INDEX_COLUMN: ListoneColumn = {
   key: APPEAL_INDEX_COLUMN_KEY,
@@ -870,7 +918,8 @@ const SIGNAL_COLUMNS: readonly ListoneColumn[] = [
   { key: NO_MALUS_BONUS_COLUMN_KEY, label: "No malus / Bonus", kind: "number", core: false },
   { key: "pagella_consiglio", label: "Consiglio esperti", kind: "number", core: false },
   { key: RIGORISTA_COLUMN_KEY, label: "Rigorista", kind: "string", core: false },
-  { key: PIAZZATI_COLUMN_KEY, label: "Piazzati", kind: "string", core: false },
+  { key: PUNIZIONI_COLUMN_KEY, label: "Punizioni", kind: "string", core: false },
+  { key: ANGOLI_COLUMN_KEY, label: "Angoli", kind: "string", core: false },
 ];
 
 /** True when the served pool actually carries an index for at least one row. */
@@ -971,8 +1020,11 @@ export function listoneColumnFlex(key: string): number {
   if (key === "role") return 0.8;
   if (key === APPEAL_INDEX_COLUMN_KEY) return 0.9;
   if ((EXPERT_VOTE_COLUMN_KEYS as readonly string[]).includes(key)) return 0.85;
+  // I tre segnali ordinati: il rigorista porta la parola più lunga
+  // («designato») col numero davanti, le due specialità la sola parola
+  // «battitore» — che è la stessa per entrambe, quindi la stessa larghezza.
   if (key === RIGORISTA_COLUMN_KEY) return 1.1;
-  if (key === PIAZZATI_COLUMN_KEY) return 1.2;
+  if (key === PUNIZIONI_COLUMN_KEY || key === ANGOLI_COLUMN_KEY) return 1;
   if (key === "quotation") return 0.9;
   return 1;
 }
@@ -1033,11 +1085,12 @@ const COLUMN_TOOLTIPS: Readonly<Record<string, string>> = {
     `Voto 0–${EXPERT_VOTE_MAX} del «Consiglio Esperti», scritto dal Gruppo Esperti: è un PARERE ` +
     "della fonte, non una misura, e non entra in nessun calcolo di questa applicazione.",
   [RIGORISTA_COLUMN_KEY]:
-    "Designazione dei rigori come la dichiara la scheda del Gruppo Esperti: «designato» o «possibile». " +
-    "n/d quando la scheda non lo dice — non significa che non li tiri.",
-  [PIAZZATI_COLUMN_KEY]:
-    "Calci piazzati dichiarati dalla scheda del Gruppo Esperti: «punizioni», «angoli», o entrambi. " +
-    "n/d quando la scheda non lo dice.",
+    "Designazione dei rigori come la dichiara la scheda del Gruppo Esperti: «designato» o «possibile», " +
+    "col POSTO NELLA FILA davanti quando la scheda lo dichiara — «1° designato» è il primo rigorista. " +
+    "Senza numero la scheda dice che li tira e non dice in che ordine. " +
+    "n/d quando la scheda non lo dice affatto — non significa che non li tiri.",
+  [PUNIZIONI_COLUMN_KEY]: PIAZZATI_TOOLTIP("punizioni", "delle punizioni"),
+  [ANGOLI_COLUMN_KEY]: PIAZZATI_TOOLTIP("angoli", "degli angoli"),
 };
 
 /**
@@ -1299,12 +1352,19 @@ export function listoneCellValue(
       // A withheld verdict has no value to compare: `undefined` sorts last in
       // both directions, exactly like a missing cell, and renders `n/d`.
       return p.appealIndex?.score ?? undefined;
+    // I TRE SEGNALI ORDINATI. Il valore è la stringa già composta col rango
+    // davanti («1° designato»), e questo rende l'ORDINAMENTO ALFABETICO della
+    // colonna l'ordine della fila: `1°…` prima di `2°…`, e le celle senza
+    // rango — che cominciano con una lettera — dopo tutte quelle che ce l'hanno,
+    // prima delle `n/d`, che sono `undefined` e finiscono sempre in fondo. Non
+    // è un effetto collaterale fortunato: è la ragione per cui il numero sta
+    // davanti e non in coda (vedi `conRango`, src/ui/schedaLabels.ts).
     case RIGORISTA_COLUMN_KEY:
       return signals(p).rigori ?? undefined;
-    case PIAZZATI_COLUMN_KEY: {
-      const piazzati = signals(p).piazzati;
-      return piazzati.length === 0 ? undefined : piazzati.join(" · ");
-    }
+    case PUNIZIONI_COLUMN_KEY:
+      return signals(p).punizioni ?? undefined;
+    case ANGOLI_COLUMN_KEY:
+      return signals(p).angoli ?? undefined;
     default:
       if ((EXPERT_VOTE_COLUMN_KEYS as readonly string[]).includes(columnKey)) {
         return expertVoteAxis(p, columnKey, signals)?.voto ?? undefined;

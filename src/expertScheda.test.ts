@@ -2,11 +2,17 @@ import { describe, it, expect } from "vitest";
 import {
   EXPERT_INSIGHT_AVAILABILITIES,
   EXPERT_INSIGHT_QUALITY_LABELS,
+  EXPERT_SCHEDA_SCHEMA_KEYS,
   EXPERT_SCHEDA_SCHEMA_VERSION,
   EXPERT_SCHEDE_ABSENT,
   LISTA_ESPERTI_VALUES,
   SCHEDA_BALLOTTAGGIO_MAX,
+  SCHEDA_NOTA_MARCATURA_MODELLO,
+  SCHEDA_NOTA_MARCATURA_PAROLE,
   SCHEDA_NOTA_MAX,
+  leggiNota,
+  SCHEDA_RANGO_MAX,
+  SCHEDA_RANGO_MIN,
   expertSchedaStore,
   findSchedaCandidates,
   indexSchede,
@@ -193,12 +199,21 @@ describe("i cinque stati di disponibilità", () => {
       ballottaggio: [],
       gerarchia: 2,
       rigori: "designato",
+      // LA FIXTURE NON DICHIARA NESSUN RANGO, e i tre campi arrivano `null`:
+      // assente vuol dire «non dichiarato», mai uno zero e mai un «1» dedotto
+      // dalla designazione.
+      rangoRigori: null,
       piazzati: ["punizioni", "angoli"],
+      rangoPunizioni: null,
+      rangoAngoli: null,
       avvisi: ["mercato"],
       // `mercato` non è una delle tre liste editoriali: nessuna lista, quindi
       // nessuna quarta icona.
       lista: null,
       nota: "Rinnovo non firmato: se parte a fine mercato la scheda cambia.",
+      // La fixture scrive la prosa a mano: nessuna marcatura, e il campo dice
+      // `false` invece di dedurre una provenienza umana che nessuno dichiara.
+      notaGenerataDaModello: false,
       aggiornata: "2026-08-30",
       fonte: "scheda",
       // La scheda di questa fixture NON porta la pagella: la vista la rende
@@ -413,6 +428,120 @@ describe("gli altri in ballottaggio — il contratto", () => {
         ballottaggio: [{ surface: "Bruna Placeholder" }],
       }),
     ).toBe(true);
+  });
+});
+
+// ── IL RANGO DEI TRE INCARICHI ───────────────────────────────────────────────
+//
+// La fonte pubblica ELENCHI ORDINATI, non insiemi: «Rigoristi: A, B, C» dice
+// che A tira, e che B tira quando A non c'è. Le prove qui sotto tengono ferme
+// le tre regole che rendono quel numero un fatto invece di un'opinione:
+//
+//  a. RETRO-COMPATIBILITÀ. I depositi già scritti non hanno i tre campi e
+//     restano validi — se non lo fossero, l'aggiornamento butterebbe ~200
+//     schede tutte insieme, perché il lettore è fail-closed sul FILE e non
+//     sulla riga.
+//  b. ASSENTE = NON DICHIARATO. Mai uno zero, mai un rango dedotto dalla
+//     designazione o dall'ordine in cui le schede sono scritte.
+//  c. UN RANGO SENZA LA SUA FILA È UN RIFIUTO. Non è un'assenza: è una
+//     contraddizione, e sceglierne una lettura significherebbe inventare.
+
+describe("il rango di rigori, punizioni e angoli — il contratto", () => {
+  it("un deposito scritto PRIMA di questa forma resta valido, e i tre ranghi sono `null`", () => {
+    const view = resolveExpertInsight(storeOf([FULL]), TARGET);
+    expect(view.availability).toBe("available");
+    expect(view.rangoRigori).toBeNull();
+    expect(view.rangoPunizioni).toBeNull();
+    expect(view.rangoAngoli).toBeNull();
+  });
+
+  it("porta i tre ranghi fino alla vista quando la scheda li dichiara", () => {
+    const view = resolveExpertInsight(
+      storeOf([{ ...FULL, rangoRigori: 1, rangoPunizioni: 2, rangoAngoli: 3 }]),
+      TARGET,
+    );
+    expect(view.rangoRigori).toBe(1);
+    expect(view.rangoPunizioni).toBe(2);
+    expect(view.rangoAngoli).toBe(3);
+  });
+
+  it("accetta il deposito con i tre ranghi e li rilegge identici", () => {
+    const parsed = parseExpertSchedaDeposit(
+      deposit([{ ...FULL, rangoRigori: 1, rangoPunizioni: 2, rangoAngoli: 3 }]),
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const scheda = parsed.byPlayerKey.get(KEY)?.[0];
+    expect(scheda?.rangoRigori).toBe(1);
+    expect(scheda?.rangoPunizioni).toBe(2);
+    expect(scheda?.rangoAngoli).toBe(3);
+  });
+
+  // FAIL-CLOSED, e sul FILE: metà deposito sarebbe peggio di nessun deposito.
+  it.each([
+    ["rangoRigori", { rangoRigori: 2 }],
+    ["rangoPunizioni", { rangoPunizioni: 1 }],
+    ["rangoAngoli", { rangoAngoli: 1 }],
+  ])("rifiuta %s scritto senza la fila che ordina", (_nome, campo) => {
+    const parsed = parseExpertSchedaDeposit(
+      deposit([{ player: PLAYER, club: CLUB, nota: "Solo prosa.", ...campo }]),
+    );
+    expect(parsed).toEqual({ ok: false, reason: "invalid" });
+  });
+
+  it("rifiuta il rango di una specialità che la scheda non nomina fra i piazzati", () => {
+    // Le punizioni ci sono, gli angoli no: il rango degli angoli è orfano.
+    const parsed = parseExpertSchedaDeposit(
+      deposit([{ player: PLAYER, club: CLUB, piazzati: ["punizioni"], rangoAngoli: 1 }]),
+    );
+    expect(parsed).toEqual({ ok: false, reason: "invalid" });
+  });
+
+  it("la fila SENZA rango resta valida: dice una cosa vera e una cosa in meno", () => {
+    const view = resolveExpertInsight(
+      storeOf([{ player: PLAYER, club: CLUB, piazzati: ["angoli"] }]),
+      TARGET,
+    );
+    expect(view.availability).toBe("available");
+    expect(view.piazzati).toEqual(["angoli"]);
+    expect(view.rangoAngoli).toBeNull();
+  });
+
+  it("rifiuta uno zero, un decimale e un numero oltre il tetto dichiarato", () => {
+    for (const rango of [0, -1, 1.5, SCHEDA_RANGO_MAX + 1]) {
+      expect(
+        parseExpertSchedaDeposit(
+          deposit([{ player: PLAYER, club: CLUB, rigori: "designato", rangoRigori: rango }]),
+        ),
+        String(rango),
+      ).toEqual({ ok: false, reason: "invalid" });
+    }
+    expect(
+      parseExpertSchedaDeposit(
+        deposit([
+          { player: PLAYER, club: CLUB, rigori: "designato", rangoRigori: SCHEDA_RANGO_MIN },
+        ]),
+      ).ok,
+    ).toBe(true);
+  });
+
+  // L'ORDINE DELLE CHIAVI È UN FATTO: zod ricostruisce nell'ordine della
+  // propria `shape` e il compilatore scrive nello stesso. Se divergessero,
+  // scarica → reimporta → riscarica renderebbe file diversi a parità di
+  // contenuto — il difetto già successo una volta sui voti della pagella.
+  it("ogni rango sta nello schema SUBITO DOPO la fila che ordina", () => {
+    const keys = [...EXPERT_SCHEDA_SCHEMA_KEYS];
+    expect(keys[keys.indexOf("rigori") + 1]).toBe("rangoRigori");
+    expect(keys[keys.indexOf("piazzati") + 1]).toBe("rangoPunizioni");
+    expect(keys[keys.indexOf("piazzati") + 2]).toBe("rangoAngoli");
+  });
+
+  // Il rango NON è un fatto in più che rende «compilata» una scheda vuota: non
+  // può esistere senza la propria fila, e la fila da sola già bastava.
+  it("non esiste una scheda che dica soltanto un rango", () => {
+    expect(
+      parseExpertSchedaDeposit(deposit([{ player: PLAYER, club: CLUB, rangoPunizioni: 1 }])),
+    ).toEqual({ ok: false, reason: "invalid" });
   });
 });
 
@@ -677,5 +806,63 @@ describe("l'indice per squadra e i confini della ricerca", () => {
     expect(findSchedaCandidates(store, { name: "···", club: CLUB })).toEqual([]);
     expect(findSchedaCandidates(store, null)).toEqual([]);
     expect(findSchedaCandidates(EXPERT_SCHEDE_ABSENT, TARGET)).toEqual([]);
+  });
+});
+
+describe("la marcatura di provenienza della prosa", () => {
+  const TESTO = "La scheda lo dà titolare e non riporta ballottaggi.";
+
+  it("le parole della pastiglia sono la marcatura senza le parentesi", () => {
+    expect(SCHEDA_NOTA_MARCATURA_MODELLO).toBe(`[${SCHEDA_NOTA_MARCATURA_PAROLE}]`);
+  });
+
+  it("una nota marcata si separa in testo e provenienza", () => {
+    expect(leggiNota(`${SCHEDA_NOTA_MARCATURA_MODELLO} ${TESTO}`)).toEqual({
+      testo: TESTO,
+      generataDaModello: true,
+    });
+  });
+
+  it("una nota scritta a mano resta intera e non dichiara nessuna provenienza", () => {
+    expect(leggiNota(TESTO)).toEqual({ testo: TESTO, generataDaModello: false });
+  });
+
+  it("assente o vuota: testo vuoto, mai `undefined` da gestire a valle", () => {
+    expect(leggiNota(undefined)).toEqual({ testo: "", generataDaModello: false });
+    expect(leggiNota("   ")).toEqual({ testo: "", generataDaModello: false });
+  });
+
+  it("il prefisso vale solo IN TESTA: a metà frase è testo della fonte", () => {
+    const dentro = `Il forum scrive ${SCHEDA_NOTA_MARCATURA_MODELLO} a metà riga.`;
+    expect(leggiNota(dentro)).toEqual({ testo: dentro, generataDaModello: false });
+  });
+
+  it("la marcatura sta DENTRO il tetto della nota, con spazio per il testo", () => {
+    // Se un giorno la marcatura si allungasse fino a mangiarsi la prosa, il
+    // produttore privato non avrebbe più margine e il difetto si vedrebbe solo
+    // a valle, come depositi rifiutati in blocco.
+    expect(SCHEDA_NOTA_MARCATURA_MODELLO.length).toBeLessThan(SCHEDA_NOTA_MAX);
+  });
+
+  it("la vista porta i due fatti separati: testo pulito e provenienza dichiarata", () => {
+    const view = resolveExpertInsight(
+      storeOf([
+        { player: PLAYER, club: CLUB, nota: `${SCHEDA_NOTA_MARCATURA_MODELLO} ${TESTO}` },
+      ]),
+      TARGET,
+    );
+    expect(view.nota).toBe(TESTO);
+    expect(view.notaGenerataDaModello).toBe(true);
+  });
+
+  it("il deposito conserva la marcatura: è la vista che la stacca, non il dato", () => {
+    // La verificabilità sta nell'artefatto. Se un giorno lo strato di lettura
+    // ripulisse la stringa PRIMA di depositarla, la provenienza sparirebbe dal
+    // solo posto in cui è una prova.
+    const nota = `${SCHEDA_NOTA_MARCATURA_MODELLO} ${TESTO}`;
+    const store = parseExpertSchedaDeposit(deposit([{ player: PLAYER, club: CLUB, nota }]));
+    expect(store.ok).toBe(true);
+    if (!store.ok) return;
+    expect([...store.byPlayerKey.values()][0]?.[0]?.nota).toBe(nota);
   });
 });

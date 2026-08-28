@@ -46,6 +46,58 @@ export const PIAZZATI_LABELS: Readonly<Record<Piazzati, string>> = {
   angoli: "angoli",
 };
 
+/**
+ * IL RANGO IN PAROLE — «1°», «2°», «3°» — scritto UNA volta per tutte le
+ * superfici che lo mostrano: la colonna del listone, l'icona accanto al radar,
+ * la pastiglia del riquadro, il riassunto del compilatore.
+ *
+ * Una sola forma, e non quattro: il rango è lo stesso fatto ovunque compaia, e
+ * quattro modi di scriverlo sarebbero quattro cose che a colpo d'occhio non si
+ * riconoscono come la stessa. L'ordinale con `°` è il modo in cui in italiano
+ * si scrive un posto in una fila; «rango 2» o «#2» andrebbero letti, questo si
+ * riconosce.
+ */
+export const RANGO_SUFFIX = "°";
+
+/**
+ * LA PAROLA CHE QUALIFICA UN RANGO DI PIAZZATI, uguale per punizioni e angoli.
+ *
+ * Serve perché un rango da solo non è una frase: la cella «1°» sotto
+ * l'intestazione «Angoli» si legge, ma la stessa cella senza rango dovrebbe
+ * restare vuota — e vuota è indistinguibile da `n/d`, che è invece un fatto
+ * diverso («la scheda non lo dichiara affatto»). Con la parola le tre celle
+ * possibili sono tre: «1° battitore», «battitore» (la specialità c'è, l'ordine
+ * no), `n/d`.
+ *
+ * È la stessa parola sotto l'icona e nella colonna: la specialità è già scritta
+ * nell'intestazione della colonna e nel nome dell'icona, e ripeterla nel valore
+ * la direbbe due volte in una cella larga un pollice.
+ */
+export const PIAZZATI_BATTITORE = "battitore";
+
+/** `2` -> `«2°»`; `null`/assente -> stringa vuota, MAI uno zero e mai un
+ *  trattino: chi rende decide che parola usare per l'assenza (nel listone è
+ *  `n/d`), e questa funzione non ne inventa una propria. */
+export function rangoText(rango: number | null | undefined): string {
+  return rango === null || rango === undefined ? "" : `${rango}${RANGO_SUFFIX}`;
+}
+
+/**
+ * `«designato»` + rango `1` -> `«1° designato»`; senza rango resta
+ * `«designato»`.
+ *
+ * IL NUMERO STA DAVANTI, e non in coda fra parentesi: in una cella di listone
+ * larga un pollice la prima cosa che l'occhio incontra deve essere il posto
+ * nella fila — è ciò che distingue il primo rigorista dal terzo — e in coda
+ * finirebbe a capo, staccato dalla parola che qualifica. Come effetto secondario
+ * l'ordinamento alfabetico della colonna diventa l'ordine della fila: `1°…`
+ * prima di `2°…`, e le celle senza rango dopo tutte quelle che ce l'hanno.
+ */
+export function conRango(testo: string, rango: number | null | undefined): string {
+  const r = rangoText(rango);
+  return r === "" ? testo : `${r} ${testo}`;
+}
+
 export const AVVISO_LABELS: Readonly<Record<Avviso, string>> = {
   sconsigliato: "sconsigliato",
   rischio_fisico: "rischio fisico",

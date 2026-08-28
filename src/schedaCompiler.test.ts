@@ -52,7 +52,10 @@ import {
   SCHEDA_BALLOTTAGGIO_SCHEMA_KEYS,
   SCHEDA_CLUB_NON_DICHIARATA,
   SCHEDA_GERARCHIA_MAX,
+  SCHEDA_RANGO_MAX,
   SCHEDA_NAME_MAX,
+  SCHEDA_NOTA_MARCATURA_MODELLO,
+  SCHEDA_NOTA_MARCATURA_PAROLE,
   SCHEDA_NOTA_MAX,
   SCHEDA_PERCENTUALE_MAX,
   TITOLARITA_VALUES,
@@ -163,7 +166,10 @@ function fullForm(overrides: Partial<SchedaFormValues> = {}): SchedaFormValues {
     ballottaggio: [altro("Bruna Placeholder", CLUB_RIVALE, "40")],
     gerarchia: "2",
     rigori: "designato",
+    rangoRigori: "1",
     piazzati: ["punizioni", "angoli"],
+    rangoPunizioni: "2",
+    rangoAngoli: "3",
     avvisi: ["mercato"],
     lista: "consigliato",
     nota: "Nota sintetica.",
@@ -277,6 +283,67 @@ describe("i rifiuti, uno per campo e tutti insieme", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.errors.map((e) => e.field)).toEqual(["gerarchia"]);
+  });
+
+  // ── I TRE RANGHI ────────────────────────────────────────────────────────
+  //
+  // Il rifiuto arriva QUI, col nome del campo, invece che dal contratto a cose
+  // fatte: là il deposito viene rifiutato in blocco e chi ha compilato non sa
+  // quale casella riscrivere.
+  it("rifiuta un rango fuori scala, dicendo quale scala", () => {
+    const result = buildScheda(
+      TARGET,
+      form({ rigori: "designato", rangoRigori: String(SCHEDA_RANGO_MAX + 1) }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.map((e) => e.field)).toEqual(["rangoRigori"]);
+    expect(result.errors[0]?.message).toContain(String(SCHEDA_RANGO_MAX));
+  });
+
+  it("rifiuta lo zero: un rango parte da 1, e vuoto non è zero", () => {
+    const result = buildScheda(TARGET, form({ rigori: "designato", rangoRigori: "0" }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.map((e) => e.field)).toEqual(["rangoRigori"]);
+  });
+
+  it.each([
+    ["rangoRigori", { rangoRigori: "1" }, "designazione RIGORI"],
+    ["rangoPunizioni", { rangoPunizioni: "1" }, "punizioni"],
+    ["rangoAngoli", { rangoAngoli: "2" }, "angoli"],
+  ])("rifiuta %s scritto senza la fila che ordina, e dice quale fila manca", (campo, values, atteso) => {
+    const result = buildScheda(TARGET, form({ nota: "Solo prosa.", ...values }));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.map((e) => e.field)).toEqual([campo]);
+    expect(result.errors[0]?.message).toContain(atteso);
+  });
+
+  it("accetta la fila SENZA rango: la scheda dice una cosa vera e una cosa in meno", () => {
+    const scheda = builtScheda({ rigori: "designato", piazzati: ["angoli"] });
+    expect(scheda.rigori).toBe("designato");
+    expect(scheda.rangoRigori).toBeUndefined();
+    expect(scheda.rangoAngoli).toBeUndefined();
+  });
+
+  it("scrive i ranghi nell'ordine della `shape` del contratto, rango dopo la sua fila", () => {
+    const scheda = builtScheda({
+      rigori: "designato",
+      rangoRigori: "1",
+      piazzati: ["punizioni", "angoli"],
+      rangoPunizioni: "2",
+      rangoAngoli: "3",
+    });
+    expect(Object.keys(scheda)).toEqual([
+      "player",
+      "club",
+      "rigori",
+      "rangoRigori",
+      "piazzati",
+      "rangoPunizioni",
+      "rangoAngoli",
+    ]);
   });
 
   it("una nota troppo lunga viene RIFIUTATA, mai troncata in silenzio", () => {
@@ -730,6 +797,21 @@ describe("il riassunto di una scheda salvata", () => {
 
   it("una scheda magra rende una riga magra", () => {
     expect(schedaSummary(builtScheda({ titolarita: "titolare" }))).toBe("titolare");
+  });
+
+  it("una prosa model-generated lo dice, e il conteggio resta sulla stringa intera", () => {
+    // Il compilatore è il posto in cui una persona RIVEDE ciò che il modulo ha
+    // importato: senza questa parola le due prose si distinguono solo aprendo
+    // il campo. Il conteggio comprende la marcatura perché il tetto la conta.
+    const nota = `${SCHEDA_NOTA_MARCATURA_MODELLO} Due righe.`;
+    const summary = schedaSummary(builtScheda({ titolarita: "titolare", nota }));
+    expect(summary).toContain(`nota (${nota.length} caratteri, ${SCHEDA_NOTA_MARCATURA_PAROLE})`);
+  });
+
+  it("una prosa scritta a mano NON viene marcata dal riassunto", () => {
+    const summary = schedaSummary(builtScheda({ titolarita: "titolare", nota: "Due righe." }));
+    expect(summary).toContain("nota (10 caratteri)");
+    expect(summary).not.toContain(SCHEDA_NOTA_MARCATURA_PAROLE);
   });
 });
 

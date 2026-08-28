@@ -1633,6 +1633,13 @@
   font-size: 10.5px;
   line-height: 1.3;
 }
+/* LA PASTIGLIA DELLA PROSA MODEL-GENERATED. Riusa .expert-chip per intero: qui
+   resta solo ciò che il contesto cambia — dentro una griglia la pastiglia si
+   stirerebbe per tutta la colonna, e una pastiglia larga quanto il pannello
+   smette di leggersi come una pastiglia. */
+.expert-prose__mark {
+  justify-self: start;
+}
 
 /* ── L'AGGANCIO: la dichiarazione e la domanda ──────────────────────────────
    Due superfici che nel caso normale NON esistono (i costruttori rendono
@@ -2097,8 +2104,22 @@
   gap: 8px 12px;
   grid-template-columns: 1fr;
 }
+/* LA COLONNA DEL DISEGNO È LARGA QUANTO LA STRISCIA DELLE ICONE, non quanto il
+   radar.
+
+   Era 116px, cioè il lato del radar. Con cinque caselle da 24px e quattro
+   spazi da 4 la striscia ne chiede 136: dentro 116 le ultime due sarebbero
+   uscite dalla colonna — la flessibilità non manda a capo — e sarebbero uscite
+   proprio nello stato in cui il radar non c'è, cioè su ogni giocatore finché
+   l'estrazione dei voti non atterra. Il radar resta 116px e non si allarga: i
+   20px in più sono aria alla sua destra, e la colonna del testo li restituisce
+   senza cambiare l'altezza del blocco (rimisurata, e2e/pagella-radar.spec.ts e
+   e2e/scheda-icone.spec.ts tengono i due tetti dov'erano). */
+.pagella__body {
+  --pagella-figure-col: 136px;
+}
 @media (min-width: 560px) {
-  .pagella__body { grid-template-columns: 116px minmax(0, 1fr); }
+  .pagella__body { grid-template-columns: var(--pagella-figure-col) minmax(0, 1fr); }
 }
 .pagella-radar {
   display: block;
@@ -2272,7 +2293,40 @@
   font: inherit;
   height: 24px;
   padding: 3px;
+  /* L'ANCORA DELLA PASTIGLIA DEL RANGO. Sta sulla casella e non sulla striscia
+     — che è già l'ancora della didascalia — perché il numero appartiene a
+     QUELLA casella: agganciato alla striscia si poserebbe sempre sulla prima. */
+  position: relative;
   width: 24px;
+}
+/* IL NUMERO DELLA POSIZIONE. Fuori dal flusso, quindi non gonfia la striscia
+   di un pixel: la sua altezza resta quella della casella, e la spec la misura
+   (30px di tetto, una riga sola).
+
+   PORTA IL COLORE DELLA PROPRIA ICONA (`color: inherit`) su un fondo opaco
+   dichiarato: è testo dipinto come ogni altro, quindi la spazzata di contrasto
+   lo misura invece di doversi fidare. Il fondo è `--panel-inner`, cioè lo
+   stesso su cui l'icona è dipinta — così il rapporto misurato è quello vero e
+   non quello di un glifo intravisto sotto.
+
+   9px e grassetto pieno: è la dimensione del titolo del blocco che gli sta
+   sopra, non un corpo inventato più piccolo per farlo entrare. */
+.scheda-icona__rango {
+  background: var(--panel-inner);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  /* DENTRO la casella, non a cavallo del bordo: a 390px la striscia arriva al
+     bordo del pannello, e una pastiglia che sporge di tre pixel oltre l'ultima
+     casella aprirebbe uno scorrimento orizzontale su una schermata che ha una
+     spec apposta per non averne. */
+  bottom: 0;
+  color: inherit;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 0 1px;
+  position: absolute;
+  right: 0;
 }
 .scheda-icona--off .scheda-icona__hit { border-style: dashed; }
 /* Stesso anello di focus del resto della schermata, non un secondo stile. */
