@@ -206,6 +206,7 @@ import {
   resolveListonePool,
   listoneSourceNote,
   listoneAppealIndexNote,
+  listoneGenForecastNote,
   filterListonePool,
   listonePlayerKey,
   listonePoolIndex,
@@ -2132,6 +2133,13 @@ function playerInsightProps(): PlayerInsightProps {
     view: resolveExpertInsight(state.expertSchede, target, chosen),
     choicePersisted: state.schedaLinksPersisted,
     onChooseScheda: chooseScheda,
+    // LE PREVISIONI ARRIVANO DALLA RIGA, non dal deposito delle schede: sono
+    // un campo del listone servito (`genForecast`), già validato dal contratto
+    // di lettura, e la riga selezionata È la riga di listone su cui Pico ha
+    // cliccato. Nessuna riga selezionata, o una riga che il deposito non serve:
+    // `null`, e il riquadro non mostra nessuna riga di previsione invece di
+    // mostrarne una vuota.
+    genForecast: state.call.selectedPlayer?.genForecast ?? null,
   };
 }
 
@@ -6261,6 +6269,7 @@ function renderMomentoChiamata(
           poolHasAppealIndex(state.pool),
         ),
         appealIndexNote: listoneAppealIndexNote(state.pool),
+        genForecastNote: listoneGenForecastNote(state.pool),
         // I conteggi di #33 girano solo quando c'è qualcosa da contare: la
         // nota lo dice, e oggi dice che i voti non sono ancora estratti.
         expertSignalsNote: listoneExpertSignalsNote(

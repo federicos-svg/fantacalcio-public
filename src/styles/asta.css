@@ -1486,6 +1486,19 @@
    misura di questo riquadro e non del vocabolario. */
 .player-insight .scheda-cards { margin-top: 8px; }
 
+/* LA RIGA DELLE PREVISIONI DI RICERCA (src/ui/genForecastInsight.ts): una riga
+   di testo sotto la scheda, non un quinto riquadro. Tiene la classe `hint-text`
+   — quindi il livello --text-dim della rampa di base.css, 4,69:1, sorvegliato
+   da e2e/text-contrast-aa.spec.ts — e aggiunge solo il respiro che le
+   appartiene. Va a capo dove non ci sta: i tre numeri e la loro autorità sono
+   una frase, e una frase troncata mentirebbe per omissione. */
+.player-insight__forecast {
+  margin: 8px 0 0;
+}
+.player-insight__forecast-authority {
+  color: var(--text-sec);
+}
+
 .expert-insight__visual {
   display: grid;
   align-content: start;

@@ -69,3 +69,51 @@ export const E2E_TARGET_PLAYER: ListonePlayer = SYNTHETIC_LISTONE_POOL[3]!;
 // packages/engine/src/feasibility.ts) — chosen only to be unambiguously
 // feasible, not to exercise those boundaries (out of scope for this slice).
 export const E2E_PURCHASE_PRICE = 10;
+
+// ── PREVISIONI DEL MOTORE (GEN-PROTOCOL-A) — fixture sintetiche ──────────────
+//
+// Stessa forma del payload che il deposito privato servirà, numeri inventati:
+// nessun run reale, nessuna previsione reale, nessun giocatore reale.
+export const SYNTHETIC_GEN_RECIPE = "GEN-RECIPE@1.0.0";
+export const SYNTHETIC_GEN_PROTOCOL = "2.1.3";
+export const SYNTHETIC_GEN_RUN = "refit-0000synthetic";
+
+/** Una riga in più delle due remote: serve un giocatore che il deposito NON
+ *  serve, per vedere la cella dire `n/d` invece di un numero. */
+export const SYNTHETIC_GEN_FORECAST_ABSENT_PLAYER = "Gina Nonservita";
+
+/**
+ * Tre righe: una con le previsioni e il TETTO DEGLI ESPERTI applicato, una con
+ * le previsioni e senza tetto, una senza previsioni affatto.
+ */
+export const SYNTHETIC_REMOTE_LISTONE_POOL_WITH_GEN_FORECAST: readonly ListonePlayer[] = [
+  {
+    ...SYNTHETIC_REMOTE_LISTONE_POOL[0]!,
+    genForecast: {
+      recipeVersion: SYNTHETIC_GEN_RECIPE,
+      protocolVersion: SYNTHETIC_GEN_PROTOCOL,
+      runId: SYNTHETIC_GEN_RUN,
+      authority: "advisory",
+      targets: {
+        T2: { value: 6.42, interval: null, status: "winner" },
+        TN: { value: 24.1, interval: null, status: "winner", capApplied: true },
+        T1: { value: 154.8, interval: null, status: "winner" },
+      },
+    },
+  },
+  {
+    ...SYNTHETIC_REMOTE_LISTONE_POOL[1]!,
+    genForecast: {
+      recipeVersion: SYNTHETIC_GEN_RECIPE,
+      protocolVersion: SYNTHETIC_GEN_PROTOCOL,
+      runId: SYNTHETIC_GEN_RUN,
+      authority: "advisory",
+      targets: {
+        T2: { value: 5.87, interval: null, status: "winner" },
+        TN: { value: 30.4, interval: null, status: "winner", capApplied: false },
+        T1: { value: 180.2, interval: null, status: "winner" },
+      },
+    },
+  },
+  { name: SYNTHETIC_GEN_FORECAST_ABSENT_PLAYER, role: "D", club: "ClubSette", quotation: 9 },
+];

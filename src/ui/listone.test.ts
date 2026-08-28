@@ -33,6 +33,16 @@ import {
   listoneColumnLabelForRole,
   listoneExpertSignalsNote,
   APPEAL_INDEX_COLUMN_KEY,
+  GEN_FORECAST_AUTHORITY_ADVISORY,
+  GEN_FORECAST_CAP_LABEL,
+  GEN_FORECAST_CAP_MARKER,
+  GEN_FORECAST_COLUMN_KEYS,
+  GEN_FORECAST_COLUMN_KEY_BY_TARGET,
+  GEN_FORECAST_COLUMN_LABELS,
+  GEN_FORECAST_TARGET_IDS,
+  genForecastCapApplied,
+  listoneGenForecastNote,
+  poolHasGenForecast,
   EXPERT_VOTE_COLUMN_KEYS,
   NO_MALUS_BONUS_COLUMN_KEY,
   PUNIZIONI_COLUMN_KEY,
@@ -1690,6 +1700,381 @@ describe("listoneExpertSignalsNote", () => {
     expect(note).toContain("Bonus");
     expect(note).toContain("non usato dal motore decisionale");
     for (const word of ["prezzo", "consigliato", "target", "fair"]) {
+      expect(note.toLowerCase()).not.toContain(word);
+    }
+  });
+});
+
+// ── PREVISIONI DEL MOTORE (GEN-PROTOCOL-A) — contratto di sola lettura ────────
+//
+// FIXTURE SINTETICHE, come tutto il resto di questo file: nomi inventati, numeri
+// inventati, nessuna quotazione reale e nessun run reale.
+
+const GEN_RECIPE = "GEN-RECIPE@1.0.0";
+const GEN_PROTOCOL = "2.1.3";
+const GEN_RUN = "refit-0000synthetic";
+
+function genTarget(value: number, extra: Record<string, unknown> = {}) {
+  return { value, interval: null, status: "winner", ...extra };
+}
+
+/** Il payload del contratto, alla lettera. Ogni caso di rifiuto qui sotto parte
+ *  da questo e cambia UNA cosa sola. */
+function withForecast(
+  name: string,
+  targets: Record<string, unknown> = {
+    T2: genTarget(6.42),
+    TN: genTarget(24.1, { capApplied: false }),
+    T1: genTarget(154.8),
+  },
+  meta: Record<string, unknown> = {},
+) {
+  return {
+    name,
+    role: "C",
+    club: "Club Gamma",
+    quotation: 20,
+    genForecast: {
+      recipeVersion: GEN_RECIPE,
+      protocolVersion: GEN_PROTOCOL,
+      runId: GEN_RUN,
+      authority: "advisory",
+      targets,
+      ...meta,
+    },
+  };
+}
+
+describe("gen forecast — pool validation", () => {
+  it("accepts the served payload and keeps every qualifier attached to the numbers", () => {
+    const result = validateListonePool([withForecast("Sintetico Uno")]);
+    expect(result.ok).toBe(true);
+    const player = (result as { pool: ListonePlayer[] }).pool[0]!;
+    expect(player.genForecast?.recipeVersion).toBe(GEN_RECIPE);
+    expect(player.genForecast?.protocolVersion).toBe(GEN_PROTOCOL);
+    expect(player.genForecast?.runId).toBe(GEN_RUN);
+    expect(player.genForecast?.authority).toBe(GEN_FORECAST_AUTHORITY_ADVISORY);
+    expect(player.genForecast?.targets.T2.value).toBe(6.42);
+    expect(player.genForecast?.targets.TN.value).toBe(24.1);
+    expect(player.genForecast?.targets.T1.value).toBe(154.8);
+    expect(player.genForecast?.targets.TN.capApplied).toBe(false);
+    expect(player.genForecast?.targets.T2.interval).toBeNull();
+  });
+
+  it("accepts a row with no forecast at all — a player the deposit cannot serve", () => {
+    const result = validateListonePool([VALID_PLAYER, withForecast("Sintetico Uno")]);
+    expect(result.ok).toBe(true);
+    expect((result as { pool: ListonePlayer[] }).pool[0]!.genForecast).toBeUndefined();
+  });
+
+  it("refuses the whole pool when one of the three targets is missing", () => {
+    const result = validateListonePool([
+      withForecast("Sintetico Uno", { T2: genTarget(6.42), TN: genTarget(24.1) }),
+    ]);
+    expect(result).toEqual({ ok: false, reason: "invalid-shape" });
+  });
+
+  it("refuses a value that is not a finite number", () => {
+    for (const value of [Number.NaN, Number.POSITIVE_INFINITY, "6.42" as unknown as number]) {
+      const result = validateListonePool([
+        withForecast("Sintetico Uno", {
+          T2: genTarget(value as number),
+          TN: genTarget(24.1),
+          T1: genTarget(154.8),
+        }),
+      ]);
+      expect(result).toEqual({ ok: false, reason: "invalid-shape" });
+    }
+  });
+
+  it("refuses a status outside the declared vocabulary — NO_VERDICT included", () => {
+    for (const status of ["NO_VERDICT", "vincitore", "", "B1"]) {
+      const result = validateListonePool([
+        withForecast("Sintetico Uno", {
+          T2: { value: 6.42, interval: null, status },
+          TN: genTarget(24.1),
+          T1: genTarget(154.8),
+        }),
+      ]);
+      expect(result).toEqual({ ok: false, reason: "invalid-shape" });
+    }
+    // «B0» invece è nel vocabolario e passa: è lo stato di un bersaglio che il
+    // dato dichiara, non un errore da nascondere.
+    expect(
+      validateListonePool([
+        withForecast("Sintetico Uno", {
+          T2: { value: 6.42, interval: null, status: "B0" },
+          TN: genTarget(24.1),
+          T1: genTarget(154.8),
+        }),
+      ]).ok,
+    ).toBe(true);
+  });
+
+  it("refuses any authority the gate has not opened — the label is never hardcoded", () => {
+    for (const authority of ["direttivo", "directive", "advisory ", "", null, undefined]) {
+      const result = validateListonePool([
+        withForecast("Sintetico Uno", undefined, { authority }),
+      ]);
+      expect(result).toEqual({ ok: false, reason: "invalid-shape" });
+    }
+  });
+
+  it("refuses the cap flag anywhere but on TN, and refuses a non-boolean cap", () => {
+    for (const targets of [
+      { T2: genTarget(6.42, { capApplied: true }), TN: genTarget(24.1), T1: genTarget(154.8) },
+      { T2: genTarget(6.42), TN: genTarget(24.1), T1: genTarget(154.8, { capApplied: false }) },
+      { T2: genTarget(6.42), TN: genTarget(24.1, { capApplied: "si" }), T1: genTarget(154.8) },
+    ]) {
+      expect(validateListonePool([withForecast("Sintetico Uno", targets)])).toEqual({
+        ok: false,
+        reason: "invalid-shape",
+      });
+    }
+  });
+
+  it("refuses a malformed interval, and accepts the two shapes the contract declares", () => {
+    const bad = [
+      { lo: 6.8, hi: 6.1 },
+      { lo: 6.1 },
+      { lo: 6.1, hi: 6.8, livello: 0.9 },
+      { lo: "6.1", hi: 6.8 },
+      6.1,
+    ];
+    for (const interval of bad) {
+      const result = validateListonePool([
+        withForecast("Sintetico Uno", {
+          T2: { value: 6.42, interval, status: "winner" },
+          TN: genTarget(24.1),
+          T1: genTarget(154.8),
+        }),
+      ]);
+      expect(result).toEqual({ ok: false, reason: "invalid-shape" });
+    }
+    // `null` è la forma di oggi; `{lo, hi}` è quella che il formato di
+    // trasporto prevede, e un payload valido non deve mai essere rifiutato.
+    for (const interval of [null, { lo: 6.1, hi: 6.8 }]) {
+      expect(
+        validateListonePool([
+          withForecast("Sintetico Uno", {
+            T2: { value: 6.42, interval, status: "winner" },
+            TN: genTarget(24.1),
+            T1: genTarget(154.8),
+          }),
+        ]).ok,
+      ).toBe(true);
+    }
+  });
+
+  it("refuses an empty recipe, protocol or run — a number without its run is not inspectable", () => {
+    for (const meta of [{ recipeVersion: "" }, { protocolVersion: "  " }, { runId: "" }]) {
+      expect(validateListonePool([withForecast("Sintetico Uno", undefined, meta)])).toEqual({
+        ok: false,
+        reason: "invalid-shape",
+      });
+    }
+  });
+
+  it("ignores what it does not recognise instead of copying it into the pool", () => {
+    const result = validateListonePool([
+      withForecast(
+        "Sintetico Uno",
+        { T2: genTarget(6.42), TN: genTarget(24.1), T1: genTarget(154.8), T3: genTarget(9) },
+        { servedBy: "qualcosa-che-questo-file-non-conosce" },
+      ),
+    ]);
+    expect(result.ok).toBe(true);
+    const forecast = (result as { pool: ListonePlayer[] }).pool[0]!.genForecast!;
+    expect(Object.keys(forecast).sort()).toEqual([
+      "authority",
+      "protocolVersion",
+      "recipeVersion",
+      "runId",
+      "targets",
+    ]);
+    expect(Object.keys(forecast.targets).sort()).toEqual(["T1", "T2", "TN"]);
+  });
+
+  it("refuses rows from two different runs instead of naming one of them", () => {
+    for (const meta of [
+      { recipeVersion: "GEN-RECIPE@2.0.0" },
+      { protocolVersion: "2.1.4" },
+      { runId: "refit-1111synthetic" },
+    ]) {
+      const result = validateListonePool([
+        withForecast("Sintetico Uno"),
+        { ...withForecast("Sintetico Due", undefined, meta), name: "Sintetico Due" },
+      ]);
+      expect(result).toEqual({ ok: false, reason: "inconsistent-gen-forecast" });
+    }
+  });
+
+  it("keeps `genForecast` out of the extra columns — it is a field, not a cell", () => {
+    const pool = parseListonePool([withForecast("Sintetico Uno")])!;
+    expect(pool[0]!.extra).toBeUndefined();
+  });
+});
+
+describe("gen forecast — columns", () => {
+  const pool = parseListonePool([
+    withForecast("Sintetico Uno"),
+    { ...VALID_PLAYER, name: "Sintetico Due" },
+  ])!;
+
+  it("adds the three columns only for a pool that carries a forecast", () => {
+    const keys = listoneColumns(pool).map((c) => c.key);
+    for (const key of GEN_FORECAST_COLUMN_KEYS) expect(keys).toContain(key);
+    expect(poolHasGenForecast(pool)).toBe(true);
+    const withoutKeys = listoneColumns([VALID_PLAYER]).map((c) => c.key);
+    for (const key of GEN_FORECAST_COLUMN_KEYS) expect(withoutKeys).not.toContain(key);
+    expect(poolHasGenForecast([VALID_PLAYER])).toBe(false);
+  });
+
+  it("puts them right after the Indice column, in target order", () => {
+    const indexed = parseListonePool([
+      { ...withForecast("Sintetico Uno"), appealIndex: { score: 70, quality: "q", recipe: INDEX_RECIPE, components: { base: 70 } } },
+    ])!;
+    const keys = listoneColumns(indexed).map((c) => c.key);
+    expect(keys.indexOf(APPEAL_INDEX_COLUMN_KEY)).toBe(3);
+    expect(keys.slice(4, 7)).toEqual([...GEN_FORECAST_COLUMN_KEYS]);
+    // Senza indice restano comunque subito dopo le tre colonne d'identità.
+    expect(listoneColumns(pool).map((c) => c.key).slice(3, 6)).toEqual([...GEN_FORECAST_COLUMN_KEYS]);
+  });
+
+  it("keeps them OFF by default — Pico's eleven-column list decides what is on", () => {
+    for (const key of GEN_FORECAST_COLUMN_KEYS) {
+      expect(DEFAULT_VISIBLE_COLUMN_KEYS).not.toContain(key);
+      expect(defaultVisibleColumnKeys(pool)).not.toContain(key);
+    }
+  });
+
+  it("reserves the three keys, so a loaded file cannot create a second column with the same name", () => {
+    const collision = parseListonePool([
+      { ...VALID_PLAYER, [GEN_FORECAST_COLUMN_KEY_BY_TARGET.T2]: 99 },
+    ])!;
+    expect(collision[0]!.extra?.[GEN_FORECAST_COLUMN_KEY_BY_TARGET.T2]).toBe(99);
+    const keys = listoneColumns(collision).map((c) => c.key);
+    expect(keys.filter((k) => k === GEN_FORECAST_COLUMN_KEY_BY_TARGET.T2)).toEqual([]);
+  });
+
+  it("explains each column without claiming anything the data did not say", () => {
+    const columns = listoneColumns(pool);
+    for (const target of GEN_FORECAST_TARGET_IDS) {
+      const column = columns.find((c) => c.key === GEN_FORECAST_COLUMN_KEY_BY_TARGET[target])!;
+      expect(column.label).toBe(GEN_FORECAST_COLUMN_LABELS[target]);
+      const tooltip = listoneColumnTooltip(column);
+      expect(tooltip).toContain("advisory");
+      expect(tooltip).toContain(VALUE_NOT_AVAILABLE);
+      expect(tooltip).not.toContain("colonna aggiuntiva dal file caricato");
+    }
+  });
+});
+
+describe("gen forecast — rendering and sorting", () => {
+  const pool = parseListonePool([
+    withForecast("Sintetico Uno"),
+    { ...VALID_PLAYER, name: "Sintetico Due" },
+  ])!;
+  const withForecastRow = pool[0]!;
+  const withoutForecastRow = pool[1]!;
+  const columns = listoneColumns(pool);
+  const column = (target: "T2" | "TN" | "T1"): ListoneColumn =>
+    columns.find((c) => c.key === GEN_FORECAST_COLUMN_KEY_BY_TARGET[target])!;
+
+  it("rounds only at render time: one decimal for T2, whole numbers for TN and T1", () => {
+    expect(listoneCellText(withForecastRow, GEN_FORECAST_COLUMN_KEY_BY_TARGET.T2)).toBe("6,4");
+    expect(listoneCellText(withForecastRow, GEN_FORECAST_COLUMN_KEY_BY_TARGET.TN)).toBe("24");
+    expect(listoneCellText(withForecastRow, GEN_FORECAST_COLUMN_KEY_BY_TARGET.T1)).toBe("155");
+    // Il dato conserva la precisione servita: l'ordinamento distingue ciò che
+    // la resa arrotonda.
+    expect(listoneCellValue(withForecastRow, GEN_FORECAST_COLUMN_KEY_BY_TARGET.T2)).toBe(6.42);
+    expect(listoneCellValue(withForecastRow, GEN_FORECAST_COLUMN_KEY_BY_TARGET.TN)).toBe(24.1);
+  });
+
+  it("says n/d for a row the deposit does not serve — never a zero, never a dash", () => {
+    for (const target of GEN_FORECAST_TARGET_IDS) {
+      const key = GEN_FORECAST_COLUMN_KEY_BY_TARGET[target];
+      expect(listoneCellText(withoutForecastRow, key)).toBe(VALUE_NOT_AVAILABLE);
+      expect(listoneCellValue(withoutForecastRow, key)).toBeUndefined();
+      expect(listoneRowHtml(withoutForecastRow, [column(target)])).toContain(`>${VALUE_NOT_AVAILABLE}<`);
+    }
+  });
+
+  it("marks the expert cap on TN only when the data declares it applied", () => {
+    const capped = parseListonePool([
+      withForecast("Sintetico Uno", {
+        T2: genTarget(6.42),
+        TN: genTarget(24.1, { capApplied: true }),
+        T1: genTarget(154.8),
+      }),
+    ])!;
+    const html = listoneRowHtml(capped[0]!, [column("TN")]);
+    expect(html).toContain(GEN_FORECAST_CAP_MARKER);
+    expect(html).toContain(GEN_FORECAST_CAP_LABEL);
+    expect(genForecastCapApplied(capped[0]!, GEN_FORECAST_COLUMN_KEY_BY_TARGET.TN)).toBe(true);
+    // Il testo della cella resta la sola cifra: il marcatore è un elemento.
+    expect(listoneCellText(capped[0]!, GEN_FORECAST_COLUMN_KEY_BY_TARGET.TN)).toBe("24");
+    // `capApplied: false` e una riga senza previsione non portano nessun segno.
+    expect(listoneRowHtml(withForecastRow, [column("TN")])).not.toContain(GEN_FORECAST_CAP_MARKER);
+    expect(listoneRowHtml(withoutForecastRow, [column("TN")])).not.toContain(GEN_FORECAST_CAP_MARKER);
+    expect(genForecastCapApplied(withForecastRow, GEN_FORECAST_COLUMN_KEY_BY_TARGET.TN)).toBe(false);
+    // E il tetto non contamina le altre due colonne.
+    expect(listoneRowHtml(capped[0]!, [column("T2")])).not.toContain(GEN_FORECAST_CAP_MARKER);
+  });
+
+  it("sorts on the served value and puts a row with no forecast last in both directions", () => {
+    const key = GEN_FORECAST_COLUMN_KEY_BY_TARGET.T1;
+    const three = parseListonePool([
+      withForecast("Sintetico Uno"),
+      { ...withForecast("Sintetico Tre", { T2: genTarget(5.9), TN: genTarget(30), T1: genTarget(180.2) }), name: "Sintetico Tre" },
+      { ...VALID_PLAYER, name: "Sintetico Due" },
+    ])!;
+    expect(sortListonePool(three, key, "asc").map((p) => p.name)).toEqual([
+      "Sintetico Uno",
+      "Sintetico Tre",
+      "Sintetico Due",
+    ]);
+    expect(sortListonePool(three, key, "desc").map((p) => p.name)).toEqual([
+      "Sintetico Tre",
+      "Sintetico Uno",
+      "Sintetico Due",
+    ]);
+  });
+});
+
+describe("listoneGenForecastNote", () => {
+  it("says nothing when there is nothing to qualify", () => {
+    expect(listoneGenForecastNote([])).toBeNull();
+    expect(listoneGenForecastNote([VALID_PLAYER])).toBeNull();
+  });
+
+  it("names recipe, protocol, run and authority, all carried by the rows", () => {
+    const pool = parseListonePool([
+      withForecast("Sintetico Uno"),
+      { ...VALID_PLAYER, name: "Sintetico Due" },
+    ])!;
+    const note = listoneGenForecastNote(pool)!;
+    expect(note).toContain(GEN_RECIPE);
+    expect(note).toContain(GEN_PROTOCOL);
+    expect(note).toContain(GEN_RUN);
+    expect(note).toContain(GEN_FORECAST_AUTHORITY_ADVISORY);
+    expect(note).toContain("1 righe con previsione, 1 senza");
+    expect(note).toContain("non usato dal motore decisionale");
+    expect(note).toContain("Colonne visibili");
+  });
+
+  it("counts the applied caps and the non-winner targets, and never turns directive", () => {
+    const pool = parseListonePool([
+      withForecast("Sintetico Uno", {
+        T2: { value: 6.42, interval: null, status: "B0" },
+        TN: genTarget(24.1, { capApplied: true }),
+        T1: genTarget(154.8),
+      }),
+    ])!;
+    const note = listoneGenForecastNote(pool)!;
+    expect(note).toContain(`(${GEN_FORECAST_CAP_MARKER}): 1`);
+    expect(note).toContain("non «winner»: 1");
+    for (const word of ["prezzo", "consigliato", "target_band", "fair"]) {
       expect(note.toLowerCase()).not.toContain(word);
     }
   });
