@@ -1314,7 +1314,18 @@
    di margine a 700×900, 205px a 719×900) e da questo round c'è un'asserzione che
    lo tiene, col suo budget stretto misurato a parte. Sotto i ~505px di larghezza
    NON ci resta più: il numero e la decisione stanno nel corpo della PR, perché
-   che cosa sacrificare non lo decide un foglio di stile. */
+   che cosa sacrificare non lo decide un foglio di stile.
+
+   DAL 2026-08-29 LE CELLE VISIBILI SONO DUE, non quattro («Nascondi valore
+   assoluto e valore relativo senza cancellare niente» — Pico; la costante è
+   VISIBLE_VALUE_SLOT_IDS in src/valueBox.ts, il conteggio arriva alla griglia
+   via --value-box-cols). La narrazione qui sopra — «quattro celle su una riga
+   sola», il riflow a due righe sotto i 700px e i margini misurati con quattro
+   celle — descrive la griglia PIENA e torna attuale il giorno in cui gli slot
+   si riaccendono; con due celle la griglia sta su una riga a ogni larghezza e
+   la soglia dei 700px è un no-op. Le misure non si riscrivono: sono vere per
+   lo stato in cui furono prese, e rifarle per lo stato ridotto lo decide chi
+   riaccende, non un commento. */
 .value-box--inline {
   background: none;
   border: 0;
