@@ -1162,6 +1162,75 @@
    i numeri sono il contenuto (--text-primary, mono come ogni altra cifra
    dell'app), l'allarme è --stop-red. Tutti e tre sono token della rampa già
    conforme AA di base.css: nessun colore nuovo, nessuna eccezione. */
+/* LA RIGA D'IDENTITÀ DEL CHIAMATO — nome, SEGNALI, NOTE.
+
+   I due riquadri della scheda sono saliti qui su richiesta di Pico
+   (2026-08-29, vedi il commento nello spostamento in src/main.ts): la riga
+   dice CHI è chiamato e, di fianco, che cosa la scheda dice di lui. Il nome
+   prende la larghezza che gli serve e non di più, i due riquadri si dividono
+   il resto e vanno a capo insieme quando il resto non basta — `240px` è la
+   base sotto la quale una griglia di pastiglie smette di essere leggibile,
+   cioè la stessa soglia per cui `.scheda-cards` impila a 900px.
+
+   `justify-content: space-between` sulla riga non decide più niente da quando
+   i riquadri crescono: lo spazio lo prendono loro, non il vuoto fra i pezzi. */
+.call-identity-row > .scheda-card {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+/* ── I PEZZI CHE NON ARRIVANO PIÙ A SCHERMO ─────────────────────────────────
+   Richieste di Pico del 2026-08-29, tutte dello stesso tipo e quindi tutte
+   nello stesso posto, con la sua frase accanto a ciascuna:
+
+   - «#late-answer-panel questo componente non serve più»;
+   - «Nascondi #role-depletion-panel e #opponent-precedents-panel, forse li
+     svilupperemo dopo l'asta»;
+   - «Nascondi #war-board-mini-Io dentro a #war-board-mini-list»;
+   - «Nascondi #tier-band-note e #tier-band-provenance».
+
+   NASCOSTI, NON CANCELLATI, e la seconda frase dice perché è la scelta giusta
+   e non la scorciatoia: «forse li svilupperemo dopo l'asta». Un pannello
+   cancellato va riscritto, un pannello nascosto torna togliendo una riga —
+   e nel frattempo le sue prove restano vere, perché restano costruiti,
+   riempiti e leggibili nel documento. Nessuna suite diventa muta.
+
+   `#war-board-mini-Io` è la riga della MIA squadra dentro il tabellone
+   ridotto: sparisce la riga, non il tabellone, e le altre sette restano al
+   loro posto. Il selettore è un id, quindi non tocca nessun avversario. */
+#late-answer-panel,
+#role-depletion-panel,
+#opponent-precedents-panel,
+#war-board-mini-list > #war-board-mini-Io,
+#tier-band-note,
+#tier-band-provenance {
+  display: none;
+}
+
+/* «PREZZO DA PAGARE» NON ARRIVA PIÙ A SCHERMO — «Nascondi #call-card >
+   div:nth-child(1) > div:nth-child(2)», Pico, 2026-08-29. Il blocco è
+   costruito in src/main.ts (maxSafeWrap) e porta questo id proprio per non
+   dipendere dalla posizione. La cifra battuta resta leggibile nel campo che la
+   riceve, e il numero grande resta aggiornato dentro il nodo nascosto: niente
+   da ricostruire il giorno in cui torna. */
+#call-price-block {
+  display: none;
+}
+
+/* NON ARRIVA PIÙ A SCHERMO — «Nascondi #assign-after», Pico, 2026-08-29.
+
+   Nascosto, non smontato, e la differenza è tutta la ragione di questa riga:
+   il blocco continua a essere costruito, appeso dentro la riga ASSEGNA A e
+   RIEMPITO a ogni tasto battuto sul prezzo (`fillAssignAfter`, src/main.ts),
+   quindi l'aritmetica di «quanto mi resta se lo prendo» resta viva e resta
+   provata riga per riga da e2e/post-purchase-projection.spec.ts, che legge il
+   testo del nodo — cosa che si può fare anche su un nodo nascosto. Il giorno
+   in cui la proiezione torna a schermo si toglie questa regola: non c'è
+   niente da ricostruire. Le regole di colore e di larghezza qui sotto restano
+   per lo stesso motivo, e per lo stesso motivo non sono state cancellate. */
+#assign-after {
+  display: none;
+}
 .assign-after {
   flex: 0 1 250px;
   min-width: 0;
@@ -1444,17 +1513,75 @@
    layout.css). Il fondo è OPACO e ha un bordo in cima: sopra una barra
    trasparente scorrerebbe il testo degli altri riquadri, e a quel punto il
    campo del prezzo si leggerebbe sopra un'altra cifra. */
+/* LE DUE RIGHE DEL GESTO STANNO SULLA STESSA LINEA, E SONO INVERTITE.
+
+   «Metti "#assign-block > .form-row" e "#interest-flag-row" sulla stessa linea
+   e invertili di posizione» — Pico, 2026-08-29.
+
+   Si fa QUI e non nel DOM: i due blocchi restano figli diretti di
+   `#assign-block` esattamente come li nomina la richiesta, l'ordine del
+   documento resta quello di lettura a voce e di tabulazione — prima i campi
+   che registrano l'acquisto, poi la marcatura facoltativa — e a cambiare è
+   solo dove finiscono a schermo. Rovesciare l'ordine nel DOM avrebbe messo
+   una riga che si può ignorare PRIMA del gesto principale anche per chi
+   naviga con il tastierino.
+
+   Il collocamento è esplicito, riga per riga e colonna per colonna, invece di
+   affidarsi al flusso automatico: con la sola `grid-column` gli elementi si
+   sarebbero sistemati in ordine di documento e la marcatura sarebbe scesa su
+   una terza riga invece di affiancarsi.
+
+   I CAMPI PRENDONO LA LARGHEZZA CHE SERVE LORO (`auto`), LA MARCATURA IL
+   RESTO (`minmax(0, 1fr)`), e non il contrario. Provato al rovescio e
+   scartato guardando la barra: la riga di pastiglie porta in coda una frase
+   lunga, quindi il suo contenuto massimo è enorme e una traccia `auto` gliela
+   dava tutta — i tre campi del gesto finivano schiacciati in una colonna
+   stretta e si impilavano uno sull'altro. Il gesto principale non deve mai
+   essere quello che va a capo per primo, e questo è il modo di dirlo alla
+   griglia invece che a parole.
+
+   La barra si accorcia di una riga intera, e `--assign-bar-h` (layout.css) è
+   stata rimisurata di conseguenza. */
 .assign-block {
+  align-items: start;
   background: var(--panel);
   border-top: 1px solid var(--border);
   bottom: 0;
   box-shadow: 0 -6px 18px oklch(0 0 0 / 0.35);
+  column-gap: 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   left: 0;
   margin-top: 0;
   padding: 12px 24px;
   position: fixed;
   width: 100%;
   z-index: 40;
+}
+.assign-block > .assign-block__head {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+/* SOTTO I 900px LE DUE COLONNE NON CI STANNO, e la barra torna alla forma che
+   aveva: campi sopra, marcatura sotto, cioè l'ordine del documento. La soglia
+   è la stessa a cui il resto di questa schermata smette di affiancare
+   (`.scheda-cards`, `.moment-blocks-grid`): la schermata cambia forma in un
+   punto solo. Perciò l'affiancamento è scritto DENTRO il media query e non
+   fuori con un'eccezione che lo disfa — in particolare `flex-wrap: nowrap`,
+   che su schermo stretto tagliava «Registra acquisto» fuori dalla barra. */
+@media (min-width: 900px) {
+  .assign-block {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .assign-block > #interest-flag-row {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .assign-block > .form-row {
+    flex-wrap: nowrap;
+    grid-column: 2;
+    grid-row: 2;
+  }
 }
 .assign-block__head {
   display: flex;
@@ -2054,10 +2181,25 @@
    marcato (lo stesso di .btn--secondary): entrambe le combinazioni sono già
    coperte dalla guardia di contrasto AA. Il colore non porta comunque nulla da
    solo: `aria-pressed` e la riga di sintesi dicono a parole chi è marcato. */
+/* IL FILETTO SI È GIRATO CON IL BLOCCO. Era in cima («sotto la riga di campi»)
+   perché la marcatura stava sotto i campi; da quando le due stanno sulla
+   stessa linea (vedi .assign-block qui sopra) il separatore che le distingue è
+   quello a destra. Stesso tratteggio, stesso token, stesso mestiere: dire che
+   quella riga NON fa parte del gesto di registrazione. Sotto i 900px i due
+   blocchi si reimpilano e il filetto torna in cima. */
 .interest-flags {
   border-top: 1px dashed var(--border);
   margin-top: 12px;
   padding-top: 10px;
+}
+@media (min-width: 900px) {
+  .interest-flags {
+    border-right: 1px dashed var(--border);
+    border-top: 0;
+    margin-top: 0;
+    padding-right: 14px;
+    padding-top: 0;
+  }
 }
 .interest-flags__head {
   align-items: baseline;
@@ -2183,11 +2325,53 @@
 @media (min-width: 560px) {
   .pagella__body { grid-template-columns: var(--pagella-figure-col) minmax(0, 1fr); }
 }
+/* IL TOTALE STA SOTTO TUTTE E DUE LE COLONNE, CENTRATO.
+
+   Richiesta di Pico con l'immagine allegata, 2026-08-29: icone a sinistra,
+   i cinque assi che riempiono la riga, il totale centrato sotto. Sta a tutta
+   larghezza perché parla dei cinque voti INSIEME — è la loro somma, e la
+   verifica contro il TOTALE della scheda — mentre incolonnato sotto i soli
+   assi sembrava una sesta voce dell'elenco. Stessa larghezza per la riga di
+   incoerenza e per la didascalia, che parlano dello stesso insieme.
+
+   `1 / -1` e non `span 2`: sotto i 560px il corpo ha UNA colonna sola, e
+   `1 / -1` continua a dire «tutte quelle che ci sono» invece di chiederne due
+   che non esistono. */
+.pagella__body > .pagella__totale,
+.pagella__body > .pagella__mismatch,
+.pagella__body > .pagella__note {
+  grid-column: 1 / -1;
+}
+.pagella__body > .pagella__totale {
+  text-align: center;
+}
+/* I cinque assi si allineano al centro della striscia di icone che hanno
+   accanto, invece di partire dal suo bordo alto: la riga di numeri e la riga
+   di glifi si leggono come una banda sola. */
+.pagella__body > .pagella__assi {
+  align-self: center;
+}
 .pagella-radar {
   display: block;
   height: 116px;
   width: 116px;
   max-width: 100%;
+}
+/* IL RADAR NON ARRIVA PIÙ A SCHERMO — «Nascondi #pagella-radar e
+   .pagella__note», Pico, 2026-08-29.
+
+   Nascosto, non cancellato, ed è una distinzione che qui pesa: il pentagono
+   continua a essere disegnato dal documento (`pagellaRadarSvgHtml`), con i
+   suoi cinque raggi, il quarto tratteggiato e un vertice per ogni voto
+   presente — quindi le prove che contano il disegno restano vere e il giorno
+   in cui il radar torna a schermo si toglie questa regola e basta. `display:
+   none` e non `visibility: hidden`: nascosto deve costare ZERO pixel nella
+   colonna, altrimenti la striscia delle icone resterebbe spinta in basso da
+   uno spazio vuoto di 116px. La colonna resta larga quanto le icone, che è
+   il motivo per cui `--pagella-figure-col` misura la striscia e non il
+   radar. */
+#player-insight-radar {
+  display: none;
 }
 .pagella-radar__ring {
   fill: none;
@@ -2286,8 +2470,18 @@
    — ma un errore di estrazione non deve avere lo stesso peso visivo di un
    totale che torna. --stop-red sta a 5,02:1 su --panel-inner. */
 .pagella__totale--divergente { color: var(--stop-red); }
+/* LA DIDASCALIA NON ARRIVA PIÙ A SCHERMO — stessa richiesta del radar, stesso
+   giorno. `display: none` toglie il nodo anche a chi naviga a voce, e la cosa
+   va detta invece di lasciarla scoprire: la garanzia che conta — «il quarto
+   asse cambia col ruolo e non confronta due ruoli diversi; il Consiglio
+   Esperti è un parere, e nulla di questo riquadro entra in un calcolo
+   dell'app» — è `PAGELLA_CAVEAT_NOTE`, che `pagellaSpoken()` continua a dire
+   dentro l'`aria-label` del riquadro INSIGHT GIOCATORE (views.ts:1204). Non
+   si perde. L'altra frase (`PAGELLA_ORDER_NOTE`) insegnava a leggere il
+   radar, e senza radar a schermo non ha più niente da insegnare. */
 .pagella__note {
   color: var(--text-dim);
+  display: none;
   font-size: 10px;
   line-height: 1.4;
 }

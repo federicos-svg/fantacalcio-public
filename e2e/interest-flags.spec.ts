@@ -251,8 +251,15 @@ test("il posto della risposta lenta dichiara i propri stati e non blocca mai lo 
 
   await openAsta(page, E2E_TARGET_PLAYER.name);
 
+  // IL POSTO C'È E NON SI VEDE PIÙ. «#late-answer-panel questo componente non
+  // serve più» — Pico, 2026-08-29. Nascosto, non smontato: il riquadro
+  // continua a essere costruito e a DICHIARARE il proprio stato, ed è quel
+  // che questo test verifica riga per riga qui sotto. Se un giorno torna a
+  // schermo, torna con gli stati già onesti invece che da riscrivere; se
+  // qualcuno smette di costruirlo, `toHaveCount(1)` diventa rossa.
   const panel = page.locator("#late-answer-panel");
-  await expect(panel).toBeVisible();
+  await expect(panel).toHaveCount(1);
+  await expect(panel).toBeHidden();
   // Nessuna fonte collegata in questa versione: lo stato dichiarato è «non
   // richiesta», e il riquadro lo DICE invece di sembrare rotto o di far
   // sembrare che stia preparando qualcosa.
@@ -270,19 +277,17 @@ test("il posto della risposta lenta dichiara i propri stati e non blocca mai lo 
   await expect(page.getByRole("button", { name: "Registra acquisto", exact: true })).toBeEnabled();
   await expect(page.locator("#assign-price")).toBeEditable();
 
-  // E il posto sta SOTTO il gesto: una risposta che arriva non può spingere
-  // «ASSEGNA A» fuori dallo schermo.
-  const positions = await page.evaluate(() => {
-    const assign = document.querySelector("#assign-block");
-    const late = document.querySelector("#late-answer-panel");
-    if (assign === null || late === null) return null;
-    return {
-      assignTop: assign.getBoundingClientRect().top + window.scrollY,
-      lateTop: late.getBoundingClientRect().top + window.scrollY,
-    };
-  });
-  expect(positions).not.toBeNull();
-  expect(positions!.lateTop).toBeGreaterThan(positions!.assignTop);
+  // E IL POSTO NON PUÒ SPINGERE «ASSEGNA A» DA NESSUNA PARTE. La misura era
+  // «il riquadro sta più in basso del gesto»; da nascosto non ha geometria —
+  // il suo rettangolo è di zeri — quindi quella riga proverebbe il falso in un
+  // senso o nell'altro. La pretesa che portava resta, in forma più forte:
+  // OCCUPA ZERO ALTEZZA, cioè non può spostare il gesto nemmeno di un pixel.
+  // Il giorno in cui torna a schermo questa riga diventa rossa e va
+  // ripristinato il confronto con `#assign-block`.
+  const lateHeight = await page.evaluate(
+    () => document.querySelector("#late-answer-panel")?.getBoundingClientRect().height ?? null,
+  );
+  expect(lateHeight, "il posto della risposta lenta non costa altezza al gesto").toBe(0);
 
   expect(externalRequests).toEqual([]);
 });

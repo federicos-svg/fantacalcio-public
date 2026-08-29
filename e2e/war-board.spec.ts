@@ -171,12 +171,24 @@ test("both war board variants stay readable at 390, 768 and 1280 without sideway
     await page.getByText(TARGET.name, { exact: true }).click();
     await page.getByRole("button", { name: /^Avvia/ }).click();
     await expect(page.locator("#war-board-mini")).toBeVisible();
+    // LA MIA RIGA È FUORI DALLA MISURA PERCHÉ È FUORI DALLA STRISCIA.
+    // «Nascondi #war-board-mini-Io dentro a #war-board-mini-list» — Pico,
+    // 2026-08-29. Resta costruita nel documento (la riga qui sotto lo
+    // pretende, così nessuno può scambiare «nascosta» per «sparita»), ma un
+    // elemento con `display: none` è largo zero: lasciarla dentro la misura
+    // avrebbe fatto fallire il pavimento dei 104px su una cella che non si
+    // vede. Le sette celle che si vedono rispondono della soglia come prima.
+    await expect(page.locator("#war-board-mini-Io")).toHaveCount(1);
+    await expect(page.locator("#war-board-mini-Io")).toBeHidden();
     const strip = await page.evaluate(() => {
-      const items = [...document.querySelectorAll("#war-board-mini-list > li")];
+      const items = [...document.querySelectorAll("#war-board-mini-list > li")].filter(
+        (el) => el.getClientRects().length > 0,
+      );
       const widths = items.map((el) => el.getBoundingClientRect().width);
       const rows = new Set(items.map((el) => Math.round(el.getBoundingClientRect().top)));
-      return { minWidth: Math.min(...widths), rowCount: rows.size };
+      return { count: items.length, minWidth: Math.min(...widths), rowCount: rows.size };
     });
+    expect(strip.count, "le sette squadre avversarie restano a schermo").toBe(7);
     expect(strip.minWidth).toBeGreaterThanOrEqual(100);
     // On a desktop viewport it really is ONE strip; on a phone it wraps, but
     // never past four rows — beyond that it stops being a strip.

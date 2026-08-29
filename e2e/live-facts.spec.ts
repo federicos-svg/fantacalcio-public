@@ -550,31 +550,38 @@ test("i due blocchi restano leggibili a 390, 768 e 1280 senza scroll orizzontale
     await expect(page.locator(".moment-scarcity__cell")).toHaveCount(4);
     await expect(page.locator("#moment-scarcity-P")).toContainText("Portieri");
 
+    // I PRECEDENTI RESTANO COSTRUITI E NON SI VEDONO PIÙ. «Nascondi
+    // #role-depletion-panel e #opponent-precedents-panel, forse li
+    // svilupperemo dopo l'asta» — Pico, 2026-08-29. Il conteggio delle righe e
+    // delle stagioni resta la prova che il pannello è pieno e giusto: si legge
+    // sul documento, e sul documento non è cambiato niente.
+    await expect(page.locator("#opponent-precedents-panel")).toHaveCount(1);
+    await expect(page.locator("#opponent-precedents-panel")).toBeHidden();
     await expect(page.locator(".opponent-precedents__row")).toHaveCount(2);
-    // La serie per stagione va a capo invece di comprimersi o traboccare: è
-    // l'unico pezzo del pannello che cresce con la lunghezza dello storico.
     await expect(page.locator("#opponent-precedents-Squadra4 .opponent-precedents__season")).toHaveCount(3);
+
+    // LE TRE MISURE DI IMPAGINAZIONE DEL PANNELLO SONO SOSPESE, non tolte: un
+    // pannello nascosto non ha larghezze, quindi «la serie va a capo invece di
+    // traboccare» e «il titolo sta su una riga» sarebbero verdi su rettangoli
+    // di zeri, cioè su niente. La trappola qui sotto le fa tornare: pretende
+    // che il pannello occupi ZERO altezza, e diventa rossa il giorno in cui
+    // torna a schermo. Le misure originali, per non riscriverle a memoria:
+    //
+    //   const el = "#opponent-precedents-Squadra4 .opponent-precedents__series";
+    //   el.scrollWidth <= el.clientWidth + 1
+    //   const titleSel = "#opponent-precedents-panel .panel-title";
+    //   const titleLines = await lineBoxes(page, titleSel);
+    //   if (viewport.width >= 700) expect(titleLines).toBe(1);
+    //   expect(titleLines).toBeLessThanOrEqual(2);
+    //   el.scrollWidth <= el.clientWidth   // sul titolo
     expect(
-      await page.evaluate(() => {
-        const el = document.querySelector("#opponent-precedents-Squadra4 .opponent-precedents__series")!;
-        return el.scrollWidth <= el.clientWidth + 1;
-      }),
-    ).toBe(true);
-    // Il titolo. A 768 e 1280 deve stare su UNA riga: lì il margine è ampio e
-    // un titolo che va a capo segnala che qualcuno l'ha allungato senza
-    // guardare. A 390 il margine misurato è di 2px, quindi la pretesa è più
-    // debole ma comunque stringente: mai più di due righe (quante ne prendeva
-    // il titolo vecchio) e mai traboccare fuori dalla propria scatola.
-    const titleSel = "#opponent-precedents-panel .panel-title";
-    const titleLines = await lineBoxes(page, titleSel);
-    if (viewport.width >= 700) expect(titleLines).toBe(1);
-    expect(titleLines).toBeLessThanOrEqual(2);
-    expect(
-      await page.evaluate((sel) => {
-        const el = document.querySelector(sel)!;
-        return el.scrollWidth <= el.clientWidth;
-      }, titleSel),
-    ).toBe(true);
+      await page.evaluate(
+        () =>
+          document.querySelector("#opponent-precedents-panel")?.getBoundingClientRect().height ??
+          null,
+      ),
+      `${viewport.width}px: il pannello nascosto non occupa altezza`,
+    ).toBe(0);
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
     ).toBe(true);

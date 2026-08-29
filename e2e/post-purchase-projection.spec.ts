@@ -100,20 +100,31 @@ test("la proiezione segue la cifra digitata e dice di chi parla", async ({ page,
   const externalRequests = await boot(page, context);
   await callPlayer(page, "Quarto Portiere");
 
-  // Il blocco esiste, ed è uno solo.
+  // Il blocco esiste, ed è uno solo — E NON È PIÙ A SCHERMO. «Nascondi
+  // #assign-after», Pico, 2026-08-29: l'asserzione è rovesciata, non tolta,
+  // e le due righe insieme dicono la cosa che serve sapere — il blocco resta
+  // COSTRUITO e AGGIORNATO (tutto il resto di questo test lo legge riga per
+  // riga), e resta fuori dalla vista. Se un giorno ricompare, o se qualcuno
+  // smette di costruirlo, una delle due diventa rossa.
   await expect(page.locator("#assign-after")).toHaveCount(1);
-  await expect(page.locator("#assign-after")).toBeVisible();
+  await expect(page.locator("#assign-after")).toBeHidden();
 
   // Campo vuoto: nessun numero, e nemmeno un numero finto travestito da zero.
   await expect(page.locator("#assign-after-label")).toHaveText("dopo l'acquisto · Io");
   await expect(page.locator("#assign-after-value")).toHaveText("restano — cr e — slot");
   expect(await page.locator("#assign-after-value").textContent()).not.toMatch(/\d/);
-  await expect(page.locator("#assign-after-alarm")).toBeHidden();
+  // L'ALLARME SI MISURA SUL TESTO, non sulla visibilità. Dentro un blocco
+  // nascosto `toBeHidden()` è vera sempre, quindi non distinguerebbe più
+  // «nessun allarme» da «allarme acceso»: sarebbe un'asserzione che non può
+  // fallire. Il testo vuoto è la stessa proprietà di prima — è `:empty` a far
+  // collassare la riga quando non c'è niente da dire — e continua a
+  // distinguere i due stati.
+  await expect(page.locator("#assign-after-alarm")).toHaveText("");
 
   // 30 cr su una rosa intonsa: 500 − 30 = 470 crediti, 28 − 1 = 27 slot.
   await page.locator("#assign-price").fill("30");
   await expect(page.locator("#assign-after-value")).toHaveText("restano 470 cr e 27 slot");
-  await expect(page.locator("#assign-after-alarm")).toBeHidden();
+  await expect(page.locator("#assign-after-alarm")).toHaveText("");
 
   // La cifra cambia, la proiezione cambia con lei — senza che il campo perda il
   // fuoco: quel campo non chiama render() proprio per questo.
@@ -174,13 +185,12 @@ test("quando il prezzo rompe la riserva dura la proiezione lo dice, e di quanto"
   // rosa completabile. Nessun allarme.
   await page.locator("#assign-price").fill("473");
   await expect(page.locator("#assign-after-value")).toHaveText("restano 27 cr e 27 slot");
-  await expect(page.locator("#assign-after-alarm")).toBeHidden();
+  await expect(page.locator("#assign-after-alarm")).toHaveText("");
   await expect(page.locator("#assign-after")).not.toHaveClass(/assign-after--alarm/);
 
   // Un credito più in là la rosa non si completa più, e la riga lo dice.
   await page.locator("#assign-price").fill("474");
   await expect(page.locator("#assign-after-value")).toHaveText("restano 26 cr e 27 slot");
-  await expect(page.locator("#assign-after-alarm")).toBeVisible();
   await expect(page.locator("#assign-after-alarm")).toHaveText(
     "rosa non completabile: manca 1 cr",
   );
@@ -199,13 +209,16 @@ test("quando il prezzo rompe la riserva dura la proiezione lo dice, e di quanto"
 
   // Tornando sotto soglia l'allarme sparisce: non resta appiccicato.
   await page.locator("#assign-price").fill("10");
-  await expect(page.locator("#assign-after-alarm")).toBeHidden();
+  await expect(page.locator("#assign-after-alarm")).toHaveText("");
   await expect(page.locator("#assign-after")).not.toHaveClass(/assign-after--alarm/);
 
   expect(externalRequests).toEqual([]);
 });
 
-test("la proiezione è a schermo proprio mentre si digita il prezzo", async ({ page, context }) => {
+test("il gesto è raggiungibile senza scorrere, e la proiezione lo segue da nascosta", async ({
+  page,
+  context,
+}) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const externalRequests = await boot(page, context);
   await callPlayer(page, "Quarto Portiere");
@@ -213,26 +226,44 @@ test("la proiezione è a schermo proprio mentre si digita il prezzo", async ({ p
   await page.locator("#assign-price").fill("30");
   // Lo SCORRIMENTO MINIMO del browser (`block: "nearest"`) è quello che fa un
   // utente quando raggiunge il campo — e su un elemento già interamente dentro
-  // la finestra non scorre affatto. Da #331 punti 2-3 è proprio questo il caso,
-  // e la riga qui sotto lo verifica invece di darlo per scontato: se una corsia
-  // futura rimanda il gesto sotto la piega, questo `scrollY` smette di essere
-  // zero e la spec diventa rossa.
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await page.evaluate(() =>
-    document.getElementById("assign-price")?.scrollIntoView({ block: "nearest" }),
-  );
+  // la finestra non scorre di un pixel.
+  await page.locator("#assign-price").evaluate((el) => el.scrollIntoView({ block: "nearest" }));
   expect(
     await page.evaluate(() => window.scrollY),
     "per arrivare al campo del prezzo non deve servire scorrere",
   ).toBe(0);
+
+  // QUESTO TEST HA CAMBIATO SOGGETTO, E LA NOTA «PUNTO 5» IN TESTA AL FILE
+  // RESTA VERA A METÀ: la geometria della proiezione non esiste più da
+  // misurare, perché il 2026-08-29 Pico ha chiesto di nascondere
+  // `#assign-after` (e con lui «Prezzo da pagare», `#call-price-block`). Un
+  // blocco con `display: none` ha un rettangolo di zeri: ogni asserzione sul
+  // suo `top`, sulla sua banda o sul suo bordo inferiore sarebbe diventata o
+  // verde per un motivo falso o rossa per un difetto che non c'è. Cancellarle
+  // e basta avrebbe lasciato il file senza la prova del PUNTO 5.
+  //
+  // Quel che resta da provare, e che il file prova qui:
+  //
+  //  a. il campo del prezzo — il gesto vero — è raggiungibile senza scorrere
+  //     (le righe qui sopra: era metà del punto 5, ed è la metà sopravvissuta);
+  //  b. i due blocchi nascosti sono NASCOSTI E VIVI: seguono la cifra battuta
+  //     mentre la si batte, senza un `render()`, che è la proprietà per cui
+  //     esistono e l'unica che li rende recuperabili in un giorno;
+  //  c. la riga ASSEGNA A non è cresciuta e la pagina non scorre di lato.
+  await expect(page.locator("#assign-after")).toBeHidden();
+  await expect(page.locator("#assign-after-value")).toHaveText("restano 470 cr e 27 slot");
+  await expect(page.locator("#call-price-block")).toBeHidden();
+  await expect(page.locator("#price-display")).toHaveText("30 cr");
+
+  // …e SEGUONO la cifra mentre viene battuta, senza perdere il fuoco: è la
+  // ragione per cui il campo del prezzo non chiama `render()`.
+  await page.locator("#assign-price").fill("120");
+  await expect(page.locator("#assign-after-value")).toHaveText("restano 380 cr e 27 slot");
+  await expect(page.locator("#price-display")).toHaveText("120 cr");
+  expect(await page.evaluate(() => document.activeElement?.id)).toBe("assign-price");
+
   const geometry = await page.evaluate(() => {
-    const rect = (id: string) => {
-      const el = document.getElementById(id);
-      return el === null ? null : el.getBoundingClientRect();
-    };
-    const after = rect("assign-after");
-    const priceInput = rect("assign-price");
-    const priceDisplay = rect("price-display");
+    const priceInput = document.getElementById("assign-price")?.getBoundingClientRect() ?? null;
     // Tolleranza di un pixel sul bordo basso, come già fa la misura dello
     // scorrimento laterale in fondo a questo test: con lo scorrimento minimo
     // il bordo del campo COINCIDE con quello della finestra, e un confronto
@@ -240,38 +271,13 @@ test("la proiezione è a schermo proprio mentre si digita il prezzo", async ({ p
     // decimo di pixel.
     const fitsBelow = (r: DOMRect) => r.bottom <= window.innerHeight + 1;
     return {
-      afterInViewport: after !== null && after.top >= 0 && fitsBelow(after),
-      // Invariante di layout, indipendente da qualunque scorrimento: la
-      // proiezione non finisce mai più in basso del campo che la aggiorna, e
-      // quindi è visibile ogni volta che quel campo lo è.
-      afterNotBelowPrice:
-        after !== null && priceInput !== null && after.bottom <= priceInput.bottom + 1,
       priceInputInViewport: priceInput !== null && priceInput.top >= 0 && fitsBelow(priceInput),
-      priceDisplayTop: priceDisplay?.top ?? null,
-      sameBand: after !== null && priceInput !== null && Math.abs(after.top - priceInput.top) < 200,
-      // La riga ASSEGNA A non deve essere cresciuta in altezza: il blocco sta
-      // nello spazio orizzontale che quella riga aveva già libero.
+      // La riga ASSEGNA A non deve essere cresciuta in altezza.
       formRowHeight: document.querySelector(".form-row")?.getBoundingClientRect().height ?? 0,
     };
   });
   expect(geometry.priceInputInViewport, "il campo del prezzo è interamente in vista").toBe(true);
-  expect(geometry.afterInViewport, "la proiezione deve essere leggibile mentre si digita").toBe(
-    true,
-  );
-  expect(
-    geometry.afterNotBelowPrice,
-    "la proiezione non sta mai più in basso del campo che la aggiorna",
-  ).toBe(true);
-  expect(geometry.sameBand, "la proiezione sta nella stessa banda del campo prezzo").toBe(true);
   expect(geometry.formRowHeight, "la riga ASSEGNA A non deve crescere").toBeLessThanOrEqual(60);
-  // La misura rovesciata (vedi la nota «PUNTO 5» in testa al file): «Prezzo da
-  // pagare» e il campo che lo aggiorna stanno adesso nella STESSA scheda e
-  // sono in vista insieme, senza scorrere. Era `< 0`, cioè fuori schermo:
-  // quell'asserzione descriveva il difetto che #331 punti 2-3 hanno tolto.
-  expect(
-    geometry.priceDisplayTop,
-    "«Prezzo da pagare» è in vista insieme al campo che lo aggiorna",
-  ).toBeGreaterThanOrEqual(0);
 
   // Nessuno scorrimento laterale introdotto dal blocco.
   expect(

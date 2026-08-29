@@ -6539,7 +6539,12 @@ function renderMomentoAsta(
   );
 
   // Player info + maxSafe row
+  // LA RIGA D'IDENTITÀ. Da oggi porta anche i due riquadri della scheda —
+  // SEGNALI e NOTE — accanto al nome del chiamato (vedi più sotto, dove
+  // vengono spostati). Prende una classe perché quei tre pezzi abbiano una
+  // regola di larghezza in asta.css invece di tre stili scritti a mano.
   const topRow = document.createElement("div");
+  topRow.className = "call-identity-row";
   topRow.style.cssText = `display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:18px;`;
 
   const playerInfo = document.createElement("div");
@@ -6577,7 +6582,25 @@ function renderMomentoAsta(
   // registering an opponent's purchase has to show their own ceiling.
   // purchaseFeasibility (doAssign) already keys off this same id — only this
   // display previously used Owner's team unconditionally. See #219.
+  //
+  // NON ARRIVA PIÙ A SCHERMO — «Nascondi #call-card > div:nth-child(1) >
+  // div:nth-child(2)», Pico, 2026-08-29. Quel selettore è esattamente questo
+  // blocco: il secondo figlio della riga d'identità, cioè «Prezzo da pagare»,
+  // il numero grande e la nota di max bid sicuro.
+  //
+  // Il blocco prende un id e una classe invece di restare anonimo: nascondere
+  // per posizione (`div:nth-child(2)`) vuol dire che il giorno in cui qualcuno
+  // aggiunge un terzo elemento alla riga sparisce quello sbagliato, in
+  // silenzio. La regola sta in asta.css su `#call-price-block`.
+  //
+  // Nascosto, non smontato: `#price-display` continua a essere costruito e
+  // aggiornato a ogni tasto (il listener del prezzo lo cerca per id), e
+  // `#max-safe-note` continua a dire la verità sul terzo portiere a 0 —
+  // e2e/third-goalkeeper-zero.spec.ts la legge, e il testo di un nodo nascosto
+  // si legge lo stesso.
   const maxSafeWrap = document.createElement("div");
+  maxSafeWrap.id = "call-price-block";
+  maxSafeWrap.className = "call-price-block";
   maxSafeWrap.style.cssText = `text-align:right;`;
   const assignTeam = aState.teams[state.assign.fantaTeamId] ?? team;
 
@@ -6653,7 +6676,37 @@ function renderMomentoAsta(
   // e2e/asta-gesto-principale.spec.ts asserisce che «ASSEGNA A» resti entro una
   // distanza dichiarata dal bordo del documento, ed è quel test — non questo
   // commento — a dire se il blocco ci sta.
-  card.appendChild(renderPlayerInsightsBlock(playerInsightProps()));
+  const insightPanel = renderPlayerInsightsBlock(playerInsightProps());
+
+  // I DUE RIQUADRI DELLA SCHEDA SALGONO NELLA RIGA D'IDENTITÀ — «Metti
+  // #player-insight-card-segnali e #player-insight-card-note come secondo e
+  // terzo figlio dentro a #call-card:nth-child(1)», Pico, 2026-08-29. Quindi:
+  // nome del chiamato, SEGNALI, NOTE, tutti e tre sulla stessa riga.
+  //
+  // Si spostano DOPO la costruzione invece di essere costruiti altrove, e la
+  // ragione è che i due riquadri sono la resa di una vista sola
+  // (`expertInsightBodyHtml`): esistono solo quando la scheda è agganciata,
+  // portano `aria-labelledby` verso i propri titoli, e duplicarne la
+  // costruzione qui vorrebbe dire tenere due rami che dicono la stessa cosa e
+  // che un giorno smetteranno di dirla. Il riquadro INSIGHT GIOCATORE resta
+  // dov'era con tutto il resto — pagella, icone, tendina della scelta — e il
+  // suo `aria-label` parlato non perde una parola, perché lo compone
+  // `expertInsightSpoken()` dalla vista, non dal DOM.
+  //
+  // Se la scheda non è agganciata i due riquadri non esistono: `moveCard` non
+  // trova niente e non sposta niente, che è il comportamento giusto — la riga
+  // d'identità resta il solo nome, come prima.
+  const insightCards = insightPanel.querySelector("#player-insight-cards");
+  for (const cardId of ["player-insight-card-segnali", "player-insight-card-note"]) {
+    const moved = insightPanel.querySelector(`#${cardId}`);
+    if (moved !== null) topRow.insertBefore(moved, maxSafeWrap);
+  }
+  // Il contenitore vuoto se ne va con loro: `.scheda-cards` è una griglia con
+  // il proprio spazio, e lasciarla vuota costerebbe altezza sopra il gesto per
+  // niente.
+  if (insightCards !== null && insightCards.children.length === 0) insightCards.remove();
+
+  card.appendChild(insightPanel);
 
   // RIQUADRO DEL VALORE — i quattro numeri, dentro la scheda del chiamato e
   // SUBITO sotto la riga d'identità e il prezzo.
@@ -6803,22 +6856,35 @@ function renderMomentoAsta(
   formRow.appendChild(teamGroup);
   formRow.appendChild(priceGroup);
   // Fra il prezzo e il bottone, non dopo il bottone: l'ordine di lettura (e di
-  // tabulazione) diventa «chi, quanto, cosa resta, conferma» — la conseguenza
-  // si legge prima di premere, non dopo.
+  // tabulazione) diceva «chi, quanto, cosa resta, conferma» — la conseguenza
+  // si leggeva prima di premere, non dopo.
+  //
+  // OGGI QUEL BLOCCO È NASCOSTO A SCHERMO («Nascondi #assign-after», Pico,
+  // 2026-08-29, regola in asta.css) e resta appeso qui, costruito e riempito a
+  // ogni tasto: nascondere non è smontare, e il giorno in cui torna a schermo
+  // torna esattamente in questo posto, con la stessa aritmetica e le stesse
+  // prove. Toglierlo dal DOM avrebbe reso muta la sola suite che tiene quella
+  // aritmetica onesta.
   formRow.appendChild(assignAfter);
   formRow.appendChild(submitBtn);
   divider.appendChild(formRow);
 
-  // CHI ERA IN GARA — il flag al submit, DENTRO il gesto e sotto la riga di
-  // campi. Sta qui e non altrove per tre motivi che si sommano:
+  // CHI ERA IN GARA — il flag al submit, DENTRO il gesto e DOPO la riga di
+  // campi nel documento. Sta qui e non altrove per tre motivi che si sommano:
   //
   //  1. è la marcatura DI QUESTO acquisto: metterla in un pannello a parte
   //     vorrebbe dire chiedere all'operatore di ricordarsi di tornarci;
-  //  2. sotto la riga di campi, quindi il titolo «ASSEGNA A» non si sposta di
+  //  2. dopo la riga di campi, quindi il titolo «ASSEGNA A» non si sposta di
   //     un pixel — e2e/asta-gesto-principale.spec.ts misura esattamente quello;
   //  3. saltarla non costa NIENTE: non è un passo del percorso verso «Registra
   //     acquisto», è una riga che si può ignorare, e ignorarla non produce
   //     avvisi né conferme.
+  //
+  // A SCHERMO STA A SINISTRA DEI CAMPI, non sotto: Pico ha chiesto le due
+  // righe sulla stessa linea e invertite di posizione (2026-08-29). Lo scambio
+  // è fatto dalla griglia di `.assign-block` (asta.css), non da questo ordine
+  // di `appendChild`, e la ragione è il punto 3: chi tabula deve incontrare
+  // prima il gesto e poi la riga facoltativa, non il contrario.
   divider.appendChild(
     renderInterestFlagRow({
       seatIds: interestSeatIds(),

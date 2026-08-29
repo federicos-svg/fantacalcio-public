@@ -113,7 +113,17 @@ test("completa — cinque voti, il poligono, e il totale che torna", async ({ pa
   const external = await boot(page, context, [PAGELLA_SCHEDA]);
   await call(page, TARGET.name);
 
-  await expect(page.locator("#player-insight-radar")).toBeVisible();
+  // IL RADAR È DISEGNATO E NON SI VEDE. «Nascondi #pagella-radar e
+  // .pagella__note» — Pico, 2026-08-29 — quindi l'asserzione è rovesciata, non
+  // cancellata: il pentagono deve continuare a esistere nel documento con
+  // tutti i suoi vertici (le due righe qui sotto li contano) e deve restare
+  // fuori dalla vista. Il giorno in cui torna a schermo basta togliere una
+  // regola di stile, e questa riga se ne accorge.
+  await expect(page.locator("#player-insight-radar")).toHaveCount(1);
+  await expect(page.locator("#player-insight-radar")).toBeHidden();
+  // La didascalia, nascosta con lui, per la stessa ragione e con la stessa
+  // pretesa: scritta nel documento, non a schermo.
+  await expect(page.locator("#player-insight-pagella-note")).toBeHidden();
   await expect(page.locator("#player-insight-pagella-assi li")).toHaveCount(PAGELLA_ASSI);
   await expect(page.locator("#player-insight-pagella-totale")).toContainText("39/50");
   await expect(page.locator("#player-insight-pagella-totale")).toContainText("coincide");
@@ -272,9 +282,14 @@ test("il radar non sposta il gesto principale: «ASSEGNA A» resta entro il budg
     await expect(page.locator("#search-player")).toBeVisible();
     await call(page, LARGE_CALLED.name);
 
-    // Il radar è DAVVERO acceso: senza questa riga la misura sotto proverebbe
-    // che una schermata senza radar sta nel budget, che si sapeva già.
-    await expect(page.locator("#player-insight-radar")).toBeVisible();
+    // Il radar è DAVVERO disegnato: senza questa riga la misura sotto
+    // proverebbe che una schermata senza radar sta nel budget, che si sapeva
+    // già. Da quando il radar è nascosto (vedi il test «completa») la prova
+    // che sia disegnato è la sua presenza nel documento, non la sua
+    // visibilità — e la misura del gesto qui sotto vale ANCHE DI PIÙ: il
+    // pentagono nascosto non costa più altezza, e «ASSEGNA A» deve restare
+    // entro il budget lo stesso.
+    await expect(page.locator("#player-insight-radar")).toHaveCount(1);
 
     const g = await page.evaluate(() => {
       window.scrollTo(0, 0);
@@ -354,7 +369,7 @@ test("nessuno scorrimento laterale a schermo stretto, col radar acceso", async (
     await page.goto("/");
     await expect(page.locator("#search-player")).toBeVisible();
     await call(page, TARGET.name);
-    await expect(page.locator("#player-insight-radar")).toBeVisible();
+    await expect(page.locator("#player-insight-radar")).toHaveCount(1);
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth + 1,
     );
@@ -441,9 +456,10 @@ test("il radar NON sta nella schermata di chiamata, e sta nel momento d'asta", a
   await page.getByRole("button", { name: /^Avvia/ }).click();
   await expect(page.locator("#assign-price")).toBeVisible();
 
-  // Il riquadro c'è, col radar disegnato e i cinque assi.
+  // Il riquadro c'è, col radar disegnato — nascosto a schermo dal 2026-08-29,
+  // vedi il test «completa» — e i cinque assi.
   await expect(page.locator("#player-insight-panel")).toBeVisible();
-  await expect(page.locator("#player-insight-radar")).toBeVisible();
+  await expect(page.locator("#player-insight-radar")).toHaveCount(1);
   await expect(page.locator("#player-insight-pagella-assi li")).toHaveCount(PAGELLA_ASSI);
   await expect(page.locator("#player-insight-pagella-totale")).toContainText("39/50");
   // E la striscia delle icone, che è l'altra metà della colonna del disegno:
