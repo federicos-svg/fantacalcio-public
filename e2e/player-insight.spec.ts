@@ -267,14 +267,24 @@ test("un vocabolario solo: i riquadri di INSIGHT GIOCATORE hanno la forma delle 
   // Tre titoli, UNA identità visiva: è ciò che «una copia sola» vuol dire.
   expect(new Set(chiamataStyles).size, `tre titoli, ${chiamataStyles.length} stili`).toBe(1);
 
-  // 2. IL PANNELLO INSIGHT, nel momento d'asta: due riquadri, ciascuno col
-  //    proprio titolo, e il titolo è LO STESSO di quelli della chiamata.
+  // 2. I DUE RIQUADRI DELLA SCHEDA, nel momento d'asta: ciascuno col proprio
+  //    titolo, e il titolo è LO STESSO di quelli della chiamata.
+  //
+  //    DOVE SI CERCANO È CAMBIATO, E LA PRETESA NO. Stavano dentro
+  //    `#player-insight-cards`; dal 2026-08-29 stanno nella RIGA D'IDENTITÀ
+  //    del chiamato, accanto al nome, perché Pico li ha chiesti «come secondo
+  //    e terzo figlio dentro a #call-card:nth-child(1)». Il contenitore di
+  //    prima resta vuoto e viene rimosso (src/main.ts), quindi un test che
+  //    continuasse a cercarli là dentro sarebbe rosso dicendo il falso: i due
+  //    riquadri esistono, hanno i loro titoli e la loro forma — sono altrove.
+  //    `.call-identity-row` è la classe di quella riga, messa apposta per non
+  //    dover scrivere `nth-child` in una prova.
   await callTarget(page);
-  const cards = page.locator("#player-insight-cards > .scheda-card");
+  const cards = page.locator(".call-identity-row > .scheda-card");
   await expect(cards).toHaveCount(2);
   await expect(page.locator("#player-insight-card-segnali-title")).toHaveText("SEGNALI DELLA SCHEDA");
   await expect(page.locator("#player-insight-card-note-title")).toHaveText("NOTE DELLA SCHEDA");
-  const insightStyles = await titleStyles("#player-insight-cards .scheda-card__title");
+  const insightStyles = await titleStyles(".call-identity-row .scheda-card__title");
   expect(insightStyles).toHaveLength(2);
   expect(
     new Set([...chiamataStyles, ...insightStyles]).size,

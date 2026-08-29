@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
 import type { ListonePlayer } from "../src/ui/listone.js";
+// `AA_NORMAL_TEXT` non è usato da nessuna riga eseguita di questo file, ed è
+// deliberato: resta importato perché la spazzata di contrasto sospesa in fondo
+// — sospesa finché il riquadro è nascosto — lo usa, e va rimessa in funzione
+// così com'è scritta il giorno in cui la trappola diventa rossa.
 import { AA_NORMAL_TEXT, installSyntheticNetworkGuard, measureAllText } from "./helpers.js";
 
 // IL RUOLO STASERA, SULLO SCHERMO.
@@ -49,7 +53,17 @@ test("il riquadro IL RUOLO STASERA misura il tavolo, e solo il tavolo", async ({
   // ── Asta appena aperta ────────────────────────────────────────────────────
   await page.getByText("Primo Attaccante", { exact: true }).click();
   await page.getByRole("button", { name: /^Avvia/ }).click();
-  await expect(panel).toBeVisible();
+  // IL RIQUADRO C'È E NON SI VEDE. «Nascondi #role-depletion-panel e
+  // #opponent-precedents-panel, forse li svilupperemo dopo l'asta» — Pico,
+  // 2026-08-29. «Forse li svilupperemo» è la ragione per cui questa suite
+  // resta intera invece di essere cancellata: il riquadro continua a essere
+  // costruito e riempito, e tutto ciò che questo test pretende — i numeri del
+  // censimento, le frasi, e soprattutto le due guardie di prodotto (nessuna
+  // quotazione, nessun output direttivo) — continua a essere vero e provato
+  // sul documento. Le sole asserzioni che non sopravvivono sono quelle sui
+  // PIXEL, e sono trattate una per una là dove stanno.
+  await expect(panel).toHaveCount(1);
+  await expect(panel).toBeHidden();
 
   // Il ruolo è nominato per esteso, non con la sola sigla.
   await expect(page.locator("#role-depletion-role")).toContainText("Attaccanti");
@@ -87,7 +101,7 @@ test("il riquadro IL RUOLO STASERA misura il tavolo, e solo il tavolo", async ({
   // Terza chiamata: ora il riquadro ha due acquisti da raccontare.
   await page.getByText("Terzo Attaccante", { exact: true }).click();
   await page.getByRole("button", { name: /^Avvia/ }).click();
-  await expect(panel).toBeVisible();
+  await expect(panel).toHaveCount(1);
 
   await expect(headline).toHaveText("2 attaccanti presi stasera, da 2 squadre, per 65 crediti.");
 
@@ -105,7 +119,19 @@ test("il riquadro IL RUOLO STASERA misura il tavolo, e solo il tavolo", async ({
   // ── La guardia della decisione, sullo schermo ─────────────────────────────
   // Le quotazioni della fixture sono a schermo (il listone le mostra) ma NON
   // qui dentro: il riquadro non le ha mai viste.
-  const panelText = (await panel.innerText()).replace(/\s+/g, " ");
+  // `textContent` e non `innerText`, e la ragione NON è che il secondo si
+  // svuoti: su un elemento non renderizzato `innerText` ricade per specifica su
+  // `textContent` e restituisce il testo pieno — l'ho scritto sbagliato in
+  // prima battuta e una lente fresh-eyes l'ha verificato al browser. La ragione
+  // vera è che `textContent` dice a chi legge il test CHE COSA sta leggendo:
+  // il documento, non la resa. Queste due guardie parlano di ciò che l'app
+  // SCRIVE — nessuna quotazione, nessun output direttivo — e devono continuare
+  // a valere anche il giorno in cui questo riquadro torna a schermo o cambia
+  // resa; agganciarle a una proprietà che dipende dal rendering le renderebbe
+  // fragili per niente.
+  const panelText = (
+    await panel.evaluate((el) => el.textContent ?? "")
+  ).replace(/\s+/g, " ");
   for (const quotation of QUOTATIONS) {
     expect(panelText, `la quotazione ${quotation} non deve raggiungere il riquadro`).not.toContain(
       quotation,
@@ -122,7 +148,9 @@ test("il riquadro IL RUOLO STASERA misura il tavolo, e solo il tavolo", async ({
   // quindi una regex che vieta la parola «punteggio» punirebbe proprio la
   // frase che fa rispettare la regola. Il divieto vale sui contenuti; la nota
   // è verificata a parte, per quello che afferma.
-  const noteText = (await page.locator("#role-depletion-note").innerText()).replace(/\s+/g, " ");
+  const noteText = (
+    await page.locator("#role-depletion-note").evaluate((el) => el.textContent ?? "")
+  ).replace(/\s+/g, " ");
   const contentText = panelText.replace(noteText, " ");
   expect(contentText).not.toMatch(DIRECTIVE);
   // «bassa/media/alta» è la forma che il motore della tensione produce e che
@@ -131,25 +159,25 @@ test("il riquadro IL RUOLO STASERA misura il tavolo, e solo il tavolo", async ({
   expect(contentText).not.toMatch(/\b(bassa|alta)\b/i);
   await expect(page.locator("#role-depletion-note")).toContainText("Nessuna banda, nessun punteggio");
 
-  // ── Contrasto: ogni riga del riquadro sopra 4,5:1 ─────────────────────────
+  // ── Contrasto: SOSPESO FINCHÉ IL RIQUADRO È NASCOSTO ──────────────────────
+  // Un riquadro con `display: none` non dipinge un pixel: la spazzata non
+  // trova niente da misurare, e una soglia di contrasto su zero righe sarebbe
+  // un verde che non ha letto nulla. L'asserzione è quindi ROVESCIATA e fa da
+  // TRAPPOLA: pretende che la spazzata sia VUOTA, così il giorno in cui il
+  // riquadro torna a schermo questa riga diventa rossa e obbliga a
+  // ripristinare la misura vera — che è ancora qui sotto, in un commento, per
+  // non doverla riscrivere a memoria.
+  //
+  //   const swept = await measureAllText(page, "#role-depletion-panel, #role-depletion-panel *");
+  //   expect(swept.length).toBeGreaterThan(4);
+  //   expect(swept.flatMap((m) => (m.kind === "unclassified" ? [`${m.reason} — ${m.label}`] : []))).toEqual([]);
+  //   const tooLow = swept.flatMap((m) => (m.kind === "measured" && m.ratio < AA_NORMAL_TEXT ? [m] : []));
+  //   expect(tooLow.map((m) => `${m.label} ${m.ratio.toFixed(2)}:1`)).toEqual([]);
   const swept = await measureAllText(page, "#role-depletion-panel, #role-depletion-panel *");
-  expect(swept.length).toBeGreaterThan(4);
-  // Un testo NON CLASSIFICABILE non si salta: la spazzata non può dirlo
-  // leggibile, quindi lo boccia (la regola fail-closed di e2e/helpers.ts).
-  // Senza questa riga un elemento reso non misurabile — `filter`,
-  // `mix-blend-mode` — sparirebbe dal conto qui sotto e il riquadro
-  // resterebbe verde senza essere stato letto.
   expect(
-    swept.flatMap((m) => (m.kind === "unclassified" ? [`${m.reason} — ${m.label}`] : [])),
-    "testo non classificabile nel riquadro",
+    swept.map((m) => m.label),
+    "il riquadro è nascosto: se dipinge di nuovo, va ripristinata la spazzata AA qui sopra",
   ).toEqual([]);
-  // Nessun filtro sulle esenzioni, ed è deliberato: THRESHOLD_EXEMPT esenta i
-  // soli controlli disattivati e qui dentro non ce n'è nessuno — il riquadro è
-  // di sola lettura. Ogni riga misurata risponde della soglia, come prima.
-  const tooLow = swept.flatMap((m) =>
-    m.kind === "measured" && m.ratio < AA_NORMAL_TEXT ? [m] : [],
-  );
-  expect(tooLow.map((m) => `${m.label} ${m.ratio.toFixed(2)}:1`)).toEqual([]);
 
   expect(externalRequests).toEqual([]);
 });

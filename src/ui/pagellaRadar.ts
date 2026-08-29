@@ -302,20 +302,34 @@ export function pagellaBlockHtml(view: PagellaView, iconeHtml = ""): string {
 
   const rows = view.assi.map((asse) => pagellaAxisRowHtml(asse)).join("");
 
+  // LA FORMA DEL CORPO È CAMBIATA, e il perché sta qui invece che nel CSS.
+  //
+  // Richiesta di Pico, 2026-08-29, con l'immagine di come deve venire: la
+  // striscia delle icone a sinistra, i cinque assi che occupano tutta la riga
+  // alla sua destra, e IL TOTALE CENTRATO SOTTO, a tutta larghezza. Il totale
+  // era incolonnato sotto gli assi dentro `.pagella__side`, cioè largo quanto
+  // la sola colonna di destra; per stare sotto TUTTE E DUE le colonne deve
+  // essere figlio del corpo, non della colonna. `.pagella__side` non serve più
+  // qui e sparisce da questo ramo: resta nel ramo senza voti, dove una colonna
+  // di testo accanto alle icone c'è ancora.
+  //
+  // Il radar e la nota restano SCRITTI nel documento e nascosti dal CSS
+  // (`#player-insight-radar`, `.pagella__note` in asta.css): stessa richiesta,
+  // stesso giorno. Non si cancella niente — `pagellaRadarSvgHtml` continua a
+  // disegnare il pentagono e le due didascalie restano esportate e provate —
+  // così il giorno in cui tornano a schermo basta togliere due regole di stile.
   return `<section class="pagella" id="player-insight-pagella">
     ${head}
     <div class="pagella__body">
       <div class="pagella__figure">${pagellaRadarSvgHtml(view)}${iconeHtml}</div>
-      <div class="pagella__side">
-        <ol class="pagella__assi" id="player-insight-pagella-assi">${rows}</ol>
-        <p class="pagella__totale pagella__totale--${view.verificaTotale}" id="player-insight-pagella-totale">${escHtml(
-          pagellaTotaleText(view),
-        )}</p>
-        ${mismatchHtml}
-        <p class="pagella__note" id="player-insight-pagella-note">${escHtml(
-          `${PAGELLA_ORDER_NOTE} ${PAGELLA_CAVEAT_NOTE}`,
-        )}</p>
-      </div>
+      <ol class="pagella__assi" id="player-insight-pagella-assi">${rows}</ol>
+      <p class="pagella__totale pagella__totale--${view.verificaTotale}" id="player-insight-pagella-totale">${escHtml(
+        pagellaTotaleText(view),
+      )}</p>
+      ${mismatchHtml}
+      <p class="pagella__note" id="player-insight-pagella-note">${escHtml(
+        `${PAGELLA_ORDER_NOTE} ${PAGELLA_CAVEAT_NOTE}`,
+      )}</p>
     </div>
   </section>`;
 }

@@ -310,4 +310,30 @@ describe("anti-scope-creep — nessun output direttivo sulla superficie", () => 
     expect(spoken).toContain("Prima fascia");
     expect(tierBandSpoken({ kind: "no-call" }, "")).toContain(TIER_BAND_UNKNOWN_WORD);
   });
+
+  // LA CONDIZIONE VINCOLANTE 1 DEL RECORD 2026-08-16, DOVE VIVE DAL 2026-08-29.
+  //
+  // «La fascia non si mostra senza dire da dove viene.» Lo diceva la riga di
+  // provenienza a schermo; Pico ha chiesto di nasconderla e, messo davanti al
+  // conflitto col proprio record, ha deciso «Nascondile, ma restano a voce».
+  // `display: none` toglie un nodo anche dall'albero di accessibilità, quindi
+  // senza queste tre righe la garanzia sarebbe semplicemente sparita — e
+  // sarebbe sparita in silenzio, perché nessun'altra prova la cercava qui.
+  //
+  // Lo stato SENZA INDICE è nell'elenco perché è quello che l'app mostra su
+  // ogni giocatore col listone statico: è lì che un verdetto senza fonte
+  // farebbe più danno, ed è lì che «Ordine di appetibilità: n/d.» deve
+  // arrivare a chi ascolta.
+  it("la forma parlata porta la provenienza e il «nessun consiglio», che non sono più a schermo", () => {
+    const spoken = tierBandSpoken(reading(), "C");
+    expect(spoken).toContain(tierProvenanceText(facts(), COVERAGE));
+    expect(spoken).toContain("il giudizio è tuo");
+
+    const senzaIndice = tierBandSpoken(
+      { kind: "unavailable", reason: "no-index", detail: "", coverage: COVERAGE },
+      "C",
+    );
+    expect(senzaIndice).toContain("Ordine di appetibilità: n/d.");
+    expect(senzaIndice).toContain("il giudizio è tuo");
+  });
 });

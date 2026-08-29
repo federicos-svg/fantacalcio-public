@@ -23,7 +23,15 @@ test("a price of 0 is rejected with the exact validation message and no purchase
   // #331 punto 5: la fascia critica vive solo nel momento CHIAMATA, quindi in
   // questo momento il budget si legge dal TAVOLO — BUDGET E MAX BID.
   await expect(page.locator("#war-board-mini-Io .war-board-mini__budget")).toContainText("500");
-  await expect(page.locator("#price-display")).toBeVisible();
+  // «Prezzo da pagare» NON è più a schermo — Pico, 2026-08-29: «Nascondi
+  // #call-card > div:nth-child(1) > div:nth-child(2)». L'asserzione è
+  // rovesciata, non tolta, e continua a fare il suo mestiere: il numero deve
+  // restare COSTRUITO e AGGIORNATO — «0 cr», cioè la cifra che è stata
+  // battuta e rifiutata, non l'ultimo acquisto e non un vuoto — e deve
+  // restare nascosto. Cancellarla avrebbe lasciato passare in silenzio sia un
+  // blocco che ricompare sia un blocco che smette di essere costruito.
+  await expect(page.locator("#price-display")).toBeHidden();
+  await expect(page.locator("#price-display")).toHaveText("0 cr");
   // …e poi lo si verifica anche là dove la fascia ora vive: tornando alla
   // chiamata, budget e spesi devono essere ancora quelli di partenza. Le due
   // asserzioni di prima non sono state tolte, sono state spostate nel momento
