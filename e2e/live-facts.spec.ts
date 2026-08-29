@@ -66,6 +66,13 @@ const DIRECTIVE =
    guardia. Motivazione completa e algoritmo: helpers.ts. */
 
 /** Quante righe occupa davvero il testo di un elemento. */
+/**
+ * NON HA PIÙ CHIAMANTI, E RESTA QUI DI PROPOSITO: la sola misura che la usava —
+ * il titolo dei precedenti su una riga sola — è sospesa finché quel pannello è
+ * nascosto (vedi la trappola più sotto), e il commento che la conserva la
+ * nomina per riga. Toglierla obbligherebbe a riscriverla a memoria il giorno in
+ * cui la trappola diventa rossa.
+ */
 async function lineBoxes(page: Page, selector: string): Promise<number> {
   return page.evaluate((sel) => {
     const el = document.querySelector(sel);

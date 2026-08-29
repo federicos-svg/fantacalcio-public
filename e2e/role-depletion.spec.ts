@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
 import type { ListonePlayer } from "../src/ui/listone.js";
+// `AA_NORMAL_TEXT` non è usato da nessuna riga eseguita di questo file, ed è
+// deliberato: resta importato perché la spazzata di contrasto sospesa in fondo
+// — sospesa finché il riquadro è nascosto — lo usa, e va rimessa in funzione
+// così com'è scritta il giorno in cui la trappola diventa rossa.
 import { AA_NORMAL_TEXT, installSyntheticNetworkGuard, measureAllText } from "./helpers.js";
 
 // IL RUOLO STASERA, SULLO SCHERMO.
@@ -115,10 +119,16 @@ test("il riquadro IL RUOLO STASERA misura il tavolo, e solo il tavolo", async ({
   // ── La guardia della decisione, sullo schermo ─────────────────────────────
   // Le quotazioni della fixture sono a schermo (il listone le mostra) ma NON
   // qui dentro: il riquadro non le ha mai viste.
-  // `textContent` e non `innerText`: il secondo legge il testo RESO, e in un
-  // riquadro nascosto è la stringa vuota — cioè le due guardie qui sotto
-  // passerebbero sempre, senza aver letto niente. Il primo legge il documento,
-  // che è dove la garanzia vive.
+  // `textContent` e non `innerText`, e la ragione NON è che il secondo si
+  // svuoti: su un elemento non renderizzato `innerText` ricade per specifica su
+  // `textContent` e restituisce il testo pieno — l'ho scritto sbagliato in
+  // prima battuta e una lente fresh-eyes l'ha verificato al browser. La ragione
+  // vera è che `textContent` dice a chi legge il test CHE COSA sta leggendo:
+  // il documento, non la resa. Queste due guardie parlano di ciò che l'app
+  // SCRIVE — nessuna quotazione, nessun output direttivo — e devono continuare
+  // a valere anche il giorno in cui questo riquadro torna a schermo o cambia
+  // resa; agganciarle a una proprietà che dipende dal rendering le renderebbe
+  // fragili per niente.
   const panelText = (
     await panel.evaluate((el) => el.textContent ?? "")
   ).replace(/\s+/g, " ");

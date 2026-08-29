@@ -86,9 +86,12 @@ const DIRECTIVE =
  */
 async function expectNoDirectiveOutput(page: Page): Promise<void> {
   // `textContent` e non `innerText`: dal 2026-08-29 la nota e la riga di
-  // provenienza sono nascoste (vedi `expectProvenanceSpoken`), e `innerText`
-  // legge il testo RESO — cioè salterebbe proprio le due frasi che portano il
-  // divieto, lasciando questa guardia più debole di prima senza che si veda.
+  // provenienza sono nascoste (vedi `expectProvenanceSpoken`), e questa guardia
+  // deve continuare a leggerle. Su un elemento non renderizzato `innerText`
+  // ricade per specifica su `textContent`, quindi oggi funzionerebbero
+  // entrambi: `textContent` è scritto qui perché dice a chi legge il test che
+  // si sta misurando ciò che l'app SCRIVE, e non dipende da come una resa
+  // futura tratterà quei due nodi.
   const panelText = await page
     .locator("#tier-band-panel")
     .evaluate((el) => el.textContent ?? "");
