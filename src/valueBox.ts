@@ -223,6 +223,45 @@ export const VALUE_SLOT_ORDER: readonly ValueSlotId[] = [
 ];
 
 /**
+ * GLI SLOT CHE ARRIVANO A SCHERMO — sottoinsieme di `VALUE_SLOT_ORDER`, e
+ * l'unica cosa che spegne è la RESA.
+ *
+ * L'ISTRUZIONE, VERBATIM: «Nascondi valore assoluto e valore relativo senza
+ * cancellare niente.» — Pico, 2026-08-29.
+ *
+ * LE DUE LETTURE RESTANO VIVE, CALCOLATE E TESTATE, ed è la metà vincolante
+ * dell'istruzione: `valueBoxReading()` continua a produrre
+ * `slots["valore-assoluto"]` e `slots["valore-relativo"]` a ogni chiamata,
+ * `absoluteValueReading()` e `relativePriceReading()` restano i loro motori,
+ * `absoluteChain`, `absoluteBelowCostFloor` e `relativePriceBound` continuano a
+ * viaggiare nella lettura, e i motivi di assenza dei due slot restano nel
+ * vocabolario di `ValueMissingReason` con le loro mappe totali. Nessun ramo è
+ * stato tolto, nessun tipo è stato ristretto, nessun test delle letture è stato
+ * cancellato: quello che non c'è più è soltanto la cella.
+ *
+ * PERCHÉ NON SI TOCCA `VALUE_SLOT_ORDER`: quello è l'ORDINE COMPLETO dichiarato
+ * dal record (`docs/DECISIONS.md` §"Il riquadro del valore porta quattro
+ * numeri"), cioè un fatto di prodotto, non una preferenza di schermo.
+ * Accorciarlo farebbe sparire i due slot anche dalle letture e dai tipi, che è
+ * esattamente ciò che l'istruzione vieta. Sono due cose diverse e restano due
+ * costanti diverse: qui la resa, là il record.
+ *
+ * PER RIACCENDERLI BASTA RIMETTERE I LORO ID IN QUESTA LISTA — nient'altro: né
+ * un motore da ricollegare, né una lettura da riscrivere, né un tipo da
+ * riaprire, e nemmeno un foglio di stile da correggere. Il conteggio delle
+ * colonne della griglia segue questa costante da sé: la resa lo passa al CSS
+ * come `--value-box-cols` (src/ui/valueBox.ts, `valueBoxHtml`), invece di
+ * lasciare un `4` cablato che nessun test avrebbe fatto diventare rosso.
+ *
+ * Un test pinna che ogni id visibile stia nell'ordine completo: un sottoinsieme
+ * che si scollasse dal record renderebbe una cella che il riquadro non dichiara.
+ */
+export const VISIBLE_VALUE_SLOT_IDS: readonly ValueSlotId[] = [
+  "indice-assoluto",
+  "indice-relativo",
+];
+
+/**
  * Le due unità di misura decise dal record: due indici e due crediti.
  *
  * ERANO TRE FINO AL 2026-08-24, e la terza — `posizione` — è uscita insieme

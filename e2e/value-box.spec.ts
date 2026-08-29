@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { ListonePlayer } from "../src/ui/listone.js";
 import { VALUE_SLOT_LABELS, VALUE_UNKNOWN } from "../src/ui/valueBox.js";
-import { VALUE_SLOT_ORDER } from "../src/valueBox.js";
+import { VALUE_SLOT_ORDER, VISIBLE_VALUE_SLOT_IDS } from "../src/valueBox.js";
 import {
   AA_NORMAL_TEXT,
   installSyntheticNetworkGuard,
@@ -11,6 +11,22 @@ import {
 } from "./helpers.js";
 
 // IL RIQUADRO DEL VALORE ARRIVA SULLO SCHERMO, DENTRO LA SCHEDA DEL CHIAMATO.
+//
+// ── DUE CELLE SU QUATTRO NON SI VEDONO PIÙ (Pico, 2026-08-29) ───────────────
+//
+// L'ISTRUZIONE, VERBATIM: «Nascondi valore assoluto e valore relativo senza
+// cancellare niente.»
+//
+// Questa spec percorre il giro vero, quindi è il posto in cui quell'istruzione
+// si vede davvero: le celle rese sono `VISIBLE_VALUE_SLOT_IDS` (src/valueBox.ts)
+// e le asserzioni sui due slot in crediti sono INVERTITE — con la data accanto
+// a ognuna — invece che cancellate. Un'asserzione tolta non lascia traccia del
+// giorno in cui la cella c'era; invertita, diventa rossa se una delle due
+// ricompare a schermo senza che nessuno l'abbia decisa.
+//
+// LE LETTURE NON SONO TOCCATE: i due numeri si continuano a calcolare, e la
+// prova sta in src/valueBox.test.ts, sulla catena vera del motore. Qui si
+// misura soltanto che cosa arriva sotto gli occhi e nell'`aria-label`.
 //
 // PERCHÉ QUESTA SPEC ESISTE, e perché un test di unità non basta.
 // `packages/engine/src/callScreen.ts` calcola `fairToMeMaxEffective` da prima
@@ -25,12 +41,14 @@ import {
 //  a. IL RIQUADRO C'È e sta DENTRO la scheda del giocatore chiamato, sopra il
 //     gesto «ASSEGNA A»: è il posto che `docs/DECISIONS.md` nomina («il
 //     riquadro del valore della scheda del giocatore chiamato»);
-//  b. LE CELLE SONO QUATTRO, con i nomi decisi, ognuna con un numero oppure
-//     `n/d` PIÙ la riga che dice perché — mai una cella muta;
-//  c. I DUE NUMERI CHE L'APP SA DAVVERO CALCOLARE sono quelli veri: l'indice
-//     assoluto è il punteggio servito col listone, non un arrotondamento; e il
-//     VALORE RELATIVO è il prezzo del tavolo — a tavolo fresco 473 cr —,
-//     acceso nel giro vero e non solo in un test di unità;
+//  b. LE CELLE SONO QUELLE VISIBILI, con i nomi decisi, ognuna con un numero
+//     oppure `n/d` PIÙ la riga che dice perché — mai una cella muta —, e le
+//     due nascoste non compaiono in nessuna delle loro parti (2026-08-29);
+//  c. IL NUMERO CHE L'APP SA DAVVERO CALCOLARE E MOSTRARE è quello vero:
+//     l'indice assoluto è il punteggio servito col listone, non un
+//     arrotondamento. Il valore relativo resta calcolato — a tavolo fresco
+//     473 cr, provato in src/valueBox.test.ts — e da questa corsia non arriva
+//     più a schermo;
 //  d. NIENTE DI DIRETTIVO si accende insieme: né le parole né i numeri di
 //     `target_band`/`stretch_cap`/«prendilo fino a», e il testo si legge (AA).
 //
@@ -160,7 +178,18 @@ const DIRECTIVE =
  * comparsa (un `::before { content: … }` compreso, che `measureAllText`
  * misura come testo dipinto) fanno rosso uguale.
  */
-const VALUE_BOX_TEXT_ROWS = VALUE_SLOT_ORDER.length * 3 + 2;
+// DERIVATO DALLE CELLE VISIBILI, non dall'ordine completo: dal 2026-08-29 la
+// griglia ne rende un sottoinsieme, e il conteggio segue quello che si vede.
+// Resta un vincolo strutturale esatto — cambia da sé se una cella torna a
+// schermo, e resta rosso se una riga sparisce o ne compare una di troppo.
+const VALUE_BOX_TEXT_ROWS = VISIBLE_VALUE_SLOT_IDS.length * 3 + 2;
+
+/** Gli slot che oggi NON si vedono, derivati invece che scritti a mano: una
+ *  terza lista scritta a mano resterebbe a pretendere il nascondimento anche
+ *  dopo che uno dei due è tornato a schermo. */
+const HIDDEN_VALUE_SLOT_IDS = VALUE_SLOT_ORDER.filter(
+  (id) => !VISIBLE_VALUE_SLOT_IDS.includes(id),
+);
 
 async function boot(
   page: Page,
@@ -191,7 +220,7 @@ async function assignToFirstOpponent(page: Page, price: number): Promise<void> {
   await expect(page.locator("#search-player")).toBeVisible();
 }
 
-test("il riquadro del valore rende quattro celle dentro la scheda del chiamato", async ({
+test("il riquadro del valore rende le sue celle visibili dentro la scheda del chiamato", async ({
   page,
 }) => {
   await boot(page);
@@ -215,9 +244,11 @@ test("il riquadro del valore rende quattro celle dentro la scheda del chiamato",
   expect(inCard!.inside).toBe(true);
   expect(inCard!.aboveGesture).toBe(true);
 
-  // b. quattro celle, quattro nomi, e nessuna muta.
-  await expect(page.locator("#value-box .value-box__cell")).toHaveCount(4);
-  for (const id of VALUE_SLOT_ORDER) {
+  // b. le celle visibili, coi loro nomi, e nessuna muta.
+  await expect(page.locator("#value-box .value-box__cell")).toHaveCount(
+    VISIBLE_VALUE_SLOT_IDS.length,
+  );
+  for (const id of VISIBLE_VALUE_SLOT_IDS) {
     const cell = page.locator(`#value-box-cell-${id}`);
     await expect(cell).toBeVisible();
     await expect(cell).toContainText(VALUE_SLOT_LABELS[id]);
@@ -226,7 +257,22 @@ test("il riquadro del valore rende quattro celle dentro la scheda del chiamato",
     await expect(page.locator(`#value-box-why-${id}`)).not.toBeEmpty();
   }
 
-  // Le quattro celle stanno su UNA riga: è il vincolo di altezza che tiene il
+  // b-bis. LE DUE NASCOSTE NON CI SONO — invertita il 2026-08-29 (istruzione di
+  // Pico in testa al file). Non sono nascoste con `hidden` né svuotate: la
+  // griglia non le costruisce affatto, e il nome dello slot non compare da
+  // nessuna parte nel riquadro. Una cella tenuta nel DOM e resa invisibile
+  // resterebbe leggibile agli screen reader e alla ricerca in pagina, cioè
+  // sarebbe nascosta solo per chi guarda.
+  for (const id of HIDDEN_VALUE_SLOT_IDS) {
+    await expect(page.locator(`#value-box-cell-${id}`)).toHaveCount(0);
+    await expect(page.locator(`#value-box-number-${id}`)).toHaveCount(0);
+    await expect(page.locator(`#value-box-why-${id}`)).toHaveCount(0);
+    await expect(page.locator("#value-box")).not.toContainText(
+      VALUE_SLOT_LABELS[id],
+    );
+  }
+
+  // Le celle stanno su UNA riga: è il vincolo di altezza che tiene il
   // gesto principale sopra la piega (src/styles/asta.css).
   const cellTops = await page.evaluate(() =>
     [...document.querySelectorAll("#value-box .value-box__cell")].map((el) =>
@@ -258,41 +304,35 @@ test("il riquadro del valore rende quattro celle dentro la scheda del chiamato",
     "unico libero ordinato",
   );
 
-  // I DUE SLOT IN CREDITI NON SI SOMIGLIANO PIÙ, ed è la differenza congiunta
-  // delle due decisioni di Pico del 2026-08-24: il valore ASSOLUTO è derivato
-  // dal regolamento e dai target di ruolo (che l'app raccoglie nel piano rosa, e
-  // che in questo giro non sono dichiarati, quindi dice `n/d` e nomina il
-  // target); il valore RELATIVO è il prezzo del tavolo, che non aspetta nessuna
-  // dichiarazione e porta quindi un numero dal primo secondo.
-  await expect(page.locator("#value-box-number-valore-assoluto")).toHaveText(
-    VALUE_UNKNOWN,
-  );
-  await expect(page.locator("#value-box-why-valore-assoluto")).toContainText(
-    "target di ruolo",
-  );
-  await expect(page.locator("#value-box-number-valore-relativo")).toHaveText(
-    FRESH_TABLE_PRICE,
-  );
-
-  // LA RIGA SOTTO IL NUMERO DICE QUALE VINCOLO L'HA FISSATO, e in questa scena
-  // è il TETTO DEL TAVOLO: le otto squadre sono identiche, quindi nessuna
-  // arriva a «secondo + 1» e il numero non è ancora un prezzo di mercato. Se
-  // dicesse «il secondo max bid al tavolo, +1» starebbe chiamando prezzo un
-  // tetto strutturale — la distinzione che `RelativePriceChain.boundBy` porta
-  // fin qui.
-  await expect(page.locator("#value-box-why-valore-relativo")).toHaveText(
+  // I DUE SLOT IN CREDITI NON ARRIVANO PIÙ A SCHERMO — INVERTITE il 2026-08-29
+  // (istruzione di Pico in testa al file). Le due decisioni del 2026-08-24
+  // restano intere sotto: il valore ASSOLUTO è derivato dal regolamento e dai
+  // target di ruolo (in questo giro non dichiarati, quindi la lettura dice
+  // `n/d` e nomina il target), il valore RELATIVO è il prezzo del tavolo e
+  // porta un numero dal primo secondo. Nessuno dei due passa più dalla griglia,
+  // e queste righe sono il posto in cui una loro ricomparsa fa rosso.
+  await expect(page.locator("#value-box")).not.toContainText("473");
+  await expect(page.locator("#value-box")).not.toContainText("target di ruolo");
+  await expect(page.locator("#value-box")).not.toContainText(
     "il tetto del tavolo: nessuno arriva più in alto",
   );
 
-  // E LA STESSA RIGA ARRIVA A CHI NON GUARDA. L'`aria-label` del riquadro è la
-  // sola forma in cui uno screen reader legge queste quattro celle: finché lo
-  // slot 4 diceva `n/d` non perdeva niente, adesso porta un numero che a tavolo
-  // fresco è identico su ogni scheda di ogni ruolo. Senza il vincolo, chi
-  // ascolta sentirebbe per minuti la stessa cifra senza sapere che misura il
-  // tavolo (src/ui/valueBox.ts, `valueBoxSpoken`).
+  // E NEMMENO A CHI NON GUARDA. L'`aria-label` del riquadro è la sola forma in
+  // cui uno screen reader legge queste celle, e legge le STESSE che la griglia
+  // rende: una lettura vocale che recitasse ancora i due numeri in crediti
+  // descriverebbe un riquadro che chi guarda non vede — lo stesso difetto per
+  // cui la riga del vincolo era stata portata qui dentro, letto allo specchio
+  // (src/ui/valueBox.ts, `valueBoxSpoken`). Invertita il 2026-08-29.
   const spoken = await page.locator("#value-box").getAttribute("aria-label");
-  expect(spoken).toContain(FRESH_TABLE_PRICE);
-  expect(spoken).toContain("il tetto del tavolo: nessuno arriva più in alto");
+  expect(spoken).not.toContain(FRESH_TABLE_PRICE);
+  expect(spoken).not.toContain(
+    "il tetto del tavolo: nessuno arriva più in alto",
+  );
+  // Ma NON è muta: le due celle visibili si sentono per intero, col nome e col
+  // numero. Nascondere due celle non può spegnere anche l'aria-label.
+  expect(spoken).toContain(VALUE_SLOT_LABELS["indice-assoluto"]);
+  expect(spoken).toContain(String(CALLED_SCORE));
+  expect(spoken).toContain(VALUE_SLOT_LABELS["indice-relativo"]);
 
   // NESSUNA NOTA CHE PROMETTA UNA CELLA SPENTA: dopo le due corsie nessuno dei
   // quattro numeri aspetta una dichiarazione di Pico, quindi la testata non
@@ -310,15 +350,19 @@ test("il riquadro del valore rende quattro celle dentro la scheda del chiamato",
     "derivato dai tuoi valori",
   );
 
-  // Le due righe del perché restano DIVERSE: se collassassero, il riquadro
-  // direbbe la stessa cosa di due numeri che vengono da due motori.
-  const whyAbsolute = await page
-    .locator("#value-box-why-valore-assoluto")
+  // Le due righe del perché delle celle che RESTANO sono diverse fra loro: se
+  // collassassero, il riquadro direbbe la stessa cosa di due numeri che vengono
+  // da due sorgenti. Qui c'era la stessa misura sui due slot in crediti; le
+  // loro righe non sono più a schermo (2026-08-29) e la garanzia si è spostata
+  // sulle due celle che ci sono, dove ha ancora un soggetto. Che le tre frasi
+  // dello slot 4 non collassino resta provato in src/valueBox.test.ts.
+  const whyIndex = await page
+    .locator("#value-box-why-indice-assoluto")
     .innerText();
-  const whyRelative = await page
-    .locator("#value-box-why-valore-relativo")
+  const whyRelativeIndex = await page
+    .locator("#value-box-why-indice-relativo")
     .innerText();
-  expect(whyAbsolute).not.toBe(whyRelative);
+  expect(whyIndex).not.toBe(whyRelativeIndex);
 });
 
 test("il riquadro non accende nessun altro output direttivo", async ({
@@ -371,7 +415,12 @@ test("il riquadro non accende nessun altro output direttivo", async ({
   for (const sel of [
     "#value-box .panel-title",
     "#value-box-note",
-    ...VALUE_SLOT_ORDER.flatMap((id) => [
+    // Le celle VISIBILI (2026-08-29): `textContrast` fallisce quando il
+    // selettore non trova niente, quindi un elenco che nominasse ancora le due
+    // nascoste farebbe rosso per la ragione sbagliata — «cella sparita» invece
+    // di «cella illeggibile». Segue la costante, e torna a coprirle il giorno
+    // in cui tornano a schermo.
+    ...VISIBLE_VALUE_SLOT_IDS.flatMap((id) => [
       `#value-box-cell-${id} em`,
       `#value-box-number-${id}`,
       `#value-box-why-${id}`,
@@ -450,8 +499,13 @@ test("senza indice nel listone la prima cella tace anche lei, e lo dice", async 
   // Nessuna qualificazione: senza indice non c'è niente da qualificare, e il
   // riquadro non inventa un'etichetta di qualità che il dato non ha portato.
   await expect(page.locator("#value-box-note")).not.toContainText("ricetta");
-  // Quattro celle comunque: il riquadro non si accorcia quando non sa.
-  await expect(page.locator("#value-box .value-box__cell")).toHaveCount(4);
+  // Le celle visibili ci sono comunque tutte: il riquadro non si accorcia
+  // quando non sa. Il conteggio segue `VISIBLE_VALUE_SLOT_IDS` dal 2026-08-29 —
+  // quello che è cambiato è quante celle il riquadro ha, non che una cella
+  // sparisca quando tace.
+  await expect(page.locator("#value-box .value-box__cell")).toHaveCount(
+    VISIBLE_VALUE_SLOT_IDS.length,
+  );
 });
 
 test("l'indice senza verdetto è un n/d diverso da «il listone non porta l'indice»", async ({

@@ -46,14 +46,17 @@ import {
   DECLARED_INPUTS_WITHOUT_SOURCE,
   SLOT_4_SOURCE_MOVED,
   VALUE_SLOT_ORDER,
+  VISIBLE_VALUE_SLOT_IDS,
   valueBoxReading,
   type ValueBoxReading,
+  type ValueSlotId,
 } from "./valueBox.js";
 import {
   DECLARED_INPUT_TEXT,
   VALUE_MISSING_TEXT,
   VALUE_SLOT_LABELS,
   VALUE_UNKNOWN,
+  absoluteChainText,
   valueBoxHtml,
   missingDeclaredInputsText,
   valueBoxNoteText,
@@ -88,6 +91,33 @@ import {
 //
 // Ogni riga è sintetica: nomi giocatore `a_*`, quotazioni inventate per il
 // test, punteggi e ricetta d'indice fabbricati qui. Nessun dato reale.
+//
+// ── DUE SLOT NON ARRIVANO PIÙ A SCHERMO (Pico, 2026-08-29) ──────────────────
+//
+// L'ISTRUZIONE, VERBATIM: «Nascondi valore assoluto e valore relativo senza
+// cancellare niente.»
+//
+// COSA CAMBIA IN QUESTO FILE, ed è una riga sola di differenza ripetuta in
+// dodici punti: le asserzioni sulla RESA dei due slot in crediti — l'HTML di
+// `valueBoxHtml()` e la lettura vocale di `valueBoxSpoken()` — sono INVERTITE,
+// con la data accanto a ognuna. Non sono state cancellate, ed è una scelta e
+// non un vezzo: un'asserzione tolta lascia il file senza memoria del fatto che
+// quel testo, un tempo, doveva esserci; invertita, il file dice quando è
+// cambiato e diventa rossa il giorno in cui la resa torna com'era senza che
+// nessuno l'abbia deciso. Riaccendendo i due id in `VISIBLE_VALUE_SLOT_IDS`
+// questi dodici tornano rossi in blocco, ed è esattamente il promemoria che
+// serve a chi li riaccende.
+//
+// COSA NON CAMBIA, E DEVE RESTARE VERDE: tutte le asserzioni sulle LETTURE.
+// `reading.slots["valore-assoluto"]`, `reading.slots["valore-relativo"]`,
+// `reading.absoluteChain`, `reading.absoluteBelowCostFloor`,
+// `reading.relativePriceBound` e i loro motivi di assenza sono rimasti
+// identici, riga per riga, ed è la metà vincolante dell'istruzione: i due
+// numeri si continuano a calcolare e si continuano a provare. Lo stesso vale
+// per le funzioni di testo prese da sole — `valueSlotText()` e
+// `valueSlotWhyText()` sanno ancora rendere tutti e quattro gli slot, e i test
+// che le interrogano direttamente sui due nascosti sono rimasti dov'erano.
+// Quello che è cambiato è UNA cosa: quali celle la griglia costruisce.
 
 const SELF = TEAMS[0]!;
 const DECLARED_PLAN = plan({ P: 20, D: 80, C: 140, A: 210 });
@@ -314,6 +344,17 @@ function readingAsShipped(appealIndex?: ListoneAppealIndex): ValueBoxReading {
   });
 }
 
+/**
+ * GLI SLOT CHE OGGI NON SI VEDONO, DERIVATI e non scritti a mano: è la
+ * differenza fra l'ordine completo del record e la lista dei visibili. Scritti
+ * a mano sarebbero una terza lista da tenere allineata alle altre due, e il
+ * giorno in cui uno dei due torna a schermo resterebbe qui a pretendere che sia
+ * nascosto — cioè il test direbbe il contrario del prodotto restando verde.
+ */
+const HIDDEN_VALUE_SLOT_IDS: readonly ValueSlotId[] = VALUE_SLOT_ORDER.filter(
+  (id) => !VISIBLE_VALUE_SLOT_IDS.includes(id),
+);
+
 describe("riquadro del valore — i quattro numeri", () => {
   it("porta quattro slot, sempre, nell'ordine deciso", () => {
     expect(VALUE_SLOT_ORDER).toEqual([
@@ -326,6 +367,96 @@ describe("riquadro del valore — i quattro numeri", () => {
     expect(Object.keys(reading.slots).sort()).toEqual(
       [...VALUE_SLOT_ORDER].sort(),
     );
+  });
+
+  // ── LA RESA È UN SOTTOINSIEME, E LE LETTURE RESTANO QUATTRO ────────────────
+  // «Nascondi valore assoluto e valore relativo senza cancellare niente.»
+  // — Pico, 2026-08-29. I tre test qui sotto sono le tre metà di quella frase:
+  // che cosa si vede, che cosa NON si vede più, e che cosa si continua a
+  // calcolare comunque.
+
+  it("gli slot visibili sono un SOTTOINSIEME dell'ordine dichiarato, e ne rispettano l'ordine", () => {
+    // Il record decide QUALI slot esistono e in che ordine si leggono; la lista
+    // dei visibili decide soltanto quali arrivano a schermo. Se si scollasse —
+    // un id che il record non dichiara, o due celle rese in un ordine che il
+    // record non prevede — il riquadro renderebbe qualcosa che nessuno ha
+    // deciso, e questa riga è il posto in cui non può succedere in silenzio.
+    for (const id of VISIBLE_VALUE_SLOT_IDS) {
+      expect(VALUE_SLOT_ORDER, id).toContain(id);
+    }
+    expect(VISIBLE_VALUE_SLOT_IDS.length).toBeLessThanOrEqual(
+      VALUE_SLOT_ORDER.length,
+    );
+    expect([...VISIBLE_VALUE_SLOT_IDS]).toEqual(
+      VALUE_SLOT_ORDER.filter((id) => VISIBLE_VALUE_SLOT_IDS.includes(id)),
+    );
+    // E oggi sono esattamente questi due: la lista è un fatto di prodotto, non
+    // un dettaglio, quindi si scrive invece di dedurla. Chi riaccende i due
+    // slot in crediti trova questa riga rossa, che è il promemoria giusto.
+    expect([...VISIBLE_VALUE_SLOT_IDS]).toEqual([
+      "indice-assoluto",
+      "indice-relativo",
+    ]);
+    expect([...HIDDEN_VALUE_SLOT_IDS]).toEqual([
+      "valore-assoluto",
+      "valore-relativo",
+    ]);
+  });
+
+  it("la resa porta ANCORA i due indici, con la loro cella intera", () => {
+    // Il rovescio dell'istruzione, e la ragione per cui va provato: nascondere
+    // due celle non può portarsi via anche le altre. Le due che restano
+    // conservano la forma piena — id della cella, numero, riga del perché.
+    const reading = readingWithEngine("a_uno", index(72));
+    const html = valueBoxHtml(reading);
+    for (const id of ["indice-assoluto", "indice-relativo"] as const) {
+      expect(html, id).toContain(`id="value-box-cell-${id}"`);
+      expect(html, id).toContain(`id="value-box-number-${id}"`);
+      expect(html, id).toContain(`id="value-box-why-${id}"`);
+      expect(html, id).toContain(VALUE_SLOT_LABELS[id]);
+    }
+    // I numeri veri dei due indici sono lì: 72 dal listone, 100 dalla scala.
+    expect(html).toContain(">72<");
+    expect(html).toContain(">100<");
+    // E le celle rese sono due, non quattro: il conteggio si legge dagli id.
+    expect(html.match(/class="value-box__cell/g)?.length).toBe(
+      VISIBLE_VALUE_SLOT_IDS.length,
+    );
+  });
+
+  it("i due slot in crediti sono CALCOLATI come prima, e soltanto non resi", () => {
+    // LA METÀ VINCOLANTE DELL'ISTRUZIONE, in un test solo: «senza cancellare
+    // niente». La lettura porta i quattro slot con i loro valori veri, la
+    // catena del valore assoluto e il vincolo del prezzo relativo; la resa ne
+    // mostra due. Se qualcuno spegnesse i motori invece della sola resa —
+    // scorciatoia comoda e sbagliata — questo test diventerebbe rosso mentre
+    // lo schermo resterebbe identico, che è esattamente il difetto da cui
+    // guardarsi.
+    const reading = readingWithEngine("a_uno", index(72));
+    expect(reading.slots["valore-assoluto"]).toEqual({
+      kind: "numero",
+      value: BASE_A,
+      unit: "crediti",
+    });
+    expect(reading.slots["valore-relativo"]).toEqual({
+      kind: "numero",
+      value: FRESH_TABLE_PRICE,
+      unit: "crediti",
+    });
+    expect(reading.absoluteChain).not.toBeNull();
+    expect(reading.relativePriceBound).toBe("tetto-del-piu-ricco");
+    // Le funzioni di testo sanno ancora renderli tutti e quattro: non è la
+    // resa dello slot a essere sparita, è la cella a non essere costruita.
+    for (const id of HIDDEN_VALUE_SLOT_IDS) {
+      expect(valueSlotText(reading.slots[id]), id).not.toBe("");
+      expect(valueSlotWhyText(id, reading.slots[id], reading), id).not.toBe("");
+    }
+    // ...e a schermo nessuna delle due compare, in nessuna delle sue parti.
+    const html = valueBoxHtml(reading);
+    for (const id of HIDDEN_VALUE_SLOT_IDS) {
+      expect(html, id).not.toContain(`value-box-cell-${id}`);
+      expect(html, id).not.toContain(VALUE_SLOT_LABELS[id]);
+    }
   });
 
   it("il valore relativo è il prezzo del tavolo, NON più fairToMeMaxEffective", () => {
@@ -414,7 +545,14 @@ describe("riquadro del valore — i quattro numeri", () => {
       base: BASE_A,
       total: BASE_A,
     });
-    expect(valueBoxHtml(reading)).toContain("210 cr sul ruolo / 7 slot");
+    // INVERTITA il 2026-08-29 (Pico: «Nascondi valore assoluto e valore
+    // relativo senza cancellare niente»): la catena resta CALCOLATA e provata
+    // dalle quattro righe qui sopra, che sono la sostanza di questo test; a
+    // schermo non arriva più, perché la sua cella non c'è.
+    expect(valueBoxHtml(reading)).not.toContain("210 cr sul ruolo / 7 slot");
+    // E la catena è ancora quella giusta anche RESA: la funzione che scrive
+    // quella riga non è stata toccata, le manca solo la cella dove finire.
+    expect(absoluteChainText(reading)).toBe("210 cr sul ruolo / 7 slot · fascia 1");
   });
 
   it("il debito dello slot 4 è SALDATO, e la costante che lo dichiarava è sostituita, non affiancata", () => {
@@ -946,7 +1084,18 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
     });
     expect(reading.absoluteChain).toBeNull();
     const html = valueBoxHtml(reading);
-    expect(html).toContain("manca il tuo target di ruolo");
+    // INVERTITA il 2026-08-29 (istruzione di Pico in testa al file): il motivo
+    // resta quello giusto NELLA LETTURA — l'asserzione qui sopra non è stata
+    // toccata — e la frase esiste ancora per quel motivo; è la cella a non
+    // essere più a schermo.
+    expect(html).not.toContain("manca il tuo target di ruolo");
+    expect(
+      valueSlotWhyText(
+        "valore-assoluto",
+        reading.slots["valore-assoluto"],
+        reading,
+      ),
+    ).toBe("manca il tuo target di ruolo");
     // Nessun numero al posto del buco: né una media dei ruoli dichiarati, né
     // 500/28, né uno zero. Una ripartizione inventata è il peso nascosto che
     // §D9 vieta, e sarebbe indistinguibile a schermo da una dichiarazione vera.
@@ -970,11 +1119,17 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       unit: "crediti",
     });
     expect(valueSlotText(reading.slots["valore-assoluto"])).toBe("0 cr");
-    expect(valueBoxHtml(reading)).toContain(">0 cr<");
+    // INVERTITA il 2026-08-29 (istruzione di Pico in testa al file). Il punto
+    // del test resta intero e sta nella riga qui sopra: `0` è un numero, non un
+    // `n/d`, e la resa lo scrive «0 cr». Quello che è cambiato è che quella
+    // cella non è più nella griglia.
+    expect(valueBoxHtml(reading)).not.toContain(">0 cr<");
     // SOTTO IL CREDITO MINIMO, e lo DICE invece di aggiustarlo: nessun clamp
-    // al pavimento, che sarebbe una scelta silenziosa.
+    // al pavimento, che sarebbe una scelta silenziosa. La LETTURA lo dichiara
+    // come prima; a schermo la riga non arriva più (invertita il 2026-08-29).
     expect(reading.absoluteBelowCostFloor).toBe(true);
-    expect(valueBoxHtml(reading)).toContain("sotto il credito minimo");
+    expect(absoluteChainText(reading)).toContain("sotto il credito minimo");
+    expect(valueBoxHtml(reading)).not.toContain("sotto il credito minimo");
   });
 
   it("l'app di oggi: lo slot 3 tace per il SUO motivo, lo slot 4 porta un numero", () => {
@@ -992,8 +1147,13 @@ describe("riquadro del valore — le assenze sono dichiarate, mai riempite", () 
       unit: "crediti",
     });
     const html = valueBoxHtml(reading);
-    expect(html).toContain("manca il tuo target di ruolo");
-    // L'indice assoluto, che una sorgente ce l'ha, resta un numero vero.
+    // INVERTITA il 2026-08-29 (istruzione di Pico in testa al file): i due
+    // esiti restano DUE nella lettura — le due asserzioni qui sopra, intatte —
+    // ma nessuno dei due arriva più in una cella.
+    expect(html).not.toContain("manca il tuo target di ruolo");
+    expect(html).not.toContain(`${FRESH_TABLE_PRICE} cr`);
+    // L'indice assoluto, che una sorgente ce l'ha, resta un numero vero — e
+    // resta A SCHERMO: è uno dei due slot che l'istruzione lascia visibili.
     expect(html).toContain(">72<");
     // NESSUNA ETICHETTA DI PROVENIENZA DEI VALORI DICHIARATI, in nessuno stato:
     // è uscita dal riquadro insieme all'ultimo numero che poteva qualificare.
@@ -1023,6 +1183,22 @@ describe("riquadro del valore — lo SLOT 4 è il prezzo del tavolo, e le sue as
   // proprio motivo e nessuna con un numero di ripiego. Sono le stesse cinque
   // che `relativeValue.ts` dichiara: qui si prova che il riquadro le TRADUCE
   // una a una invece di accorparle in un `n/d` muto.
+  //
+  // DAL 2026-08-29 LA TRADUZIONE SI MISURA SULLA FUNZIONE DI TESTO invece che
+  // sull'HTML (istruzione di Pico in testa al file): la cella dello slot 4 non
+  // è più nella griglia, ma le cinque frasi restano cinque, restano distinte e
+  // restano quelle giuste. Le asserzioni sull'HTML sono invertite accanto,
+  // così il file dice anche che a schermo non ci sono più — e torna rosso se
+  // ricomparissero senza che nessuno l'abbia deciso.
+
+  /** La riga che lo slot 4 direbbe, presa dalla funzione che la scrive. */
+  function why4(reading: ValueBoxReading): string {
+    return valueSlotWhyText(
+      "valore-relativo",
+      reading.slots["valore-relativo"],
+      reading,
+    );
+  }
 
   function slot4(
     log: ReturnType<typeof buildLog>,
@@ -1046,7 +1222,9 @@ describe("riquadro del valore — lo SLOT 4 è il prezzo del tavolo, e le sue as
       reason: "ruolo-pieno-per-me",
     });
     expect(reading.relativePriceBound).toBeNull();
-    expect(valueBoxHtml(reading)).toContain("il tuo ruolo è pieno");
+    expect(why4(reading)).toContain("il tuo ruolo è pieno");
+    // Invertita il 2026-08-29: la frase c'è, la cella no.
+    expect(valueBoxHtml(reading)).not.toContain("il tuo ruolo è pieno");
   });
 
   it("IL MIO BUDGET BLOCCATO dalla riserva dura: nessuna offerta valida, nessun prezzo", () => {
@@ -1057,7 +1235,9 @@ describe("riquadro del valore — lo SLOT 4 è il prezzo del tavolo, e le sue as
       kind: "assente",
       reason: "non-posso-offrire",
     });
-    expect(valueBoxHtml(reading)).toContain("bloccato dalla riserva");
+    expect(why4(reading)).toContain("bloccato dalla riserva");
+    // Invertita il 2026-08-29: la frase c'è, la cella no.
+    expect(valueBoxHtml(reading)).not.toContain("bloccato dalla riserva");
   });
 
   it("UN SOLO rivale capiente: il secondo non esiste, e non si sostituisce col primo", () => {
@@ -1069,7 +1249,9 @@ describe("riquadro del valore — lo SLOT 4 è il prezzo del tavolo, e le sue as
       kind: "assente",
       reason: "un-solo-rivale-eleggibile",
     });
-    expect(valueBoxHtml(reading)).toContain("non c'è un secondo");
+    expect(why4(reading)).toContain("non c'è un secondo");
+    // Invertita il 2026-08-29: la frase c'è, la cella no.
+    expect(valueBoxHtml(reading)).not.toContain("non c'è un secondo");
   });
 
   it("NESSUN rivale capiente: non c'è nessuna asta da vincere", () => {
@@ -1081,7 +1263,9 @@ describe("riquadro del valore — lo SLOT 4 è il prezzo del tavolo, e le sue as
       kind: "assente",
       reason: "nessun-rivale-eleggibile",
     });
-    expect(valueBoxHtml(reading)).toContain(
+    expect(why4(reading)).toContain("nessun rivale può ancora comprarlo");
+    // Invertita il 2026-08-29: la frase c'è, la cella no.
+    expect(valueBoxHtml(reading)).not.toContain(
       "nessun rivale può ancora comprarlo",
     );
   });
@@ -1092,7 +1276,9 @@ describe("riquadro del valore — lo SLOT 4 è il prezzo del tavolo, e le sue as
       kind: "assente",
       reason: "tavolo-senza-la-mia-squadra",
     });
-    expect(valueBoxHtml(reading)).toContain("non è a questo tavolo");
+    expect(why4(reading)).toContain("non è a questo tavolo");
+    // Invertita il 2026-08-29: la frase c'è, la cella no.
+    expect(valueBoxHtml(reading)).not.toContain("non è a questo tavolo");
   });
 
   // ── LE TRE RIGHE DEL PERCHÉ ────────────────────────────────────────────────
@@ -1378,11 +1564,25 @@ describe("riquadro del valore — la riga che manca, quando manca davvero", () =
 });
 
 describe("riquadro del valore — chi ascolta sente quello che chi guarda legge", () => {
-  // LA RIGA DEL VINCOLO NON PUÒ FERMARSI ALLO SCHERMO. Prima di questa corsia
-  // lo slot 4 recitava `n/d` e la lettura vocale non perdeva niente; adesso
-  // recita un numero, e a tavolo fresco è lo STESSO numero su ogni scheda di
+  // LA RIGA DEL VINCOLO NON PUÒ FERMARSI ALLO SCHERMO. Prima di quella corsia
+  // lo slot 4 recitava `n/d` e la lettura vocale non perdeva niente; poi ha
+  // recitato un numero, e a tavolo fresco è lo STESSO numero su ogni scheda di
   // ogni ruolo. Senza la riga del vincolo chi usa lo screen reader sentirebbe
   // per minuti la stessa cifra senza mai sapere che misura il tavolo.
+  //
+  // DAL 2026-08-29 QUEL NUMERO NON SI SENTE PIÙ, e non è una regressione di
+  // questa regola: è la stessa regola applicata all'istruzione di Pico in
+  // testa al file. I due slot in crediti non sono più a schermo, quindi una
+  // lettura vocale che continuasse a recitarli descriverebbe un riquadro che
+  // chi guarda non vede — «riparato per l'udito e non per gli occhi» è lo
+  // stesso difetto letto allo specchio. Il titolo di questo describe resta
+  // vero alla lettera: chi ascolta sente quello che chi guarda legge, e adesso
+  // sono due celle invece di quattro.
+  //
+  // Le tre asserzioni invertite qui sotto non tolgono la garanzia: la
+  // COPPIA numero + vincolo resta provata sulla lettura e sulle funzioni di
+  // testo (describe «lo SLOT 4 è il prezzo del tavolo»), pronta a tornare
+  // udibile insieme alla cella.
 
   function spokenOf(log = buildLog([])): string {
     return valueBoxSpoken(
@@ -1398,26 +1598,37 @@ describe("riquadro del valore — chi ascolta sente quello che chi guarda legge"
     );
   }
 
-  it("TETTO DEL TAVOLO: la lettura vocale porta il numero E il suo vincolo", () => {
+  it("TETTO DEL TAVOLO: il numero e il suo vincolo non si sentono più — la cella non c'è", () => {
+    // INVERTITA il 2026-08-29 (istruzione di Pico in testa al file). Il numero
+    // e il vincolo restano nella LETTURA — provati dal describe dello slot 4 —
+    // e non arrivano più né agli occhi né all'udito: le due superfici dicono la
+    // stessa cosa, che è la garanzia che questo describe protegge.
     const spoken = spokenOf();
-    expect(spoken).toContain(`${FRESH_TABLE_PRICE} cr`);
-    expect(spoken).toContain(RELATIVE_PRICE_BOUND_TEXT["tetto-del-piu-ricco"]);
+    expect(spoken).not.toContain(`${FRESH_TABLE_PRICE} cr`);
+    expect(spoken).not.toContain(
+      RELATIVE_PRICE_BOUND_TEXT["tetto-del-piu-ricco"],
+    );
   });
 
-  it("SCALA DEI RIVALI: cambia il tavolo, cambia la frase che si sente", () => {
+  it("SCALA DEI RIVALI: cambia il tavolo, e la lettura vocale resta muta su quel numero", () => {
+    // Invertita il 2026-08-29, stessa ragione. La riga `tetto-del-piu-ricco`
+    // era già negativa e resta negativa: il senso originale — le tre frasi non
+    // collassano — vive intero nel describe dello slot 4.
     const spoken = spokenOf(
       buildLog(TEAMS.slice(1, 7).flatMap((t) => fillRole(t, "A", 1, 200))),
     );
-    expect(spoken).toContain("275 cr");
-    expect(spoken).toContain(RELATIVE_PRICE_BOUND_TEXT["scala-dei-rivali"]);
+    expect(spoken).not.toContain("275 cr");
+    expect(spoken).not.toContain(RELATIVE_PRICE_BOUND_TEXT["scala-dei-rivali"]);
     expect(spoken).not.toContain(
       RELATIVE_PRICE_BOUND_TEXT["tetto-del-piu-ricco"],
     );
   });
 
   it("ogni cella parlata dice nome, numero e riga: nessuna resta muta", () => {
-    // La stessa regola delle celle a schermo, e vale per tutte e quattro: un
-    // `n/d` senza il suo motivo è un silenzio, non un'informazione.
+    // La stessa regola delle celle a schermo, e vale per tutte quelle che si
+    // vedono: un `n/d` senza il suo motivo è un silenzio, non un'informazione.
+    // Il ciclo gira su `VISIBLE_VALUE_SLOT_IDS` dal 2026-08-29 — le celle
+    // parlate sono le stesse rese, mai una di più né una di meno.
     const reading = valueBoxReading({
       called: { playerId: "a_uno", role: "A" },
       appealIndex: index(72),
@@ -1428,14 +1639,28 @@ describe("riquadro del valore — chi ascolta sente quello che chi guarda legge"
       relative: RELATIVE,
     });
     const spoken = valueBoxSpoken(reading);
-    for (const id of VALUE_SLOT_ORDER) {
+    for (const id of VISIBLE_VALUE_SLOT_IDS) {
       const slot = reading.slots[id];
       expect(spoken, id).toContain(VALUE_SLOT_LABELS[id]);
       expect(spoken, id).toContain(valueSlotText(slot));
       expect(spoken, id).toContain(valueSlotWhyText(id, slot, reading));
     }
-    // Il valore assoluto è `n/d` in questa scena, e il MOTIVO si sente.
-    expect(spoken).toContain(VALUE_MISSING_TEXT["ruolo-senza-target"]);
+    // ...e le due nascoste non si sentono NEPPURE COL LORO NOME: mezza cella
+    // parlata — l'etichetta senza il numero — sarebbe peggio di nessuna.
+    // Invertita il 2026-08-29 insieme alla riga del motivo qui sotto.
+    for (const id of HIDDEN_VALUE_SLOT_IDS) {
+      expect(spoken, id).not.toContain(VALUE_SLOT_LABELS[id]);
+    }
+    // Il valore assoluto è `n/d` in questa scena, il motivo resta quello — la
+    // riga è provata sulla funzione che la scrive — e non si sente più.
+    expect(
+      valueSlotWhyText(
+        "valore-assoluto",
+        reading.slots["valore-assoluto"],
+        reading,
+      ),
+    ).toBe(VALUE_MISSING_TEXT["ruolo-senza-target"]);
+    expect(spoken).not.toContain(VALUE_MISSING_TEXT["ruolo-senza-target"]);
   });
 
   it("la lettura vocale non mette in relazione due numeri fra loro", () => {

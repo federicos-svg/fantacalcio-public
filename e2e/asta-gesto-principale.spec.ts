@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { ListonePlayer } from "../src/ui/listone.js";
+import { VISIBLE_VALUE_SLOT_IDS } from "../src/valueBox.js";
 import { installSyntheticNetworkGuard } from "./helpers.js";
 
 // #331 punti 2-3 — IL GESTO PRINCIPALE DELLA SCHERMATA D'ASTA NON STA SOTTO LA
@@ -127,9 +128,26 @@ interface NarrowViewport {
 // renderebbe questi due viewport identici al caso largo e il test resterebbe
 // verde misurando un'altra cosa — lo stesso difetto che PANELS_EXPECTED_PRESENT
 // impedisce alla spazzata dei riquadri.
+//
+// DAL 2026-08-29 LE COLONNE SONO DUE DA TUTTE E DUE LE PARTI, e va detto invece
+// che aggiustato in silenzio. «Nascondi valore assoluto e valore relativo senza
+// cancellare niente.» (Pico): la griglia rende due celle, quindi ha due colonne
+// larga — il conteggio segue `VISIBLE_VALUE_SLOT_IDS` via `--value-box-cols` —
+// e la media query dei 700px, che manda le celle a due per riga, non cambia più
+// niente su due celle. LA CONSEGUENZA, DICHIARATA: a griglia ridotta questi due
+// numeri non distinguono più la soglia dei 700px. Il controllo di soglia di
+// questo test non è però svanito — resta `noteTextAlign`, che misura quella dei
+// 719px — e i due numeri tornano a distinguersi da soli il giorno in cui i due
+// slot in crediti tornano a schermo, perché sono derivati dalla costante e non
+// scritti a mano. Cablare qui un `4` per tenere viva l'asserzione avrebbe
+// misurato un riquadro che non esiste.
 const NARROW_VIEWPORTS: readonly NarrowViewport[] = [
-  { width: 719, height: 900, valueBoxColumns: 4 },
-  { width: 700, height: 900, valueBoxColumns: 2 },
+  { width: 719, height: 900, valueBoxColumns: VISIBLE_VALUE_SLOT_IDS.length },
+  {
+    width: 700,
+    height: 900,
+    valueBoxColumns: Math.min(2, VISIBLE_VALUE_SLOT_IDS.length),
+  },
 ];
 
 // I pannelli che devono stare SOTTO il gesto NON sono un elenco di id, e la

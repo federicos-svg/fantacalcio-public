@@ -2783,8 +2783,13 @@ export function renderLateAnswerBlock(props: LateAnswerProps): HTMLElement {
 }
 
 // ── RIQUADRO DEL VALORE (momento asta, dentro la scheda del chiamato) ────────
-// Montaggio nel DOM dei quattro numeri di `docs/DECISIONS.md` §"Il riquadro del
-// valore porta quattro numeri". Wrapper SOTTILE, come renderTierBandBlock e
+// Montaggio nel DOM dei numeri di `docs/DECISIONS.md` §"Il riquadro del valore
+// porta quattro numeri" — dei QUATTRO che il record dichiara arrivano a schermo
+// i due indici, perché dal 2026-08-29 la resa rende `VISIBLE_VALUE_SLOT_IDS`
+// («Nascondi valore assoluto e valore relativo senza cancellare niente.»,
+// Pico). Questo file non lo decide e non lo sa: appende ciò che i costruttori
+// puri gli danno, ed è la ragione per cui non è cambiata una riga qui sotto.
+// Wrapper SOTTILE, come renderTierBandBlock e
 // renderRoleDepletionBlock: ogni scelta di resa — quale numero si mostra, con
 // quale unità, e quale frase si dice quando un numero non c'è — vive nei
 // costruttori puri di ./valueBox.ts, verificati senza DOM; il calcolo vive in
@@ -2840,7 +2845,7 @@ export function renderValueBoxBlock(props: ValueBoxProps): HTMLElement {
 
   const body = document.createElement("div");
   body.id = "value-box-body";
-  // aria-live: i quattro numeri cambiano significato — non solo contenuto —
+  // aria-live: i numeri del riquadro cambiano significato — non solo contenuto —
   // quando cambia il giocatore chiamato o quando l'asta muove gli ingredienti.
   body.setAttribute("role", "status");
   body.setAttribute("aria-live", "polite");
