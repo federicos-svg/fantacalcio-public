@@ -735,14 +735,16 @@ function soggettoFuoriListoneText(identita: BallottaggioIdentita): string {
  *     e con la stessa parola, invece di uscire come «il contratto ha rifiutato
  *     questa scheda». E quando l'asse scritto non è quello che il ruolo della
  *     riga si aspetta, il voto NON verrebbe usato dalla vista
- *     (`resolvePagella` → `asseIncoerente`): scriverlo comunque sarebbe una
- *     perdita silenziosa, quindi si rifiuta dicendolo.
+ *     (`resolvePagella` → `asseIncoerente`): qui si rifiuta dicendolo, e la
+ *     differenza con l'estrattore automatico è chi ha in mano la scheda. Qui
+ *     c'è una persona che può correggere il ruolo o il voto in due secondi;
+ *     l'estrattore legge una fonte che non può cambiare, e per lui rifiutare
+ *     significa buttare via anche gli altri quattro voti.
  *  3. IL TOTALE NON SI RICALCOLA QUI. `totaleFonte` è il numero che la FONTE
- *     dichiara, e serve a smentire l'estrazione: sommare i cinque e scrivere
- *     il risultato al suo posto cancellerebbe l'unica prova che qualcosa è
- *     stato letto male. Su divergenza restano scritti entrambi — non è un
- *     errore di compilazione, è un fatto della scheda, e il pannello lo
- *     dichiara.
+ *     dichiara: sommare i cinque e scrivere il risultato al suo posto
+ *     cancellerebbe l'unica prova che uno dei due numeri è sbagliato. Su
+ *     divergenza restano scritti entrambi — non è un errore di compilazione, è
+ *     un fatto della scheda, e il pannello lo dichiara.
  */
 export function buildSchedaPagella(
   values: SchedaPagellaValues,
@@ -831,9 +833,18 @@ export function buildSchedaPagella(
  * Serve a smentire chi compila prima che il deposito parta, ed è la ragione per
  * cui il totale della fonte vive nel contratto: la somma si ricalcola e si
  * CONFRONTA. Su divergenza la riga scrive tutti e due i numeri e non ne appiana
- * nessuno — appianare cancellerebbe la prova che almeno un voto è stato letto
- * male. Su pagella parziale non scrive nessuna somma: «20/50» con tre voti su
- * cinque è un numero falso che sembra vero.
+ * nessuno — appianare cancellerebbe la prova che uno dei due è sbagliato.
+ * Su pagella parziale non scrive nessuna somma: «20/50» con tre voti su cinque
+ * è un numero falso che sembra vero.
+ *
+ * QUI I DUE NUMERI RESTANO ENTRAMBI, e non è in contraddizione con il riquadro
+ * d'asta, che dal 2026-08-29 mostra la sola somma. Le due superfici parlano a
+ * due persone diverse: là c'è chi sta per fare un'offerta e non può farci
+ * niente, qui c'è chi ha la scheda davanti e può guardare quale dei due numeri
+ * è sbagliato. Quel che è cambiato anche qui è l'ACCUSA: la riga diceva
+ * «almeno un numero è stato letto male», cioè dava la colpa a chi trascrive.
+ * Sul corpus reale la somma che non torna è quasi sempre della fonte, quindi
+ * la riga adesso nomina tutte e due le possibilità e non ne sceglie una.
  *
  * La verifica non è riscritta qui: è `resolvePagella` + `verificaTotale`, le
  * stesse che il riquadro d'asta e la nota sotto il listone già usano.
@@ -858,7 +869,7 @@ export function schedaPagellaVerificaText(
     case "coerente":
       return `${scritti}: somma ${view.totaleRicalcolato}/${PAGELLA_TOTALE_MAX}, TOTALE dichiarato ${dichiarato}. Tornano.`;
     case "divergente":
-      return `${scritti}: somma ${view.totaleRicalcolato}/${PAGELLA_TOTALE_MAX} contro un TOTALE dichiarato di ${dichiarato}. NON TORNANO: almeno un numero è stato letto male. Restano scritti tutti e due — non si appiana nessuno dei due, e la scheda si salva lo stesso.`;
+      return `${scritti}: somma ${view.totaleRicalcolato}/${PAGELLA_TOTALE_MAX} contro un TOTALE dichiarato di ${dichiarato}. NON TORNANO: o un voto è stato trascritto male, o è la scheda a sbagliare la propria somma. Restano scritti tutti e due — non si appiana nessuno dei due, e la scheda si salva lo stesso.`;
   }
 }
 

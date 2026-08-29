@@ -1222,7 +1222,8 @@ export function listoneExpertSignalsNote(viste: readonly PagellaView[]): string 
   return (
     `Gruppo Esperti: i cinque voti sono su scala 0–${EXPERT_VOTE_MAX}, scritti dalla fonte. ` +
     `Righe con voti: ${conVoti.length} — complete ${complete}, parziali ${parziali}. ` +
-    `TOTALE divergente da quello dichiarato dalla fonte: ${divergenti}. ` +
+    `Righe in cui la somma dei cinque voti non coincide col TOTALE scritto ` +
+    `sulla scheda — a schermo vale la somma: ${divergenti}. ` +
     `Righe la cui scheda porta l'asse di un altro ruolo (voto non usato, cella ` +
     `«${VALUE_NOT_APPLICABLE}»): ${incoerenti}. ` +
     NO_MALUS_BONUS_CLAUSE +

@@ -2477,12 +2477,19 @@
   font-size: 11px;
   line-height: 1.4;
 }
-/* LA DIVERGENZA SI VEDE, e non solo si legge: il totale ricalcolato non
-   coincide con quello scritto sulla scheda, cioè un voto è stato letto male.
-   Il colore non porta il fatto da solo — la frase nomina tutti e due i numeri
-   — ma un errore di estrazione non deve avere lo stesso peso visivo di un
-   totale che torna. --stop-red sta a 5,02:1 su --panel-inner. */
-.pagella__totale--divergente { color: var(--stop-red); }
+/* IL ROSSO SE N'È ANDATO CON LA FRASE CHE LO SPIEGAVA.
+
+   Era «--stop-red quando il totale ricalcolato non coincide con quello della
+   scheda», e reggeva perché accanto c'era una riga che nominava entrambi i
+   numeri e diceva che cosa non tornava: il colore rincarava un fatto già
+   scritto. Dal 2026-08-29 la riga mostra la nostra somma e basta (decisione di
+   Pico, «mostra i voti e rifai tu la somma»), quindi un totale rosso sarebbe
+   un allarme senza il suo testo — cioè un colore che porta un fatto DA SOLO,
+   che è esattamente ciò che questo progetto non fa.
+
+   La classe resta emessa (`pagella__totale--${verificaTotale}`): lo stato non
+   è sparito dal contratto, ha smesso di dipingere. Rimettere qui una regola
+   significa rimettere anche la frase che la giustifica. */
 /* LA DIDASCALIA NON ARRIVA PIÙ A SCHERMO — stessa richiesta del radar, stesso
    giorno. `display: none` toglie il nodo anche a chi naviga a voce, e la cosa
    va detta invece di lasciarla scoprire: la garanzia che conta — «il quarto

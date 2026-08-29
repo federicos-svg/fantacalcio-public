@@ -70,10 +70,18 @@
 //
 // Il TOTALE non è un sesto dato: è la somma dei cinque, su 50. Si salvano i
 // cinque, si RICALCOLA la somma, e la si confronta con il totale che la fonte
-// dichiara. Una divergenza non è un dettaglio da arrotondare: è la PROVA che
-// l'estrazione ha letto male almeno un numero. Quindi non viene appianata —
-// `verificaTotale` la nomina, il riquadro d'asta la scrive con entrambi i
-// numeri e la nota sotto il listone conta quante righe ne soffrono.
+// dichiara. La divergenza NON viene appianata nel dato: `verificaTotale` la
+// nomina, `totaleFonte` resta scritto come la fonte l'ha scritto, e la nota
+// sotto il listone conta quante righe ne soffrono.
+//
+// A SCHERMO, DAL 2026-08-29, IL RIQUADRO D'ASTA MOSTRA LA NOSTRA SOMMA e non
+// ripete quella della fonte. La riga diceva entrambi i numeri e accusava
+// l'estrazione — lettura giusta finché una riga con la somma che non torna
+// veniva scartata in blocco dal produttore, cioè finché una divergenza poteva
+// solo essere colpa nostra. La misura sul corpus reale dice altro: la fonte
+// scrive schede in cui i cinque voti sono giusti e il totale no. Decisione di
+// Pico: «mostra i voti e rifai tu la somma» — il perché per esteso sta sopra
+// `pagellaTotaleText` in src/ui/pagellaRadar.ts.
 //
 // La somma si calcola SOLO su una pagella completa (cinque voti su cinque).
 // Una somma parziale su una scala che si legge «/50» sarebbe un numero falso
@@ -450,8 +458,13 @@ export function resolvePagella(
  *     (c'è un totale dichiarato, ma la somma di tre voti su cinque non lo
  *      contraddice né lo conferma: accusare qui sarebbe accusare a caso);
  *  4. somma == dichiarato                      -> `coerente`;
- *  5. altrimenti                               -> `divergente`, cioè la prova
- *     che almeno un numero è stato letto male.
+ *  5. altrimenti                               -> `divergente`: la somma dei
+ *     cinque e il totale scritto dalla fonte non coincidono. UNO DEI DUE È
+ *     SBAGLIATO E QUESTA FUNZIONE NON SA QUALE — può aver letto male
+ *     l'estrazione, o può aver sommato male chi ha scritto la scheda, che è il
+ *     caso misurato sul corpus reale il 2026-08-29 (trenta schede su 487, con
+ *     i cinque voti leggibili uno per uno). Per questo il nome dell'esito dice
+ *     la RELAZIONE fra i due numeri e non la colpa di nessuno.
  */
 export function verificaTotale(
   totaleRicalcolato: number | null,

@@ -194,12 +194,27 @@ export function pagellaAxisRowHtml(asse: PagellaAsseView): string {
 /**
  * La riga del totale, in parole, per ciascuno dei cinque esiti della verifica.
  *
- * `divergente` PORTA ENTRAMBI I NUMERI. È il caso che conta: la somma dei
- * cinque voti che abbiamo e il TOTALE che la scheda dichiara non coincidono,
- * quindi almeno un numero è stato letto male — e la riga lo dice invece di
- * mostrare il proprio e tacere l'altro. Appianarla (mostrare il totale della
- * fonte, o il nostro, come se fosse l'unico) cancellerebbe l'unica prova che
- * abbiamo di uno sbaglio di estrazione.
+ * `divergente` MOSTRA LA NOSTRA SOMMA. Fino al 2026-08-29 portava entrambi i
+ * numeri e accusava l'estrazione di aver letto male: era la lettura giusta
+ * finché una riga con la somma che non torna veniva SCARTATA in blocco
+ * dall'estrattore, cioè finché una divergenza a schermo poteva solo essere
+ * colpa nostra. Non è più così, ed è quella scoperta a cambiare questa frase:
+ * la fonte scrive schede in cui i cinque voti sono giusti e il TOTALE no — la
+ * forma è «8/10 + 8/10 + 7/10 + 6/10 + 7/10» con «TOTALE 35/50» scritto
+ * accanto, dove la somma fa 36 — e diciannove righe su un corpus di 487
+ * arrivavano a schermo con cinque «n/d», cioè come se la scheda non avesse
+ * voti. I numeri di questo esempio sono inventati e la misura sta nel
+ * repository privato, dove le schede vere possono essere nominate: qui no.
+ *
+ * Decisione di Pico, 2026-08-29, alla lettera: «mostra i voti e rifai tu la
+ * somma». Quindi la riga dice la NOSTRA somma, che è l'unico numero di cui
+ * rispondiamo, e non ripete quello della fonte.
+ *
+ * NIENTE È STATO CANCELLATO, e conta: `totaleFonte` resta nel contratto e nel
+ * deposito esattamente come la fonte l'ha scritto, `verificaTotale` continua a
+ * chiamare `divergente` questo caso, e la nota sotto il listone continua a
+ * contare quante righe ne soffrono. Il giorno in cui si volesse rimettere
+ * l'accusa a schermo, il dato per farlo è ancora tutto qui.
  */
 export function pagellaTotaleText(view: PagellaView): string {
   const somma = view.totaleRicalcolato;
@@ -208,7 +223,7 @@ export function pagellaTotaleText(view: PagellaView): string {
     case "coerente":
       return `TOTALE ${somma}/${PAGELLA_TOTALE_MAX} — somma dei cinque voti, e coincide con il TOTALE scritto sulla scheda.`;
     case "divergente":
-      return `TOTALE ${somma}/${PAGELLA_TOTALE_MAX} sommando i cinque voti, ma la scheda ne dichiara ${fonte}/${PAGELLA_TOTALE_MAX}: almeno un voto è stato letto male. I due numeri restano tutti e due qui.`;
+      return `TOTALE ${somma}/${PAGELLA_TOTALE_MAX} — somma dei cinque voti.`;
     case "non_verificabile":
       return `TOTALE non verificabile: ${view.votiPresenti} voti su ${PAGELLA_ASSI}. La scheda dichiara ${fonte}/${PAGELLA_TOTALE_MAX}, ma con dei voti mancanti la somma non lo conferma né lo smentisce.`;
     case "senza_totale_dichiarato":

@@ -161,21 +161,51 @@ describe("blocco — l'assenza è una frase, non un pentagono vuoto", () => {
   });
 });
 
-describe("totale — le cinque frasi, e la divergenza che porta due numeri", () => {
+describe("totale — le cinque frasi, e la divergenza che mostra la nostra somma", () => {
   it("coerente: un numero solo, perché non c'è niente da contestare", () => {
     const testo = pagellaTotaleText(resolvePagella(COMPLETA, "D"));
     expect(testo).toContain("39/50");
     expect(testo).toContain("coincide");
   });
 
-  it("divergente: ENTRAMBI i numeri, e la parola che dice che c'è un errore", () => {
+  // ASSERZIONE ROVESCIATA, 2026-08-29, e la ragione è un fatto nuovo.
+  //
+  // Pretendeva entrambi i numeri e la parola «letto male»: era giusta finché
+  // una riga con la somma che non torna veniva SCARTATA in blocco
+  // dall'estrattore, cioè finché una divergenza a schermo poteva solo essere
+  // colpa dell'estrazione. La misura sul corpus reale ha trovato l'altro caso:
+  // la fonte scrive i cinque voti giusti e sbaglia la propria somma (trenta
+  // schede su 487), e quei giocatori arrivavano a schermo con cinque «n/d».
+  // Decisione di Pico: «mostra i voti e rifai tu la somma».
+  //
+  // Le tre righe qui sotto sono la nuova pretesa PER INTERO, non un
+  // allentamento: la nostra somma c'è, il numero della fonte NON è più
+  // ripetuto, e nessuna accusa di lettura viene mossa. La classe di stato
+  // resta nel markup — lo stato non è sparito dal contratto, ha smesso di
+  // dipingere (src/styles/asta.css).
+  it("divergente: la NOSTRA somma, senza ripetere il numero della fonte", () => {
     const view = resolvePagella({ ...COMPLETA, totaleFonte: 41 }, "D");
     const testo = pagellaTotaleText(view);
     expect(testo).toContain("39/50");
-    expect(testo).toContain("41/50");
-    expect(testo).toContain("letto male");
-    // …e la classe di stato arriva nel markup, così la riga si vede diversa.
+    expect(testo).not.toContain("41/50");
+    expect(testo).not.toContain("letto male");
     expect(pagellaBlockHtml(view)).toContain("pagella__totale--divergente");
+  });
+
+  // L'INVARIANTE CHE TIENE INSIEME LE CELLE E LA RIGA SOTTO, chiesta da una
+  // lente di review: da quando il totale mostrato è la NOSTRA somma, deve
+  // essere davvero la somma dei cinque numeri stampati sopra — in ogni stato
+  // in cui un totale viene mostrato. Oggi lo è per costruzione (`view.assi` e
+  // `totaleRicalcolato` nascono dallo stesso oggetto), e questa riga lo blinda
+  // contro un refactoring che disaccoppi le due sorgenti.
+  it("il TOTALE mostrato è sempre la somma delle celle mostrate, divergenza compresa", () => {
+    for (const totaleFonte of [39, 41, undefined]) {
+      const scheda = totaleFonte === undefined ? { voti: COMPLETA.voti } : { ...COMPLETA, totaleFonte };
+      const view = resolvePagella(scheda, "D");
+      const somma = view.assi.reduce((acc, asse) => acc + (asse.voto ?? 0), 0);
+      expect(view.totaleRicalcolato).toBe(somma);
+      expect(pagellaTotaleText(view)).toContain(`${somma}/50`);
+    }
   });
 
   it("non verificabile: dice quanti voti mancano invece di accusare", () => {

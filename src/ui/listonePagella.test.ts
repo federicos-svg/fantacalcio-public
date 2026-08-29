@@ -390,12 +390,19 @@ describe("nota sotto la tabella — l'assenza si dichiara, le prove si contano",
     expect(nota).toContain("parziali 1");
   });
 
-  it("conta le righe con TOTALE divergente: è la prova di un errore di estrazione", () => {
+  // Il conteggio è rimasto, la frase no: non accusa più l'estrazione, dice che
+  // cosa vale a schermo. Dal 2026-08-29 una divergenza non è più per forza un
+  // errore di lettura — la fonte sbaglia le proprie somme — e il riquadro
+  // d'asta mostra la somma dei cinque voti (decisione di Pico). Il numero
+  // della fonte resta nel dato e questa riga resta l'unico posto in cui il
+  // fatto si conta.
+  it("conta le righe in cui la somma non coincide col TOTALE della fonte", () => {
     const nota = listoneExpertSignalsNote([
       view(BONUS, "D"),
       view({ ...BONUS, totaleFonte: 41 }, "D"),
     ]);
-    expect(nota).toContain("TOTALE divergente da quello dichiarato dalla fonte: 1");
+    expect(nota).toContain("a schermo vale la somma: 1");
+    expect(nota).not.toContain("TOTALE divergente da quello dichiarato dalla fonte");
   });
 
   it("conta le righe la cui scheda porta l'asse di un altro ruolo", () => {
