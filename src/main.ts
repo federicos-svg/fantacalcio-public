@@ -6140,36 +6140,28 @@ function renderMomentoChiamata(
       ),
     );
 
-    // ── INSIGHT GIOCATORE (col radar della pagella) ANCHE QUI ──────────────
+    // ── PERCHÉ QUI NON C'È LA SCHEDA DEL GIOCATORE ─────────────────────────
     //
-    // IL FATTO, VERIFICATO PRIMA DI TOCCARE NIENTE. Il riquadro — e con lui il
-    // radar della pagella — esisteva SOLO nel momento `asta`, montato da
-    // `renderMomentoAsta`: nella schermata di CHIAMATA non era «non raggiunto»,
-    // era proprio assente dal DOM. Cercato prima di aggiungerlo: nessun
-    // documento canonico e nessuna spec dichiara quell'assenza come una scelta
-    // — `#333` fissa l'ORDINE dei blocchi della schermata di chiamata e non ne
-    // esclude questo, e la decisione del 2026-08-16 («i due segnaposto vuoti si
-    // riempiono, non si tolgono») va nella direzione opposta. Quindi si monta.
+    // C'era, da #333 fino al 2026-08-29: il riquadro INSIGHT GIOCATORE col
+    // radar della pagella, montato subito sotto CONTESTO CHIAMATA. Pico l'ha
+    // spostato — «si visualizza durante la scelta del giocatore mentre
+    // dovrebbe vedersi durante l'asta dentro #call-card come secondo figlio» —
+    // e ora vive là, attaccato al nome del chiamato (`renderMomentoAsta`).
     //
-    // PERCHÉ PROPRIO QUI, sotto CONTESTO CHIAMATA. I due blocchi hanno lo
-    // STESSO SOGGETTO — la riga che Pico ha appena cliccato — e nascono e
-    // spariscono insieme con lei: senza selezione non c'è nessun giocatore di
-    // cui leggere la scheda, e un riquadro che dicesse «nessun segnale» prima
-    // ancora che ci sia un soggetto sarebbe rumore che costa altezza. Sopra
-    // GIOCATORE SUGGERITO perché quello parla di CHI chiamare, questo del
-    // giocatore già scelto.
+    // La ragione regge: quel riquadro si legge mentre qualcuno urla un prezzo,
+    // non mentre si scorre l'elenco per decidere chi chiamare. Qui parlava di
+    // un giocatore che nessuno aveva ancora chiamato, e costava 151px alla
+    // schermata più affollata del prodotto — fino a 1109 con una scheda piena
+    // in pagina, che era il numero dichiarato come non ancora misurato.
     //
-    // È LO STESSO COMPONENTE, non una seconda resa: stesse pastiglie di
-    // onestà, stessa striscia di icone, stesso radar, stessi id — e i due
-    // momenti non sono mai in pagina insieme, quindi nessun id si duplica. Una
-    // seconda resa qui avrebbe potuto dire una cosa diversa dalla prima sullo
-    // stesso giocatore, che è il difetto che questo riquadro esiste per non
-    // avere.
+    // NON È UNA RESA IN MENO, È L'UNICA RESA. Restava il vincolo che i due
+    // momenti non fossero mai in pagina insieme, perché gli id sono gli stessi;
+    // con un posto solo il vincolo non serve più a nessuno.
     //
-    // COSTA ALTEZZA, ED È DICHIARATO: ha la propria riga nel libro mastro del
-    // budget verticale (src/ui/callScreenBudget.ts, `scheda-esperto`), misurata
-    // e sottratta alla riserva nello stesso diff.
-    wrap.appendChild(renderPlayerInsightsBlock(playerInsightProps()));
+    // La riga `scheda-esperto` del libro mastro del budget verticale
+    // (src/ui/callScreenBudget.ts) è stata tolta insieme al blocco: un mastro
+    // che continuasse ad allocare l'altezza di un blocco che qui non c'è
+    // direbbe il falso sul totale di questa schermata.
   }
 
   // Suggested player block — design slot "CHI CHIAMARE ORA".
@@ -6624,6 +6616,22 @@ function renderMomentoAsta(
   topRow.appendChild(maxSafeWrap);
   card.appendChild(topRow);
 
+  // LA SCHEDA DEL GIOCATORE CHIAMATO — secondo figlio di #call-card, subito
+  // sotto la riga d'identità. Posto chiesto da Pico il 2026-08-29.
+  //
+  // Stava SOTTO la scheda, fra la fascia del chiamato e la war board, e stava
+  // anche nella schermata di chiamata: due posti, nessuno dei due dentro la
+  // scheda del giocatore di cui parla. Qui invece è attaccato al nome che
+  // apre la scheda, ed è l'ordine in cui la si legge: chi è chiamato → che
+  // cosa dicono gli esperti di lui → quanto vale → come sta il mercato del suo
+  // ruolo → il gesto che registra l'acquisto.
+  //
+  // STA SOPRA IL GESTO, quindi la sua altezza è un vincolo e non un dettaglio:
+  // e2e/asta-gesto-principale.spec.ts asserisce che «ASSEGNA A» resti entro una
+  // distanza dichiarata dal bordo del documento, ed è quel test — non questo
+  // commento — a dire se il blocco ci sta.
+  card.appendChild(renderPlayerInsightsBlock(playerInsightProps()));
+
   // RIQUADRO DEL VALORE — i quattro numeri, dentro la scheda del chiamato e
   // SUBITO sotto la riga d'identità e il prezzo.
   //
@@ -6860,10 +6868,10 @@ function renderMomentoAsta(
   // contiene.
   wrap.appendChild(renderTierBandBlock(tierBandProps(aState)));
 
-  // INSIGHT GIOCATORE sopra la war board MINI — richiesta di Pico 2026-08-17:
-  // scambio di posizione verticale fra i due blocchi adiacenti, niente altro.
-  // L'ordine è asserito da e2e/call-screen-order.spec.ts.
-  wrap.appendChild(renderPlayerInsightsBlock(playerInsightProps()));
+  // IL RIQUADRO INSIGHT NON STA PIÙ QUI: è salito DENTRO #call-card, come
+  // secondo figlio (Pico, 2026-08-29). Renderlo anche qui lo duplicherebbe
+  // nella stessa pagina — stessi id, due volte — che è esattamente il difetto
+  // che la resa unica esisteva per non avere.
 
   // IL POSTO DELLA RISPOSTA LENTA — sempre presente, anche (anzi soprattutto)
   // quando non ha niente da mostrare: è la resa della regola «se non è pronta

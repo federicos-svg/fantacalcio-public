@@ -75,6 +75,23 @@ export const RANGO_SUFFIX = "°";
  */
 export const PIAZZATI_BATTITORE = "battitore";
 
+/**
+ * IL POSTO CHE LA SCHEDA NON DICHIARA, nelle celle del listone: `?`.
+ *
+ * Le tre colonne dei segnali ordinati portano il solo numero del posto in fila
+ * (Pico, 2026-08-29). Per chi è nella fila senza un posto dichiarato — otto
+ * «rigorista possibile» su settanta, misurati sul corpus vero — un numero non
+ * c'è, e le forme che verrebbero spontanee mentono tutte allo stesso modo: la
+ * cella vuota, il trattino e `n/d` si leggono «la scheda non ne parla», mentre
+ * la scheda ne parla eccome. `?` dice l'unica cosa vera — c'è, e il posto non
+ * si sa — ed è la scelta di Pico fra le quattro che gli sono state messe
+ * davanti.
+ *
+ * Non è `VALUE_NOT_AVAILABLE` e non deve diventarlo: quello dichiara che il
+ * deposito non porta nulla su quel giocatore, e sono due assenze diverse.
+ */
+export const RANGO_IGNOTO = "?";
+
 /** `2` -> `«2°»`; `null`/assente -> stringa vuota, MAI uno zero e mai un
  *  trattino: chi rende decide che parola usare per l'assenza (nel listone è
  *  `n/d`), e questa funzione non ne inventa una propria. */

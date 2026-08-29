@@ -157,16 +157,35 @@ export function pagellaAxisMarker(asse: PagellaAsseView): string {
   return "";
 }
 
-export function pagellaAxisRowHtml(asse: PagellaAsseView, index: number): string {
-  const marker = pagellaAxisMarker(asse);
+/**
+ * UN ASSE: l'etichetta sopra, il voto sotto, incolonnati e centrati.
+ *
+ * Erano una riga sola — numero d'ordine, etichetta, voto allineato a destra, e
+ * sotto un marcatore — e i cinque assi si impilavano uno sull'altro. Ora i
+ * cinque stanno FIANCO A FIANCO (`.pagella__assi`), quindi ogni asse è una
+ * colonnina: etichetta, voto. Richiesta di Pico, 2026-08-29.
+ *
+ * TRE COSE SONO SPARITE DA QUI, e nessuna era un fatto che si perde:
+ *
+ * - il numero d'ordine (`pagella-asse__pos`) era `aria-hidden`, cioè già
+ *   dichiarato decorativo: l'ordine lo porta la posizione, e con cinque
+ *   colonne affiancate lo porta anche meglio di prima;
+ * - il marcatore (`pagella-asse__marker`) — «asse di ruolo», «parere della
+ *   fonte» — non sparisce dal prodotto: `pagellaSpoken()` continua a dirlo a
+ *   chi naviga a voce, ed è l'unica superficie in cui quel testo era davvero
+ *   necessario. `pagellaAxisMarker()` resta viva e testata per quella via;
+ * - la didascalia della scala (`pagella__scale`) stava nell'intestazione del
+ *   blocco, non qui.
+ *
+ * `index` non serve più a niente e non è più un parametro: tenerlo avrebbe
+ * lasciato ai chiamanti l'impressione che l'ordine passi da loro.
+ */
+export function pagellaAxisRowHtml(asse: PagellaAsseView): string {
   const id = asse.asse === null ? "player-insight-pagella-quarto" : `player-insight-${asse.asse.replace(/_/g, "-")}`;
   const missing = asse.voto === null ? " pagella-asse--missing" : "";
   return `<li class="pagella-asse${missing}" id="${id}">
-    <span class="pagella-asse__pos" aria-hidden="true">${index + 1}</span>
     <em class="pagella-asse__label">${escHtml(asse.etichetta)}</em>
-    <b class="pagella-asse__voto">${escHtml(pagellaVotoText(asse.voto, asse.stato))}</b>${
-      marker === "" ? "" : `<span class="pagella-asse__marker">${escHtml(marker)}</span>`
-    }
+    <b class="pagella-asse__voto">${escHtml(pagellaVotoText(asse.voto, asse.stato))}</b>
   </li>`;
 }
 
@@ -241,9 +260,13 @@ export const PAGELLA_EMPTY_TEXT = `Nessuno dei cinque voti su ${PAGELLA_VOTO_MAX
  * misure, sta nell'intestazione di schedaIcone.ts.
  */
 export function pagellaBlockHtml(view: PagellaView, iconeHtml = ""): string {
+  // La didascalia della scala («cinque voti su 10 — parole e numeri della
+  // fonte») è stata tolta dall'intestazione su richiesta di Pico, 2026-08-29.
+  // Il «/10» resta scritto su OGNI voto (`pagellaVotoText`), quindi la scala si
+  // legge dove serve invece che una volta in cima; e `PAGELLA_SCALE_CAPTION`
+  // resta esportata perché è la frase che dichiara la provenienza dei numeri.
   const head = `<div class="pagella__head">
     <span class="pagella__title">${escHtml(PAGELLA_TITLE)}</span>
-    <span class="pagella__scale">${escHtml(PAGELLA_SCALE_CAPTION)}</span>
   </div>`;
 
   const mismatch = pagellaAxisMismatchText(view);
@@ -277,7 +300,7 @@ export function pagellaBlockHtml(view: PagellaView, iconeHtml = ""): string {
     </section>`;
   }
 
-  const rows = view.assi.map((asse, index) => pagellaAxisRowHtml(asse, index)).join("");
+  const rows = view.assi.map((asse) => pagellaAxisRowHtml(asse)).join("");
 
   return `<section class="pagella" id="player-insight-pagella">
     ${head}

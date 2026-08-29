@@ -1397,10 +1397,40 @@
    di campi non porta più il bordo/padding di una sezione separata perché la
    scheda che la contiene fa già quel lavoro. Nessun controllo e nessun testo
    sono usciti. */
+/* ── IL GESTO NON SCORRE PIÙ: STA IN FONDO ALLO SCHERMO ─────────────────────
+   Decisione di Pico, 2026-08-29: «il componente assign-block mettilo in
+   position fixed in basso con left 0 e width al 100%».
+
+   IL PROBLEMA CHE RISOLVE, misurato. La scheda del chiamato ha ricevuto il
+   riquadro INSIGHT GIOCATORE come secondo figlio, e quel blocco sta SOPRA il
+   gesto: «ASSEGNA A» passava da sotto i 560px a 605px con le schede vuote e a
+   845px con una scheda vera in pagina, su una finestra alta 900 — cioè il
+   gesto per cui questa schermata esiste finiva sul bordo o sotto. Col dettaglio
+   del ruolo aperto «Registra acquisto» partiva a 875px.
+
+   Fissandolo in fondo il problema non si sposta, sparisce: il gesto è SEMPRE in
+   vista, qualunque cosa cresca sopra di lui e qualunque sia l'altezza della
+   finestra. È una garanzia più forte di quella che il budget verticale
+   inseguiva a colpi di misure — «entro 560px dal bordo» valeva finché nessuno
+   aggiungeva un blocco; «in fondo allo schermo» vale sempre.
+
+   IL PREZZO, E COME È PAGATO. Una barra fissa copre il fondo della pagina, e
+   l'ultimo riquadro finirebbe sotto di lei: `--assign-bar-h` è lo spazio che il
+   contenitore della schermata lascia libero in coda (vedi .app-shell in
+   layout.css). Il fondo è OPACO e ha un bordo in cima: sopra una barra
+   trasparente scorrerebbe il testo degli altri riquadri, e a quel punto il
+   campo del prezzo si leggerebbe sopra un'altra cifra. */
 .assign-block {
+  background: var(--panel);
   border-top: 1px solid var(--border);
-  padding-top: 12px;
-  margin-top: 14px;
+  bottom: 0;
+  box-shadow: 0 -6px 18px oklch(0 0 0 / 0.35);
+  left: 0;
+  margin-top: 0;
+  padding: 12px 24px;
+  position: fixed;
+  width: 100%;
+  z-index: 40;
 }
 .assign-block__head {
   display: flex;
@@ -2106,11 +2136,6 @@
   font-weight: 800;
   letter-spacing: 0.06em;
 }
-.pagella__scale {
-  color: var(--text-dim);
-  font-size: 10px;
-  line-height: 1.35;
-}
 .pagella__body {
   align-items: start;
   display: grid;
@@ -2173,39 +2198,50 @@
   gap: 6px;
   min-width: 0;
 }
+/* I CINQUE ASSI FIANCO A FIANCO, non uno sotto l'altro.
+
+   Richiesta di Pico, 2026-08-29. `grid-auto-flow: column` con cinque colonne
+   uguali: la pagella si legge in un colpo d'occhio come una riga di numeri,
+   che è il modo in cui la si guarda mentre qualcuno urla un prezzo, invece che
+   come un elenco da percorrere dall'alto in basso.
+
+   `minmax(0, 1fr)` e non `1fr`: senza il minimo a zero una colonna di griglia
+   non scende sotto il proprio contenuto, e l'etichetta più lunga
+   («Consiglio Esperti») allargherebbe il blocco oltre la colonna che lo
+   contiene invece di mandare a capo. */
 .pagella__assi {
   display: grid;
-  gap: 2px;
+  gap: 2px 6px;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
   list-style: none;
   margin: 0;
   padding: 0;
 }
+/* Ogni asse è una colonnina: etichetta sopra, voto sotto, tutto centrato. */
 .pagella-asse {
-  align-items: baseline;
+  align-items: center;
   display: flex;
-  flex-wrap: wrap;
-  gap: 2px 7px;
+  flex-direction: column;
+  gap: 1px;
   min-width: 0;
-}
-.pagella-asse__pos {
-  color: var(--text-dim);
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  width: 9px;
+  text-align: center;
 }
 .pagella-asse__label {
   color: var(--text-sec);
-  font-size: 11px;
+  font-size: 10px;
   font-style: normal;
-  line-height: 1.35;
+  line-height: 1.25;
 }
+/* IL VOTO È LA COSA CHE SI GUARDA, e ora ha il corpo che lo dice: da 11,5px a
+   16. È il numero per cui questo blocco esiste — l'etichetta serve solo a
+   sapere di che numero si tratta. */
 .pagella-asse__voto {
   color: var(--text-primary);
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 16px;
   font-weight: 700;
-  margin-left: auto;
+  line-height: 1.2;
 }
 /* Un voto che manca resta scritto «n/d» in chiaro, con lo stesso peso degli
    altri: attenuarlo lo farebbe leggere come un valore basso invece che come
@@ -2214,13 +2250,6 @@
 .pagella-asse--missing .pagella-asse__voto {
   color: var(--text-sec);
   font-weight: 600;
-}
-.pagella-asse__marker {
-  color: var(--text-dim);
-  flex-basis: 100%;
-  font-size: 9.5px;
-  line-height: 1.3;
-  padding-left: 16px;
 }
 .pagella__totale {
   color: var(--text-mid);

@@ -19,6 +19,7 @@ import {
   pagellaVuota,
 } from "../pagellaEsperti.js";
 import { escHtml, roleChipHtml } from "./theme.js";
+import { RANGO_IGNOTO } from "./schedaLabels.js";
 import { clubBadgeHtml } from "./serieA.js";
 // La formattazione decimale italiana deterministica di questo repository —
 // niente `Intl`, virgola, un decimale. Importata e non ricopiata: una seconda
@@ -462,15 +463,19 @@ export const SIGNAL_COLUMN_KEYS: readonly string[] = [
  */
 export interface ListoneRowSignals {
   /**
-   * LE TRE CELLE ORDINATE, GIÀ IN PAROLE: «1° designato», «2° battitore»,
-   * `null` quando la scheda non dichiara quella fila.
+   * LE TRE CELLE ORDINATE, COL SOLO POSTO IN FILA: «1», «2», «3», oppure `?`
+   * quando la scheda dichiara la fila ma non il posto; `null` quando non
+   * dichiara nemmeno la fila.
    *
-   * Sono STRINGHE GIÀ COMPOSTE e non una coppia (parola, numero) da unire qui:
-   * il rango si scrive con `conRango` (src/ui/schedaLabels.ts), una volta, per
-   * tutte le superfici che lo mostrano — la colonna, la pastiglia del riquadro,
-   * l'icona accanto al radar. Comporre la stringa in tre posti sarebbe tre modi
-   * di scrivere lo stesso ordinale, e il giorno in cui uno cambia gli altri
-   * due restano indietro senza che nulla diventi rosso.
+   * Portavano la parola davanti — «1° designato», «2° battitore» — fino al
+   * 2026-08-29: la specialità è già scritta nell'intestazione della colonna e
+   * nel suo tooltip, quindi in cella la diceva due volte, su ogni riga di un
+   * listone da cinquecento. Le altre superfici (la pastiglia del riquadro,
+   * l'icona accanto al radar) continuano a scriverla con `conRango`, perché
+   * là l'intestazione che la dichiara non esiste.
+   *
+   * Restano STRINGHE GIÀ COMPOSTE e non una coppia (parola, numero) da unire
+   * qui: chi rende una tabella non decide come si scrive un posto in fila.
    */
   readonly rigori: string | null;
   readonly punizioni: string | null;
@@ -1249,9 +1254,10 @@ const NO_MALUS_BONUS_CLAUSE =
 
 /** Rigorista e piazzati: riportano la scheda, e il silenzio non è un «no». */
 const SCHEDA_SIGNALS_CLAUSE =
-  `«Rigorista», «Punizioni» e «Angoli» riportano la scheda, col posto nella fila quando la ` +
-  `scheda lo dichiara: «${VALUE_NOT_AVAILABLE}» significa che la scheda non lo dice, non che ` +
-  `il giocatore non li calci. `;
+  `«Rigorista», «Punizioni» e «Angoli» riportano la scheda col POSTO NELLA FILA: «1» è il ` +
+  `primo. «${RANGO_IGNOTO}» quando la scheda dichiara la fila e non il posto; ` +
+  `«${VALUE_NOT_AVAILABLE}» quando non dichiara nemmeno la fila — che non significa che il ` +
+  `giocatore non li calci. `;
 
 
 /** Le due colonne delle specialità dicono la stessa cosa su due file diverse:
@@ -1259,9 +1265,8 @@ const SCHEDA_SIGNALS_CLAUSE =
  *  divergerebbero alla prima correzione, e il lettore leggerebbe due regole
  *  dove ce n'è una. */
 const PIAZZATI_TOOLTIP = (specialita: string, di: string): string =>
-  `Battitore ${di} secondo la scheda del Gruppo Esperti, col POSTO NELLA FILA davanti ` +
-  `quando la scheda lo dichiara: «1° battitore» è il primo della fila. Senza numero la ` +
-  `scheda dichiara la specialità e non l'ordine. ` +
+  `Il POSTO NELLA FILA dei battitori ${di} secondo la scheda del Gruppo Esperti: «1» è il ` +
+  `primo. «${RANGO_IGNOTO}» quando la scheda dichiara la specialità e non l'ordine. ` +
   `«${VALUE_NOT_AVAILABLE}» quando la scheda non nomina «${specialita}» fra i calci ` +
   `piazzati — non significa che non li batta.`;
 
@@ -1422,9 +1427,12 @@ export function listoneColumnFlex(key: string): number {
   // cifra, ed è l'etichetta a decidere la larghezza minima di queste colonne.
   if (GEN_FORECAST_COLUMN_KEYS.includes(key)) return 1.1;
   if ((EXPERT_VOTE_COLUMN_KEYS as readonly string[]).includes(key)) return 0.85;
-  // I tre segnali ordinati: il rigorista porta la parola più lunga
-  // («designato») col numero davanti, le due specialità la sola parola
-  // «battitore» — che è la stessa per entrambe, quindi la stessa larghezza.
+  // I tre segnali ordinati portano ora UN CARATTERE SOLO — «1», «2», «3», «?»
+  // (2026-08-29) — quindi la larghezza non la decide più il valore: la decide
+  // l'INTESTAZIONE, che è la stringa più lunga delle due. «Rigorista» è più
+  // larga di «Punizioni» e «Angoli», e per questo tiene il proprio 1.1: non è
+  // il residuo della parola «designato» che stava in cella, è la parola che
+  // sta ancora in testa alla colonna.
   if (key === RIGORISTA_COLUMN_KEY) return 1.1;
   if (key === PUNIZIONI_COLUMN_KEY || key === ANGOLI_COLUMN_KEY) return 1;
   if (key === "quotation") return 0.9;
@@ -1506,9 +1514,9 @@ const COLUMN_TOOLTIPS: Readonly<Record<string, string>> = {
     `Voto 0–${EXPERT_VOTE_MAX} del «Consiglio Esperti», scritto dal Gruppo Esperti: è un PARERE ` +
     "della fonte, non una misura, e non entra in nessun calcolo di questa applicazione.",
   [RIGORISTA_COLUMN_KEY]:
-    "Designazione dei rigori come la dichiara la scheda del Gruppo Esperti: «designato» o «possibile», " +
-    "col POSTO NELLA FILA davanti quando la scheda lo dichiara — «1° designato» è il primo rigorista. " +
-    "Senza numero la scheda dice che li tira e non dice in che ordine. " +
+    "Il POSTO NELLA FILA dei rigoristi come lo dichiara la scheda del Gruppo Esperti: «1» è il " +
+    `primo rigorista. «${RANGO_IGNOTO}» quando la scheda lo dà fra i rigoristi senza dire in che ` +
+    "ordine — è il caso del «rigorista possibile». " +
     "n/d quando la scheda non lo dice affatto — non significa che non li tiri.",
   [PUNIZIONI_COLUMN_KEY]: PIAZZATI_TOOLTIP("punizioni", "delle punizioni"),
   [ANGOLI_COLUMN_KEY]: PIAZZATI_TOOLTIP("angoli", "degli angoli"),

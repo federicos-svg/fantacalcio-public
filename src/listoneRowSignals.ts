@@ -42,7 +42,7 @@ import {
 } from "./expertScheda.js";
 import type { PagellaView } from "./pagellaEsperti.js";
 import { schedaLinkRowKey, type SchedaLinks } from "./schedaLinks.js";
-import { PIAZZATI_BATTITORE, RIGORI_LABELS, conRango } from "./ui/schedaLabels.js";
+import { RANGO_IGNOTO } from "./ui/schedaLabels.js";
 import {
   emptyRowSignals,
   type ListonePlayer,
@@ -74,10 +74,13 @@ export interface ListoneSignalsInput {
  * I SEGNALI DI UNA RIGA, risolti. Puro: stessi ingressi → stessa uscita, e
  * nessuno dei tre ingressi viene toccato.
  *
- * Le parole dei tre segnali ordinati arrivano dal vocabolario chiuso delle
- * schede (src/ui/schedaLabels.ts) e il rango si scrive con `conRango`, la
- * stessa funzione di ogni altra superficie: questo modulo non traduce e non
- * inventa — se una parola non è nel vocabolario, non è arrivata da qui.
+ * I tre segnali ordinati portano il SOLO POSTO IN FILA — «1», «2», «3» — o `?`
+ * quando la scheda dichiara la fila ma non il posto (`RANGO_IGNOTO`,
+ * src/ui/schedaLabels.ts). Nessuna parola: la specialità è già scritta
+ * nell'intestazione della colonna, e questo modulo non ne inventa una propria.
+ * Le altre superfici — la pastiglia del riquadro, l'icona accanto al radar —
+ * continuano a scrivere la parola col rango (`conRango`), perché là la colonna
+ * che la dichiara non c'è.
  *
  * `pagella` è la vista GIÀ RISOLTA dal contratto, la stessa che alimenta il
  * radar del riquadro d'asta: il quarto asse è già stato scelto dal ruolo della
@@ -99,14 +102,28 @@ export function resolveRowSignals(
   if (view.rigori === null && view.piazzati.length === 0 && view.pagella.votiPresenti === 0) {
     return emptyRowSignals(p.role);
   }
-  // LE TRE CELLE SI COMPONGONO QUI, con `conRango` — la stessa funzione che
-  // scrive il rango nella pastiglia del riquadro e sotto l'icona. Il rango
-  // assente non produce nessun numero e non degrada a zero: resta la sola
-  // parola, e la colonna lo dichiara nel proprio tooltip.
+  // LE TRE CELLE PORTANO IL SOLO NUMERO — richiesta di Pico, 2026-08-29.
+  //
+  // Erano «1° designato», «2° battitore»: la parola e l'ordinale in una cella
+  // larga un pollice, ripetuti su ogni riga di un listone da cinquecento. La
+  // parola è già nell'intestazione della colonna («Rigorista», «Punizioni»,
+  // «Angoli») e nel suo tooltip, quindi in cella diceva due volte la stessa
+  // cosa; e il `°` è decorazione di un numero che sta sotto un'intestazione
+  // che ne dichiara già il senso.
+  //
+  // IL PUNTO INTERROGATIVO NON È UN RIPIEGO. Otto giocatori su settanta sono
+  // «rigorista possibile» senza posto dichiarato: la scheda dice che sono
+  // nella fila, non a che punto. Tolte le parole, per loro non resterebbe
+  // nessun numero — e le tre alternative erano tutte peggiori, perché la cella
+  // vuota, il trattino e `n/d` si leggono tutti e tre come «la scheda non dice
+  // niente», che di quel giocatore è falso. `?` dice l'unica cosa vera: c'è, e
+  // il posto non si sa. Scelto da Pico fra le quattro.
+  const posto = (rango: number | null): string =>
+    rango === null ? RANGO_IGNOTO : String(rango);
   const battitore = (kind: "punizioni" | "angoli", rango: number | null): string | null =>
-    view.piazzati.includes(kind) ? conRango(PIAZZATI_BATTITORE, rango) : null;
+    view.piazzati.includes(kind) ? posto(rango) : null;
   return {
-    rigori: view.rigori === null ? null : conRango(RIGORI_LABELS[view.rigori], view.rangoRigori),
+    rigori: view.rigori === null ? null : posto(view.rangoRigori),
     punizioni: battitore("punizioni", view.rangoPunizioni),
     angoli: battitore("angoli", view.rangoAngoli),
     pagella: view.pagella,

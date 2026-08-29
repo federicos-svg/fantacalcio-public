@@ -4,10 +4,22 @@
    moving them out of inline style strings is part of "modular CSS files"
    (goal 2 of this batch), not just duplicate-reduction (goal 1). */
 
+/* LO SPAZIO CHE LA BARRA DEL GESTO SI PRENDE, restituito in coda alla pagina.
+
+   `#assign-block` è fissato in fondo allo schermo (Pico, 2026-08-29, vedi
+   .assign-block in asta.css): senza questo margine l'ultimo riquadro della
+   schermata finirebbe SOTTO la barra, leggibile solo scorrendo oltre il fondo
+   del documento — cioè non leggibile. Il valore è generoso di proposito: la
+   barra si allunga quando i campi vanno a capo sullo schermo stretto, e uno
+   spazio in più in coda non si vede, uno in meno nasconde una riga. */
+:root {
+  --assign-bar-h: 132px;
+}
 .app-shell {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  padding-bottom: var(--assign-bar-h);
 }
 
 .topbar {
