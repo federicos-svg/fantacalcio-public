@@ -198,8 +198,27 @@ export const CALL_SCREEN_STATES: readonly CallScreenStateSpec[] = [
 export const LISTONE_ROW_PX = 93;
 
 /** Da dove il blocco del listone comincia al bordo superiore della PRIMA riga:
- *  margine del blocco, titolo, filtro stato, icona colonne, testata colonne. */
-export const LISTONE_HEAD_PX = 201;
+ *  margine del blocco, titolo, i quattro interruttori di ruolo, filtro stato,
+ *  icona colonne, testata colonne.
+ *
+ *  ERA 201, ED È SALITA A 233 IL 2026-08-29. I 32 px sono i quattro
+ *  interruttori di ruolo che Pico ha chiesto sulla riga del titolo: a 390px la
+ *  riga manda a capo e loro scendono sotto il titolo, prendendosi una seconda
+ *  riga. A schermo largo stanno accanto al titolo e non costano niente — ma il
+ *  mastro misura lo stretto, perché è lì che la piega morde.
+ *
+ *  A 28px di lato ne costavano 36, e lo span di boot finiva a 1690 su 1688:
+ *  DUE PIXEL oltre il totale dichiarato, e il mastro li ha visti. Gli
+ *  interruttori sono stati portati a 24 — la misura è scelta per stare dentro
+ *  il totale, e sta scritta anche in src/styles/listone.css accanto al numero.
+ *  Il tetto non è stato alzato: è il controllo nuovo ad essere stato tagliato
+ *  su misura, che è il verso giusto.
+ *
+ *  I 32 px escono dalla riserva, che scende da −1068 a −1100: nessun'altra
+ *  riga è stata abbassata, perché nessun altro blocco ha perso qualcosa. È la
+ *  procedura scritta in cima a questo file — si misura, si dichiara, si
+ *  sottrae — e non un tetto ritoccato per far tornare un test. */
+export const LISTONE_HEAD_PX = 233;
 
 /** Dal bordo inferiore dell'ULTIMA riga al bordo superiore dell'indicatore di
  *  pagina: la coda della tabella dentro lo span. */
@@ -511,7 +530,7 @@ export const CALL_SCREEN_ALLOCATED_PX = CALL_SCREEN_BUDGET_LEDGER.reduce(
  * smetterà di essere possibile sfondare l'allocazione di un blocco senza
  * sfondare anche il totale (vedi PROVA 1, e2e/call-screen-budget.spec.ts).
  */
-export const CALL_SCREEN_BUDGET_RESERVE_PX = -1068;
+export const CALL_SCREEN_BUDGET_RESERVE_PX = -1100;
 
 /**
  * Che cosa costa, oggi, far entrare un blocco nuovo alto `heightPx`: quanti px
@@ -550,8 +569,8 @@ export interface CallScreenOverBudgetState {
 export const CALL_SCREEN_OVER_BUDGET_STATES: readonly CallScreenOverBudgetState[] = [
   {
     state: "contesto-aperto",
-    spanPx: 1901,
-    overBudgetPx: 213,
+    spanPx: 1933,
+    overBudgetPx: 245,
     why:
       "il corpo di CONTESTO CHIAMATA aperto porta il blocco da 151,5 a 1096,25 px; il listone " +
       "è filtrato a una riga sola e lo span sfonda lo stesso. Erano 1874 px su ac8814c, 1901 " +
@@ -564,8 +583,8 @@ export const CALL_SCREEN_OVER_BUDGET_STATES: readonly CallScreenOverBudgetState[
   },
   {
     state: "contesto-aperto-ricerca-vuota",
-    spanPx: 2750,
-    overBudgetPx: 1062,
+    spanPx: 2782,
+    overBudgetPx: 1094,
     why:
       "contesto aperto E listone di nuovo a pagina piena: 2901 px contro 1688, il 172% del " +
       "totale dichiarato (erano 2724 — il 161% — su ac8814c e 2750 il 2026-08-25). È lo stato " +
@@ -591,7 +610,8 @@ export type CallScreenBudgetUnratifiedId =
   | "LISTONE_COLONNE_DEFAULT_NON_DICHIARATE"
   | "RISERVA_NEGATIVA_SENZA_PROPRIETARIO"
   | "SCHEDA_ESPERTO_CON_DEPOSITO_NON_DICHIARATA"
-  | "MISURE_LEGATE_AL_RENDERING_PINNATO";
+  | "MISURE_LEGATE_AL_RENDERING_PINNATO"
+  | "PROVA_1_MARGINE_ESAURITO";
 
 export const CALL_SCREEN_BUDGET_UNRATIFIED: Readonly<
   Record<CallScreenBudgetUnratifiedId, string>
@@ -606,8 +626,18 @@ export const CALL_SCREEN_BUDGET_UNRATIFIED: Readonly<
   LISTONE_COLONNE_DEFAULT_NON_DICHIARATE:
     "LISTONE_ROW_PX è l'altezza che la riga ha con le colonne di default di oggi: quante " +
     "colonne la riga possa portare senza mandare a capo non è dichiarato da nessuna parte",
+  PROVA_1_MARGINE_ESAURITO:
+    "il margine residuo sul TOTALE, allo stato di boot, è sceso a 2 px (era 34 prima dei quattro " +
+    "interruttori di ruolo del 2026-08-29, e 60,5 su ac8814c). PROVA 1 in e2e/call-screen-budget." +
+    "spec.ts dimostra che il mastro nomina il blocco colpevole PRIMA che il totale diventi rosso, " +
+    "e per farlo ha bisogno di un'aggiunta che sfondi una riga restando dentro il totale: oggi " +
+    "quell'aggiunta è alta UN PIXEL. Il prossimo blocco aggiunto a questa schermata — qualunque " +
+    "sia — sfonderà il totale insieme alla propria riga, e quella dimostrazione diventerà " +
+    "irriproducibile. Non è un difetto del test: è la schermata che ha finito lo spazio. Che cosa " +
+    "restituire, e da quale riga, è una decisione di prodotto: qui si registra il numero, non lo " +
+    "si condona",
   RISERVA_NEGATIVA_SENZA_PROPRIETARIO:
-    "la riserva è negativa (−1219 px): il totale dichiarato è già sfondato dai blocchi " +
+    "la riserva è negativa (−1100 px): il totale dichiarato è già sfondato dai blocchi " +
     "esistenti, e nessuno ha dichiarato quale riga debba restituire lo spazio",
   SCHEDA_ESPERTO_CON_DEPOSITO_NON_DICHIARATA:
     "il problema NON è più di questa schermata, e non è risolto: si è spostato. Dal 2026-08-29 " +
@@ -654,8 +684,8 @@ export interface CallScreenNameLengthPin {
  * mastro dice da solo quanto manca.
  */
 export const CALL_SCREEN_NAME_LENGTH_PINS: readonly CallScreenNameLengthPin[] = [
-  { chars: 18, spanPx: 1834, overBudgetPx: 146 },
-  { chars: 22, spanPx: 1854, overBudgetPx: 166 },
+  { chars: 18, spanPx: 1866, overBudgetPx: 178 },
+  { chars: 22, spanPx: 1886, overBudgetPx: 198 },
 ];
 
 /* ────────────────────────────────────────────────────────────────────────────

@@ -350,19 +350,31 @@ test("PROVA 1 — una riga di testo in più a un blocco esistente: rosso il mast
   await boot(page);
 
   // QUANTO ALTA DEV'ESSERE L'AGGIUNTA, E PERCHÉ È SCRITTA COSÌ. Allo stato
-  // `ricerca` lo span misura 1654 px su 1688 dichiarati: il margine residuo
-  // sul TOTALE è 34 px — era 60,5 su ac8814c, prima che #55 portasse il
-  // sottoblocco PER ME dentro GIOCATORE SUGGERITO. L'aggiunta di questa prova
-  // è alta 20 px: sfonda l'allocazione del blocco (287 px) e resta dentro il
-  // totale, che è esattamente la scena da dimostrare.
+  // `ricerca` lo span misura 1686 px su 1688 dichiarati: il margine residuo
+  // sul TOTALE è 2 px. L'aggiunta di questa prova è alta 1 px: sfonda
+  // l'allocazione del blocco (287 px) e resta dentro il totale, che è
+  // esattamente la scena da dimostrare.
   //
-  // Il margine che rende possibile questa scena si sta chiudendo, ed è UN
-  // FATTO DEL DEBITO, non un dettaglio del test: quando sarà sotto i 20 px
-  // nessuna aggiunta potrà più sfondare un blocco senza sfondare anche il
-  // totale, e la dimostrazione «il mastro morde prima» diventerà
-  // irriproducibile perché il totale morde ormai subito. Il giorno in cui
-  // questa prova diventa rossa qui, si rimisura e si guarda quel margine.
-  const EXTRA_PX = 20;
+  // ── IL GIORNO PREVISTO È ARRIVATO, ed è il 2026-08-29 ────────────────────
+  //
+  // Qui c'era scritto: «il margine si sta chiudendo, ed è un fatto del debito,
+  // non un dettaglio del test: quando sarà sotto i 20 px nessuna aggiunta
+  // potrà più sfondare un blocco senza sfondare anche il totale. Il giorno in
+  // cui questa prova diventa rossa qui, si rimisura e si guarda quel margine».
+  //
+  // È diventata rossa. I quattro interruttori di ruolo chiesti da Pico hanno
+  // preso 32 px dei 34 che restavano, e l'aggiunta da 20 px non ci sta più:
+  // 1706 su 1688. Rimisurato, il margine è 2 px, e l'aggiunta scende a 1 — perché 2 atterra sul tetto, e il tetto non è «dentro».
+  //
+  // La prova regge ancora — un blocco sfora la propria riga e il totale tiene
+  // — ma su UN pixel: il margine è 2 e un'aggiunta da 2 atterra esattamente
+  // sul tetto, che non è «dentro». È quanto dire «l'ultima volta». La prossima
+  // aggiunta a questa schermata, quale che sia, sfonderà il totale insieme
+  // alla propria riga, e questa dimostrazione diventerà irriproducibile: non
+  // per un difetto del test, ma perché la schermata avrà finito lo spazio che
+  // il totale le concede. Vedi PROVA_1_MARGINE_ESAURITO in
+  // src/ui/callScreenBudget.ts.
+  const EXTRA_PX = 1;
   await page.evaluate((extraPx) => {
     const host = document.getElementById("suggested-player");
     if (host === null) throw new Error("prova 1: #suggested-player non è a schermo");
@@ -396,10 +408,18 @@ test("PROVA 1 — una riga di testo in più a un blocco esistente: rosso il mast
 
   // …e di quanto è ancora verde: il margine residuo, misurato, è ciò che
   // resta prima che una scena come questa smetta di esistere.
+  //
+  // ERA 14 PX. Dal 2026-08-29 è UNO. Non è un numero da aggiornare e basta: è
+  // la misura di quanto manca alla fine di questa dimostrazione, e la riga che
+  // la porta esiste apposta perché quel numero arrivi a qualcuno invece di
+  // scivolare via. Il prossimo blocco aggiunto a questa schermata sfonderà il
+  // totale insieme alla propria riga, e la scena «il mastro morde prima» non
+  // sarà più riproducibile — non per un difetto del test, ma perché la
+  // schermata avrà finito lo spazio che il totale le concede.
   expect(
     CALL_SCREEN_VERTICAL_BUDGET_PX - Math.round(sweep.spanPx),
     "margine residuo sul totale, con l'aggiunta già dentro",
-  ).toBe(14);
+  ).toBe(1);
 
   expect(externalRequests).toEqual([]);
 });

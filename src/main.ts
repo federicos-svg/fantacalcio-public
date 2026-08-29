@@ -1523,6 +1523,24 @@ function setPoolStatusFilter(status: ListoneStatusFilter): void {
   focusAfterRender("listone-status-filter-trigger");
 }
 
+/**
+ * Il ruolo su cui il listone filtra, scritto da uno dei quattro interruttori.
+ *
+ * FA ESATTAMENTE CIÒ CHE FA IL MENU «Ruolo» della ricerca, e non per pigrizia:
+ * è lo stesso fatto, e due percorsi che scrivono lo stesso campo in due modi
+ * diversi divergono alla prima correzione fatta su uno solo. Le tre righe
+ * accanto all'assegnazione — il conteggio delle interazioni, la pagina che
+ * torna alla prima, il render — sono le stesse per la stessa ragione: cambiare
+ * filtro e restare a pagina sette mostrerebbe una tabella vuota che sembra un
+ * elenco senza risultati.
+ */
+function setListoneRoleFilter(role: Role | ""): void {
+  state.call.role = role;
+  state.callInteractions += 1;
+  state.poolPage = 1;
+  render();
+}
+
 function togglePoolStatusFilter(): void {
   state.poolStatusFilterOpen = !state.poolStatusFilterOpen;
   render();
@@ -6277,6 +6295,10 @@ function renderMomentoChiamata(
         assignedKeys,
         statusFilter: state.poolStatusFilter,
         statusFilterOpen: state.poolStatusFilterOpen,
+        // Lo STESSO campo che alimenta il menu «Ruolo» della ricerca e il
+        // filtro qui sotto: gli interruttori sono una maniglia in più sulla
+        // stessa porta, non una seconda porta.
+        roleFilter: state.call.role,
         selectedKey: state.call.selectedPlayer
           ? listonePlayerKey(state.call.selectedPlayer)
           : null,
@@ -6291,6 +6313,7 @@ function renderMomentoChiamata(
         onToggleManualOverride: toggleListoneManualOverride,
         onStatusFilterChange: setPoolStatusFilter,
         onToggleStatusFilter: togglePoolStatusFilter,
+        onRoleFilterChange: setListoneRoleFilter,
         onSelectPlayer: selectListonePlayer,
       },
     ),
