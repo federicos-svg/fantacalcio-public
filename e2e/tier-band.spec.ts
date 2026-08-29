@@ -85,12 +85,46 @@ const DIRECTIVE =
  * CONSIGLIO» del riquadro INSIGHT GIOCATORE.
  */
 async function expectNoDirectiveOutput(page: Page): Promise<void> {
-  const panelText = await page.locator("#tier-band-panel").innerText();
+  // `textContent` e non `innerText`: dal 2026-08-29 la nota e la riga di
+  // provenienza sono nascoste (vedi `expectProvenanceSpoken`), e `innerText`
+  // legge il testo RESO — cioè salterebbe proprio le due frasi che portano il
+  // divieto, lasciando questa guardia più debole di prima senza che si veda.
+  const panelText = await page
+    .locator("#tier-band-panel")
+    .evaluate((el) => el.textContent ?? "");
   const stripped = panelText.replace(/nessun prezzo atteso/gi, "").replace(/nessun consiglio/gi, "");
   expect(stripped).not.toMatch(DIRECTIVE);
   await expect(page.locator("#tier-band-note")).toContainText("nessun prezzo atteso");
   await expect(page.locator("#tier-band-note")).toContainText("Nessun consiglio");
   await expect(page.locator("#tier-band-note")).toContainText("il giudizio è tuo");
+}
+
+/**
+ * LA CONDIZIONE VINCOLANTE DEL 2026-08-16, DOVE VIVE ADESSO.
+ *
+ * «La fascia non si mostra senza dire da dove viene»: fino al 2026-08-29 lo
+ * diceva `#tier-band-provenance` a schermo. Pico ha chiesto di nascondere
+ * quella riga e la nota; messo davanti al conflitto col proprio record ha
+ * deciso — «Nascondile, ma restano a voce». Il patto quindi non è caduto, si è
+ * spostato nell'`aria-label` del riquadro, ed è QUI che si prova: le due frasi
+ * devono raggiungere chi naviga a voce, e i due nodi devono essere scritti nel
+ * documento e non dipingere un pixel.
+ *
+ * Senza questa funzione le prove del file resterebbero verdi con la garanzia
+ * sparita: `display: none` toglie un nodo anche dall'albero di accessibilità.
+ */
+async function expectProvenanceSpoken(page: Page, provenance: string): Promise<void> {
+  const spoken = await page
+    .locator("#tier-band-panel")
+    .evaluate((el) => el.getAttribute("aria-label") ?? "");
+  expect(spoken, "la provenienza è nella forma parlata del riquadro").toContain(provenance);
+  expect(spoken, "il «nessun consiglio» è nella forma parlata del riquadro").toContain(
+    "il giudizio è tuo",
+  );
+  for (const sel of ["#tier-band-provenance", "#tier-band-note"]) {
+    await expect(page.locator(sel)).toHaveCount(1);
+    await expect(page.locator(sel)).toBeHidden();
+  }
 }
 
 /** Apre il momento live su un giocatore, dalla schermata di chiamata. */
@@ -203,10 +237,19 @@ test("la fascia del chiamato e il registro di quella fascia arrivano a schermo",
   await expect(page.locator("#tier-band-body")).toHaveCount(0);
   await expect(page.locator("#tier-band-prices")).toHaveCount(0);
   // La provenienza resta: l'ordine esiste, è questo giocatore a esserne fuori.
+  // Resta nel documento e resta nel parlato; a schermo no.
   await expect(page.locator("#tier-band-provenance")).toContainText(RECIPE);
+  await expectProvenanceSpoken(page, RECIPE);
 
   // ── Il testo si legge: AA misurato sul DOM vivo ───────────────────────────
-  for (const sel of ["#tier-band-name", "#tier-band-headline", "#tier-band-provenance", "#tier-band-note"]) {
+  // I due nodi nascosti sono usciti da questa spazzata, e non è un
+  // alleggerimento: `textContrast` non salta gli elementi che non dipingono —
+  // a differenza di `measureAllText` — quindi su di loro avrebbe continuato a
+  // calcolare un rapporto vero su un colore che nessuno vede, cioè un verde
+  // che non prova niente. `expectProvenanceSpoken` qui sopra pretende che
+  // siano nascosti: il giorno in cui tornano a schermo quella riga diventa
+  // rossa, e questi due selettori vanno rimessi in questo elenco.
+  for (const sel of ["#tier-band-name", "#tier-band-headline"]) {
     expect(await textContrast(page, sel), `fascia: ${sel}`).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
   }
 
@@ -252,13 +295,19 @@ test("un listone senza indice di appetibilità non produce fasce, e il riquadro 
   await expect(page.locator("#tier-band-prices")).toHaveCount(0);
   await expect(page.locator("#tier-band-occupancy")).toHaveCount(0);
   await expect(page.locator("#tier-band-provenance")).toHaveText("Ordine di appetibilità: n/d.");
-  const panelText = await page.locator("#tier-band-panel").innerText();
+  // ED È LO STATO IN CUI LA GARANZIA PESA DI PIÙ: qui il riquadro dice «Non lo
+  // so», e chi ascolta deve sentire PERCHÉ — «Ordine di appetibilità: n/d.» —
+  // invece di un verdetto senza fonte.
+  await expectProvenanceSpoken(page, "Ordine di appetibilità: n/d.");
+  const panelText = await page
+    .locator("#tier-band-panel")
+    .evaluate((el) => el.textContent ?? "");
   expect(panelText).not.toMatch(/prima fascia|seconda fascia|terza fascia|fascia \d/i);
   await expectNoDirectiveOutput(page);
 
   // Il riquadro resta LEGGIBILE anche nello stato in cui non sa: è lo stato
   // che l'operatore incontra più spesso.
-  for (const sel of ["#tier-band-name", "#tier-band-headline", "#tier-band-provenance"]) {
+  for (const sel of ["#tier-band-name", "#tier-band-headline"]) {
     expect(await textContrast(page, sel), `senza indice: ${sel}`).toBeGreaterThanOrEqual(
       AA_NORMAL_TEXT,
     );

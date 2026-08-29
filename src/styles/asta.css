@@ -1189,6 +1189,19 @@
    - «Nascondi #war-board-mini-Io dentro a #war-board-mini-list»;
    - «Nascondi #tier-band-note e #tier-band-provenance».
 
+   L'ULTIMA DELLE QUATTRO HA RICHIESTO UNA DECISIONE, e non è stata presa qui.
+   Il record del 2026-08-16 dichiara una condizione vincolante: la fascia non
+   si mostra senza dire da dove viene, ed è esattamente `#tier-band-provenance`
+   a dirlo — mentre `#tier-band-note` porta il «Nessun consiglio: i fatti sono
+   qui, il giudizio è tuo». Nasconderle lasciava un verdetto senza fonte in un
+   riquadro che resta a schermo, cosa che le altre righe di questo blocco non
+   fanno (nascondono pannelli interi, che se ne vanno con tutto il loro
+   contesto). Portata a Pico il 2026-08-29, la sua decisione: «Nascondile, ma
+   restano a voce». Perciò le due frasi sono entrate nella forma parlata del
+   riquadro — `tierBandSpoken()`, src/ui/tierBand.ts — e la condizione
+   vincolante regge lì. Togliere queste due righe di stile senza togliere
+   quelle due frasi dal parlato le farebbe dire due volte.
+
    NASCOSTI, NON CANCELLATI, e la seconda frase dice perché è la scelta giusta
    e non la scorciatoia: «forse li svilupperemo dopo l'asta». Un pannello
    cancellato va riscritto, un pannello nascosto torna togliendo una riga —

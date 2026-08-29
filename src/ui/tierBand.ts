@@ -255,10 +255,20 @@ export function tierPricesHtml(facts: TierFacts): string {
 // ── Provenienza: la fascia non si mostra senza dire da dove viene ────────────
 
 /**
- * Condizione vincolante 1 del record 2026-08-16: la provenienza va MOSTRATA
- * accanto alla fascia. `null` ⇒ `n/d`, mai un valore di ripiego — e in questo
+ * Condizione vincolante 1 del record 2026-08-16: la fascia non si mostra senza
+ * dire da dove viene. `null` ⇒ `n/d`, mai un valore di ripiego — e in questo
  * riquadro `null` non arriva mai da solo, perché senza libro non c'è nemmeno
  * una fascia da qualificare.
+ *
+ * DAL 2026-08-29 QUESTA RIGA NON È PIÙ A SCHERMO, e la condizione vincolante
+ * NON è stata cancellata: si è spostata. Pico ha chiesto di nascondere
+ * `#tier-band-provenance` e `#tier-band-note`; messo davanti al conflitto con
+ * il proprio record del 16 agosto ha deciso — «Nascondile, ma restano a voce».
+ * Perciò `tierBandSpoken()` qui sotto porta la provenienza e la nota dentro
+ * l'`aria-label` del riquadro, e il patto regge dove prima reggeva a schermo:
+ * nessuna fascia arriva a qualcuno senza dire da dove viene. Il testo non è
+ * stato toccato di una virgola, e il giorno in cui torna a schermo torna
+ * togliendo una regola di stile (`src/styles/asta.css`).
  *
  * La numerosità dell'ordine sta nella stessa riga: un ordine con 4 verdetti su
  * 532 righe e uno con 532 su 532 producono fasce molto diverse, e la seconda
@@ -287,9 +297,28 @@ export function tierProvenanceText(
 export const TIER_BAND_NOTE =
   "Le fasce vengono dall'ordine di appetibilità del listone caricato, non da questo schermo: quante fasce ha un ruolo lo dice il regolamento (i giocatori che servono in rosa), quanto è larga una fascia lo dice il numero di squadre al tavolo. I prezzi sono quelli DAVVERO pagati stasera in questa fascia, letti dal log dell'asta uno per uno: nessun prezzo atteso, nessuna banda, nessuna previsione. I «già presi» comprendono le riconferme pre-asta, i prezzi no — una riconferma porta la cifra della stagione scorsa e non è il mercato di stasera. Nessun consiglio: i fatti sono qui, il giudizio è tuo.";
 
-/** Forma parlata dell'intestazione, per l'aria-label del blocco: la parola
- *  grande da sola («Prima fascia») non dice di chi né di che cosa. */
+/**
+ * Forma parlata dell'intestazione, per l'aria-label del blocco: la parola
+ * grande da sola («Prima fascia») non dice di chi né di che cosa.
+ *
+ * PORTA ANCHE LA PROVENIENZA E LA NOTA, dal 2026-08-29. Le due frasi sono
+ * uscite da schermo su richiesta di Pico e `display: none` le toglie anche
+ * dall'albero di accessibilità: senza questa riga chi naviga a voce sentirebbe
+ * un verdetto di fascia e nient'altro — né da quale ordine viene, né che qui
+ * non c'è nessun consiglio. È lo stesso trattamento già riservato al caveat
+ * della pagella (`pagellaSpoken`), ed è la forma in cui la condizione
+ * vincolante 1 del record 2026-08-16 continua a essere rispettata.
+ *
+ * I due argomenti di `tierProvenanceText` si ricavano dalla lettura come li
+ * ricava il montaggio (src/ui/views.ts): la funzione non chiede al chiamante
+ * di ripetere quel che la lettura già dice.
+ */
 export function tierBandSpoken(reading: TierBandReading, role: Role | ""): string {
   const roleName = role === "" ? "" : ` (${ROLE_LABELS[role].toLowerCase()})`;
-  return `Fascia del giocatore chiamato${roleName}: ${tierBandWord(reading)}. ${tierBandHeadline(reading)}`;
+  const facts = reading.kind === "facts" ? reading.facts : null;
+  const coverage = reading.kind === "no-call" ? null : reading.coverage;
+  return `Fascia del giocatore chiamato${roleName}: ${tierBandWord(reading)}. ${tierBandHeadline(reading)} ${tierProvenanceText(
+    facts,
+    coverage,
+  )} ${TIER_BAND_NOTE}`;
 }
