@@ -234,7 +234,6 @@ export type CallScreenBlockId =
   | "esito-ricerca"
   | "contatore-interazioni"
   | "contesto-chiamata"
-  | "scheda-esperto"
   | "giocatore-suggerito"
   | "listone";
 
@@ -313,6 +312,20 @@ export const CALL_SCREEN_BUDGET_MEASURED_ON = "2026-08-26";
 // col valore misurato, la riserva è scesa da −1068 a −1219 e la nuova riga
 // dichiara la propria altezza. Il debito cresce e si vede, invece di crescere
 // e basta.
+//
+// ⚠️ 2026-08-29 — LA RIGA `scheda-esperto` NON C'È PIÙ, e con lei il blocco.
+// Pico ha spostato INSIGHT GIOCATORE dentro la scheda del chiamato, nel momento
+// d'asta: «si visualizza durante la scelta del giocatore mentre dovrebbe
+// vedersi durante l'asta dentro #call-card come secondo figlio». Questa
+// schermata non lo monta più (src/main.ts), quindi il mastro non lo alloca più
+// — un mastro che allocasse l'altezza di un blocco assente direbbe il falso sul
+// totale, che è l'unica cosa che questo file esiste per non fare.
+//
+// I 151 px tornano alla riserva, che risale da −1219 a −1068: esattamente il
+// valore che aveva prima, perché è la stessa riga a essere andata e venuta e
+// nessun'altra si è mossa. I due span pinnati con selezione scendono di 150
+// (riga-selezionata 1106 -> 956, contesto-aperto 2051 -> 1901) e i due stati
+// senza selezione non si muovono, perché lì il blocco non c'era comunque.
 
 // ⚠️ RIVERIFICA DEL 2026-08-26 — «IL MASTRO ERA TARATO SU UN'APP CHE NON
 // SPEDISCE», e adesso non più. Nessun numero qui sotto è cambiato: la data e
@@ -427,25 +440,6 @@ export const CALL_SCREEN_BUDGET_LEDGER: readonly CallScreenBlockAllocation[] = [
       "pannello possa occupare: vedi CONTESTO_CHIAMATA_APERTO_NON_DICHIARATO.",
   },
   {
-    id: "scheda-esperto",
-    label: "INSIGHT GIOCATORE (scheda + radar della pagella)",
-    domId: "player-insight-panel",
-    allocationPx: 151,
-    measuredInState: "riga-selezionata",
-    measuredAtCommit: CALL_SCREEN_BUDGET_MEASURED_AT,
-    requiredIn: WITH_SELECTION,
-    why:
-      "151 px misurati il 2026-08-26, IDENTICI in tutti e tre gli stati con una riga selezionata: " +
-      "il riquadro dipende dalla scheda del giocatore, non da quanto è aperto il contesto. " +
-      "Blocco NUOVO di questo diff — il radar della pagella non esisteva nella schermata di " +
-      "chiamata (solo nel momento d'asta) e Pico ne ha chiesto la presenza. I suoi 151 px sono " +
-      "usciti dalla riserva, che scende da −1068 a −1219: nessun'altra riga è stata abbassata, " +
-      "perché nessun altro blocco ha perso qualcosa. " +
-      "ATTENZIONE, E NON È UN DETTAGLIO: 151 px è l'altezza col DEPOSITO VUOTO, cioè lo stato " +
-      "che l'intera suite misura oggi. Con una scheda piena in pagina lo stesso blocco misura " +
-      "1109 px — vedi SCHEDA_ESPERTO_CON_DEPOSITO_NON_DICHIARATA.",
-  },
-  {
     id: "giocatore-suggerito",
     label: "GIOCATORE SUGGERITO (chi chiamare ora + esca)",
     domId: "suggested-player",
@@ -517,7 +511,7 @@ export const CALL_SCREEN_ALLOCATED_PX = CALL_SCREEN_BUDGET_LEDGER.reduce(
  * smetterà di essere possibile sfondare l'allocazione di un blocco senza
  * sfondare anche il totale (vedi PROVA 1, e2e/call-screen-budget.spec.ts).
  */
-export const CALL_SCREEN_BUDGET_RESERVE_PX = -1219;
+export const CALL_SCREEN_BUDGET_RESERVE_PX = -1068;
 
 /**
  * Che cosa costa, oggi, far entrare un blocco nuovo alto `heightPx`: quanti px
@@ -556,18 +550,22 @@ export interface CallScreenOverBudgetState {
 export const CALL_SCREEN_OVER_BUDGET_STATES: readonly CallScreenOverBudgetState[] = [
   {
     state: "contesto-aperto",
-    spanPx: 2051,
-    overBudgetPx: 363,
+    spanPx: 1901,
+    overBudgetPx: 213,
     why:
       "il corpo di CONTESTO CHIAMATA aperto porta il blocco da 151,5 a 1096,25 px; il listone " +
       "è filtrato a una riga sola e lo span sfonda lo stesso. Erano 1874 px su ac8814c, 1901 " +
-      "col sottoblocco PER ME di #55, e 2051 dal 2026-08-26: i 150 px in più sono il riquadro " +
-      "INSIGHT GIOCATORE, che in questa schermata prima non c'era.",
+      "col sottoblocco PER ME di #55, e 2051 dal 2026-08-26 — i 150 px in più erano il riquadro " +
+      "INSIGHT GIOCATORE. Dal 2026-08-29 quel riquadro non sta più in questa schermata (Pico " +
+      "l'ha messo dentro la scheda del chiamato, nel momento d'asta) e lo span torna a 1901: " +
+      "esattamente il valore di prima, perché è la stessa riga a essere andata e venuta. Il " +
+      "debito NON è stato ripagato — è stato spostato, e la misura di dove è andato sta in " +
+      "SCHEDA_ESPERTO_CON_DEPOSITO_NON_DICHIARATA.",
   },
   {
     state: "contesto-aperto-ricerca-vuota",
-    spanPx: 2901,
-    overBudgetPx: 1213,
+    spanPx: 2750,
+    overBudgetPx: 1062,
     why:
       "contesto aperto E listone di nuovo a pagina piena: 2901 px contro 1688, il 172% del " +
       "totale dichiarato (erano 2724 — il 161% — su ac8814c e 2750 il 2026-08-25). È lo stato " +
@@ -612,16 +610,16 @@ export const CALL_SCREEN_BUDGET_UNRATIFIED: Readonly<
     "la riserva è negativa (−1219 px): il totale dichiarato è già sfondato dai blocchi " +
     "esistenti, e nessuno ha dichiarato quale riga debba restituire lo spazio",
   SCHEDA_ESPERTO_CON_DEPOSITO_NON_DICHIARATA:
-    "l'allocazione di INSIGHT GIOCATORE (151 px) è l'altezza che il blocco ha col DEPOSITO " +
-    "DELLE SCHEDE VUOTO, cioè lo stato che l'intera suite misura oggi. Misurato il 2026-08-26 " +
-    "con una scheda piena in pagina — cinque icone, radar, pastiglie, prosa — lo stesso blocco " +
-    "occupa 1109 px e porta lo stato `riga-selezionata` a 2103 px, cioè 415 px OLTRE il totale " +
-    "dichiarato, senza che nessun altro blocco sia cresciuto. Erano 980 e 1974 prima che #61 " +
-    "portasse i due riquadri titolati, che a 390px si impilano. Nessuno ha dichiarato quanto " +
-    "questo riquadro possa occupare nella schermata di chiamata, e la scelta su che cosa " +
-    "mostrarne qui (tutto, come nel momento d'asta; il solo blocco della pagella; oppure dietro " +
-    "il gesto che apre CONTESTO CHIAMATA) è una decisione di prodotto, non di un worker: " +
-    "documentata qui col numero, non condonata e non presa",
+    "il problema NON è più di questa schermata, e non è risolto: si è spostato. Dal 2026-08-29 " +
+    "INSIGHT GIOCATORE non sta più qui — Pico l'ha messo dentro #call-card, nel momento d'asta " +
+    "— quindi questo mastro non lo alloca più. Ma la misura che lo rendeva scomodo resta vera " +
+    "dove il blocco è andato: col DEPOSITO DELLE SCHEDE VUOTO occupa 151 px, e col deposito " +
+    "PIENO — cinque icone, radar, pastiglie, prosa — ne occupava 1109 il 2026-08-26. Adesso " +
+    "quell'altezza sta SOPRA il gesto «ASSEGNA A», dentro la scheda del chiamato, e il momento " +
+    "d'asta NON HA un mastro come questo: l'unica difesa è la soglia di distanza asserita da " +
+    "e2e/asta-gesto-principale.spec.ts, che misura col deposito vuoto come tutta la suite. " +
+    "Quanto quel riquadro possa occupare sopra il gesto principale non l'ha dichiarato nessuno: " +
+    "documentato qui col numero, non condonato e non risolto",
   MISURE_LEGATE_AL_RENDERING_PINNATO:
     "le allocazioni sono px misurati col browser pinnato di questo repository a 390×844: " +
     "cambiando motore di rendering o font di sistema vanno rimisurate, e il mastro lo dice " +

@@ -90,14 +90,14 @@ describe("l'identità aritmetica del mastro", () => {
   it("la somma è quella delle righe dichiarate, non un numero scritto a mano", () => {
     const sum = CALL_SCREEN_BUDGET_LEDGER.reduce((t, r) => t + r.allocationPx, 0);
     expect(CALL_SCREEN_ALLOCATED_PX).toBe(sum);
-    expect(sum).toBe(2907);
+    expect(sum).toBe(2756);
   });
 
   // Il numero che il mastro esiste per far vedere. Pinnato: se qualcuno alza
   // una riga senza restituire niente, questo test cambia valore e il diff lo
   // mostra in un file tracciato — che è l'allarme che oggi manca del tutto.
   it("la riserva è oggi NEGATIVA: il totale è già sfondato dai blocchi che ci sono", () => {
-    expect(CALL_SCREEN_BUDGET_RESERVE_PX).toBe(-1219);
+    expect(CALL_SCREEN_BUDGET_RESERVE_PX).toBe(-1068);
     expect(CALL_SCREEN_BUDGET_RESERVE_PX).toBeLessThan(0);
   });
 
@@ -105,8 +105,8 @@ describe("l'identità aritmetica del mastro", () => {
     // «chi chiamare per me» — la prima metà di GIOCATORE SUGGERITO, già in
     // lavorazione — non arriva in uno spazio vuoto: arriva dovendo restituire
     // la propria altezza PIÙ il rosso della riserva.
-    expect(callScreenNewBlockCostPx(0)).toBe(1219);
-    expect(callScreenNewBlockCostPx(120)).toBe(1339);
+    expect(callScreenNewBlockCostPx(0)).toBe(1068);
+    expect(callScreenNewBlockCostPx(120)).toBe(1188);
   });
 });
 
@@ -184,12 +184,17 @@ describe("gli stati che oggi sfondano il totale, pinnati e non approvati", () =>
     }
   });
 
-  it("lo stato peggiore è il contesto aperto con la ricerca svuotata, al 172% del totale", () => {
+  it("lo stato peggiore è il contesto aperto con la ricerca svuotata, al 163% del totale", () => {
+    // I due numeri scendono di 151 dal 2026-08-29: INSIGHT GIOCATORE non sta
+    // più in questa schermata (Pico l'ha messo dentro la scheda del chiamato,
+    // nel momento d'asta), quindi il mastro non lo alloca più. Il debito non è
+    // stato ripagato — è stato spostato, e dove è andato lo dice
+    // SCHEDA_ESPERTO_CON_DEPOSITO_NON_DICHIARATA.
     const worst = CALL_SCREEN_OVER_BUDGET_STATES.find(
       (s) => s.state === "contesto-aperto-ricerca-vuota",
     );
-    expect(worst?.spanPx).toBe(2901);
-    expect(worst?.overBudgetPx).toBe(1213);
+    expect(worst?.spanPx).toBe(2750);
+    expect(worst?.overBudgetPx).toBe(1062);
     // La somma delle allocazioni È quello stato: il mastro non inventa un
     // tetto, descrive il peggio che la schermata raggiunge oggi.
     expect(CALL_SCREEN_ALLOCATED_PX - worst!.spanPx).toBeLessThanOrEqual(
@@ -277,7 +282,7 @@ describe("la spazzata che attribuisce", () => {
     const line = describeCallScreenBudgetFinding(findings[0]!);
     expect(line).toContain("blocco-finto");
     expect(line).toContain("40px");
-    expect(line).toContain("-1219px");
+    expect(line).toContain("-1068px");
   });
 
   it("un blocco senza id non scappa: viene nominato per forma", () => {
@@ -373,7 +378,6 @@ describe("la spazzata che attribuisce", () => {
         // Il riquadro INSIGHT GIOCATORE è obbligatorio in ogni stato con una
         // riga selezionata dal 2026-08-26: senza di lui la spazzata sarebbe
         // rossa per «riga-senza-blocco», ed è la guardia che lo pretende.
-        block("player-insight-panel", 151),
         block("suggested-player", 286.5),
         block("listone-block", 306.5),
       ],
@@ -392,7 +396,6 @@ describe("la spazzata che attribuisce", () => {
         block("call-search-hint", 42.5),
         block("call-interaction-count", 17.25),
         block("nomination-context", consumption),
-        block("player-insight-panel", 151),
         block("suggested-player", 286.5),
         block("listone-block", 306.5),
       ],

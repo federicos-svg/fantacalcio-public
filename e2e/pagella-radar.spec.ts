@@ -300,18 +300,28 @@ test("il radar non sposta il gesto principale: «ASSEGNA A» resta entro il budg
       };
     });
 
-    // IL BLOCCO STA SOTTO IL GESTO. È questa la ragione strutturale per cui la
-    // sua altezza non può spingerlo fuori — la stessa che asserisce
-    // e2e/asta-gesto-principale.spec.ts per ogni riquadro della vista.
+    // ASSERZIONE INVERTITA — e la ragione strutturale è cambiata, non sparita.
+    //
+    // Qui si pretendeva che la pagella stesse SOTTO il gesto e che il gesto
+    // restasse entro un budget di distanza dal documento. Dal 2026-08-29 la
+    // pagella sta dentro la scheda del chiamato e quindi SOPRA il gesto, ed è
+    // esattamente il cambiamento che ha reso impossibile il vecchio budget:
+    // col radar acceso «ASSEGNA A» finiva a 845px su una finestra alta 900.
+    //
+    // Pico ha fissato il gesto in fondo allo schermo, e con lui la garanzia si
+    // è spostata di un piano: non più «la pagella non lo spinge giù», ma «dove
+    // stia la pagella non lo riguarda». Si asserisce quindi che la pagella sia
+    // sopra — è il posto chiesto — e che il gesto resti in vista lo stesso.
     expect(
       g.pagellaTop,
-      `${where}: la pagella comincia a ${g.pagellaTop}px e «ASSEGNA A» a ${g.headingTop}px`,
-    ).toBeGreaterThan(g.headingTop);
+      `${where}: la pagella deve stare SOPRA il gesto, dentro la scheda del chiamato`,
+    ).toBeLessThan(g.headingTop);
 
     expect(
-      g.headingTop,
-      `${where}: col radar acceso «ASSEGNA A» comincia a ${g.headingTop}px (budget ${ASSIGN_HEADING_BUDGET_PX}px, pagella alta ${g.pagellaHeight}px)`,
-    ).toBeLessThanOrEqual(ASSIGN_HEADING_BUDGET_PX);
+      g.buttonInViewport,
+      `${where}: col radar acceso il gesto è in vista (pagella alta ${g.pagellaHeight}px)`,
+    ).toBe(true);
+    expect(g.buttonHitsSelf, `${where}: il centro del bottone risponde al bottone`).toBe(true);
 
     // IL TETTO DEL BLOCCO, e da dove viene il numero. Misurato 219px su questo
     // albero con questa fixture (radar 116px, cinque righe, riga del totale,
@@ -397,12 +407,20 @@ test("ogni testo del blocco pagella si legge: sopra AA, in tutti gli stati", asy
 // «Avvia». Nella schermata di CHIAMATA, dove si guarda il giocatore prima di
 // decidere se chiamarlo, non esisteva nel DOM.
 //
-// Le due asserzioni sono complementari e nessuna delle due basta da sola:
-// PRIMA della selezione il riquadro NON c'è (non c'è nessun soggetto di cui
-// leggere la scheda, e un riquadro «nessun segnale» prima ancora del soggetto
-// costerebbe altezza per niente), DOPO c'è col radar disegnato.
+// ASSERZIONE INVERTITA — il riquadro NON è più nella schermata di chiamata.
+//
+// Ci stava da #333, e questo test pretendeva che ci fosse appena una riga era
+// selezionata. Pico l'ha spostato il 2026-08-29: «si visualizza durante la
+// scelta del giocatore mentre dovrebbe vedersi durante l'asta dentro
+// #call-card come secondo figlio». Qui parlava di un giocatore che nessuno
+// aveva ancora chiamato, e costava alla schermata più affollata del prodotto.
+//
+// Il test resta, invertito, e continua a servire: prova che il riquadro non
+// torni di soppiatto in una schermata da cui è stato tolto di proposito, e
+// che il MOMENTO D'ASTA invece ce l'abbia — cioè che sia stato spostato e non
+// perso. Le due metà insieme sono la differenza fra «tolto» e «rotto».
 
-test("il radar c'è già nella schermata di chiamata, appena una riga è selezionata", async ({
+test("il radar NON sta nella schermata di chiamata, e sta nel momento d'asta", async ({
   page,
   context,
 }) => {
@@ -415,6 +433,13 @@ test("il radar c'è già nella schermata di chiamata, appena una riga è selezio
   await page.getByText(TARGET.name, { exact: true }).click();
   await expect(page.locator("#nomination-context")).toBeVisible();
   await expect(page.locator("#assign-price")).toHaveCount(0);
+
+  // E il riquadro NON c'è: qui il giocatore non è ancora stato chiamato.
+  await expect(page.locator("#player-insight-panel")).toHaveCount(0);
+
+  // Ora si avvia il momento d'asta, ed è là che il riquadro deve comparire.
+  await page.getByRole("button", { name: /^Avvia/ }).click();
+  await expect(page.locator("#assign-price")).toBeVisible();
 
   // Il riquadro c'è, col radar disegnato e i cinque assi.
   await expect(page.locator("#player-insight-panel")).toBeVisible();
@@ -430,12 +455,19 @@ test("il radar c'è già nella schermata di chiamata, appena una riga è selezio
     "1\u00b0",
   );
 
-  // STA SOTTO CONTESTO CHIAMATA e sopra GIOCATORE SUGGERITO: stesso soggetto
-  // del primo, mentre il secondo parla di chi chiamare e non del già scelto.
-  const top = async (sel: string): Promise<number> =>
-    page.locator(sel).evaluate((el) => el.getBoundingClientRect().top + window.scrollY);
-  expect(await top("#player-insight-panel")).toBeGreaterThan(await top("#nomination-context"));
-  expect(await top("#player-insight-panel")).toBeLessThan(await top("#suggested-player"));
+  // IL POSTO, asserito per posizione. Le due ancore di prima — CONTESTO
+  // CHIAMATA e GIOCATORE SUGGERITO — appartengono alla schermata di chiamata e
+  // qui non esistono più: cercarle faceva scadere il test invece di fallire,
+  // che è il modo peggiore di dire una cosa vera.
+  //
+  // L'ancora giusta è la scheda che lo contiene: secondo figlio, subito sotto
+  // la riga d'identità del chiamato (Pico, 2026-08-29).
+  expect(
+    await page.evaluate(() => {
+      const card = document.getElementById("call-card");
+      return card === null ? "" : (card.children[1]?.id ?? "");
+    }),
+  ).toBe("player-insight-panel");
 
   expect(external).toEqual([]);
 });

@@ -46,11 +46,35 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
+/* ── ALLINEAMENTO DELLE CELLE ───────────────────────────────────────────────
+   Nome e squadra a sinistra, TUTTO IL RESTO AL CENTRO (Pico, 2026-08-29).
+
+   La regola è scritta col `data-col` e non solo con le classi modificatrici,
+   perché l'INTESTAZIONE non le porta: le celle di testa sono `.listone-cell`
+   nude col solo `data-col` (src/ui/views.ts e `listoneTableHeadHtml`), e una
+   regola sulle sole classi avrebbe centrato le intestazioni sopra due colonne
+   di valori allineati a sinistra — cioè avrebbe scollato la testa dal corpo
+   proprio nelle due colonne più larghe.
+
+   Le due celle a sinistra restano `display: flex`, dove `text-align` non
+   decide niente: là l'allineamento lo tiene `justify-content`, che di suo
+   parte già da `flex-start`. È dichiarato lo stesso, per non lasciare che una
+   proprietà inerte sembri quella che governa. */
+.listone-cell {
+  text-align: center;
+}
+.listone-cell--club,
+.listone-cell--name,
+.listone-table-head > [data-col="name"],
+.listone-table-head > [data-col="club"] {
+  text-align: left;
+}
 .listone-cell--club,
 .listone-cell--name {
   display: flex;
   align-items: center;
   gap: 6px;
+  justify-content: flex-start;
 }
 .listone-cell--mono {
   font-family: var(--font-mono);

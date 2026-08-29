@@ -395,7 +395,7 @@ test("una scheda con l'asse dell'altro ruolo dice n.a., non n/d e non il voto st
   expect(externalRequests).toEqual([]);
 });
 
-test("le tre file ordinate portano quello che la scheda dice — col rango — e n/d quando non lo dice", async ({
+test("le tre file ordinate portano IL SOLO POSTO IN FILA, e n/d quando la scheda tace", async ({
   page,
   context,
 }) => {
@@ -404,11 +404,16 @@ test("le tre file ordinate portano quello che la scheda dice — col rango — e
   await routeSchede(context, [FULL_SCHEDA]);
   await boot(page);
 
+  // ASSERZIONE INVERTITA — le celle dicevano «1° designato» e «2° battitore».
+  // Pico, 2026-08-29: «dentro .listone-cell non servono le parole battitore e
+  // designato o il °. Basta solamente il numero». La specialità è già scritta
+  // nell'intestazione della colonna e nel suo tooltip, quindi in cella la
+  // diceva due volte su ogni riga di un listone da cinquecento.
+  //
   // La scheda sintetica dichiara `rigori: "designato"` col rango 1 e
-  // `piazzati: ["punizioni"]` col rango 2. Il numero sta DAVANTI alla parola:
-  // è ciò che rende l'ordinamento della colonna l'ordine della fila.
-  await expect(cell(page, WITH_SCHEDA.name, "scheda_rigorista")).toHaveText("1\u00b0 designato");
-  await expect(cell(page, WITH_SCHEDA.name, "scheda_punizioni")).toHaveText("2\u00b0 battitore");
+  // `piazzati: ["punizioni"]` col rango 2.
+  await expect(cell(page, WITH_SCHEDA.name, "scheda_rigorista")).toHaveText("1");
+  await expect(cell(page, WITH_SCHEDA.name, "scheda_punizioni")).toHaveText("2");
   // La stessa scheda NON dichiara gli angoli: `n/d`, e non «zero angoli».
   await expect(cell(page, WITH_SCHEDA.name, "scheda_angoli")).toHaveText(VALUE_NOT_AVAILABLE);
 
@@ -417,6 +422,27 @@ test("le tre file ordinate portano quello che la scheda dice — col rango — e
   for (const key of ["scheda_rigorista", "scheda_punizioni", "scheda_angoli"]) {
     await expect(cell(page, WITHOUT_SCHEDA.name, key)).toHaveText(VALUE_NOT_AVAILABLE);
   }
+  expect(externalRequests).toEqual([]);
+});
+
+test("la fila dichiarata SENZA posto dice «?», che non è n/d", async ({ page, context }) => {
+  // È il caso che ha fatto scegliere il simbolo a Pico: otto giocatori su
+  // settanta, sul corpus vero, sono «rigorista possibile» — la scheda dice che
+  // sono nella fila e non a che punto. Tolte le parole non resta nessun numero,
+  // e le tre forme che verrebbero spontanee mentono tutte allo stesso modo: la
+  // cella vuota, il trattino e `n/d` si leggono «la scheda non ne parla».
+  //
+  // Le DUE righe insieme sono l'asserzione: `?` per chi è nella fila senza
+  // posto, `n/d` per chi nella fila non c'è. Una sola delle due lascerebbe
+  // passare la confusione fra le due assenze.
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
+  const { rangoRigori: _r, rangoPunizioni: _p, piazzati: _pz, ...senzaPosto } = FULL_SCHEDA;
+  await routeSchede(context, [{ ...senzaPosto, rigori: "possibile" }]);
+  await boot(page);
+
+  await expect(cell(page, WITH_SCHEDA.name, "scheda_rigorista")).toHaveText("?");
+  await expect(cell(page, WITH_SCHEDA.name, "scheda_punizioni")).toHaveText(VALUE_NOT_AVAILABLE);
   expect(externalRequests).toEqual([]);
 });
 

@@ -152,7 +152,12 @@ test("INSIGHT GIOCATORE legge le previsioni del chiamato, e non ne inventa per c
 }) => {
   const externalRequests = await boot(page, context);
 
+  // IL RIQUADRO STA NEL MOMENTO D'ASTA, non nella schermata di chiamata: dal
+  // 2026-08-29 vive dentro `#call-card` (Pico, «come secondo figlio»). Il clic
+  // sulla riga non basta più — serve avviare la chiamata, che è anche il gesto
+  // vero con cui una persona ci arriva.
   await page.getByText(WITH_CAP.name, { exact: true }).click();
+  await page.getByRole("button", { name: /^Avvia/ }).click();
   await expect(page.locator("#player-insight-panel")).toBeVisible();
 
   const row = page.locator(`#${GEN_FORECAST_INSIGHT_ID}`);
@@ -164,16 +169,27 @@ test("INSIGHT GIOCATORE legge le previsioni del chiamato, e non ne inventa per c
   // L'AUTORITÀ ARRIVA DAL DATO, e la riga non promette nulla di direttivo.
   await expect(row).toContainText(`previsioni di ricerca, advisory — ${SYNTHETIC_GEN_RECIPE}`);
   await expect(row).not.toContainText("consigl");
-  // Il riquadro del valore resta chiuso a quattro slot: nessuna previsione
+  // IL RIQUADRO DEL VALORE RESTA CHIUSO A QUATTRO SLOT: nessuna previsione
   // dentro (decisione registrata, src/valueBox.ts).
-  await expect(page.locator("#value-box")).toHaveCount(0);
+  //
+  // ASSERZIONE INVERTITA, e la vecchia forma diceva meno di quanto sembrasse:
+  // pretendeva che `#value-box` non esistesse AFFATTO, cosa vera solo perché
+  // la misura si faceva nella schermata di chiamata, dove quel riquadro non
+  // c'è. Ora si misura nel momento d'asta, dove c'è: quindi si asserisce ciò
+  // che la decisione dice davvero — il riquadro esiste e le previsioni NON
+  // sono dentro di lui. È un controllo più stretto di prima, non più largo.
+  await expect(page.locator("#value-box")).toHaveCount(1);
+  await expect(page.locator(`#value-box #${GEN_FORECAST_INSIGHT_ID}`)).toHaveCount(0);
 
   // Un giocatore che il deposito non serve: nessuna riga, non una riga vuota.
-  // Il Reset serve perché una selezione riempie la barra di ricerca e filtra il
-  // listone: senza, l'altra riga non è più a schermo da cliccare.
+  // Si torna alla schermata di chiamata per sceglierne un altro, e il Reset
+  // serve perché una selezione riempie la barra di ricerca e filtra il listone:
+  // senza, l'altra riga non è più a schermo da cliccare.
+  await page.getByRole("button", { name: /Indietro alla ricerca/ }).click();
   await page.getByRole("button", { name: /Reset/ }).click();
   await expect(page.getByText(SYNTHETIC_GEN_FORECAST_ABSENT_PLAYER, { exact: true })).toBeVisible();
   await page.getByText(SYNTHETIC_GEN_FORECAST_ABSENT_PLAYER, { exact: true }).click();
+  await page.getByRole("button", { name: /^Avvia/ }).click();
   await expect(page.locator("#player-insight-panel")).toBeVisible();
   await expect(page.locator(`#${GEN_FORECAST_INSIGHT_ID}`)).toHaveCount(0);
 

@@ -119,14 +119,34 @@ describe("blocco — l'assenza è una frase, non un pentagono vuoto", () => {
     expect((html.match(/n\/d/g) ?? []).length).toBe(3);
   });
 
-  it("il quarto asse porta il proprio marcatore, e il quinto il proprio", () => {
+  it("il quarto asse porta il proprio marcatore, e il quinto il proprio — MA NON A SCHERMO", () => {
+    // ASSERZIONE INVERTITA, non tolta. Diceva `toContain` sull'HTML: da quando
+    // i cinque assi stanno in colonna (Pico, 2026-08-29) il marcatore non si
+    // disegna più — in una colonnina larga un quinto del blocco «parere della
+    // fonte» andrebbe a capo tre volte sotto ogni voto.
+    //
+    // IL FATTO NON È SPARITO, SI È SPOSTATO, ed è per questo che l'inversione
+    // non è una perdita: `pagellaSpoken()` lo dice ancora, e la riga qui sotto
+    // lo pretende. Chi naviga a voce sente «Bonus 6 su 10 (asse di ruolo)»
+    // esattamente come prima — cioè l'unica superficie in cui quel testo
+    // serviva davvero a distinguere due assi che si somigliano.
     const view = resolvePagella(COMPLETA, "D");
     expect(pagellaAxisMarker(view.assi[3] as never)).toBe("asse di ruolo");
     expect(pagellaAxisMarker(view.assi[4] as never)).toBe("parere della fonte");
     expect(pagellaAxisMarker(view.assi[0] as never)).toBe("");
+
+    // Si asserisce sull'ELEMENTO e non sul testo, e la differenza è concreta:
+    // la frase «parere della fonte» compare comunque nel blocco, dentro la nota
+    // in fondo (`PAGELLA_CAVEAT_NOTE`), dove ci sta a ragione e dove non è mai
+    // stata il marcatore di un asse. Cercare la stringa avrebbe fatto passare
+    // questo test per il motivo sbagliato — o fallire per un altro ancora.
     const html = pagellaBlockHtml(view);
-    expect(html).toContain("asse di ruolo");
-    expect(html).toContain("parere della fonte");
+    expect(html).not.toContain("pagella-asse__marker");
+    expect(html).not.toContain("asse di ruolo");
+
+    const parlato = pagellaSpoken(view);
+    expect(parlato).toContain("(asse di ruolo)");
+    expect(parlato).toContain("(parere della fonte)");
   });
 
   it("il portiere e il difensore NON mostrano lo stesso quarto asse", () => {

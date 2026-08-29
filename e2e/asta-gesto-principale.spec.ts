@@ -154,10 +154,15 @@ const NARROW_VIEWPORTS: readonly NarrowViewport[] = [
 // I quattro id qui sotto non sono l'elenco: sono il CONTROLLO che la spazzata
 // stia davvero guardando qualcosa. Una spazzata che non trova niente passerebbe
 // per vuoto, ed è il modo classico in cui un'asserzione così smette di mordere.
+// `player-insight-panel` NON è più in questo elenco, e non perché sia sparito:
+// dal 2026-08-29 sta DENTRO `#call-card` (Pico: «come secondo figlio»), e la
+// spazzata esclude per costruzione tutto ciò che la scheda contiene. Pretenderlo
+// qui vorrebbe dire pretendere che sia FUORI dalla scheda, cioè l'opposto di
+// quello che è stato chiesto. Che ci sia, e dove, lo asserisce il test
+// `il riquadro insight sta dentro la scheda, come secondo figlio` più sotto.
 const PANELS_EXPECTED_PRESENT = [
   "tier-band-panel",
   "war-board-mini",
-  "player-insight-panel",
   "opponent-precedents-panel",
 ] as const;
 
@@ -293,6 +298,26 @@ async function boot(page: Page, viewport: { width: number; height: number }): Pr
   await expect(page.locator("#search-player")).toBeVisible();
 }
 
+/**
+ * Porta la pagina in fondo e aspetta che il browser abbia finito di scorrere.
+ *
+ * È l'unico modo di provare che un blocco fissato sia DAVVERO fissato: a
+ * scorrimento zero un blocco in coda alla pagina e uno inchiodato al fondo
+ * dello schermo si vedono uguali, e un test che guardasse solo lì resterebbe
+ * verde anche se `position: fixed` sparisse dal foglio di stile.
+ */
+async function scrollToBottom(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    window.scrollTo(0, document.documentElement.scrollHeight);
+  });
+  await page.waitForFunction(
+    () =>
+      Math.abs(
+        window.scrollY + window.innerHeight - document.documentElement.scrollHeight,
+      ) <= 2,
+  );
+}
+
 /** Apre il momento live sul giocatore chiamato, dalla schermata di chiamata. */
 async function callPlayer(page: Page): Promise<void> {
   await page.getByText(CALLED, { exact: true }).click();
@@ -325,12 +350,24 @@ test("«ASSEGNA A» è raggiungibile senza scorrere a 1440×900 e a 1920×1080",
     // …e nel punto in cui si vede il bottone c'è LUI, non una scheda sopra.
     expect(g.buttonHitsSelf, `${where}: il centro del bottone risponde al bottone`).toBe(true);
 
-    // Il budget di altezza, con il numero misurato nel messaggio: un fallimento
-    // deve dire DI QUANTO si è sforato, non solo che si è sforato.
-    expect(
-      g.headingTop,
-      `${where}: «ASSEGNA A» comincia a ${Math.round(g.headingTop)}px (pagina ${g.pageHeight}px, finestra ${g.viewportHeight}px)`,
-    ).toBeLessThanOrEqual(ASSIGN_HEADING_BUDGET_PX);
+    // ASSERZIONE INVERTITA, e in meglio. Qui c'era un budget di distanza dal
+    // BORDO DEL DOCUMENTO — «ASSEGNA A entro 560px» — e aveva senso finché il
+    // gesto scorreva con la pagina: era il modo di dire «non finisce sotto la
+    // piega». Dal 2026-08-29 il blocco è `position: fixed` in fondo allo
+    // schermo (decisione di Pico), quindi la sua distanza dal documento non
+    // descrive più niente: cresce con la pagina e non dice se il gesto si veda.
+    //
+    // La garanzia nuova è più forte di quella vecchia, e la si prova
+    // SCORRENDO FINO IN FONDO: prima il gesto era in vista finché nessuno
+    // aggiungeva un blocco sopra di lui, adesso ci resta comunque.
+    await scrollToBottom(page);
+    const dopo = await gestureGeometry(page);
+    expect(dopo.teamInViewport, `${where}: il menu squadra resta in vista in fondo`).toBe(true);
+    expect(dopo.priceInViewport, `${where}: il campo prezzo resta in vista in fondo`).toBe(true);
+    expect(dopo.buttonInViewport, `${where}: «Registra acquisto» resta in vista in fondo`).toBe(
+      true,
+    );
+    expect(dopo.buttonHitsSelf, `${where}: in fondo il bottone risponde ancora a sé`).toBe(true);
 
     // Nessuno scorrimento laterale introdotto dalla scheda.
     expect(g.noHorizontalScroll, `${where}: nessuno scorrimento orizzontale`).toBe(true);
@@ -379,10 +416,15 @@ test("«ASSEGNA A» resta sopra la piega anche stretto, di qua e di là dai 700p
     expect(g.buttonHitsSelf, `${where}: il centro del bottone risponde al bottone`).toBe(true);
 
     // Il budget stretto, col numero misurato nel messaggio.
-    expect(
-      g.headingTop,
-      `${where}: «ASSEGNA A» comincia a ${g.headingTop}px (pagina ${g.pageHeight}px, finestra ${g.viewportHeight}px, margine alla piega ${g.foldMargin}px)`,
-    ).toBeLessThanOrEqual(ASSIGN_HEADING_BUDGET_NARROW_PX);
+    // Come sopra: la distanza dal documento non è più la misura giusta, e lo
+    // scorrimento fino in fondo è la prova che regge anche stretto — dove la
+    // scheda cresce di più e dove la piega mordeva peggio.
+    await scrollToBottom(page);
+    const dopoStretto = await gestureGeometry(page);
+    expect(dopoStretto.buttonInViewport, `${where}: il gesto resta in vista in fondo`).toBe(true);
+    expect(dopoStretto.buttonHitsSelf, `${where}: in fondo il bottone risponde ancora a sé`).toBe(
+      true,
+    );
 
     // Stretto è esattamente dove uno scorrimento laterale comparirebbe per
     // primo: quattro celle a 719px stanno su una riga sola, e devono starci
@@ -403,11 +445,23 @@ test("sopra il gesto c'è solo il giocatore chiamato: la schermata può crescere
   await boot(page, VIEWPORTS[0]);
   await callPlayer(page);
 
-  // b. ORDINE. È questa l'asserzione che regge l'aggiunta successiva: finché
-  //    ogni riquadro sta SOTTO il gesto, la sua altezza non lo riguarda — e
-  //    non serve sapere in anticipo quanti riquadri saranno né come si
-  //    chiameranno.
-  const heading = (await gestureGeometry(page)).headingTop;
+  // b. ORDINE — E PERCHÉ NON È PIÙ L'ORDINE A REGGERE IL GESTO.
+  //
+  //    Qui si pretendeva che OGNI riquadro stesse sotto «ASSEGNA A»: finché il
+  //    gesto scorreva con la pagina era l'unico modo di dire «la sua altezza
+  //    non lo riguarda», e bastava un riquadro nuovo sopra di lui per spingerlo
+  //    sotto la piega. È successo davvero il 2026-08-29, quando INSIGHT
+  //    GIOCATORE è salito dentro la scheda: il gesto è passato da 454px a
+  //    705px, e a 845px con una scheda vera in pagina.
+  //
+  //    Pico ha chiuso la questione alla radice — «assign-block in position
+  //    fixed in basso» — e la garanzia è cambiata di natura: non «nessuno sta
+  //    sopra di lui», ma «dove stanno gli altri non lo riguarda». Più forte,
+  //    perché non chiede niente a chi arriverà domani.
+  //
+  //    L'asserzione è quindi INVERTITA nella forma e conservata nella
+  //    sostanza: si prova il MECCANISMO (il blocco è davvero fissato) invece
+  //    dell'effetto che quel meccanismo rende automatico.
   const panels = await panelsOutsideCard(page);
 
   // Il controllo che la spazzata stia guardando qualcosa: senza, un albero
@@ -417,12 +471,22 @@ test("sopra il gesto c'è solo il giocatore chiamato: la schermata può crescere
     expect(ids, `la spazzata dei riquadri deve vedere #${expected}`).toContain(expected);
   }
 
-  for (const panel of panels) {
-    expect(
-      panel.top,
-      `«${panel.label}»${panel.id === "" ? "" : ` (#${panel.id})`} sta a ${panel.top}px e «ASSEGNA A» a ${heading}px: un riquadro sopra il gesto lo spinge giù ogni volta che cresce`,
-    ).toBeGreaterThan(heading);
-  }
+  expect(
+    await page.evaluate(() => {
+      const el = document.getElementById("assign-block");
+      return el === null ? "" : getComputedStyle(el).position;
+    }),
+    "il gesto è fissato: è questo che rende innocua l'altezza di ciò che gli sta sopra",
+  ).toBe("fixed");
+
+  // E la prova per COMPORTAMENTO, che nessuna proprietà calcolata sostituisce:
+  // con la pagina in fondo il gesto è ancora lì, e risponde ancora a sé.
+  await scrollToBottom(page);
+  const inFondo = await gestureGeometry(page);
+  expect(inFondo.buttonInViewport, "in fondo alla pagina il gesto è ancora in vista").toBe(true);
+  expect(inFondo.buttonHitsSelf, "in fondo alla pagina il centro del bottone risponde al bottone").toBe(
+    true,
+  );
 
   // E il gesto sta dentro la scheda del giocatore, non in un blocco a sé: è la
   // struttura da cui discende tutto il resto (#331 punti 2-3).
@@ -434,6 +498,18 @@ test("sopra il gesto c'è solo il giocatore chiamato: la schermata può crescere
     await page.evaluate(() => document.querySelector("#call-card #moment-facts-panel") !== null),
     "MOMENTO DELL'ASTA vive dentro la scheda del giocatore",
   ).toBe(true);
+
+  // IL POSTO CHIESTO DA PICO, asserito per POSIZIONE e non solo per presenza:
+  // «dentro #call-card come secondo figlio». Un test che chiedesse soltanto
+  // «esiste dentro la scheda» resterebbe verde con il riquadro in fondo, cioè
+  // esattamente dove non deve stare.
+  expect(
+    await page.evaluate(() => {
+      const card = document.getElementById("call-card");
+      return card === null ? "" : (card.children[1]?.id ?? "");
+    }),
+    "il riquadro insight è il SECONDO figlio della scheda del chiamato",
+  ).toBe("player-insight-panel");
 
   expect(externalRequests).toEqual([]);
 });
