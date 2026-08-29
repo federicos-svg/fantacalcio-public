@@ -35,6 +35,14 @@
 //
 // Every row here is synthetic (see fixtures/synthetic-listone.ts) and the
 // network guard refuses anything but the intercepted paths.
+// LE NOTE SOTTO LA TABELLA DEL LISTONE NON SONO PIÙ A SCHERMO — «nascondi i
+// blocchi nello screenshot», Pico, 2026-08-29. Restano SCRITTE nel documento,
+// quindi ogni pretesa sul loro CONTENUTO vale ancora parola per parola: dove
+// c'era `toBeVisible()` ora c'è `toBeHidden()`, e le righe che provano la
+// provenienza del dato non si toccano. La provenienza non si perde nemmeno
+// per chi naviga a voce: la porta l'`aria-label` del pannello del listone
+// (src/ui/views.ts), come Pico ha deciso per la provenienza della fascia.
+
 import { expect, test } from "@playwright/test";
 import type { ListonePlayer } from "../src/ui/listone.js";
 import { listonePlayerKey } from "../src/ui/listone.js";
@@ -185,7 +193,7 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
     // the table names the deposit as the source that actually won.
     await expect(page.getByText(RENAMED_BYSTANDER.name, { exact: true })).toBeVisible();
     await expect(page.getByText(BYSTANDER_PLAYER.name, { exact: true })).toHaveCount(0);
-    await expect(page.getByText(/Listone aggiornato automaticamente dal deposito privato/)).toBeVisible();
+    await expect(page.getByText(/Listone aggiornato automaticamente dal deposito privato/)).toBeHidden();
 
     // Not refused, and nothing else was announced either: no refusal, no
     // orphan clause, no spurious disarm — the notice surface is absent

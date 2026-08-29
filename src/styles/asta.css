@@ -1179,6 +1179,60 @@
   min-width: 0;
 }
 
+/* ── IL BLOCCO DEL SUGGERITO — DUE COLONNE ──────────────────────────────────
+   «Metti #suggested-player-mine e #bait-block uno affianco all'altro» — Pico,
+   2026-08-29.
+
+   I due sottoblocchi rispondono a due domande diverse sullo stesso momento —
+   «chi chiamare per me» e «chi chiamare per far spendere gli altri» — e
+   affiancarli le rende confrontabili a colpo d'occhio invece che una sopra
+   l'altra. Le colonne sono uguali (`minmax(0, 1fr)` e non `1fr`: senza il
+   minimo a zero una colonna non scende sotto il proprio contenuto e la più
+   larga sfonderebbe il riquadro invece di mandare a capo).
+
+   SOTTO I 900px TORNANO IMPILATI, alla stessa soglia a cui il resto di questa
+   schermata smette di affiancare (`.scheda-cards`, `.moment-blocks-grid`, la
+   barra del gesto): la schermata cambia forma in un punto solo. */
+.suggested-player {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 900px) {
+  .suggested-player {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ── LA RIGA DI RICERCA, FISSA IN FONDO ─────────────────────────────────────
+   «Metti #call-search-row in position fixed con lo stesso stile di
+   #assign-block» — Pico, 2026-08-29.
+
+   Stesso mestiere, stessa forma: il gesto che apre la schermata di chiamata è
+   cercare un giocatore, come quello che chiude la schermata d'asta è
+   registrare l'acquisto. Le due barre non si vedono mai insieme — vivono in
+   due momenti diversi — quindi occupano lo stesso posto senza contendersi un
+   pixel, e `--assign-bar-h` (layout.css) è lo spazio che la pagina restituisce
+   in coda per tutte e due.
+
+   Le regole sono LE STESSE di `.assign-block` e stanno scritte qui accanto
+   invece di essere ereditate da una classe comune: le due barre hanno lo
+   stesso aspetto oggi per decisione di Pico, non per parentela, e una classe
+   condivisa avrebbe fatto seguire alla ricerca ogni futuro ritocco del gesto
+   d'asta senza che nessuno lo chieda. */
+#call-search-row {
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  bottom: 0;
+  box-shadow: 0 -6px 18px oklch(0 0 0 / 0.35);
+  left: 0;
+  margin: 0;
+  padding: 12px 24px;
+  position: fixed;
+  width: 100%;
+  z-index: 40;
+}
+
 /* ── I PEZZI CHE NON ARRIVANO PIÙ A SCHERMO ─────────────────────────────────
    Richieste di Pico del 2026-08-29, tutte dello stesso tipo e quindi tutte
    nello stesso posto, con la sua frase accanto a ciascuna:
@@ -1187,7 +1241,16 @@
    - «Nascondi #role-depletion-panel e #opponent-precedents-panel, forse li
      svilupperemo dopo l'asta»;
    - «Nascondi #war-board-mini-Io dentro a #war-board-mini-list»;
-   - «Nascondi #tier-band-note e #tier-band-provenance».
+   - «Nascondi #tier-band-note e #tier-band-provenance»;
+   - «Nascondi i blocchi nello screenshot», con l'immagine delle quattro note
+     sotto la tabella del listone: il conteggio dei giocatori con la
+     provenienza del listone, la nota dell'indice, quella delle previsioni e
+     quella dei cinque voti del Gruppo Esperti. Due delle quattro non avevano
+     un id e adesso ce l'hanno (views.ts): si nascondono per NOME, non per
+     posizione, perché `div:nth-child(n)` sotto un pannello che cresce fa
+     sparire quello sbagliato il giorno in cui qualcuno aggiunge una riga.
+     Il comando «Caricamento manuale (debug/override)», che nell'immagine si
+     vede appena sotto, NON è nascosto: è un gesto, non un blocco di testo.
 
    L'ULTIMA DELLE QUATTRO HA RICHIESTO UNA DECISIONE, e non è stata presa qui.
    Il record del 2026-08-16 dichiara una condizione vincolante: la fascia non
@@ -1211,6 +1274,10 @@
    `#war-board-mini-Io` è la riga della MIA squadra dentro il tabellone
    ridotto: sparisce la riga, non il tabellone, e le altre sette restano al
    loro posto. Il selettore è un id, quindi non tocca nessun avversario. */
+#listone-count-note,
+#listone-appeal-index-note,
+#listone-gen-forecast-note,
+#listone-expert-signals-note,
 #late-answer-panel,
 #role-depletion-panel,
 #opponent-precedents-panel,

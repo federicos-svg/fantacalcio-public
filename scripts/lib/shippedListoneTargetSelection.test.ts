@@ -48,14 +48,14 @@ describe("findUniqueRoleATarget — substring-safety (e2e/shipped-listone.ts)", 
     // (e2e/helpers.ts) actually run at runtime.
     const ambiguousMatches = filterListonePool(
       pool,
-      { text: "Sintetico Bianchi", role: "", club: "", status: "all" },
+      { text: "Sintetico Bianchi", roles: [], club: "", status: "all" },
       new Set(),
     );
     expect(ambiguousMatches.map((p) => p.name)).toEqual(["Sintetico Bianchi", "Sintetico Bianchi Junior"]);
 
     const safeMatches = filterListonePool(
       pool,
-      { text: "Sintetico Neri", role: "", club: "", status: "all" },
+      { text: "Sintetico Neri", roles: [], club: "", status: "all" },
       new Set(),
     );
     expect(safeMatches).toHaveLength(1);

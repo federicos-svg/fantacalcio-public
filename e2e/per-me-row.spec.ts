@@ -161,8 +161,17 @@ test("il sottoblocco mostra i candidati attesi, in ordine, dentro GIOCATORE SUGG
   await expect(note).toContainText("3 righe al massimo (provvisorio");
   await expect(note).toContainText("NON RATIFICATA");
 
-  // Il blocco ospita DUE sottoblocchi, e questo è il PRIMO: sopra l'esca, che a
-  // sua volta sta sopra il listone (e2e/call-screen-order.spec.ts).
+  // Il blocco ospita DUE sottoblocchi, e questo è il PRIMO. «Primo» ha
+  // cambiato asse il 2026-08-29: Pico ha chiesto «metti #suggested-player-mine
+  // e #bait-block uno affianco all'altro», quindi l'esca non sta più SOTTO ma
+  // A DESTRA, e su schermo largo la loro distanza verticale è zero.
+  //
+  // La pretesa non è stata cancellata, è stata ruotata: prima diceva «l'esca
+  // viene dopo» in verticale, ora lo dice in orizzontale — stessa proprietà,
+  // stesso ordine di lettura, asse diverso. E sotto i 900px, dove le due
+  // colonne si reimpilano, torna a valere in verticale: la riga qui sotto
+  // misura ENTRAMBE le forme invece di sceglierne una, così nessuna delle due
+  // può rompersi in silenzio.
   const suggested = page.locator("#suggested-player");
   await expect(suggested).toContainText("GIOCATORE SUGGERITO — CHI CHIAMARE ORA");
   expect(await page.evaluate(() =>
@@ -170,9 +179,21 @@ test("il sottoblocco mostra i candidati attesi, in ordine, dentro GIOCATORE SUGG
       document.getElementById("per-me-block"),
     ),
   )).toBe(true);
-  expect(await documentTop(page, "#bait-block")).toBeGreaterThan(
-    await documentTop(page, "#per-me-block"),
-  );
+  const affiancati = await page.evaluate(() => {
+    const mine = document.getElementById("suggested-player-mine")!.getBoundingClientRect();
+    const bait = document.getElementById("bait-block")!.getBoundingClientRect();
+    return { mineRight: mine.right, mineTop: mine.top, baitLeft: bait.left, baitTop: bait.top };
+  });
+  const viewport = page.viewportSize();
+  if (viewport !== null && viewport.width >= 900) {
+    expect(affiancati.baitLeft, "a schermo largo l'esca sta a DESTRA del per me").toBeGreaterThanOrEqual(
+      affiancati.mineRight - 1,
+    );
+  } else {
+    expect(affiancati.baitTop, "a schermo stretto l'esca torna SOTTO il per me").toBeGreaterThan(
+      affiancati.mineTop,
+    );
+  }
 
   await expectNoDrift(page, "con le righe");
 

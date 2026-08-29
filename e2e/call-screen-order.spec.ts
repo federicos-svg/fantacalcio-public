@@ -4,6 +4,7 @@ import { LISTONE_PAGE_SIZE } from "../src/ui/listone.js";
 import { PER_ME_TITLE_SHORT } from "../src/ui/perMeRow.js";
 import {
   CALL_SCREEN_BUDGET_VIEWPORT,
+  CALL_SCREEN_SPAN_START_SELECTOR,
   callScreenBudgetAttribution,
   callScreenVerticalBudgetPx,
 } from "../src/ui/callScreenBudget.js";
@@ -155,19 +156,45 @@ test("il campo di ricerca è sopra la piega a 390, 1280, 1440 e 1920 — con 6 r
       );
       expect(search.hitTestHitsSelf, `${where}: il centro del campo non è cliccabile`).toBe(true);
 
-      // c. ORDINE — i quattro blocchi che stavano davanti al campo stanno
-      //    dietro. Posizioni assolute nel documento: il confronto vale anche
-      //    per ciò che è fuori dalla finestra.
-      const searchTop = await documentTop(page, "#search-player");
-      for (const behind of [
-        ["#suggested-player", "GIOCATORE SUGGERITO"],
-        ["#table-detail", "IL TAVOLO"],
-      ] as const) {
-        expect(
-          await documentTop(page, behind[0]),
-          `${where}: ${behind[1]} è tornato sopra il campo di ricerca`,
-        ).toBeGreaterThan(searchTop);
-      }
+      // c. IL CAMPO NON SI PERDE MAI, A NESSUNO SCORRIMENTO — e questa è la
+      //    forma nuova di una pretesa vecchia.
+      //
+      //    Diceva: «i blocchi che stavano davanti al campo stanno dietro»,
+      //    confrontando le posizioni assolute nel documento. Era il modo di
+      //    dire «il campo è il primo, quindi non serve scorrere per
+      //    raggiungerlo». Dal 2026-08-29 la riga di ricerca è FISSA in fondo
+      //    allo schermo (richiesta di Pico: «metti #call-search-row in
+      //    position fixed con lo stesso stile di #assign-block»), quindi non
+      //    sta più nel flusso e un confronto di posizioni nel documento non
+      //    dice più niente: un elemento fisso ha la posizione della finestra,
+      //    non quella della pagina.
+      //
+      //    La proprietà che contava si può però pretendere in forma PIÙ FORTE
+      //    di prima: non «è in cima quando non hai scrollato», ma «è in vista
+      //    SEMPRE, anche in fondo alla pagina». È ciò che questa riga misura,
+      //    ed è rossa il giorno in cui la barra torna nel flusso.
+      const fissa = await page.evaluate(() => {
+        const row = document.getElementById("call-search-row");
+        if (row === null) return null;
+        const prima = row.getBoundingClientRect();
+        window.scrollTo(0, document.body.scrollHeight);
+        const dopo = row.getBoundingClientRect();
+        window.scrollTo(0, 0);
+        const campo = document.getElementById("search-player")?.getBoundingClientRect() ?? null;
+        return {
+          position: getComputedStyle(row).position,
+          restaFerma: Math.abs(prima.top - dopo.top) < 1,
+          campoInVista:
+            campo !== null && campo.top >= 0 && campo.bottom <= window.innerHeight + 1,
+        };
+      });
+      expect(fissa, `${where}: la riga di ricerca non esiste`).not.toBeNull();
+      expect(fissa!.position, `${where}: la riga di ricerca non è fissa`).toBe("fixed");
+      expect(
+        fissa!.restaFerma,
+        `${where}: la riga di ricerca si è mossa scorrendo fino in fondo`,
+      ).toBe(true);
+      expect(fissa!.campoInVista, `${where}: il campo non è in vista`).toBe(true);
 
       // c-bis. ORDINE VERTICALE DEL LISTONE (richiesta di Pico, 2026-08-17):
       //    il listone sta SOTTO il blocco del giocatore suggerito. Confronto
@@ -205,7 +232,31 @@ test("con 532 righe la paginazione è un controllo raggiungibile, non la sesta s
     const indicator = page.getByText(`Pagina 1 di ${expectedPages}`, { exact: true });
     await expect(indicator, `${viewport.width}px: indicatore di pagina`).toBeVisible();
 
-    const top = await documentTop(page, "#search-player");
+    // DA DOVE SI MISURA, E PERCHÉ NON È PIÙ IL CAMPO DI RICERCA.
+    //
+    // Questa guardia ha sempre misurato la distanza fra il campo e la
+    // paginazione. Dal 2026-08-29 `#call-search-row` è `position: fixed` in
+    // fondo alla finestra («con lo stesso stile di #assign-block», Pico): il
+    // campo non sta più nel flusso, e il suo rettangolo sta dove finisce la
+    // FINESTRA, non dove stanno i blocchi che nel documento lo seguono.
+    //
+    // Misurare ancora da lì lasciava questa guardia VERDE PER IL MOTIVO
+    // SBAGLIATO: a 390px la distanza risultava 1019 px su 1688 non perché la
+    // schermata fosse corta, ma perché il punto di partenza era sceso a 727 px
+    // dall'inizio del documento. Peggio, quel numero si ACCORCIA quando la
+    // barra si allunga — cioè la guardia diventava più contenta proprio quando
+    // la schermata peggiora. Un verde che si stringe quando la barra cresce è
+    // un verde che mente.
+    //
+    // Adesso il punto di partenza è quello che il mastro dichiara
+    // (`CALL_SCREEN_SPAN_START_SELECTOR`, src/ui/callScreenBudget.ts): il primo
+    // blocco della schermata ancora in flusso, l'occhiello «RICERCA GIOCATORE».
+    // Le due misure — questa guardia e il mastro — tornano così a essere LA
+    // STESSA, che è la condizione sotto cui l'attribuzione qui sotto ha senso.
+    // Che il campo debba stare sopra la piega resta provato dall'altra guardia
+    // di questa spec, che lo misura in coordinate di finestra e regge la barra
+    // fissa senza cambiare una riga.
+    const top = await documentTop(page, CALL_SCREEN_SPAN_START_SELECTOR);
     const indicatorTop = await page.evaluate((text) => {
       const el = [...document.querySelectorAll("span")].find((s) => s.textContent === text);
       if (el === undefined) throw new Error("paginazione non trovata");
@@ -236,12 +287,13 @@ test("con 532 righe la paginazione è un controllo raggiungibile, non la sesta s
           `il mastro per blocco (src/ui/callScreenBudget.ts) è misurato a ` +
           `${CALL_SCREEN_BUDGET_VIEWPORT.width}×${CALL_SCREEN_BUDGET_VIEWPORT.height}: qui nessuna attribuzione`;
 
-    // Attaccata alla ricerca: la tabella che la separa dal campo è al massimo
-    // una pagina di LISTONE_PAGE_SIZE righe, quindi il controllo che serve a
-    // ogni ricerca sta entro DUE schermate — prima stava alla quinta a 390px.
+    // Attaccata alla ricerca: la tabella che separa la paginazione dall'inizio
+    // della schermata è al massimo una pagina di LISTONE_PAGE_SIZE righe,
+    // quindi il controllo che serve a ogni ricerca sta entro DUE schermate —
+    // prima stava alla quinta a 390px.
     expect(
       indicatorTop - top,
-      `${viewport.width}px: la paginazione è a ${Math.round(indicatorTop - top)}px dal campo di ricerca — ${attribution}`,
+      `${viewport.width}px: la paginazione è a ${Math.round(indicatorTop - top)}px dall'occhiello della ricerca — ${attribution}`,
     ).toBeLessThan(viewport.height * 2);
   }
 

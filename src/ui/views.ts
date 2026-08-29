@@ -13,7 +13,7 @@ import {
 } from "../../packages/engine/src/types.js";
 import type { OpponentTier1, RoleScarcity, WarBoardRow } from "../../packages/engine/src/auction.js";
 import type { RolePriceFacts } from "../nominationContext.js";
-import { C, escHtml, renderRoleChip, roleChipHtml } from "./theme.js";
+import { C, escHtml, renderRoleChip, roleChipHtml, ROLE_COLORS } from "./theme.js";
 import { ROLE_LABELS, ROLE_LABEL_SING } from "./labels.js";
 import { devStaticPanel, devStaticBadge } from "./devStatic.js";
 import { genForecastInsightHtml } from "./genForecastInsight.js";
@@ -167,16 +167,19 @@ export interface ListonePanelState {
   readonly statusFilter: ListoneStatusFilter;
   readonly statusFilterOpen: boolean;
   /**
-   * IL RUOLO SU CUI IL LISTONE È FILTRATO, o `""` per tutti.
+   * I RUOLI SU CUI IL LISTONE È FILTRATO. VUOTO SIGNIFICA «TUTTI», mai
+   * «nessuno»: quattro interruttori spenti sono la tabella intera, ed è ciò
+   * che rende superfluo un quinto bottone.
    *
-   * È LO STESSO valore del menu «Ruolo» della ricerca, non una seconda
-   * verità: i quattro interruttori qui sotto sono una scorciatoia per quel
-   * campo, e i due controlli si vedono sempre d'accordo perché leggono e
-   * scrivono la stessa cosa. Due stati separati avrebbero potuto dire «solo
-   * difensori» e «solo centrocampisti» insieme, cioè un elenco vuoto che
-   * nessuno dei due controlli spiega.
+   * ERA UN RUOLO SOLO (`Role | ""`) fino al 2026-08-29, e coincideva col menu
+   * «Ruolo» della ricerca. Pico ha chiesto la selezione multipla, quindi le
+   * due cose si separano: questo è un filtro DI VISTA e può contenere due
+   * ruoli insieme; `state.call.role` resta il ruolo del giocatore CHIAMATO,
+   * che l'asta usa per i propri conti e che è uno solo per definizione. La
+   * regola che li tiene allineati sta in `toggleListoneRole` (src/main.ts) e
+   * si legge in una riga.
    */
-  readonly roleFilter: Role | "";
+  readonly roleFilter: readonly Role[];
   /** listonePlayerKey of the row currently selected via click (see onSelectPlayer), or null. */
   readonly selectedKey: string | null;
 }
@@ -191,8 +194,13 @@ export interface ListonePanelHandlers {
   readonly onToggleManualOverride: () => void;
   readonly onStatusFilterChange: (status: ListoneStatusFilter) => void;
   readonly onToggleStatusFilter: () => void;
-  /** Un interruttore di ruolo premuto: il ruolo scelto, o `""` per «tutti». */
-  readonly onRoleFilterChange: (role: Role | "") => void;
+  /**
+   * Un interruttore di ruolo premuto. Porta IL RUOLO PREMUTO e non l'elenco
+   * risultante: chi riceve il gesto conosce lo stato corrente e sa fare
+   * l'aggiunta o la rimozione, mentre farsi passare l'elenco già fatto
+   * significherebbe avere due posti che decidono che cosa sia acceso.
+   */
+  readonly onRoleFilterChange: (role: Role) => void;
   /** Clicking a (non-assigned) row — populates the search bar with this player. */
   readonly onSelectPlayer: (p: ListonePlayer) => void;
 }
@@ -290,6 +298,20 @@ export function renderListoneSvincolati(
 
   const panel = document.createElement("div");
   panel.className = "panel--bordered";
+  // LA PROVENIENZA DEL LISTONE PASSA ALLA VOCE. Le quattro note sotto la
+  // tabella sono uscite da schermo (richiesta di Pico, 2026-08-29) e
+  // `display: none` toglie un nodo anche dall'albero di accessibilità: senza
+  // questa riga, la frase che dice DA DOVE arrivano le righe — deposito
+  // privato con la sua data, oppure listone spedito con l'app — sparirebbe per
+  // tutti, non solo da schermo. È lo stesso trattamento già deciso da Pico per
+  // la provenienza della fascia («nascondile, ma restano a voce»), applicato
+  // alla stessa classe di garanzia.
+  //
+  // Solo la provenienza, e non tutte e quattro: le altre tre note qualificano
+  // dei numeri che restano visibili accanto a loro, questa dice l'origine del
+  // dato e non ha nessun altro posto in cui vivere.
+  panel.setAttribute("role", "group");
+  panel.setAttribute("aria-label", `Listone svincolati. ${sourceNote}`);
 
   const titleRow = document.createElement("div");
   titleRow.style.cssText = `display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;`;
@@ -366,7 +388,13 @@ export function renderListoneSvincolati(
 
   panel.appendChild(renderListonePagination(paged.page, paged.totalPages, onChangePage));
 
+  // LE QUATTRO NOTE SOTTO LA TABELLA PRENDONO UN ID CIASCUNA, e due di loro non
+  // ce l'avevano. Servono a nasconderle (richiesta di Pico, 2026-08-29: «nascondi
+  // i blocchi nello screenshot») senza colpirle per posizione: `div:nth-child(n)`
+  // sotto un pannello che cresce fa sparire quello sbagliato il giorno in cui
+  // qualcuno aggiunge una riga, e lo fa in silenzio.
   const note = document.createElement("div");
+  note.id = "listone-count-note";
   note.style.cssText = `font-size:11px;color:${C.textDim};margin-top:8px;`;
   note.textContent =
     displayPool.length === pool.length
@@ -376,6 +404,7 @@ export function renderListoneSvincolati(
 
   if (appealIndexNote !== null) {
     const indexNote = document.createElement("div");
+    indexNote.id = "listone-appeal-index-note";
     indexNote.style.cssText = `font-size:11px;color:${C.textDim};margin-top:4px;`;
     indexNote.textContent = appealIndexNote;
     panel.appendChild(indexNote);
@@ -500,34 +529,45 @@ export const LISTONE_ROLE_FILTER_ID = "listone-role-filter";
  * I QUATTRO INTERRUTTORI DI RUOLO — P, D, C, A — sulla riga del titolo.
  *
  * Richiesta di Pico, 2026-08-29: «inserisci qui 4 toggle inline per filtrare
- * rapidamente P/D/C/A».
+ * rapidamente P/D/C/A». Riforma dello stesso giorno, con l'immagine allegata:
+ * «rendi i toggle P/D/C/A del listone con la selezione multipla e trasformali
+ * come la png con le lettere nel pallino bianco della selezione e i colori del
+ * ruolo».
  *
- * UNO ALLA VOLTA, e non quattro caselle indipendenti. Il ruolo su cui il
- * listone filtra è lo STESSO che l'asta usa per i propri conti — il tetto di
- * spesa del ruolo chiamato, la guardia sul ruolo obbligatorio — ed è uno solo
- * per definizione: due ruoli accesi insieme non sarebbero un filtro più
- * potente, sarebbero una domanda a cui il resto della schermata non sa
- * rispondere. Chi vuole vedere due ruoli insieme li vede spegnendo il filtro.
+ * SELEZIONE MULTIPLA, e prima era uno alla volta. Il motivo scritto qui era
+ * che il ruolo del filtro e quello che l'asta usa per i propri conti erano lo
+ * stesso campo, e l'asta ne ammette uno solo. La richiesta di Pico separa le
+ * due cose, e la separazione è la parte che conta di questo cambiamento:
  *
- * PREMERE QUELLO GIÀ ACCESO LO SPEGNE, e torna «tutti»: è ciò che rende
- * quattro bottoni sufficienti senza un quinto che dica «Tutti». Un
- * interruttore che non si può disfare col gesto che l'ha acceso costringe a
- * cercare altrove il modo di tornare indietro.
+ *  - `state.listoneRoles` è un filtro DI VISTA sul listone, e può contenerne
+ *    quanti se ne vogliono. Vuoto significa «tutti», non «nessuno»: quattro
+ *    interruttori spenti sono la tabella intera, ed è ciò che rende superfluo
+ *    un quinto bottone «Tutti»;
+ *  - `state.call.role` resta il ruolo del giocatore CHIAMATO, che l'asta usa
+ *    per il tetto di spesa e per la guardia del ruolo obbligatorio, e uno solo
+ *    per definizione.
  *
- * NON È UNA SECONDA VERITÀ. Scrive `state.call.role`, lo stesso campo del
- * menu «Ruolo» della ricerca, che resta dov'è e si aggiorna da sé: i due
- * controlli non possono contraddirsi perché sono due maniglie sulla stessa
- * porta.
+ * I DUE NON SI CONTRADDICONO, e non perché ci si fidi: sono tenuti allineati
+ * in `toggleListoneRole` (src/main.ts) con una regola che si può leggere in
+ * una riga — un ruolo acceso da solo È il ruolo chiamato; zero o due o più
+ * ruoli accesi non sono un ruolo, quindi il campo dell'asta torna vuoto. Il
+ * menu «Ruolo» della ricerca scrive entrambe le cose, così le due maniglie
+ * restano sulla stessa porta finché la porta è una sola.
  *
- * LO STATO È SU `aria-pressed`, non solo nel colore: la pastiglia del ruolo
- * porta già un colore suo, e affidare a una seconda tinta la differenza fra
- * «acceso» e «spento» l'avrebbe resa illeggibile a chi quei colori non li
- * distingue. Il bordo e il grassetto sono il canale visivo, `aria-pressed`
- * quello parlato.
+ * LA FORMA È QUELLA DELL'IMMAGINE: una pista con dentro un pallino bianco che
+ * scorre, e la lettera del ruolo nel pallino. Il colore del ruolo sta sulla
+ * pista — pieno da acceso, attenuato da spento — e non è il solo canale: da
+ * acceso il pallino sta a destra, da spento a sinistra, e `aria-pressed`
+ * porta lo stato a chi naviga a voce. Chi non distingue le tinte legge la
+ * posizione.
+ *
+ * `renderRoleChip` non serve più qui: la pastiglia era un disco col ruolo
+ * dentro, e adesso il disco è il pallino dell'interruttore. Resta usata in
+ * tutti gli altri posti in cui il ruolo si mostra e basta.
  */
 function renderRoleFilterToggles(
-  roleFilter: Role | "",
-  onRoleFilterChange: (role: Role | "") => void,
+  roleFilter: readonly Role[],
+  onToggleRole: (role: Role) => void,
 ): HTMLElement {
   const wrap = document.createElement("div");
   wrap.id = LISTONE_ROLE_FILTER_ID;
@@ -536,19 +576,40 @@ function renderRoleFilterToggles(
   wrap.setAttribute("aria-label", "Filtra il listone per ruolo");
 
   for (const role of ROLES) {
-    const attivo = roleFilter === role;
+    const attivo = roleFilter.includes(role);
+    const colori = ROLE_COLORS[role];
     const btn = document.createElement("button");
     btn.type = "button";
     btn.id = `${LISTONE_ROLE_FILTER_ID}-${role}`;
     btn.className = "listone-role-filter__toggle";
     btn.setAttribute("aria-pressed", String(attivo));
+    // I colori del ruolo entrano come variabili e non come regole: la
+    // convenzione delle tinte vive in un posto solo (`ROLE_COLORS`,
+    // src/ui/theme.ts) e il CSS la legge invece di riscriverla per la quinta
+    // volta.
+    //
+    // L'INCHIOSTRO DELLA LETTERA È `mutedBg`, NON `text`, e la differenza si
+    // vede a schermo: `text` è l'inchiostro che la pastiglia usa sopra il
+    // PROPRIO fondo, e per i centrocampisti quel valore è `white` — dentro un
+    // pallino bianco una lettera bianca non c'è. `mutedBg` è la variante scura
+    // dello stesso ruolo (L 0.42, stesso hue e stesso chroma), quindi la
+    // lettera resta del colore del suo ruolo e si legge su bianco in tutti e
+    // quattro i casi.
+    if (colori !== undefined) {
+      btn.style.setProperty("--role-on", colori.bg);
+      btn.style.setProperty("--role-off", colori.mutedBg);
+      btn.style.setProperty("--role-ink", colori.mutedBg);
+    }
     // Il titolo dice ENTRAMBE le cose: che cosa fa premendolo adesso, e il
     // nome per esteso del ruolo. «D» da solo non è una parola.
     btn.title = attivo
-      ? `${ROLE_LABEL_SING[role]} — premi di nuovo per togliere il filtro`
-      : `Mostra solo: ${ROLE_LABEL_SING[role]}`;
-    btn.appendChild(renderRoleChip(role, attivo ? "full" : "muted"));
-    btn.addEventListener("click", () => onRoleFilterChange(attivo ? "" : role));
+      ? `${ROLE_LABEL_SING[role]} — premi di nuovo per toglierlo dal filtro`
+      : `Aggiungi al filtro: ${ROLE_LABEL_SING[role]}`;
+    const knob = document.createElement("span");
+    knob.className = "listone-role-filter__knob";
+    knob.textContent = role;
+    btn.appendChild(knob);
+    btn.addEventListener("click", () => onToggleRole(role));
     wrap.appendChild(btn);
   }
   return wrap;

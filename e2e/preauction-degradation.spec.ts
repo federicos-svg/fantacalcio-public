@@ -34,6 +34,14 @@
 // ZERO RETE ESTERNA in ogni caso: `installSyntheticNetworkGuard` aborta e
 // registra qualunque richiesta fuori dall'origine, e ogni test asserisce che
 // la lista sia vuota.
+// LE NOTE SOTTO LA TABELLA DEL LISTONE NON SONO PIÙ A SCHERMO — «nascondi i
+// blocchi nello screenshot», Pico, 2026-08-29. Restano SCRITTE nel documento,
+// quindi ogni pretesa sul loro CONTENUTO vale ancora parola per parola: dove
+// c'era `toBeVisible()` ora c'è `toBeHidden()`, e le righe che provano la
+// provenienza del dato non si toccano. La provenienza non si perde nemmeno
+// per chi naviga a voce: la porta l'`aria-label` del pannello del listone
+// (src/ui/views.ts), come Pico ha deciso per la provenienza della fascia.
+
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import {
   SYNTHETIC_LISTONE_POOL,
@@ -103,7 +111,7 @@ async function expectStaticPoolStatedHonestly(page: Page): Promise<void> {
   for (const player of SYNTHETIC_LISTONE_POOL) {
     await expect(page.getByText(player.name, { exact: true })).toBeVisible();
   }
-  await expect(page.getByText(FALLBACK_NOTE)).toBeVisible();
+  await expect(page.getByText(FALLBACK_NOTE)).toBeHidden();
   // E soprattutto: NON dichiara una freschezza che non ha.
   await expect(page.getByText(REMOTE_NOTE)).toHaveCount(0);
   await expect(page.getByText("Nessun listone caricato al momento.")).toHaveCount(0);

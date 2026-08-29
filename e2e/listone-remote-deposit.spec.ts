@@ -1,3 +1,11 @@
+// LE NOTE SOTTO LA TABELLA DEL LISTONE NON SONO PIÙ A SCHERMO — «nascondi i
+// blocchi nello screenshot», Pico, 2026-08-29. Restano SCRITTE nel documento,
+// quindi ogni pretesa sul loro CONTENUTO vale ancora parola per parola: dove
+// c'era `toBeVisible()` ora c'è `toBeHidden()`, e le righe che provano la
+// provenienza del dato non si toccano. La provenienza non si perde nemmeno
+// per chi naviga a voce: la porta l'`aria-label` del pannello del listone
+// (src/ui/views.ts), come Pico ha deciso per la provenienza della fascia.
+
 import { expect, test } from "@playwright/test";
 import {
   SYNTHETIC_LISTONE_POOL,
@@ -36,7 +44,8 @@ test("the private deposit wins over the static asset and says so, with its date"
   await expect(page.getByText(SYNTHETIC_LISTONE_POOL[0]!.name, { exact: true })).toHaveCount(0);
 
   const note = page.getByText(REMOTE_NOTE);
-  await expect(note).toBeVisible();
+  await expect(note).toHaveCount(1);
+  await expect(note).toBeHidden();
   await expect(note).toContainText(`(dati aggiornati al ${SYNTHETIC_REMOTE_MODIFIED_AT_LABEL})`);
   await expect(note).toContainText("non usato dal motore decisionale");
   await expect(page.getByText(FALLBACK_NOTE)).toHaveCount(0);
@@ -55,7 +64,7 @@ test("an unavailable deposit falls back to the static asset and keeps the fallba
   for (const player of SYNTHETIC_LISTONE_POOL) {
     await expect(page.getByText(player.name, { exact: true })).toBeVisible();
   }
-  await expect(page.getByText(FALLBACK_NOTE)).toBeVisible();
+  await expect(page.getByText(FALLBACK_NOTE)).toBeHidden();
   await expect(page.getByText(REMOTE_NOTE)).toHaveCount(0);
   expect(externalRequests).toEqual([]);
 });
@@ -70,7 +79,7 @@ test("a deposit answered by the SPA fallback (200 text/html) is refused, not sho
   for (const player of SYNTHETIC_LISTONE_POOL) {
     await expect(page.getByText(player.name, { exact: true })).toBeVisible();
   }
-  await expect(page.getByText(FALLBACK_NOTE)).toBeVisible();
+  await expect(page.getByText(FALLBACK_NOTE)).toBeHidden();
   await expect(page.getByText(REMOTE_NOTE)).toHaveCount(0);
   expect(externalRequests).toEqual([]);
 });
@@ -88,7 +97,7 @@ test("a deposit payload the UI validator refuses leaves the static asset on scre
     await expect(page.getByText(player.name, { exact: true })).toBeVisible();
   }
   await expect(page.getByText("Gino Vietato", { exact: true })).toHaveCount(0);
-  await expect(page.getByText(FALLBACK_NOTE)).toBeVisible();
+  await expect(page.getByText(FALLBACK_NOTE)).toBeHidden();
   expect(externalRequests).toEqual([]);
 });
 
@@ -140,7 +149,7 @@ test("an index without its quality label is refused, index and rows together", a
     await expect(page.getByText(player.name, { exact: true })).toBeVisible();
   }
   await expect(page.getByText("Gino SenzaEtichetta", { exact: true })).toHaveCount(0);
-  await expect(page.getByText(FALLBACK_NOTE)).toBeVisible();
+  await expect(page.getByText(FALLBACK_NOTE)).toBeHidden();
   await expect(page.locator(".listone-table-head")).not.toContainText("Indice");
   expect(externalRequests).toEqual([]);
 });

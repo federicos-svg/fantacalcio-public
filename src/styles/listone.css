@@ -349,17 +349,16 @@
 
 /* ── I QUATTRO INTERRUTTORI DI RUOLO ────────────────────────────────────────
    Richiesta di Pico, 2026-08-29: quattro toggle inline sulla riga del titolo
-   del listone, per filtrare rapidamente P/D/C/A.
+   del listone, per filtrare rapidamente P/D/C/A. Riforma dello stesso giorno,
+   con l'immagine allegata: SELEZIONE MULTIPLA e forma di interruttore — la
+   lettera dentro il pallino bianco che scorre, la pista del colore del ruolo.
 
    TUTTI E QUATTRO SULLA STESSA RIGA, E CI RESTANO. Pico ha chiesto «inline»
    dicendo che guarda da desktop, e lasciando a me la resa stretta:
    `flex-wrap: nowrap` con `flex: none` è la scelta, e non è la più ovvia —
    `wrap` avrebbe fatto scendere l'ultimo bottone da solo sotto gli altri tre,
    che è il modo peggiore di risparmiare spazio: rompe il gruppo proprio dove
-   il gruppo È l'informazione (quattro ruoli, uno accanto all'altro, uno solo
-   acceso). Quattro pastiglie da 28px con tre spazi da 6 chiedono 130px: ci
-   stanno anche a 390 di larghezza, dove la riga del titolo manda a capo il
-   BLOCCO — titolo sopra, interruttori sotto — invece di spezzare il gruppo.
+   il gruppo È l'informazione (quattro ruoli, uno accanto all'altro).
 
    `touch-action: manipulation` toglie i 300ms di attesa del doppio tap sui
    telefoni: qui il gesto è «prova un ruolo, poi un altro», e mezzo secondo di
@@ -371,25 +370,39 @@
   flex-wrap: nowrap;
   gap: 6px;
 }
+
+/* LA PISTA. Larga il doppio dell'altezza, così il pallino ha dove scorrere:
+   è la forma che rende un interruttore riconoscibile come tale prima ancora
+   di leggerlo. Spento porta il colore del ruolo ATTENUATO (`--role-off`, la
+   variante `mutedBg` già in uso per le righe assegnate) e non un grigio
+   neutro: il ruolo resta riconoscibile anche da spento, che è metà del motivo
+   per cui questi quattro esistono.
+
+   L'ALTEZZA RESTA 24px, come i bottoni che c'erano prima, ed è una misura
+   scelta: a 390px questi quattro vanno a capo sotto il titolo e la loro riga
+   entra nel totale dichiarato della schermata (src/ui/callScreenBudget.ts).
+   La larghezza cresce da 24 a 42, e il mastro l'ha rimisurata. */
 .listone-role-filter__toggle {
   align-items: center;
-  background: transparent;
+  background: var(--role-off);
   border: 1px solid transparent;
   border-radius: 999px;
+  box-sizing: border-box;
   cursor: pointer;
   display: inline-flex;
   flex: none;
-  justify-content: center;
-  /* 24px è sotto i 44 raccomandati per il tocco, ed è una misura scelta, non
-     presa a caso: a 390px questi quattro vanno a capo sotto il titolo e la
-     loro riga entra per intero nel totale dichiarato della schermata (due
-     schermate, 1688px — src/ui/callScreenBudget.ts). A 28px lo span misurava
-     1690: due pixel oltre, e il mastro li ha visti. Il bersaglio del tocco è
-     più grande della pastiglia, perché il padding fa parte del bottone. */
-  min-height: 24px;
-  min-width: 24px;
-  padding: 1px;
+  height: 24px;
+  justify-content: flex-start;
+  padding: 2px;
   touch-action: manipulation;
+  width: 42px;
+}
+/* ACCESO: la pista prende il colore pieno del ruolo e il pallino scorre a
+   destra. DUE CANALI, non uno — chi non distingue le tinte legge la POSIZIONE
+   del pallino — e `aria-pressed` è il terzo, per chi naviga a voce. */
+.listone-role-filter__toggle[aria-pressed="true"] {
+  background: var(--role-on);
+  justify-content: flex-end;
 }
 .listone-role-filter__toggle:hover {
   border-color: var(--accent);
@@ -398,14 +411,29 @@
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-/* LO STATO NON È SOLO IL COLORE. La pastiglia del ruolo porta già una tinta
-   sua — gialla per i portieri, verde per i difensori — e affidare a una
-   seconda tinta la differenza fra acceso e spento l'avrebbe resa illeggibile
-   a chi quei colori non li distingue. Qui la differenza è il BORDO, e la
-   pastiglia passa dalla forma arretrata a quella piena: due canali oltre ad
-   `aria-pressed`, che è il terzo e vale per chi naviga a voce. */
-.listone-role-filter__toggle[aria-pressed="true"] {
-  border-color: var(--accent);
+/* IL PALLINO, con la lettera dentro. È bianco in entrambi gli stati — è la
+   parte che si muove, non quella che cambia colore — e la lettera porta
+   `--role-ink`, che è la variante SCURA del colore del ruolo (`mutedBg`, L
+   0.42) e non l'inchiostro della pastiglia: quello, per i centrocampisti, è
+   bianco, e una lettera bianca dentro un pallino bianco non c'è. Così la
+   lettera resta del colore del suo ruolo e si legge in tutti e quattro i casi
+   e in tutti e due gli stati; e2e/text-contrast-aa.spec.ts la rimisura.
+
+   `transition` sulla sola posizione: il pallino scorre, e su un tocco di
+   prova-e-riprova quel movimento è l'unica cosa che dice «ho registrato». */
+.listone-role-filter__knob {
+  align-items: center;
+  background: #fff;
+  border-radius: 50%;
+  color: var(--role-ink);
+  display: inline-flex;
+  flex: none;
+  font-size: 11px;
+  font-weight: 800;
+  height: 18px;
+  justify-content: center;
+  line-height: 1;
+  width: 18px;
 }
 
 /* ── Pannello «Colonne visibili» ────────────────────────────────────────────

@@ -1692,7 +1692,17 @@ export type ListoneStatusFilter = "available" | "assigned" | "all";
 
 export interface ListoneSearchFilter {
   readonly text: string;
-  readonly role: Role | "";
+  /**
+   * I RUOLI AMMESSI. VUOTO SIGNIFICA «TUTTI», mai «nessuno»: un elenco vuoto è
+   * l'assenza di un filtro, non un filtro che non ammette niente.
+   *
+   * Era `role: Role | ""` fino al 2026-08-29, quando Pico ha chiesto la
+   * selezione multipla sui quattro interruttori del listone. Un elenco e non
+   * un ruolo solo perché «difensori e centrocampisti insieme» è una domanda
+   * che questa tabella sa fare — mentre l'asta, che di ruolo ne ammette uno,
+   * continua a leggere il proprio campo (`call.role`) e non questo.
+   */
+  readonly roles: readonly Role[];
   readonly club: string;
   readonly status: ListoneStatusFilter;
 }
@@ -1719,7 +1729,7 @@ export function filterListonePool(
   const q = normalizeIdentityPart(filter.text.trim());
   return pool.filter((p) => {
     if (q && !normalizeIdentityPart(p.name).includes(q)) return false;
-    if (filter.role && p.role !== filter.role) return false;
+    if (filter.roles.length > 0 && !filter.roles.includes(p.role)) return false;
     if (filter.club && p.club !== filter.club) return false;
     const isAssigned = assignedKeys.has(listonePlayerKey(p));
     if (filter.status === "available") return !isAssigned;

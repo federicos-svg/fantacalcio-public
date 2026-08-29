@@ -1,3 +1,11 @@
+// LE NOTE SOTTO LA TABELLA DEL LISTONE NON SONO PIÙ A SCHERMO — «nascondi i
+// blocchi nello screenshot», Pico, 2026-08-29. Restano SCRITTE nel documento,
+// quindi ogni pretesa sul loro CONTENUTO vale ancora parola per parola: dove
+// c'era `toBeVisible()` ora c'è `toBeHidden()`, e le righe che provano la
+// provenienza del dato non si toccano. La provenienza non si perde nemmeno
+// per chi naviga a voce: la porta l'`aria-label` del pannello del listone
+// (src/ui/views.ts), come Pico ha deciso per la provenienza della fascia.
+
 import { expect, test, type Page } from "@playwright/test";
 import {
   SYNTHETIC_GEN_FORECAST_ABSENT_PLAYER,
@@ -75,7 +83,8 @@ test("la nota dichiara le previsioni servite, e le colonne restano spente finch�
   const externalRequests = await boot(page, context);
 
   const note = page.locator("#listone-gen-forecast-note");
-  await expect(note).toBeVisible();
+  await expect(note).toHaveCount(1);
+  await expect(note).toBeHidden();
   await expect(note).toContainText(SYNTHETIC_GEN_RECIPE);
   await expect(note).toContainText(SYNTHETIC_GEN_PROTOCOL);
   await expect(note).toContainText(SYNTHETIC_GEN_RUN);
