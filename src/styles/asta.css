@@ -1314,7 +1314,18 @@
    di margine a 700×900, 205px a 719×900) e da questo round c'è un'asserzione che
    lo tiene, col suo budget stretto misurato a parte. Sotto i ~505px di larghezza
    NON ci resta più: il numero e la decisione stanno nel corpo della PR, perché
-   che cosa sacrificare non lo decide un foglio di stile. */
+   che cosa sacrificare non lo decide un foglio di stile.
+
+   DAL 2026-08-29 LE CELLE VISIBILI SONO DUE, non quattro («Nascondi valore
+   assoluto e valore relativo senza cancellare niente» — Pico; la costante è
+   VISIBLE_VALUE_SLOT_IDS in src/valueBox.ts, il conteggio arriva alla griglia
+   via --value-box-cols). La narrazione qui sopra — «quattro celle su una riga
+   sola», il riflow a due righe sotto i 700px e i margini misurati con quattro
+   celle — descrive la griglia PIENA e torna attuale il giorno in cui gli slot
+   si riaccendono; con due celle la griglia sta su una riga a ogni larghezza e
+   la soglia dei 700px è un no-op. Le misure non si riscrivono: sono vere per
+   lo stato in cui furono prese, e rifarle per lo stato ridotto lo decide chi
+   riaccende, non un commento. */
 .value-box--inline {
   background: none;
   border: 0;
@@ -1342,12 +1353,25 @@
 @media (max-width: 719px) {
   .value-box__note { text-align: left; }
 }
+/* UNA COLONNA PER CELLA, E IL CONTEGGIO NON È SCRITTO QUI. Dal 2026-08-29 le
+   celle rese sono un SOTTOINSIEME dei quattro slot — «Nascondi valore assoluto
+   e valore relativo senza cancellare niente.», Pico — e il numero arriva dalla
+   resa come `--value-box-cols` (src/ui/valueBox.ts, `valueBoxHtml`), che lo
+   prende dalla lunghezza di `VISIBLE_VALUE_SLOT_IDS`. Un `4` cablato qui
+   lascerebbe due colonne vuote in fondo alla riga il giorno in cui le celle
+   diventano due, e nessun foglio di stile sarebbe rosso per dirlo. Il fallback
+   resta 4: se la custom property non arrivasse, la griglia torna alla forma
+   piena del record invece di collassare su una colonna sola. */
 .value-box__grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--value-box-cols, 4), minmax(0, 1fr));
   gap: 8px;
   margin: 6px 0 0;
 }
+/* Sotto i 700px le celle vanno su due per riga. Con le DUE celle di oggi la
+   regola non cambia più niente — due colonne larghe, due colonne strette — e
+   resta scritta perché è la forma piena a chiederla: riaccesi i due slot in
+   crediti, è di nuovo lei a mandare la griglia su due righe. */
 @media (max-width: 700px) {
   .value-box__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

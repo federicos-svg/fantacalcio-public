@@ -1,8 +1,19 @@
-// RIQUADRO DEL VALORE — costruttori puri della resa dei quattro numeri.
+// RIQUADRO DEL VALORE — costruttori puri della resa dei numeri del riquadro.
 // Il calcolo sta in src/valueBox.ts; qui ci sono soltanto etichette, testo e
 // HTML, senza DOM e senza stato, come per src/ui/tierBand.ts.
 //
-// LE QUATTRO CELLE HANNO LA STESSA FORMA, sempre: nome dello slot, poi il
+// DUE DEI QUATTRO NON ARRIVANO PIÙ A SCHERMO, e il file lo dice in testa invece
+// di lasciarlo scoprire: «Nascondi valore assoluto e valore relativo senza
+// cancellare niente.» — Pico, 2026-08-29. La resa legge
+// `VISIBLE_VALUE_SLOT_IDS` (src/valueBox.ts), che è un SOTTOINSIEME
+// dell'ordine dichiarato dal record; le quattro letture restano calcolate,
+// tipizzate e provate, e ogni funzione di testo di questo file continua a
+// saperle rendere tutte e quattro — `valueSlotText`, `valueSlotWhyText`,
+// `VALUE_SLOT_LABELS`, `VALUE_MISSING_TEXT` e `RELATIVE_PRICE_BOUND_TEXT` non
+// hanno perso una voce. Il giorno in cui i due id tornano nella costante, le
+// loro celle tornano a schermo senza che qui si tocchi una riga.
+//
+// LE CELLE HANNO TUTTE LA STESSA FORMA, sempre: nome dello slot, poi il
 // numero oppure `n/d`, poi UNA riga che dice da dove viene il numero oppure
 // perché non c'è. Una cella `n/d` non è mai muta e non è mai più corta delle
 // altre: «non lo so» è un'informazione, e a schermo deve costare quanto un
@@ -38,7 +49,7 @@ import type {
   ValueSlot,
   ValueSlotId,
 } from "../valueBox.js";
-import { VALUE_SLOT_ORDER } from "../valueBox.js";
+import { VISIBLE_VALUE_SLOT_IDS } from "../valueBox.js";
 import { escHtml } from "./theme.js";
 
 export const VALUE_BOX_TITLE = "VALORE";
@@ -46,7 +57,10 @@ export const VALUE_BOX_TITLE = "VALORE";
 /** Il token di assenza del progetto. Mai un default, mai una cella vuota. */
 export const VALUE_UNKNOWN = "n/d";
 
-/** I nomi dei quattro slot, con le parole del record che li ha decisi. */
+/** I nomi dei quattro slot, con le parole del record che li ha decisi. Restano
+ *  QUATTRO anche da quando due celle non si vedono (2026-08-29): la mappa è
+ *  totale su `ValueSlotId`, e riaccendere uno slot non deve chiedere anche di
+ *  ritrovargli un nome. */
 export const VALUE_SLOT_LABELS: Readonly<Record<ValueSlotId, string>> = {
   "indice-assoluto": "Indice assoluto",
   "indice-relativo": "Indice relativo",
@@ -396,9 +410,23 @@ export function valueSlotWhyText(
   return VALUE_MISSING_TEXT[slot.reason];
 }
 
-/** Le quattro celle, nell'ordine del record. */
+/**
+ * LE CELLE CHE SI VEDONO, nell'ordine del record.
+ *
+ * ITERA SU `VISIBLE_VALUE_SLOT_IDS` E NON PIÙ SU `VALUE_SLOT_ORDER`, ed è
+ * l'unico punto in cui i due slot in crediti si spengono: «Nascondi valore
+ * assoluto e valore relativo senza cancellare niente.» — Pico, 2026-08-29.
+ * `reading.slots` continua a portarli tutti e quattro, calcolati e provati; qui
+ * si sceglie soltanto quali arrivano sotto gli occhi. Per riaccenderli si
+ * rimettono i loro id nella costante (src/valueBox.ts), e questa funzione non
+ * va toccata.
+ *
+ * Le celle rese restano quelle che erano — stesso id, stessa forma a tre righe,
+ * stesso `--absent` — perché nascondere due celle non è una ragione per
+ * riscrivere le altre.
+ */
 export function valueBoxCellsHtml(reading: ValueBoxReading): string {
-  return VALUE_SLOT_ORDER.map((id) => {
+  return VISIBLE_VALUE_SLOT_IDS.map((id) => {
     const slot = reading.slots[id];
     const absent = slot.kind === "assente";
     return (
@@ -411,14 +439,44 @@ export function valueBoxCellsHtml(reading: ValueBoxReading): string {
   }).join("");
 }
 
-/** Il corpo del riquadro: la sola griglia delle quattro celle. */
+/**
+ * Il corpo del riquadro: la sola griglia delle celle visibili.
+ *
+ * PORTA IL NUMERO DI COLONNE AL FOGLIO DI STILE, e non è cromo: la griglia ha
+ * una colonna per cella su una riga sola (src/styles/asta.css,
+ * `.value-box__grid`), quindi il conteggio deve seguire
+ * `VISIBLE_VALUE_SLOT_IDS`. Scritto qui invece che nel CSS, riaccendere uno
+ * slot resta ciò che la costante promette — si rimette il suo id nella lista e
+ * basta — invece di chiedere anche di ricordarsi un `4` nascosto in un foglio
+ * di stile, che è il modo in cui una griglia finisce con due colonne vuote in
+ * fondo e nessun test rosso.
+ *
+ * È UN NUMERO, non un testo: viene dalla lunghezza di una costante di questo
+ * repository e non da nessun dato, quindi non c'è niente da sanificare — ma
+ * resta l'unico valore che questa funzione scrive fuori da `escHtml`, e va
+ * lasciato tale.
+ */
 export function valueBoxHtml(reading: ValueBoxReading): string {
-  return `<div class="value-box__grid" id="value-box-grid">${valueBoxCellsHtml(reading)}</div>`;
+  return (
+    `<div class="value-box__grid" id="value-box-grid"` +
+    ` style="--value-box-cols:${VISIBLE_VALUE_SLOT_IDS.length}">` +
+    `${valueBoxCellsHtml(reading)}</div>`
+  );
 }
 
 /**
- * Forma parlata per l'aria-label: le quattro celle lette in fila, CON LA LORO
+ * Forma parlata per l'aria-label: le celle VISIBILI lette in fila, CON LA LORO
  * RIGA — nome, numero (o `n/d`), e da dove viene (o perché non c'è).
+ *
+ * LEGGE LO STESSO ELENCO CHE LA GRIGLIA RENDE (`VISIBLE_VALUE_SLOT_IDS`), e
+ * non è un dettaglio di implementazione: dopo l'istruzione di Pico del
+ * 2026-08-29 — «Nascondi valore assoluto e valore relativo senza cancellare
+ * niente.» — due celle non arrivano più a schermo, e una lettura vocale che
+ * continuasse a recitarle descriverebbe un riquadro che chi guarda non vede.
+ * È la stessa regola che questo blocco già dichiara al contrario poche righe
+ * più sotto: una superficie riparata per gli occhi e non per l'udito è riparata
+ * a metà, e vale identica nel verso opposto. I due numeri restano calcolati
+ * nella lettura: non vengono detti, non sono spariti.
  *
  * LA RIGA NON È UN ORNAMENTO VISIVO, quindi non può fermarsi allo schermo. È la
  * stessa regola che governa le celle: «una cella `n/d` non è mai muta», e vale
@@ -436,7 +494,7 @@ export function valueBoxHtml(reading: ValueBoxReading): string {
  * numeri fra loro, qui come a schermo.
  */
 export function valueBoxSpoken(reading: ValueBoxReading): string {
-  const parts = VALUE_SLOT_ORDER.map((id) => {
+  const parts = VISIBLE_VALUE_SLOT_IDS.map((id) => {
     const slot = reading.slots[id];
     return `${VALUE_SLOT_LABELS[id]}: ${valueSlotText(slot)}, ${valueSlotWhyText(id, slot, reading)}`;
   });
