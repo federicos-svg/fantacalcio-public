@@ -166,6 +166,17 @@ export interface ListonePanelState {
   readonly assignedKeys: ReadonlySet<string>;
   readonly statusFilter: ListoneStatusFilter;
   readonly statusFilterOpen: boolean;
+  /**
+   * IL RUOLO SU CUI IL LISTONE È FILTRATO, o `""` per tutti.
+   *
+   * È LO STESSO valore del menu «Ruolo» della ricerca, non una seconda
+   * verità: i quattro interruttori qui sotto sono una scorciatoia per quel
+   * campo, e i due controlli si vedono sempre d'accordo perché leggono e
+   * scrivono la stessa cosa. Due stati separati avrebbero potuto dire «solo
+   * difensori» e «solo centrocampisti» insieme, cioè un elenco vuoto che
+   * nessuno dei due controlli spiega.
+   */
+  readonly roleFilter: Role | "";
   /** listonePlayerKey of the row currently selected via click (see onSelectPlayer), or null. */
   readonly selectedKey: string | null;
 }
@@ -180,6 +191,8 @@ export interface ListonePanelHandlers {
   readonly onToggleManualOverride: () => void;
   readonly onStatusFilterChange: (status: ListoneStatusFilter) => void;
   readonly onToggleStatusFilter: () => void;
+  /** Un interruttore di ruolo premuto: il ruolo scelto, o `""` per «tutti». */
+  readonly onRoleFilterChange: (role: Role | "") => void;
   /** Clicking a (non-assigned) row — populates the search bar with this player. */
   readonly onSelectPlayer: (p: ListonePlayer) => void;
 }
@@ -214,6 +227,7 @@ export function renderListoneSvincolati(
     assignedKeys,
     statusFilter,
     statusFilterOpen,
+    roleFilter,
     selectedKey,
   } = panelState;
   const {
@@ -226,6 +240,7 @@ export function renderListoneSvincolati(
     onToggleManualOverride,
     onStatusFilterChange,
     onToggleStatusFilter,
+    onRoleFilterChange,
     onSelectPlayer,
   } = handlers;
 
@@ -282,6 +297,13 @@ export function renderListoneSvincolati(
   title.className = "panel-title";
   title.textContent = "LISTONE SVINCOLATI";
   titleRow.appendChild(title);
+
+  // I quattro interruttori stanno FRA il titolo e i controlli di destra, che è
+  // il posto indicato da Pico. Non dentro `rightControls`: là avrebbero
+  // condiviso il raggruppamento con il filtro di stato e l'icona delle
+  // colonne, e a schermo stretto sarebbero andati a capo insieme a loro
+  // invece che per conto proprio.
+  titleRow.appendChild(renderRoleFilterToggles(roleFilter, onRoleFilterChange));
 
   const rightControls = document.createElement("div");
   rightControls.style.cssText = `display:flex;align-items:center;gap:8px;flex-wrap:wrap;`;
@@ -469,6 +491,66 @@ function renderStatusFilterControl(
     list.appendChild(item);
   });
   wrap.appendChild(list);
+  return wrap;
+}
+
+export const LISTONE_ROLE_FILTER_ID = "listone-role-filter";
+
+/**
+ * I QUATTRO INTERRUTTORI DI RUOLO — P, D, C, A — sulla riga del titolo.
+ *
+ * Richiesta di Pico, 2026-08-29: «inserisci qui 4 toggle inline per filtrare
+ * rapidamente P/D/C/A».
+ *
+ * UNO ALLA VOLTA, e non quattro caselle indipendenti. Il ruolo su cui il
+ * listone filtra è lo STESSO che l'asta usa per i propri conti — il tetto di
+ * spesa del ruolo chiamato, la guardia sul ruolo obbligatorio — ed è uno solo
+ * per definizione: due ruoli accesi insieme non sarebbero un filtro più
+ * potente, sarebbero una domanda a cui il resto della schermata non sa
+ * rispondere. Chi vuole vedere due ruoli insieme li vede spegnendo il filtro.
+ *
+ * PREMERE QUELLO GIÀ ACCESO LO SPEGNE, e torna «tutti»: è ciò che rende
+ * quattro bottoni sufficienti senza un quinto che dica «Tutti». Un
+ * interruttore che non si può disfare col gesto che l'ha acceso costringe a
+ * cercare altrove il modo di tornare indietro.
+ *
+ * NON È UNA SECONDA VERITÀ. Scrive `state.call.role`, lo stesso campo del
+ * menu «Ruolo» della ricerca, che resta dov'è e si aggiorna da sé: i due
+ * controlli non possono contraddirsi perché sono due maniglie sulla stessa
+ * porta.
+ *
+ * LO STATO È SU `aria-pressed`, non solo nel colore: la pastiglia del ruolo
+ * porta già un colore suo, e affidare a una seconda tinta la differenza fra
+ * «acceso» e «spento» l'avrebbe resa illeggibile a chi quei colori non li
+ * distingue. Il bordo e il grassetto sono il canale visivo, `aria-pressed`
+ * quello parlato.
+ */
+function renderRoleFilterToggles(
+  roleFilter: Role | "",
+  onRoleFilterChange: (role: Role | "") => void,
+): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.id = LISTONE_ROLE_FILTER_ID;
+  wrap.className = "listone-role-filter";
+  wrap.setAttribute("role", "group");
+  wrap.setAttribute("aria-label", "Filtra il listone per ruolo");
+
+  for (const role of ROLES) {
+    const attivo = roleFilter === role;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.id = `${LISTONE_ROLE_FILTER_ID}-${role}`;
+    btn.className = "listone-role-filter__toggle";
+    btn.setAttribute("aria-pressed", String(attivo));
+    // Il titolo dice ENTRAMBE le cose: che cosa fa premendolo adesso, e il
+    // nome per esteso del ruolo. «D» da solo non è una parola.
+    btn.title = attivo
+      ? `${ROLE_LABEL_SING[role]} — premi di nuovo per togliere il filtro`
+      : `Mostra solo: ${ROLE_LABEL_SING[role]}`;
+    btn.appendChild(renderRoleChip(role, attivo ? "full" : "muted"));
+    btn.addEventListener("click", () => onRoleFilterChange(attivo ? "" : role));
+    wrap.appendChild(btn);
+  }
   return wrap;
 }
 

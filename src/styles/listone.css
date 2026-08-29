@@ -347,6 +347,67 @@
   font-size: 11px;
 }
 
+/* ── I QUATTRO INTERRUTTORI DI RUOLO ────────────────────────────────────────
+   Richiesta di Pico, 2026-08-29: quattro toggle inline sulla riga del titolo
+   del listone, per filtrare rapidamente P/D/C/A.
+
+   TUTTI E QUATTRO SULLA STESSA RIGA, E CI RESTANO. Pico ha chiesto «inline»
+   dicendo che guarda da desktop, e lasciando a me la resa stretta:
+   `flex-wrap: nowrap` con `flex: none` è la scelta, e non è la più ovvia —
+   `wrap` avrebbe fatto scendere l'ultimo bottone da solo sotto gli altri tre,
+   che è il modo peggiore di risparmiare spazio: rompe il gruppo proprio dove
+   il gruppo È l'informazione (quattro ruoli, uno accanto all'altro, uno solo
+   acceso). Quattro pastiglie da 28px con tre spazi da 6 chiedono 130px: ci
+   stanno anche a 390 di larghezza, dove la riga del titolo manda a capo il
+   BLOCCO — titolo sopra, interruttori sotto — invece di spezzare il gruppo.
+
+   `touch-action: manipulation` toglie i 300ms di attesa del doppio tap sui
+   telefoni: qui il gesto è «prova un ruolo, poi un altro», e mezzo secondo di
+   ritardo su due tocchi si sente. */
+.listone-role-filter {
+  align-items: center;
+  display: flex;
+  flex: none;
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+.listone-role-filter__toggle {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  flex: none;
+  justify-content: center;
+  /* 24px è sotto i 44 raccomandati per il tocco, ed è una misura scelta, non
+     presa a caso: a 390px questi quattro vanno a capo sotto il titolo e la
+     loro riga entra per intero nel totale dichiarato della schermata (due
+     schermate, 1688px — src/ui/callScreenBudget.ts). A 28px lo span misurava
+     1690: due pixel oltre, e il mastro li ha visti. Il bersaglio del tocco è
+     più grande della pastiglia, perché il padding fa parte del bottone. */
+  min-height: 24px;
+  min-width: 24px;
+  padding: 1px;
+  touch-action: manipulation;
+}
+.listone-role-filter__toggle:hover {
+  border-color: var(--accent);
+}
+.listone-role-filter__toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* LO STATO NON È SOLO IL COLORE. La pastiglia del ruolo porta già una tinta
+   sua — gialla per i portieri, verde per i difensori — e affidare a una
+   seconda tinta la differenza fra acceso e spento l'avrebbe resa illeggibile
+   a chi quei colori non li distingue. Qui la differenza è il BORDO, e la
+   pastiglia passa dalla forma arretrata a quella piena: due canali oltre ad
+   `aria-pressed`, che è il terzo e vale per chi naviga a voce. */
+.listone-role-filter__toggle[aria-pressed="true"] {
+  border-color: var(--accent);
+}
+
 /* ── Pannello «Colonne visibili» ────────────────────────────────────────────
    Un interruttore per colonna, con lo stato dichiarato su `aria-pressed` e
    non solo nel colore: il segno di spunta è testo. */

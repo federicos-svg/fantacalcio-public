@@ -63,7 +63,7 @@ const healthySweep = (over: Partial<CallScreenSweep> = {}): CallScreenSweep => (
     block("suggested-player", 286.5),
     block("listone-block", 1139),
   ],
-  listone: { rowCount: LISTONE_PAGE_SIZE, rowHeightPx: 92.5, headPx: 201, tailPx: 13 },
+  listone: { rowCount: LISTONE_PAGE_SIZE, rowHeightPx: 92.5, headPx: 233, tailPx: 13 },
   ...over,
 });
 
@@ -90,14 +90,14 @@ describe("l'identità aritmetica del mastro", () => {
   it("la somma è quella delle righe dichiarate, non un numero scritto a mano", () => {
     const sum = CALL_SCREEN_BUDGET_LEDGER.reduce((t, r) => t + r.allocationPx, 0);
     expect(CALL_SCREEN_ALLOCATED_PX).toBe(sum);
-    expect(sum).toBe(2756);
+    expect(sum).toBe(2788);
   });
 
   // Il numero che il mastro esiste per far vedere. Pinnato: se qualcuno alza
   // una riga senza restituire niente, questo test cambia valore e il diff lo
   // mostra in un file tracciato — che è l'allarme che oggi manca del tutto.
   it("la riserva è oggi NEGATIVA: il totale è già sfondato dai blocchi che ci sono", () => {
-    expect(CALL_SCREEN_BUDGET_RESERVE_PX).toBe(-1068);
+    expect(CALL_SCREEN_BUDGET_RESERVE_PX).toBe(-1100);
     expect(CALL_SCREEN_BUDGET_RESERVE_PX).toBeLessThan(0);
   });
 
@@ -105,8 +105,8 @@ describe("l'identità aritmetica del mastro", () => {
     // «chi chiamare per me» — la prima metà di GIOCATORE SUGGERITO, già in
     // lavorazione — non arriva in uno spazio vuoto: arriva dovendo restituire
     // la propria altezza PIÙ il rosso della riserva.
-    expect(callScreenNewBlockCostPx(0)).toBe(1068);
-    expect(callScreenNewBlockCostPx(120)).toBe(1188);
+    expect(callScreenNewBlockCostPx(0)).toBe(1100);
+    expect(callScreenNewBlockCostPx(120)).toBe(1220);
   });
 });
 
@@ -157,7 +157,7 @@ describe("la riga del listone è un'uguaglianza derivata dalla sua forma", () =>
   it("(righe per pagina × altezza di riga) + testata, non un numero piatto", () => {
     expect(LISTONE_CHROME_PX).toBe(LISTONE_HEAD_PX + LISTONE_TAIL_PX);
     expect(LISTONE_ALLOCATION_PX).toBe(LISTONE_PAGE_SIZE * LISTONE_ROW_PX + LISTONE_CHROME_PX);
-    expect(LISTONE_ALLOCATION_PX).toBe(1144);
+    expect(LISTONE_ALLOCATION_PX).toBe(1176);
   });
 
   it("è la riga più grande del mastro: i due terzi dello span", () => {
@@ -193,8 +193,8 @@ describe("gli stati che oggi sfondano il totale, pinnati e non approvati", () =>
     const worst = CALL_SCREEN_OVER_BUDGET_STATES.find(
       (s) => s.state === "contesto-aperto-ricerca-vuota",
     );
-    expect(worst?.spanPx).toBe(2750);
-    expect(worst?.overBudgetPx).toBe(1062);
+    expect(worst?.spanPx).toBe(2782);
+    expect(worst?.overBudgetPx).toBe(1094);
     // La somma delle allocazioni È quello stato: il mastro non inventa un
     // tetto, descrive il peggio che la schermata raggiunge oggi.
     expect(CALL_SCREEN_ALLOCATED_PX - worst!.spanPx).toBeLessThanOrEqual(
@@ -216,6 +216,7 @@ describe("le scelte che restano tali", () => {
       "RISERVA_NEGATIVA_SENZA_PROPRIETARIO",
       "SCHEDA_ESPERTO_CON_DEPOSITO_NON_DICHIARATA",
       "MISURE_LEGATE_AL_RENDERING_PINNATO",
+      "PROVA_1_MARGINE_ESAURITO",
     ];
     // Stesso patto di UNRATIFIED_CHOICES nel motore: l'elenco del tipo e
     // l'elenco del dato non possono divergere, e nessuna voce può essere muta.
@@ -282,7 +283,7 @@ describe("la spazzata che attribuisce", () => {
     const line = describeCallScreenBudgetFinding(findings[0]!);
     expect(line).toContain("blocco-finto");
     expect(line).toContain("40px");
-    expect(line).toContain("-1068px");
+    expect(line).toContain("-1100px");
   });
 
   it("un blocco senza id non scappa: viene nominato per forma", () => {
@@ -307,7 +308,7 @@ describe("la spazzata che attribuisce", () => {
       blocks: healthySweep().blocks.map((b) =>
         b.domId === "listone-block" ? block(b.domId, b.consumptionPx - 92.5) : b,
       ),
-      listone: { rowCount: LISTONE_PAGE_SIZE - 1, rowHeightPx: 92.5, headPx: 201, tailPx: 13 },
+      listone: { rowCount: LISTONE_PAGE_SIZE - 1, rowHeightPx: 92.5, headPx: 233, tailPx: 13 },
     });
     const findings = callScreenBudgetFindings(sweep);
     expect(findings).toHaveLength(1);
@@ -324,7 +325,7 @@ describe("la spazzata che attribuisce", () => {
   it("una colonna in più che manda a capo nomina IL LISTONE, non l'ultimo blocco arrivato", () => {
     const findings = callScreenBudgetFindings(
       healthySweep({
-        listone: { rowCount: LISTONE_PAGE_SIZE, rowHeightPx: 112.5, headPx: 201, tailPx: 13 },
+        listone: { rowCount: LISTONE_PAGE_SIZE, rowHeightPx: 112.5, headPx: 233, tailPx: 13 },
         blocks: healthySweep().blocks.map((b) =>
           b.domId === "listone-block" ? block(b.domId, 1339) : b,
         ),
@@ -381,7 +382,7 @@ describe("la spazzata che attribuisce", () => {
         block("suggested-player", 286.5),
         block("listone-block", 306.5),
       ],
-      listone: { rowCount: 1, rowHeightPx: 92.5, headPx: 201, tailPx: 13 },
+      listone: { rowCount: 1, rowHeightPx: 92.5, headPx: 233, tailPx: 13 },
     };
     expect(callScreenBudgetFindings(sweep)).toEqual([]);
   });
@@ -399,7 +400,7 @@ describe("la spazzata che attribuisce", () => {
         block("suggested-player", 286.5),
         block("listone-block", 306.5),
       ],
-      listone: { rowCount: 1, rowHeightPx: 92.5, headPx: 201, tailPx: 13 },
+      listone: { rowCount: 1, rowHeightPx: 92.5, headPx: 233, tailPx: 13 },
     });
     expect(callScreenBudgetFindings(open(1096.25))).toEqual([]);
     expect(callScreenBudgetFindings(open(1097.5))[0]).toMatchObject({
