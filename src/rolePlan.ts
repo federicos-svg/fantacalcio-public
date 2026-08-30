@@ -46,11 +46,14 @@
 // dichiarata del motore su quell'input più i fatti del log. Il sistema non
 // propone un piano, non corregge un piano e non ne suggerisce uno.
 //
-// Storage iniettato (`StorageLike`), mai `window.localStorage`: stessa postura
-// di src/logRecovery.ts e src/leagueTeams.ts, così ogni ramo è testabile con un
-// finto in memoria e senza jsdom (che questo repo non configura).
+// NON C'È PIÙ UN MODULO CHE RACCOGLIE LA DICHIARAZIONE. Il pannello PIANO ROSA
+// e la sua persistenza sono stati rimossi: resta la sola LETTURA, che oggi
+// riceve `null` da ogni chiamante vivo e risponde «nessun piano dichiarato».
+// La forma parziale e i tre esiti restano perché sono il contratto che
+// src/perMeCandidates.ts legge, e perché il giorno in cui una dichiarazione
+// tornerà da qualche parte non deve tornare anche l'ambiguità fra «zero» e
+// «non deciso».
 
-import { z } from "zod";
 import { budgetPlan } from "../packages/engine/src/budget.js";
 import {
   type DeclaredRolePlan,
@@ -60,13 +63,6 @@ import {
   validateRolePlan,
 } from "../packages/engine/src/livePlan.js";
 import { INITIAL_BUDGET, ROLES, type Role, type TeamState } from "../packages/engine/src/types.js";
-import type { StorageLike } from "./logRecovery.js";
-
-export const ROLE_PLAN_STORAGE_KEY = "fac_role_plan";
-export const ROLE_PLAN_SCHEMA_VERSION = 1;
-
-/** Abbastanza per «2026-08-22 pre-asta», corto per stare su una riga a 390px. */
-export const PLAN_VERSION_MAX = 40;
 
 /**
  * LA DICHIARAZIONE DI OWNER, parziale per costruzione.
@@ -86,9 +82,6 @@ export interface RolePlanDraft {
   readonly planVersion: string;
   readonly targets: Readonly<Partial<Record<Role, number>>>;
 }
-
-/** La dichiarazione vuota: nessun ruolo, nessuna versione. Non è «zero». */
-export const EMPTY_ROLE_PLAN_DRAFT: RolePlanDraft = { planVersion: "", targets: {} };
 
 /**
  * Che cosa manca perché la dichiarazione sia un piano.
@@ -261,148 +254,4 @@ export function rolePlanReading(team: TeamState, draft: RolePlanDraft | null): R
   });
 
   return { kind: "live", rows, live };
-}
-
-// ── Persistenza ─────────────────────────────────────────────────────────────
-// Stesso idioma di src/leagueTeams.ts: zod, `schemaVersion` esplicito,
-// fail-closed su qualunque forma inattesa. Una dichiarazione corrotta torna
-// come dichiarazione ASSENTE, mai come una dichiarazione parziale indovinata:
-// indovinare qui significherebbe inventare un target che Owner non ha scritto.
-
-/** Un target dichiarato: intero, non negativo. Il resto lo rifiuta il motore. */
-const targetSchema = z.number().int().min(0).max(ROLE_PLAN_TOTAL_CAP);
-
-const draftSchema = z
-  .object({
-    schemaVersion: z.literal(ROLE_PLAN_SCHEMA_VERSION),
-    planVersion: z.string().max(PLAN_VERSION_MAX),
-    // `.optional()` e non `.default(0)`: la chiave assente DEVE restare assente
-    // attraverso la serializzazione, o il round-trip trasformerebbe «non
-    // dichiarato» in «dichiarato zero» ogni volta che l'app si riapre.
-    targets: z
-      .object({
-        P: targetSchema.optional(),
-        D: targetSchema.optional(),
-        C: targetSchema.optional(),
-        A: targetSchema.optional(),
-      })
-      .strict(),
-  })
-  .strict();
-
-/** Toglie le chiavi assenti invece di serializzarle come `null`/`undefined`. */
-function compactTargets(targets: Readonly<Partial<Record<Role, number>>>): Partial<Record<Role, number>> {
-  const out: Partial<Record<Role, number>> = {};
-  for (const role of ROLES) {
-    const value = targets[role];
-    if (value !== undefined) out[role] = value;
-  }
-  return out;
-}
-
-/**
- * La dichiarazione conservata, o `null` se non ce n'è una leggibile.
- *
- * `null` e non `EMPTY_ROLE_PLAN_DRAFT` di proposito: chi legge deve poter
- * distinguere «non ho mai dichiarato niente» da «ho aperto il modulo e non ho
- * ancora scritto» — di nuovo due silenzi, e di nuovo non si fondono.
- */
-export function loadRolePlan(storage: StorageLike): RolePlanDraft | null {
-  try {
-    const raw = storage.getItem(ROLE_PLAN_STORAGE_KEY);
-    if (raw === null) return null;
-    const parsed = draftSchema.safeParse(JSON.parse(raw) as unknown);
-    if (!parsed.success) return null;
-    return { planVersion: parsed.data.planVersion, targets: compactTargets(parsed.data.targets) };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Conserva la dichiarazione. Torna `false` quando la scrittura non ha attecchito
- * (quota, storage negato), così il chiamante lo può dire invece di perdere in
- * silenzio ciò che Owner ha appena scritto — stessa regola di
- * `saveLeagueRoster`.
- */
-export function saveRolePlan(storage: StorageLike, draft: RolePlanDraft): boolean {
-  const payload = {
-    schemaVersion: ROLE_PLAN_SCHEMA_VERSION,
-    planVersion: draft.planVersion.slice(0, PLAN_VERSION_MAX),
-    targets: compactTargets(draft.targets),
-  };
-  if (!draftSchema.safeParse(payload).success) return false;
-  try {
-    storage.setItem(ROLE_PLAN_STORAGE_KEY, JSON.stringify(payload));
-    return storage.getItem(ROLE_PLAN_STORAGE_KEY) !== null;
-  } catch {
-    return false;
-  }
-}
-
-/** Cancella la dichiarazione conservata. Torna `false` se la cancellazione non ha attecchito. */
-export function clearRolePlan(storage: StorageLike): boolean {
-  try {
-    storage.removeItem(ROLE_PLAN_STORAGE_KEY);
-    return storage.getItem(ROLE_PLAN_STORAGE_KEY) === null;
-  } catch {
-    return false;
-  }
-}
-
-// ── Il campo di dichiarazione ───────────────────────────────────────────────
-
-/**
- * Che cosa significa il testo che Owner ha digitato in un campo target.
- *
- * Tre esiti, e il primo è quello che tiene in piedi tutta la distinzione: un
- * campo VUOTO non è uno zero. Svuotare il campo di un ruolo lo riporta a «non
- * dichiarato», ed è l'unico modo di tornare indietro da una decisione senza
- * doverne dichiarare un'altra.
- */
-export type TargetInput =
-  | { readonly kind: "undeclared" }
-  | { readonly kind: "declared"; readonly target: number }
-  | { readonly kind: "rejected"; readonly reason: "not-an-integer" | "negative" | "above-cap" };
-
-export function parseTargetInput(raw: string): TargetInput {
-  const text = raw.trim();
-  if (text.length === 0) return { kind: "undeclared" };
-  if (!/^-?\d+$/.test(text)) return { kind: "rejected", reason: "not-an-integer" };
-  const value = Number(text);
-  if (value < 0) return { kind: "rejected", reason: "negative" };
-  if (value > ROLE_PLAN_TOTAL_CAP) return { kind: "rejected", reason: "above-cap" };
-  return { kind: "declared", target: value };
-}
-
-/**
- * Applica un campo alla dichiarazione. Un input rifiutato non tocca niente: si
- * tiene ciò che c'era, e il chiamante mostra il rifiuto — mai una correzione
- * automatica del numero, che sarebbe il sistema che decide al posto di Owner.
- */
-export function withTarget(draft: RolePlanDraft, role: Role, input: TargetInput): RolePlanDraft {
-  if (input.kind === "rejected") return draft;
-  const targets = compactTargets(draft.targets);
-  if (input.kind === "undeclared") delete targets[role];
-  else targets[role] = input.target;
-  return { planVersion: draft.planVersion, targets };
-}
-
-export function withPlanVersion(draft: RolePlanDraft, planVersion: string): RolePlanDraft {
-  return { planVersion: planVersion.slice(0, PLAN_VERSION_MAX), targets: compactTargets(draft.targets) };
-}
-
-/** La somma dei target DICHIARATI. I ruoli non dichiarati non contano come 0:
- *  non contano affatto, ed è per questo che il totale è accompagnato dal numero
- *  di ruoli su cui è calcolato ovunque venga mostrato. */
-export function declaredTotal(draft: RolePlanDraft): { readonly total: number; readonly roles: number } {
-  let total = 0;
-  let roles = 0;
-  for (const role of ROLES) {
-    const value = draft.targets[role];
-    if (value === undefined) continue;
-    total += value;
-    roles += 1;
-  }
-  return { total, roles };
 }

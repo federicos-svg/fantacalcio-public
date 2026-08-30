@@ -76,7 +76,7 @@ test("blocks with a real recovery screen when no valid copy exists, and only sta
   await expect(heading).toHaveCount(0);
   await expect(page.locator("#critical-budget")).toHaveText("500 cr");
   const storicoPanel = page.locator(".panel", { hasText: "STORICO ACQUISTI" });
-  await expect(storicoPanel).toContainText("Nessun acquisto registrato.");
+  await expect(storicoPanel).toContainText("Nessun gesto registrato.");
 
   // The quarantine is still available after starting the new log — never
   // auto-cleared — and still exportable via the persistent notice.

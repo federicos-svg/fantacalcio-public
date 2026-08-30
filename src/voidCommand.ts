@@ -29,9 +29,11 @@ const VOID_VIOLATION_MESSAGES: Record<VoidViolation, string> = {
   "target-not-found":
     "Acquisto non trovato nello storico: l'elenco potrebbe essere cambiato nel frattempo. Riprova dallo storico acquisti aggiornato.",
   "target-not-purchase":
-    "Questa voce non è un acquisto e non può essere annullata da qui. Individua l'acquisto corretto nello storico.",
+    "Questa voce è già un annullamento e non può essere annullata a sua volta. Individua nello storico il gesto da correggere.",
   "already-voided":
     "Questo acquisto risulta già annullato: non serve ripetere l'operazione. Controlla lo storico aggiornato.",
+  "target-superseded":
+    "Su questo gesto ne poggia uno più recente: quel giocatore è stato poi svincolato o scambiato. Annulla prima il gesto più recente, poi questo.",
 };
 
 /** Joins one or more `VoidViolation`s into a single actionable Italian

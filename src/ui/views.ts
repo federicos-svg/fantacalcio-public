@@ -37,40 +37,12 @@ import {
   paginateListonePool,
 } from "./listone.js";
 import {
-  WAR_BOARD_FULL_NOTE,
   WAR_BOARD_MINI_NOTE,
   warBoardFullHtml,
   warBoardMiniHtml,
 } from "./warBoard.js";
 import type { ResidualPressure } from "../../packages/engine/src/anchors.js";
 import type { PrecedentsReading } from "../../packages/opponent-profiles/src/types.js";
-import {
-  EMPTY_ROLE_PLAN_DRAFT,
-  PLAN_VERSION_MAX,
-  type RolePlanDraft,
-  type RolePlanReading,
-  declaredTotal,
-  parseTargetInput,
-  withPlanVersion,
-  withTarget,
-} from "../rolePlan.js";
-import {
-  PLAN_VERSION_FIELD_LABEL,
-  PLAN_VERSION_HINT,
-  ROLE_PLAN_CLEARED_ANNOUNCE,
-  ROLE_PLAN_CLEAR_LABEL,
-  ROLE_PLAN_NOT_SAVED,
-  ROLE_PLAN_NOTE,
-  ROLE_PLAN_TITLE,
-  TARGET_FIELD_HINT,
-  TARGET_REJECTION_TEXT,
-  TARGET_UNDECLARED,
-  declaredTotalText,
-  planStateText,
-  planTotalsText,
-  rolePlanGridHtml,
-  targetFieldLabel,
-} from "./rolePlan.js";
 import type { RoleDepletionReading } from "../roleDepletion.js";
 import {
   ROLE_DEPLETION_NOTE,
@@ -946,17 +918,6 @@ export function renderRoleScarcityPanel(
   }).join("");
   panel.appendChild(grid);
 
-  const note = document.createElement("p");
-  note.className = "hint-text";
-  note.id = "role-scarcity-note";
-  // Wording note: this copy deliberately says "log dell'asta" and never the
-  // exact phrase used as the STORICO ACQUISTI panel title — several E2E specs
-  // locate that panel with a case-insensitive `hasText`, which any nested
-  // panel repeating the phrase would make ambiguous.
-  note.textContent = poolLoaded
-    ? "Slot liberi: slot di quel ruolo ancora vuoti su tutto il tavolo, somma delle 8 squadre, derivata dal log dell'asta. In listone: righe di quel ruolo non ancora assegnate nel listone caricato. Nessun dato di modello, nessun suggerimento."
-    : "Slot liberi: slot di quel ruolo ancora vuoti su tutto il tavolo, somma delle 8 squadre, derivata dal log dell'asta. Nessun listone caricato: la disponibilità a listone resta n/d. Nessun dato di modello, nessun suggerimento.";
-  panel.appendChild(note);
 
   return panel;
 }
@@ -1045,11 +1006,6 @@ export function renderWarBoardFull(
   grid.innerHTML = warBoardFullHtml(rows, teamLabels, poolIndex);
   panel.appendChild(grid);
 
-  const note = document.createElement("p");
-  note.className = "hint-text";
-  note.id = "war-board-full-note";
-  note.textContent = WAR_BOARD_FULL_NOTE;
-  panel.appendChild(note);
 
   return panel;
 }
@@ -1555,7 +1511,6 @@ export function fillOpponentPrecedents(root: ParentNode, props: OpponentPreceden
 export const SETTINGS_ICONS = {
   people:
     '<circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 14c0-2.4 2-3.9 4.5-3.9s4.5 1.5 4.5 3.9"/><path d="M11 3.4a2.5 2.5 0 0 1 0 4.6"/><path d="M12.6 10.4c1.3.6 1.9 1.8 1.9 3.6"/>',
-  confirm: '<path d="M2 8.4 6 12l8-8"/>',
   status: '<path d="M1.5 8h3l2-4.6L9.6 12l1.9-4h3"/>',
   // Un foglio scritto: la scheda che si compila a mano prima dell'asta.
   scheda: '<rect x="2.5" y="1.5" width="11" height="13" rx="1.5"/><path d="M5 5h6"/><path d="M5 8h6"/><path d="M5 11h3.5"/>',
@@ -1642,57 +1597,40 @@ export function renderImpostazioniScreen(
   return wrap;
 }
 
-// ── Rose screen — read-only recap derived from the real AuctionState ─────────
-// The grid itself is REAL data (names/prices/slots from the event log via
-// reduce, done by the caller) — no marker on the grid. Only the interactive
-// controls (svincola / assegna / modifica budget) are non-operative and
-// carry the DEV badge; clicking them opens a mock modal via onMockAction.
+// ── Rose screen — la griglia derivata, e le porte che ci si aprono sopra ─────
+//
+// La griglia resta una proiezione dello stato vero (nomi, prezzi, slot da
+// `reduce()`, fatti dal chiamante): qui dentro non si deriva niente e non si
+// scrive niente. Quello che e cambiato e che ogni casella e adesso una PORTA:
+// un clic chiama `onSlotOpen` col posto, il ruolo e — se occupata — il
+// giocatore che ci sta, e chi apre la modale (src/main.ts) e l'unico che tocca
+// il log. L'unico controllo ancora finto e la matita sul credito residuo, che
+// porta il suo badge DEV e apre la modale dimostrativa.
 export function renderRoseScreen(
   aState: AuctionState,
   fantaTeamIds: readonly string[],
   selfId: string,
   pool: readonly ListonePlayer[],
   onMockAction: (title: string, body: string) => void,
+  /** Un clic su una casella: posto, ruolo, il giocatore che ci sta (o `null` se
+   *  e vuota) e l'id del bottone cliccato, perche chi apre la modale sappia
+   *  dove riportare il fuoco alla chiusura. Qui non si mutua nulla. */
+  onSlotOpen: (
+    fantaTeamId: string,
+    role: Role,
+    playerId: string | null,
+    slotElementId: string,
+  ) => void,
   // Display labels keyed by the stable team id; an id absent here shows itself.
   teamLabels: Readonly<Record<string, string>> = {},
   // Pure accounting rows from packages/engine/src/auction.ts opponentTier1(),
   // built by the caller. Empty array -> the panel is not rendered at all.
   opponents: readonly OpponentTier1[] = [],
-  // IL MIO PIANO (PLAN-01), costruito dal chiamante con renderRolePlanPanel()
-  // e montato subito sotto la riga di intestazione: è il piano DI OWNER, e su
-  // questa schermata viene prima della contabilità degli avversari. `null`
-  // quando la squadra di Owner non è nello stato derivato — non esiste un
-  // piano di una squadra che non c'è, e un pannello vuoto direbbe il contrario.
-  myPlanPanel: HTMLElement | null = null,
 ): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "screen-container";
   wrap.style.cssText = `flex:1;padding:18px 24px;gap:12px;`;
 
-  const hint = document.createElement("div");
-  hint.className = "hint-text";
-  // Un id, perché questa riga adesso ha DUE forme e una spec deve poter dire
-  // quale delle due sta leggendo: `.hint-text` su questa schermata prende anche
-  // i due suggerimenti del modulo del piano e la sua nota.
-  hint.id = "rose-screen-hint";
-  // LA FRASE DICE QUALE PARTE È DI SOLA LETTURA, adesso che non lo è più tutta.
-  // Da quando questa schermata ospita il piano rosa, sotto questa riga c'è un
-  // MODULO: quattro campi che Owner compila e una dichiarazione che finisce in
-  // `localStorage`. Continuare a scrivere «Rose — sola lettura» a due
-  // centimetri da un campo editabile è un'etichetta che contraddice ciò che
-  // etichetta, e una schermata che si contraddice smette di essere creduta
-  // anche dove dice il vero. Le rose e la contabilità RESTANO derivate dal log
-  // e non si toccano: è quello che la frase continua a dire, ma per la parte
-  // giusta. Senza pannello (nessuna squadra di Owner nello stato derivato) la
-  // schermata è di nuovo di sola lettura per intero, e la frase torna quella.
-  const devIcons = `<span style="border:1px dashed ${C.textDim};border-radius:3px;padding:0 3px;">DEV</span>`;
-  hint.innerHTML =
-    myPlanPanel === null
-      ? `Rose — sola lettura, derivata dallo storico acquisti. Le icone ${devIcons} non eseguono azioni reali.`
-      : `Rose — le rose e la contabilità sono di sola lettura, derivate dallo storico acquisti. Il piano rosa qui sotto è invece tuo da scrivere: i target che dichiari restano nel browser. Le icone ${devIcons} non eseguono azioni reali.`;
-  wrap.appendChild(hint);
-
-  if (myPlanPanel !== null) wrap.appendChild(myPlanPanel);
 
   if (opponents.length > 0) {
     wrap.appendChild(renderOpponentTier1Panel(opponents, teamLabels));
@@ -1712,7 +1650,17 @@ export function renderRoseScreen(
 
   for (const teamId of fantaTeamIds) {
     const team = aState.teams[teamId];
-    grid.appendChild(renderRoseCard(teamId, team, selfId, poolIndex, onMockAction, teamLabels[teamId] ?? teamId));
+    grid.appendChild(
+      renderRoseCard(
+        teamId,
+        team,
+        selfId,
+        poolIndex,
+        onMockAction,
+        onSlotOpen,
+        teamLabels[teamId] ?? teamId,
+      ),
+    );
   }
 
   wrap.appendChild(grid);
@@ -1781,249 +1729,18 @@ export function renderOpponentTier1Panel(
   return panel;
 }
 
-// ── PIANO ROSA (VIVO) — target, riserve, scostamento (PLAN-01) ───────────────
-//
-// Superficie del piano rosa vivo che il motore calcolava già senza che nessuna
-// schermata lo importasse: `livePlan()`, `validateRolePlan()`, `LivePlan` e
-// `DeclaredRolePlan` vivono in packages/engine/src/livePlan.ts da prima di
-// questo batch, completi e testati, e `grep` non trovava un solo import in
-// `src/`. Questo pannello è il passo di visualizzazione mancante, più il
-// modulo che RACCOGLIE la dichiarazione di Owner — senza la quale il piano non
-// esiste, perché il sistema non ne propone uno.
-//
-// DOVE VIVE E PERCHÉ. Sulla schermata ROSE, la stessa che ospita già
-// AVVERSARI TIER-1: è la superficie che `npm run route -- --surface dashboard`
-// indica per «rose, budget, piano per ruolo». NON sulla schermata Asta —
-// l'invariante UI di docs/FRONTEND_STRUCTURE.md tiene i blocchi di quadro
-// generale fuori di lì, e #331 ha appena restituito a quella schermata lo
-// spazio verticale che il gesto principale le chiedeva.
-//
-// QUESTO FILE NON CHIAMA IL MOTORE. La lettura (`read`) e la persistenza
-// (`persist`) arrivano iniettate da main.ts, come ogni altro pannello qui
-// dentro: views.ts non importa `livePlan` e non deriva nessun numero.
-//
-// REPAINT PARZIALE, NON `render()`. Ogni tasto digitato in un campo target
-// ricalcola la lettura e ridipinge SOLO le tre parti che cambiano — frase di
-// stato, schede di ruolo, totali. Ricostruire l'albero intero costerebbe il
-// fuoco del campo che l'operatore sta usando: stessa scelta, per lo stesso
-// motivo, delle pastiglie di marcatura in src/main.ts.
-export interface RolePlanPanelProps {
-  /** La dichiarazione conservata, di cui il pannello tiene la copia viva. */
-  readonly draft: RolePlanDraft;
-  /** Ricalcola la lettura. Iniettata: qui non si chiama il motore. */
-  readonly read: (draft: RolePlanDraft) => RolePlanReading;
-  /** Conserva. `false` = la scrittura non ha attecchito, e va detto. */
-  readonly persist: (draft: RolePlanDraft) => boolean;
-}
-
-export function renderRolePlanPanel(props: RolePlanPanelProps): HTMLElement {
-  let draft = props.draft;
-
-  const panel = document.createElement("section");
-  panel.id = "role-plan-panel";
-  panel.className = "panel role-plan";
-  panel.setAttribute("aria-label", "Piano rosa: target, riserve e scostamento per ruolo");
-
-  const title = document.createElement("div");
-  title.className = "panel-title";
-  title.textContent = ROLE_PLAN_TITLE;
-  panel.appendChild(title);
-
-  const stateLine = document.createElement("p");
-  stateLine.id = "role-plan-state";
-  stateLine.className = "role-plan__state";
-  panel.appendChild(stateLine);
-
-  const grid = document.createElement("div");
-  grid.id = "role-plan-grid";
-  grid.className = "role-plan__grid";
-  panel.appendChild(grid);
-
-  const totals = document.createElement("ul");
-  totals.id = "role-plan-totals";
-  totals.className = "role-plan__totals";
-  panel.appendChild(totals);
-
-  // ── Dichiarazione ─────────────────────────────────────────────────────────
-  const form = document.createElement("div");
-  form.id = "role-plan-form";
-  form.className = "role-plan__form";
-
-  const formTitle = document.createElement("div");
-  formTitle.className = "role-plan__form-title";
-  formTitle.id = "role-plan-form-title";
-  formTitle.textContent = "IL TUO PIANO — DICHIARA I TARGET";
-  form.appendChild(formTitle);
-
-  const targetHint = document.createElement("p");
-  targetHint.id = "role-plan-target-hint";
-  targetHint.className = "hint-text";
-  targetHint.textContent = TARGET_FIELD_HINT;
-  form.appendChild(targetHint);
-
-  const feedback = document.createElement("p");
-  feedback.id = "role-plan-feedback";
-  feedback.className = "role-plan__feedback";
-  // Un rifiuto o una scrittura non andata a buon fine devono raggiungere anche
-  // chi non guarda quel punto dello schermo.
-  //
-  // MA NON UN ANNUNCIO PER TASTO. Questa è una regione `aria-live`, e ogni
-  // carattere digitato in un campo target è un `input`: una conferma di
-  // salvataggio scritta qui verrebbe letta ad alta voce a ogni cifra («target 8
-  // salvato», «target 80 salvato»), cioè trasformerebbe l'aiuto in rumore
-  // proprio per chi ne dipende. Il salvataggio riuscito si vede già — la scheda
-  // del ruolo qui sopra si aggiorna nello stesso istante — quindi il caso
-  // normale non scrive niente. Qui finiscono solo le due cose che lo schermo NON
-  // dice da sé: un valore rifiutato, e una scrittura che non ha attecchito.
-  feedback.setAttribute("role", "status");
-  feedback.setAttribute("aria-live", "polite");
-
-  const totalLine = document.createElement("p");
-  totalLine.id = "role-plan-declared-total";
-  totalLine.className = "role-plan__declared-total";
-
-  const fields = document.createElement("div");
-  fields.className = "role-plan__fields";
-
-  const inputs: Partial<Record<Role, HTMLInputElement>> = {};
-
-  /** `announce` è la frase da leggere ad alta voce, e per il caso normale è la
-   *  stringa vuota: vedi il commento su `feedback`. Una scrittura fallita la
-   *  sovrascrive sempre, perché quella nessuno la vede. */
-  const commit = (next: RolePlanDraft, announce: string): void => {
-    draft = next;
-    feedback.textContent = props.persist(draft) ? announce : ROLE_PLAN_NOT_SAVED;
-    paint();
-  };
-
-  for (const role of ROLES) {
-    const field = document.createElement("label");
-    field.className = "role-plan__field";
-
-    const caption = document.createElement("span");
-    caption.className = "field-label";
-    caption.textContent = targetFieldLabel(role);
-    field.appendChild(caption);
-
-    const input = document.createElement("input");
-    input.id = `role-plan-target-${role}`;
-    input.className = "field-input role-plan__input";
-    input.type = "text";
-    input.inputMode = "numeric";
-    input.autocomplete = "off";
-    input.maxLength = 4;
-    input.placeholder = TARGET_UNDECLARED;
-    const declared = draft.targets[role];
-    input.value = declared === undefined ? "" : String(declared);
-    input.setAttribute("aria-describedby", "role-plan-target-hint");
-    input.addEventListener("input", (e) => {
-      const parsed = parseTargetInput((e.target as HTMLInputElement).value);
-      if (parsed.kind === "rejected") {
-        // Si tiene visibile ciò che è stato digitato e si rifiuta solo di
-        // conservarlo: nessuna correzione d'ufficio del numero.
-        input.setAttribute("aria-invalid", "true");
-        feedback.textContent = TARGET_REJECTION_TEXT[parsed.reason];
-        return;
-      }
-      input.removeAttribute("aria-invalid");
-      // Nessun annuncio: la scheda del ruolo qui sopra cambia da sé, e un
-      // annuncio per tasto sarebbe rumore (vedi `feedback`).
-      commit(withTarget(draft, role, parsed), "");
-    });
-    field.appendChild(input);
-    inputs[role] = input;
-    fields.appendChild(field);
-  }
-
-  const versionField = document.createElement("label");
-  versionField.className = "role-plan__field role-plan__field--version";
-  const versionCaption = document.createElement("span");
-  versionCaption.className = "field-label";
-  versionCaption.textContent = PLAN_VERSION_FIELD_LABEL;
-  versionField.appendChild(versionCaption);
-  const versionInput = document.createElement("input");
-  versionInput.id = "role-plan-version";
-  versionInput.className = "field-input role-plan__input";
-  versionInput.type = "text";
-  versionInput.autocomplete = "off";
-  versionInput.maxLength = PLAN_VERSION_MAX;
-  versionInput.value = draft.planVersion;
-  versionInput.setAttribute("aria-describedby", "role-plan-version-hint");
-  versionInput.addEventListener("input", (e) => {
-    commit(withPlanVersion(draft, (e.target as HTMLInputElement).value), "");
-  });
-  versionField.appendChild(versionInput);
-  fields.appendChild(versionField);
-  form.appendChild(fields);
-
-  const versionHint = document.createElement("p");
-  versionHint.id = "role-plan-version-hint";
-  versionHint.className = "hint-text";
-  versionHint.textContent = PLAN_VERSION_HINT;
-  form.appendChild(versionHint);
-
-  form.appendChild(totalLine);
-
-  const actions = document.createElement("div");
-  actions.className = "role-plan__actions";
-  const clear = document.createElement("button");
-  clear.type = "button";
-  clear.id = "role-plan-clear";
-  clear.className = "btn btn--secondary";
-  // L'etichetta nomina anche la VERSIONE, perché il gesto la cancella: vedi
-  // ROLE_PLAN_CLEAR_LABEL in ./rolePlan.ts. Non c'è conferma e non c'è undo, e
-  // allora l'unico posto dove la verità arriva in tempo è il pulsante stesso.
-  clear.textContent = ROLE_PLAN_CLEAR_LABEL;
-  clear.addEventListener("click", () => {
-    for (const role of ROLES) {
-      const input = inputs[role];
-      if (input !== undefined) {
-        input.value = "";
-        input.removeAttribute("aria-invalid");
-      }
-    }
-    versionInput.value = "";
-    commit(EMPTY_ROLE_PLAN_DRAFT, ROLE_PLAN_CLEARED_ANNOUNCE);
-  });
-  actions.appendChild(clear);
-  form.appendChild(actions);
-  form.appendChild(feedback);
-
-  panel.appendChild(form);
-
-  const note = document.createElement("p");
-  note.className = "hint-text";
-  note.id = "role-plan-note";
-  note.textContent = ROLE_PLAN_NOTE;
-  panel.appendChild(note);
-
-  function paint(): void {
-    const reading = props.read(draft);
-    stateLine.textContent = planStateText(reading);
-    grid.innerHTML = rolePlanGridHtml(reading.rows);
-    if (reading.kind === "live") {
-      totals.innerHTML = planTotalsText(reading.live)
-        .map((line) => `<li>${escHtml(line)}</li>`)
-        .join("");
-      totals.hidden = false;
-    } else {
-      totals.innerHTML = "";
-      totals.hidden = true;
-    }
-    const declared = declaredTotal(draft);
-    totalLine.textContent = declaredTotalText(declared.total, declared.roles);
-  }
-
-  paint();
-  return panel;
-}
-
 function renderRoseCard(
   teamId: string,
   team: AuctionState["teams"][string] | undefined,
   selfId: string,
   poolIndex: ReadonlyMap<string, ListonePlayer>,
   onMockAction: (title: string, body: string) => void,
+  onSlotOpen: (
+    fantaTeamId: string,
+    role: Role,
+    playerId: string | null,
+    slotElementId: string,
+  ) => void,
   label: string,
 ): HTMLElement {
   const card = document.createElement("div");
@@ -2088,19 +1805,24 @@ function renderRoseCard(
         price.style.cssText = `font-family:${C.mono};color:oklch(0.78 0.006 270);flex:none;`;
         price.textContent = String(entry.price);
 
-        const svincola = document.createElement("span");
-        svincola.textContent = "✕";
-        svincola.title = "Svincola (non attivo)";
-        svincola.style.cssText = `color:${C.textDim};cursor:pointer;font-size:12px;flex:none;`;
-        svincola.appendChild(devStaticBadge());
-        svincola.addEventListener("click", () =>
-          onMockAction(
-            `Svincolare ${playerDisplay}?`,
-            `Funzione non attiva in questa shell di sviluppo. In produzione libererebbe lo slot ${role} senza restituire i ${entry.price} cr al budget residuo (azione irreversibile). Nessuna azione eseguita.`,
-          ),
+        // LA RIGA INTERA E LA PORTA, non una crocetta da centrare. Il gesto
+        // che si vuole fare su un giocatore in rosa e uno solo — «apri le
+        // opzioni per lui» — e restringerlo a un bersaglio di dodici pixel lo
+        // renderebbe piu difficile proprio la sera in cui si ha fretta.
+        const open = document.createElement("button");
+        open.type = "button";
+        open.className = "roster-slot roster-slot--filled";
+        open.id = `roster-slot-${teamId}-${role}-${i}`;
+        open.title = `${playerDisplay}: svincola o scambia`;
+        open.setAttribute(
+          "aria-label",
+          `${playerDisplay}, ${entry.price} crediti, ${label}: svincola o scambia`,
+        );
+        open.addEventListener("click", () =>
+          onSlotOpen(teamId, role, entry.playerId, open.id),
         );
 
-        row.appendChild(name);
+        open.appendChild(name);
         // Tranche 2b (#231): a riconferma pre-asta (LEAGUE_RULES.md §4) is
         // seeded into the roster by reduce() with seq < 0 (strictly below
         // every live event's seq, which is always >= 0 by schema — see
@@ -2116,22 +1838,21 @@ function renderRoseCard(
           // guaranteed accessible name for a plain <span> across AT — the
           // badge needs its own explicit name.
           confirmedBadge.setAttribute("aria-label", "Riconfermato");
-          row.appendChild(confirmedBadge);
+          open.appendChild(confirmedBadge);
         }
-        row.appendChild(price);
-        row.appendChild(svincola);
+        open.appendChild(price);
+        row.appendChild(open);
       } else {
-        const empty = document.createElement("span");
-        empty.textContent = "— assegna";
-        empty.title = "Assegna giocatore d'ufficio (non attivo)";
-        empty.style.cssText = `font-size:11px;color:${C.textDim};cursor:pointer;`;
-        empty.appendChild(devStaticBadge());
-        empty.addEventListener("click", () =>
-          onMockAction(
-            "Assegna giocatore",
-            `Funzione non attiva in questa shell di sviluppo. In produzione permetterebbe di assegnare un giocatore a questo slot ${role} per ${label}. Nessuna azione eseguita.`,
-          ),
+        const empty = document.createElement("button");
+        empty.type = "button";
+        empty.className = "roster-slot roster-slot--empty";
+        empty.id = `roster-slot-${teamId}-${role}-${i}`;
+        empty.textContent = "— inserisci o rinnova";
+        empty.setAttribute(
+          "aria-label",
+          `Slot ${ROLE_LABEL_SING[role]} libero di ${label}: inserisci o rinnova un giocatore`,
         );
+        empty.addEventListener("click", () => onSlotOpen(teamId, role, null, empty.id));
         row.appendChild(empty);
       }
 
@@ -2482,7 +2203,16 @@ export function renderConfirmationsBlockedScreen(
     const confirmBody = document.createElement("div");
     confirmBody.style.cssText = `font-size:13px;line-height:1.55;color:${C.textMid};margin-bottom:14px;`;
     confirmBody.textContent =
-      "Questo NON tocca lo storico asta già registrato: azzera solo le riconferme salvate, che dovranno essere reinserite da Impostazioni → Riconferme pre-asta. " +
+      // LA STRADA CHE SI NOMINA QUI E L'INSERIMENTO MANUALE, non il rinnovo, e
+      // la differenza non e una sfumatura: questa schermata si raggiunge SOLO a
+      // storico asta NON vuoto (confirmationsRecoveryFromLoadResult, src/main.ts),
+      // e a storico non vuoto la scheda «Rinnova dall'anno scorso» e chiusa —
+      // una riconferma semina lo stato a t=0 e non si dichiara a partita
+      // cominciata. Mandare qui qualcuno al rinnovo significherebbe mandarlo
+      // contro un lucchetto, nel momento in cui sta gia recuperando da un
+      // guasto. Il banner dell'altro caso (storico VUOTO, piu sotto) nomina
+      // invece il rinnovo, ed e giusto cosi: li e aperto.
+      "Questo NON tocca lo storico asta già registrato: azzera solo le riconferme salvate. Lo storico asta non è vuoto, quindi le riconferme non sono più dichiarabili: i giocatori che portavano si rimettono in rosa dalla schermata Rose, cliccando una casella vuota e scegliendo «Inserisci a mano». " +
       "Il payload corrotto resta in quarantena e resta esportabile anche dopo questa conferma.";
     confirmPanel.appendChild(confirmBody);
 
@@ -2596,7 +2326,7 @@ export function renderConfirmationsQuarantineBanner(
   text.style.cssText = `font-size:13px;line-height:1.5;color:${C.textMid};`;
   text.textContent =
     props.reason === "quarantined-empty-log"
-      ? "Le riconferme pre-asta salvate non erano valide e sono state messe in quarantena. Lo storico asta è vuoto: puoi reinserirle da Impostazioni → Riconferme pre-asta."
+      ? "Le riconferme pre-asta salvate non erano valide e sono state messe in quarantena. Lo storico asta è vuoto: puoi reinserirle dalla schermata Rose, cliccando una casella vuota e scegliendo «Rinnova dall'anno scorso»."
       : "Le riconferme pre-asta precedenti non erano valide: hai scelto di ripartire senza riconferme. Il payload corrotto resta in quarantena ed esportabile.";
   banner.appendChild(text);
 

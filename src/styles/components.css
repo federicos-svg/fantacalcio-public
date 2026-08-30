@@ -916,198 +916,138 @@
   }
 }
 
-/* ── PIANO ROSA (VIVO) — PLAN-01, schermata Rose ───────────────────────────
-   Il pannello riusa .panel / .panel-title / .field-label / .field-input /
-   .hint-text / .badge come ogni altra superficie: qui sotto c'è solo ciò che
-   non esisteva già — la griglia delle quattro schede di ruolo, la riga dei
-   numeri di piano, e la pastiglia di scostamento.
 
-   CONTRASTO. Nessun colore nuovo: ogni testo porta un livello della rampa di
-   base.css (tutti ≥ 4,5:1 su --panel e --panel-inner) e la pastiglia SOPRA
-   PIANO usa --stop-red come TESTO su --panel-inner, che base.css misura a
-   5,02:1 — è il motivo per cui quel token sta a L 0.70 e non a 0.66.
-   e2e/text-contrast-aa.spec.ts rimisura tutto da sé a ogni run.
+/* ── LA CASELLA DI ROSA E LA SUA MODALE ─────────────────────────────────────
 
-   IL COLORE NON PORTA MAI L'INFORMAZIONE DA SOLO: «SOPRA PIANO» e «REPARTO
-   COMPLETO» sono parole prima che tinte, e il target non dichiarato è la
-   frase «non dichiarato», non una cella grigia. */
-
-.role-plan__state {
-  font-size: 12.5px;
-  color: var(--text-mid);
-  margin: 8px 0 12px;
-}
-
-/* 1 / 2 / 4 colonne alle STESSE larghezze di .opponent-tier1__grid
-   (src/styles/asta.css, 640 e 1024). Non è un dettaglio estetico: i due
-   pannelli sono due griglie di quattro schede una sopra l'altra sulla stessa
-   schermata Rose, e con soglie diverse fra 640-719px e fra 1024-1079px la
-   griglia di sopra e quella di sotto mostrerebbero un numero di colonne
-   diverso senza che niente lo giustifichi. Un breakpoint proprio andrebbe
-   scritto solo per una ragione propria; qui non ce n'è una. */
-.role-plan__grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 8px;
-}
-@media (min-width: 640px) {
-  .role-plan__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (min-width: 1024px) {
-  .role-plan__grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-}
-
-.role-plan__card {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  background: var(--panel-inner);
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  padding: 10px 12px;
-  min-width: 0;
-}
-
-.role-plan__head {
+   LA CASELLA È UN BOTTONE, e sembra ancora una riga. È il punto delicato di
+   questo blocco: il gesto è diventato vero (svincolo, scambio, inserimento,
+   rinnovo finiscono nel log), quindi il bersaglio deve essere grande e
+   raggiungibile da tastiera — un `<button>`, non uno `<span>` con un
+   `click` — ma la griglia delle otto rose resta una griglia da LEGGERE, e
+   otto bottoni con bordo e sfondo per ventotto caselle l'avrebbero resa
+   illeggibile. Da qui la forma: nessun bordo e nessun fondo a riposo, il
+   fondo compare sotto il puntatore e il contorno di fuoco è quello di
+   sistema, pieno, perché chi naviga da tastiera deve vedere dov'è. */
+.roster-slot {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  margin: 0 -4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
-.role-plan__head em {
-  font-style: normal;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-/* Il target è la cifra che l'occhio cerca per prima: corpo e peso lo dicono,
-   non solo il colore — la gerarchia di questo pannello non è portata dalla
-   tinta (stessa regola della rampa in base.css). */
-.role-plan__target {
-  font-size: 13px;
-  color: var(--text-sec);
-}
-.role-plan__target em {
-  font-style: normal;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-size: 10px;
-  color: var(--text-dim);
-  margin-right: 4px;
-}
-.role-plan__target strong {
-  font-family: var(--font-mono);
-  font-size: 15px;
-  color: var(--text-primary);
-}
-
-.role-plan__facts,
-.role-plan__numbers {
-  font-size: 11.5px;
-  color: var(--text-sec);
-  display: block;
-}
-.role-plan__facts em,
-.role-plan__numbers em {
-  font-style: normal;
-  color: var(--text-dim);
-  margin-right: 3px;
-}
-
-.role-plan__silence {
-  font-size: 11.5px;
-  color: var(--text-dim);
-  display: block;
-}
-
-.badge--over-plan {
+.roster-slot:hover {
   background: var(--panel-inner);
-  border: 1px solid var(--stop-red);
-  color: var(--stop-red);
+}
+.roster-slot--empty {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.roster-slot--empty:hover {
+  color: var(--text-sec);
 }
 
-.role-plan__totals {
-  list-style: none;
-  margin: 12px 0 0;
+/* La modale è più larga delle conferme (400px): dentro ci sta un elenco di
+   giocatori con prezzo e un bottone per riga, e a 400px quella riga andava a
+   capo tre volte. Il bordo NON è quello rosso delle conferme distruttive: da
+   qui si svincola, ma si anche inserisce e si rinnova, e vestire di rosso
+   quattro gesti di cui due sono ordinari è una bugia di colore. */
+.roster-slot-dialog {
+  width: min(560px, 100%);
+  border-color: var(--border);
+}
+.roster-slot-dialog__title {
+  margin-bottom: 14px;
+}
+.roster-slot-dialog__tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.roster-slot-dialog__tab {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-sec);
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 4px 8px;
+  cursor: pointer;
+}
+.roster-slot-dialog__tab[aria-selected="true"] {
+  color: var(--text-primary);
+  font-weight: 700;
+  border-bottom-color: var(--accent);
+}
+.roster-slot-dialog__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.roster-slot-dialog__panel .hint-text {
+  margin: 0;
+}
+.roster-slot-dialog__field {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
-.role-plan__totals li {
-  font-size: 12px;
-  color: var(--text-mid);
+.roster-slot-dialog__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow: auto;
 }
-
-.role-plan__form {
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
-}
-.role-plan__form-title {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  color: var(--text-sec);
-  margin-bottom: 6px;
-}
-
-/* IL MODULO NON SEGUE la griglia delle schede, ed è voluto: qui le colonne
-   sono quattro CAMPI DI TESTO con la loro etichetta per esteso («Target
-   Centrocampisti (crediti)»), non quattro schede di lettura. A 640px quattro
-   colonne lascerebbero ~145px per campo e l'etichetta andrebbe a capo tre
-   volte sopra un input largo quanto tre cifre. Questa griglia non ha un
-   gemello sulla schermata, quindi nessuna soglia diversa da un'altra è
-   visibile a confronto: la ragione è propria e sta scritta qui. */
-.role-plan__fields {
-  display: grid;
-  grid-template-columns: 1fr;
+.roster-slot-dialog__row {
+  display: flex;
+  align-items: center;
   gap: 10px;
-  margin: 10px 0;
-}
-@media (min-width: 720px) {
-  .role-plan__fields { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .role-plan__field--version { grid-column: 1 / -1; }
-}
-
-.role-plan__field {
-  display: block;
-  min-width: 0;
-}
-
-/* .field-input azzera l'outline nativo: senza questa regola il fuoco da
-   tastiera in questo modulo non si vedrebbe affatto. */
-.role-plan__input:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-.role-plan__input[aria-invalid="true"] {
-  border-color: var(--stop-red);
-}
-
-.role-plan__declared-total {
-  font-size: 12px;
-  color: var(--text-sec);
-  margin-top: 8px;
-}
-
-.role-plan__actions {
-  margin-top: 10px;
-}
-
-.role-plan__feedback {
-  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--panel-inner);
+  font-size: 13px;
   color: var(--text-mid);
-  margin-top: 8px;
-  min-height: 1.5em;
 }
-
-/* Il testo segnaposto è testo: senza questa regola prende il grigio di default
-   del browser sul fondo scuro del campo, che sta sotto AA e che la spazzata di
-   e2e/text-contrast-aa.spec.ts non misura (guarda nodi di testo e
-   pseudo-elementi, non l'attributo `placeholder`). --text-dim è 4,69:1 su
-   --panel-inner, che è esattamente il fondo di .field-input. */
-.role-plan__input::placeholder {
-  color: var(--text-dim);
-  opacity: 1;
+.roster-slot-dialog__row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.roster-slot-dialog__row-price {
+  font-family: var(--font-mono);
+  color: var(--text-sec);
+  flex: none;
+}
+.roster-slot-dialog__check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+.roster-slot-dialog__error {
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--stop-red);
+}
+.roster-slot-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
 }

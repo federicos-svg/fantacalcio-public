@@ -6,10 +6,6 @@ import { gotoScreen, installSyntheticNetworkGuard } from "./helpers.js";
 // the task requires: 390 / 768 / 1280. Layout is asserted off the live computed
 // style (same technique as e2e/rose-screen.spec.ts), plus the hard rule that
 // the page never scrolls sideways.
-//
-// PLAN-01 added a fourth panel (PIANO ROSA, on Rose) whose CSS reasons about
-// 390px like the others. A panel whose layout is not walked at these three
-// widths is a panel whose layout nobody measures: it belongs here.
 
 const TARGET = SYNTHETIC_LISTONE_POOL[3]!; // role A
 
@@ -105,75 +101,42 @@ test("every new panel is readable at 390, 768 and 1280 without sideways scrollin
     );
     expect(await fitsHorizontally(page)).toBe(true);
 
-    // 5. PIANO ROSA (PLAN-01), same screen, right above the panel in step 4:
-    //    the SAME 1 / 2 / 4 thresholds. These are two four-card grids stacked
-    //    on one screen — at a width where one shows two columns and the other
-    //    four, the difference would mean nothing to the person reading them,
-    //    which is the whole reason the thresholds are shared and asserted here
-    //    against the very same expression.
-    await expect(page.locator("#role-plan-panel")).toBeVisible();
-    expect(await columnCount(page, "#role-plan-grid")).toBe(
-      viewport.width < 640 ? 1 : viewport.width < 1024 ? 2 : 4,
-    );
-    //    Its declaration form is a grid too, and at 390px it must not be the
-    //    thing that starts a sideways scroll: four number fields plus a free
-    //    text one, each with a full-length label.
-    await expect(page.locator("#role-plan-target-P")).toBeVisible();
-    await expect(page.locator("#role-plan-version")).toBeVisible();
+    // 5. LA MODALE DELLA CASELLA DI ROSA, che è la superficie più stretta di
+    //    questo batch: due schede affiancate, un elenco di giocatori con
+    //    prezzo e bottone per riga, e campi a piena larghezza. A 390px è
+    //    esattamente la forma che va di lato se qualcuno mette due colonne
+    //    dove ci sta una sola.
+    await page.locator(".roster-slot--empty").first().click();
+    await expect(page.locator("#roster-slot-title")).toBeInViewport();
+    await expect(page.locator("#roster-slot-tab-manuale")).toBeInViewport();
+    await expect(page.locator("#roster-slot-tab-rinnovo")).toBeInViewport();
+    await expect(page.locator("#roster-slot-close")).toBeInViewport();
     expect(await fitsHorizontally(page)).toBe(true);
-  }
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#roster-slot-overlay")).toHaveCount(0);
 
-  expect(externalRequests).toEqual([]);
-});
-
-// ── LE DUE GRIGLIE DI ROSE CAMBIANO COLONNE INSIEME ─────────────────────────
-//
-// PIANO ROSA (#role-plan-grid) e AVVERSARI TIER-1 (#opponent-tier1-grid) sono
-// due griglie di quattro schede impilate sulla stessa schermata. Se cambiassero
-// numero di colonne a larghezze diverse, esisterebbero fasce in cui quella di
-// sopra ne mostra due e quella di sotto quattro — una differenza che per chi
-// legge non significa niente, perché non c'è niente che la giustifichi.
-//
-// PERCHÉ SERVE UN TEST A PARTE. Il test qui sopra gira a 390 / 768 / 1280, e
-// NESSUNA di quelle tre larghezze cade fra 640-719 o fra 1024-1079: con soglie
-// divergenti (720 e 1080 contro 640 e 1024) i tre viewport darebbero comunque
-// 1 / 2 / 4 per entrambe le griglie e il test resterebbe verde. Le larghezze
-// che seguono sono esattamente quelle in cui la divergenza si vede — la soglia
-// e il pixel prima, per tutte e due le soglie.
-test("le due griglie di quattro schede di Rose cambiano colonne alle stesse larghezze", async ({
-  page,
-  context,
-}) => {
-  const externalRequests: string[] = [];
-  await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto("/");
-  await gotoScreen(page, "Rose");
-  await expect(page.locator("#role-plan-panel")).toBeVisible();
-  await expect(page.locator("#opponent-tier1-panel")).toBeVisible();
-
-  // I media query si rivalutano al ridimensionamento: la pagina non va
-  // ricostruita, e infatti quello che si misura è la sola CSS.
-  for (const { width, columns } of [
-    { width: 639, columns: 1 },
-    { width: 640, columns: 2 },
-    { width: 719, columns: 2 },
-    { width: 720, columns: 2 },
-    { width: 1023, columns: 2 },
-    { width: 1024, columns: 4 },
-    { width: 1079, columns: 4 },
-    { width: 1080, columns: 4 },
-  ] as const) {
-    await page.setViewportSize({ width, height: 900 });
-    const plan = await columnCount(page, "#role-plan-grid");
-    const tier1 = await columnCount(page, "#opponent-tier1-grid");
-    expect(plan, `PIANO ROSA a ${width}px`).toBe(columns);
-    expect(tier1, `AVVERSARI TIER-1 a ${width}px`).toBe(columns);
-    expect(plan, `a ${width}px le due griglie di Rose mostrano un numero di colonne diverso`).toBe(
-      tier1,
-    );
-    expect(await fitsHorizontally(page), `la pagina scorre di lato a ${width}px`).toBe(true);
+    // 6. LA COPPIA DELL'ALTRA CASELLA, che è la più larga delle due: lo
+    //    scambio porta un elenco di caselle di spunta con nome, ruolo e prezzo
+    //    su una riga sola, e un'etichetta di campo che nomina due squadre. La
+    //    misura di prima non la vedeva — la casella vuota non ha né l'una né
+    //    l'altra — e a 390px è esattamente lì che una riga va di lato.
+    //    La casella si riempie col gesto della modale stessa, che è già qui:
+    //    passare dalla chiamata costringerebbe a tornare su Asta e indietro,
+    //    e misurerebbe la stessa cosa con due schermate in mezzo.
+    await page.locator(".roster-slot--empty").first().click();
+    await page.locator("#roster-slot-manual-player").selectOption({ index: 1 });
+    await page.locator("#roster-slot-manual-price").fill("7");
+    await page.locator("#roster-slot-manual-apply").click();
+    await expect(page.locator("#roster-slot-overlay")).toHaveCount(0);
+    await page.locator(".roster-slot--filled").first().click();
+    await expect(page.locator("#roster-slot-tab-svincolo")).toBeInViewport();
+    await expect(page.locator("#roster-slot-release-apply")).toBeInViewport();
+    expect(await fitsHorizontally(page)).toBe(true);
+    await page.locator("#roster-slot-tab-scambio").click();
+    await page.locator("#roster-slot-trade-team").selectOption({ index: 1 });
+    await expect(page.locator("#roster-slot-trade-apply")).toBeInViewport();
+    expect(await fitsHorizontally(page)).toBe(true);
+    await page.keyboard.press("Escape");
   }
 
   expect(externalRequests).toEqual([]);

@@ -270,4 +270,3 @@ export function warBoardFullHtml(
  */
 export const WAR_BOARD_MINI_NOTE = `bdg = crediti residui · ${MAX_BID_LABEL} = ${MAX_BID_GLOSS}. Sola contabilità dal log dell'asta: nessuna stima, nessun suggerimento.`;
 
-export const WAR_BOARD_FULL_NOTE = `Contabilità di tutto il tavolo, derivata dal log dell'asta: crediti residui, ${MAX_BID_LABEL} (${MAX_BID_GLOSS}), slot ancora liberi per ruolo e gli ultimi acquisti registrati (R = riconferma pre-asta). Da non confondere con il «${ROLE_MAX_LABEL}» del dettaglio per ruolo, in alto: quello è ${ROLE_MAX_GLOSS}. Nessuna stima di interesse, nessun indice comportamentale, nessuna raccomandazione.`;

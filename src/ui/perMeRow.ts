@@ -101,7 +101,13 @@ export function perMeEmptyText(reason: PerMeEmptyReason): string {
     case "anchors-refused":
       return "Le quotazioni caricate non passano la validazione del motore: da un listino rotto non si deriva nessuna ancora.";
     case "plan-absent":
-      return "Nessun piano rosa dichiarato: il primo criterio dell'ordine è «dentro il tuo piano», e senza piano quell'ordine non esiste. Dichiaralo in ROSE → IL MIO PIANO.";
+      // LA FRASE STA DENTRO LA SUA RIGA DEL MASTRO, e non e un vezzo: questo
+      // blocco ha un'allocazione verticale misurata (`giocatore-suggerito`,
+      // src/ui/callScreenBudget.ts) e una frase piu lunga di cosi la sfonda —
+      // e2e/call-screen-budget.spec.ts lo ha gia dimostrato una volta. Dice
+      // percio due cose e si ferma: che cosa manca, e che il posto in cui si
+      // dichiarava non c'e piu.
+      return "Nessun piano rosa dichiarato: il primo criterio dell'ordine è «dentro il tuo piano», e senza piano quell'ordine non esiste. Quel pannello è stato rimosso.";
     case "plan-incomplete":
       return "Piano rosa dichiarato a metà: manca un target di ruolo o la versione del piano, e un piano incompleto non attraversa il confine verso il motore.";
     case "plan-invalid":

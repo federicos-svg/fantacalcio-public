@@ -10,9 +10,11 @@
 //     produce affatto — `RolePlanRow.plan` resta `null` in ogni riga, e non
 //     esiste un ramo che lo popoli senza che il motore l'abbia calcolato;
 //  2. «NON DICHIARATO» E «DICHIARATO ZERO» NON COLLASSANO. Sono due stati
-//     diversi del dato, sopravvivono al giro attraverso lo storage, e portano a
-//     due letture diverse: il primo non arriva nemmeno al motore, il secondo ci
-//     arriva ed è un piano che il motore esegue.
+//     diversi del dato e portano a due letture diverse: il primo non arriva
+//     nemmeno al motore, il secondo ci arriva ed è un piano che il motore
+//     esegue. Da quando il pannello PIANO ROSA è stato rimosso ogni chiamante
+//     vivo passa `null` — ma la distinzione resta il contratto che
+//     src/perMeCandidates.ts legge, e un contratto senza test è una promessa.
 
 import { describe, expect, it } from "vitest";
 import { reduce } from "../packages/engine/src/reduce.js";
@@ -21,20 +23,7 @@ import { budgetPlan } from "../packages/engine/src/budget.js";
 import { livePlan } from "../packages/engine/src/livePlan.js";
 import { INITIAL_BUDGET, ROLES, type AuctionEvent, type Role, type TeamState } from "../packages/engine/src/types.js";
 import { FANTA_TEAM_IDS } from "../packages/engine/fixtures/synthetic.js";
-import {
-  EMPTY_ROLE_PLAN_DRAFT,
-  ROLE_PLAN_STORAGE_KEY,
-  clearRolePlan,
-  declaredTotal,
-  loadRolePlan,
-  parseTargetInput,
-  rolePlanReading,
-  saveRolePlan,
-  withPlanVersion,
-  withTarget,
-  type RolePlanDraft,
-} from "./rolePlan.js";
-import type { StorageLike } from "./logRecovery.js";
+import { rolePlanReading, type RolePlanDraft } from "./rolePlan.js";
 
 const TEAMS = FANTA_TEAM_IDS;
 const TS = "2026-08-01T12:00:00Z";
@@ -58,16 +47,6 @@ const draft = (targets: Partial<Record<Role, number>>, planVersion = "pre-asta 1
 /** Piano completo di riferimento: 450 su 500, 50 lasciati liberi. */
 const FULL = draft({ P: 20, D: 80, C: 140, A: 210 });
 
-function memoryStorage(): StorageLike & { readonly map: Map<string, string> } {
-  const map = new Map<string, string>();
-  return {
-    map,
-    getItem: (k) => map.get(k) ?? null,
-    setItem: (k, v) => void map.set(k, v),
-    removeItem: (k) => void map.delete(k),
-  };
-}
-
 describe("rolePlanReading — il piano assente non produce numeri", () => {
   it("senza nessuna dichiarazione la lettura è «absent» e nessuna riga porta numeri di piano", () => {
     const reading = rolePlanReading(freshTeam(), null);
@@ -80,7 +59,7 @@ describe("rolePlanReading — il piano assente non produce numeri", () => {
   });
 
   it("una dichiarazione completamente vuota è «absent», non un piano a zero", () => {
-    const reading = rolePlanReading(freshTeam(), EMPTY_ROLE_PLAN_DRAFT);
+    const reading = rolePlanReading(freshTeam(), { planVersion: "", targets: {} });
     expect(reading.kind).toBe("absent");
     expect(reading.rows.every((row) => row.plan === null)).toBe(true);
   });
@@ -195,110 +174,5 @@ describe("rolePlanReading — piano rifiutato dal motore", () => {
 
   it("non lancia mai: la schermata di un'asta non può ricevere un'eccezione al posto di un pannello", () => {
     expect(() => rolePlanReading(freshTeam(), draft({ P: 500, D: 500, C: 500, A: 500 }))).not.toThrow();
-  });
-});
-
-describe("parseTargetInput — il campo vuoto non è uno zero", () => {
-  it.each([
-    ["", { kind: "undeclared" }],
-    ["   ", { kind: "undeclared" }],
-    ["0", { kind: "declared", target: 0 }],
-    ["20", { kind: "declared", target: 20 }],
-    [String(INITIAL_BUDGET), { kind: "declared", target: INITIAL_BUDGET }],
-  ])("«%s» -> %o", (raw, expected) => {
-    expect(parseTargetInput(raw as string)).toEqual(expected);
-  });
-
-  it.each([
-    ["1,5", "not-an-integer"],
-    ["1.5", "not-an-integer"],
-    ["venti", "not-an-integer"],
-    ["-3", "negative"],
-    [String(INITIAL_BUDGET + 1), "above-cap"],
-  ])("rifiuta «%s» senza correggerlo d'ufficio", (raw, reason) => {
-    expect(parseTargetInput(raw as string)).toEqual({ kind: "rejected", reason });
-  });
-});
-
-describe("withTarget / withPlanVersion", () => {
-  it("un input vuoto RIMUOVE il target invece di scriverci zero", () => {
-    const next = withTarget(draft({ P: 20, D: 80 }), "P", parseTargetInput(""));
-    expect("P" in next.targets).toBe(false);
-    expect(next.targets.D).toBe(80);
-  });
-
-  it("uno zero digitato viene scritto come zero, non rimosso", () => {
-    const next = withTarget(draft({ D: 80 }), "P", parseTargetInput("0"));
-    expect("P" in next.targets).toBe(true);
-    expect(next.targets.P).toBe(0);
-  });
-
-  it("un input rifiutato non tocca la dichiarazione", () => {
-    const before = draft({ P: 20 });
-    expect(withTarget(before, "P", parseTargetInput("-1"))).toEqual(before);
-  });
-
-  it("la versione si tronca al massimo consentito invece di essere rifiutata", () => {
-    const next = withPlanVersion(draft({ P: 1 }), "x".repeat(200));
-    expect(next.planVersion).toHaveLength(40);
-  });
-});
-
-describe("declaredTotal — il totale porta il suo denominatore", () => {
-  it("conta solo i ruoli dichiarati, e dice quanti sono", () => {
-    expect(declaredTotal(draft({ P: 20, D: 80 }))).toEqual({ total: 100, roles: 2 });
-  });
-
-  it("uno zero dichiarato è un ruolo dichiarato, e conta nel denominatore", () => {
-    expect(declaredTotal(draft({ P: 0 }))).toEqual({ total: 0, roles: 1 });
-    expect(declaredTotal(draft({}))).toEqual({ total: 0, roles: 0 });
-  });
-});
-
-describe("persistenza — il giro attraverso lo storage non inventa target", () => {
-  it("un ruolo non dichiarato resta non dichiarato dopo salva/rileggi", () => {
-    const storage = memoryStorage();
-    expect(saveRolePlan(storage, draft({ D: 80, C: 140, A: 210 }))).toBe(true);
-    const back = loadRolePlan(storage)!;
-    expect("P" in back.targets).toBe(false);
-    expect(rolePlanReading(freshTeam(), back).kind).toBe("incomplete");
-  });
-
-  it("un ruolo dichiarato a zero resta zero dopo salva/rileggi", () => {
-    const storage = memoryStorage();
-    saveRolePlan(storage, draft({ P: 0, D: 80, C: 140, A: 210 }));
-    const back = loadRolePlan(storage)!;
-    expect(back.targets.P).toBe(0);
-    expect(rolePlanReading(freshTeam(), back).kind).toBe("live");
-  });
-
-  it("nessuna copia conservata -> `null`, che non è una dichiarazione vuota", () => {
-    expect(loadRolePlan(memoryStorage())).toBeNull();
-  });
-
-  it("copia illeggibile -> rifiutata in blocco, mai una dichiarazione parziale indovinata", () => {
-    for (const raw of ["{", "null", '{"schemaVersion":2,"planVersion":"x","targets":{}}', '{"schemaVersion":1,"planVersion":"x","targets":{"P":"venti"}}', '{"schemaVersion":1,"planVersion":"x","targets":{"P":-1}}']) {
-      const storage = memoryStorage();
-      storage.map.set(ROLE_PLAN_STORAGE_KEY, raw);
-      expect(loadRolePlan(storage)).toBeNull();
-    }
-  });
-
-  it("una scrittura che non attecchisce viene riportata, non ingoiata", () => {
-    const storage: StorageLike = {
-      getItem: () => null,
-      setItem: () => {
-        throw new Error("quota");
-      },
-      removeItem: () => undefined,
-    };
-    expect(saveRolePlan(storage, FULL)).toBe(false);
-  });
-
-  it("clearRolePlan cancella davvero", () => {
-    const storage = memoryStorage();
-    saveRolePlan(storage, FULL);
-    expect(clearRolePlan(storage)).toBe(true);
-    expect(loadRolePlan(storage)).toBeNull();
   });
 });

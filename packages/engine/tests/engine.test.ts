@@ -92,12 +92,23 @@ describe("reduce — deterministic projection", () => {
     expect(s.purchasedPlayerIds.filter((p) => p === "D2").length).toBe(1);
   });
 
-  it("9b. replay: log without the void != log with the void", () => {
+  it("9b. replay: senza il VOID quel log non descrive nessuna asta, e reduce() lo dice", () => {
+    // L'ASSERZIONE ERA PIÙ DEBOLE, e diceva meno del vero. Confrontava lo
+    // `spent` dei due replay e pretendeva che fossero diversi — vero, ma è la
+    // conseguenza minore. Il fatto grosso è che il log senza il VOID mette D2
+    // DUE VOLTE nella stessa rosa (comprato a 999 al seq3, ricomprato a 7 al
+    // seq5): non è un'asta con un errore di prezzo, è un'asta impossibile, e
+    // `validateAuctionLog` infatti la rifiuta al bordo del salvataggio.
+    //
+    // Dal 2026-08-30 la rifiuta anche `reduce()`, che prima ci girava sopra
+    // producendo otto budget plausibili e sbagliati (vedi `ownerOf` in
+    // reduce.ts, e il rilievo della lente Engineering sulla PR pubblica #73).
+    // Il VOID non è cosmetico: senza, non c'è nessuno stato da calcolare.
     const full = syntheticLog();
     const noVoid = full.filter((e) => !(e.type === "VOID")) as AuctionEvent[];
-    const withMistake = reduce(noVoid, TEAMS).teams["ataturk"]!;
-    const corrected = reduce(full, TEAMS).teams["ataturk"]!;
-    expect(withMistake.spent).not.toBe(corrected.spent);
+    expect(() => reduce(noVoid, TEAMS)).toThrow(/already on/);
+    // E col VOID il log torna riducibile, con la correzione applicata.
+    expect(reduce(full, TEAMS).teams["ataturk"]!.spent).toBe(7);
   });
 });
 

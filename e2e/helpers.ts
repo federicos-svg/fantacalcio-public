@@ -202,7 +202,7 @@ export async function selectStatusFilter(
  */
 export async function openSettingsSection(
   page: Page,
-  id: "teams" | "riconferme" | "schede" | "archivio" | "status",
+  id: "teams" | "schede" | "archivio" | "status",
 ): Promise<void> {
   const tab = page.locator(`#settings-tab-${id}`);
   if ((await tab.getAttribute("aria-selected")) === "true") return;

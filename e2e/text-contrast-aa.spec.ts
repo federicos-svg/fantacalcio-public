@@ -398,49 +398,50 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
   }
   await sweepScene("rose");
 
-  // ── ROSE, PIANO DICHIARATO ────────────────────────────────────────────────
+  // ── ROSE, LA CASELLA APERTA ───────────────────────────────────────────────
   //
-  // La scena «rose» qui sopra ha misurato il pannello PIANO ROSA nel suo stato
-  // VUOTO, che è l'unico in cui si trova finché nessuno dichiara un piano. E in
-  // quello stato `.role-plan__numbers`, `.role-plan__totals li` e la pastiglia
-  // `.badge--over-plan` NON ESISTONO NEL DOM: `measureAllText` non salta quel
-  // testo, semplicemente non c'è nulla da saltare — che è lo stesso verde per
-  // assenza dei pannelli dietro un gesto (#331, #333, il modulo SCHEDE più
-  // sotto), con una differenza sola: qui il gesto non è un click su un toggle,
-  // è DICHIARARE UN PIANO. Senza, metà di questo pannello resterebbe fuori
-  // sorveglianza — e sarebbe la metà che porta i numeri.
+  // La scena «rose» qui sopra misura la griglia a modale CHIUSA, ed e lo stato
+  // in cui si trova finche nessuno clicca. Ma i quattro pannelli della modale
+  // sono la superficie di testo NUOVA di questo batch — schede, campi, elenchi,
+  // e la frase di rifiuto in rosso — e `measureAllText` non salta quel testo:
+  // semplicemente non c'e nulla da saltare finche la modale non e aperta.
+  // Senza questo giro meta di cio che si e appena scritto resterebbe fuori
+  // sorveglianza, ed e la meta che parla quando qualcosa va storto.
   //
-  // Il target dei Portieri è DELIBERATAMENTE sotto i 30 cr già spesi in questa
-  // spec: serve a far esistere la pastiglia SOPRA PIANO, che è l'unico testo di
-  // questo pannello dipinto con un colore fuori dalla rampa (--stop-red come
-  // TESTO su --panel-inner). Un piano che non sfora non la farebbe comparire, e
-  // la misura tornerebbe verde senza aver guardato il caso che conta.
-  for (const [role, target] of [
-    ["P", "10"],
-    ["D", "80"],
-    ["C", "140"],
-    ["A", "200"],
-  ] as const) {
-    await page.locator(`#role-plan-target-${role}`).fill(target);
-  }
-  await page.locator("#role-plan-version").fill("pre-asta 1");
-  // Il piano è vivo: i tre gruppi di testo che prima non esistevano adesso ci
-  // sono. Se una di queste tre asserzioni cade, le misure qui sotto starebbero
-  // misurando il vuoto.
-  await expect(page.locator("#role-plan-state")).toContainText("Piano dichiarato «pre-asta 1»");
-  await expect(page.locator("#role-plan-totals")).toBeVisible();
-  await expect(page.locator("#role-plan-P .badge--over-plan")).toBeVisible();
-  for (const sel of [
-    ".badge--over-plan", // --stop-red come TESTO su --panel-inner, 10px
-    ".role-plan__numbers", // --text-sec su --panel-inner, i numeri di piano
-    ".role-plan__numbers em", // --text-dim, le parole accanto a ogni cifra
-    ".role-plan__totals li", // --text-mid, fattibilità e budget libero vero
-  ]) {
-    expect(await textContrast(page, sel), `rose/piano: ${sel}`).toBeGreaterThanOrEqual(
-      AA_NORMAL_TEXT,
-    );
-  }
-  await sweepScene("rose/piano-dichiarato");
+  // DUE APERTURE, perche le coppie di pannelli sono due e non condividono
+  // nemmeno un campo: la casella vuota porta inserimento e rinnovo, quella
+  // occupata svincolo e scambio.
+  await page.locator(".roster-slot--empty").first().click();
+  await expect(page.locator("#roster-slot-title")).toBeVisible();
+  await sweepScene("rose/casella-vuota-manuale");
+  await page.locator("#roster-slot-tab-rinnovo").click();
+  await sweepScene("rose/casella-vuota-rinnovo");
+  await page.locator("#roster-slot-close").click();
+
+  // Serve una casella OCCUPATA, e l'unico modo onesto di averne una e
+  // riempirla col gesto vero: la scena non semina uno stato che l'app non
+  // avrebbe potuto raggiungere da se.
+  await page.locator(".roster-slot--empty").first().click();
+  await page.locator("#roster-slot-manual-player").selectOption({ index: 1 });
+  await page.locator("#roster-slot-manual-price").fill("7");
+  await page.locator("#roster-slot-manual-apply").click();
+  await expect(page.locator("#roster-slot-overlay")).toHaveCount(0);
+
+  await page.locator(".roster-slot--filled").first().click();
+  await sweepScene("rose/casella-piena-svincolo");
+  // IL RIFIUTO IN ROSSO E IL TESTO CHE PIU DI OGNI ALTRO DEVE ESSERE LEGGIBILE,
+  // e vive dietro un gesto: si provoca invece di aspettarlo.
+  await page.locator("#roster-slot-release-apply").click();
+  await expect(page.locator("#roster-slot-error")).toBeVisible();
+  expect(
+    await textContrast(page, "#roster-slot-error"),
+    "rose/casella: la frase di rifiuto",
+  ).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+  await sweepScene("rose/casella-piena-rifiuto");
+  await page.locator("#roster-slot-tab-scambio").click();
+  await page.locator("#roster-slot-trade-team").selectOption({ index: 1 });
+  await sweepScene("rose/casella-piena-scambio");
+  await page.locator("#roster-slot-close").click();
 
   // ── IMPOSTAZIONI ──────────────────────────────────────────────────────────
   await gotoScreen(page, "Impostazioni");
@@ -452,10 +453,10 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
   await page.locator("#new-person-name").fill("Persona Sintetica");
   await page.locator("#add-person").click();
   await expect(page.locator("#league-people-list .person-id-value")).toHaveCount(1);
-  // CINQUE sezioni: la spazzata le attraversa tutte. `archivio` entra qui
-  // insieme alle altre — l'unione di id di `openSettingsSection` non è più
-  // ferma, quindi il giro a mano che serviva prima non serve più.
-  for (const section of ["teams", "riconferme", "schede", "archivio", "status"] as const) {
+  // QUATTRO sezioni: la spazzata le attraversa tutte. Erano cinque finché
+  // esisteva «Riconferme pre-asta»: quel pannello è stato rimosso e il rinnovo
+  // vive adesso nella modale della pagina Rose, il cui testo si misura da lì.
+  for (const section of ["teams", "schede", "archivio", "status"] as const) {
     await openSettingsSection(page, section);
     await sweepScene(`impostazioni/${section}`);
   }

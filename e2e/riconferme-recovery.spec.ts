@@ -6,12 +6,19 @@
 // covers the confirmations/live-log conflict (audit fix 3 of #283): never
 // a crash, always the SAME governed blocked screen the log's own
 // persistence failures use.
+//
+// DOVE SI DICHIARA UNA RICONFERMA, DAL RIORDINO DELLA PAGINA ROSA: non più in
+// un'area delle Impostazioni — quel pannello non esiste più, con tutti i suoi
+// id `#riconferme-*` — ma nella casella VUOTA della scheda di rosa, che apre
+// una modale a due schede («inserisci a mano» / «rinnova dall'anno scorso»).
+// Il recupero misurato qui non cambia di una riga: cambia solo la porta da cui
+// si verifica che, dopo, la riconferma sia di nuovo dichiarabile.
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { LOG_STORAGE_KEY } from "../src/logRecovery.js";
 import { CONFIRMATIONS_QUARANTINE_STORAGE_KEY, CONFIRMATIONS_STORAGE_KEY } from "../src/confirmationsStore.js";
 import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { gotoScreen, installSyntheticNetworkGuard, openSettingsSection, readLocalStorageRaw } from "./helpers.js";
+import { gotoScreen, installSyntheticNetworkGuard, readLocalStorageRaw } from "./helpers.js";
 
 // Deliberately not valid JSON, with non-ASCII content — export must
 // reproduce this exactly.
@@ -81,17 +88,25 @@ test("corrupted confirmations + non-empty log -> blocked screen; explicit two-st
   await expect(banner).toBeVisible();
   await expect(banner.getByRole("button", { name: "Esporta riconferme non valide", exact: true })).toBeVisible();
 
-  // The riconferme panel is usable again (empty batch, log non-empty so it
-  // is read-only — a separate, orthogonal gate from the recovery itself).
-  await gotoScreen(page, "Impostazioni");
-  await openSettingsSection(page, "riconferme");
-  await expect(page.locator("#riconferme-readonly-note")).toBeVisible();
-  await expect(page.locator("#riconferme-slot-Io-D")).not.toContainText("cr");
+  // La riconferma è di nuovo dichiarabile — dalla casella vuota della pagina
+  // ROSE, che è dove il gesto vive adesso. Due cose insieme: la casella di
+  // ruolo D di «Io» è VUOTA (il batch è stato davvero azzerato, non solo
+  // nascosto), e la sua scheda RINNOVO è bloccata perché il log non è vuoto —
+  // un cancello separato e ortogonale al recupero, esattamente come lo era la
+  // vecchia nota di sola lettura del pannello nelle Impostazioni.
+  await gotoScreen(page, "Rose");
+  const emptyDefenderSlot = page.locator("#roster-slot-Io-D-0");
+  await expect(emptyDefenderSlot).toHaveClass(/roster-slot--empty/);
+  await emptyDefenderSlot.click();
+  await page.locator("#roster-slot-tab-rinnovo").click();
+  await expect(page.locator("#roster-slot-renewal-locked")).toBeVisible();
+  await page.locator("#roster-slot-close").click();
+  await expect(page.locator("#roster-slot-overlay")).toHaveCount(0);
 
   expect(externalRequests).toEqual([]);
 });
 
-test("corrupted confirmations + empty log -> non-blocking banner, panel stays editable", async ({ page, context }) => {
+test("corrupted confirmations + empty log -> non-blocking banner, the empty slot stays open to a riconferma", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
 
@@ -117,12 +132,18 @@ test("corrupted confirmations + empty log -> non-blocking banner, panel stays ed
   if (!downloadPath) throw new Error("expected a saved download path");
   expect(await readFile(downloadPath, "utf-8")).toBe(CORRUPTED_CONFIRMATIONS);
 
-  // Editable: the log is empty, so the panel is not gated read-only despite
-  // the quarantine — the operator can simply start entering riconferme.
-  await gotoScreen(page, "Impostazioni");
-  await openSettingsSection(page, "riconferme");
-  await expect(page.locator("#riconferme-readonly-note")).toHaveCount(0);
-  await expect(page.locator("#riconferme-picker-Io-D")).toBeVisible();
+  // Dichiarabile: il log è vuoto, quindi la quarantena NON chiude la strada —
+  // la casella vuota si apre e la scheda rinnovo non è bloccata. Che poi
+  // l'elenco sia vuoto per «nessuno storico d'asta caricato» è il silenzio
+  // onesto di questo dispositivo, non un blocco: `#roster-slot-renewal-empty`
+  // viene stampato solo DOPO il cancello del log, quindi la sua presenza prova
+  // che il cancello non è scattato. La riconferma vera, dal suo storico, è
+  // misurata in e2e/auction-log-portability.spec.ts.
+  await gotoScreen(page, "Rose");
+  await page.locator("#roster-slot-Io-D-0").click();
+  await page.locator("#roster-slot-tab-rinnovo").click();
+  await expect(page.locator("#roster-slot-renewal-locked")).toHaveCount(0);
+  await expect(page.locator("#roster-slot-renewal-empty")).toHaveAttribute("data-reason", "no-history");
 
   expect(externalRequests).toEqual([]);
 });

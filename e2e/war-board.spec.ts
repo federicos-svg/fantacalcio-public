@@ -119,8 +119,10 @@ test("the war board shows the COMPLETE variant while choosing, the MINI strip wh
 
   // §D9: accounting only, and the panel says so.
   expect(await page.locator("#war-board-full").innerText()).not.toMatch(DIRECTIVE);
-  await expect(page.locator("#war-board-full-note")).toContainText("nessun indice comportamentale");
-  await expect(page.locator("#war-board-full-note")).toContainText("nessuna raccomandazione");
+  // La nota in calce è stata tolta dalla schermata: la garanzia §D9 non era
+  // nella frase, è nel pannello — che continua a non contenere nulla di
+  // direttivo, ed è la riga qui sopra a misurarlo sul testo vero.
+  await expect(page.locator("#war-board-full-note")).toHaveCount(0);
 
   // Neither variant follows the user off the Asta screen.
   await gotoScreen(page, "Rose");
