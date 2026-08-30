@@ -1,3 +1,20 @@
+// LE NOTE SOTTO LA TABELLA DEL LISTONE NON SONO PIÙ A SCHERMO — «nascondi i
+// blocchi nello screenshot», Pico, 2026-08-29. Restano SCRITTE nel documento,
+// quindi ogni pretesa sul loro CONTENUTO vale ancora parola per parola: dove
+// c'era `toBeVisible()` ora c'è `toBeHidden()`, e le righe che provano la
+// provenienza del dato non si toccano. La provenienza non si perde nemmeno
+// per chi naviga a voce: la porta l'`aria-label` del pannello del listone
+// (src/ui/views.ts), come Pico ha deciso per la provenienza della fascia.
+
+// ⚠️ `toBeHidden()` DA SOLO NON PROVA NIENTE, e questa nota esiste perché ci
+// sono cascato: in Playwright un locator che non trova NESSUN elemento è
+// «hidden», quindi un `toBeHidden()` senza un controllo di esistenza accanto
+// resta verde anche il giorno in cui la nota sparisce dal documento invece di
+// essere solo nascosta. Cinque asserzioni di questi file erano così, e la
+// differenza conta: la nota di fallback dichiara che il listone a schermo NON
+// è il deposito privato, e una prova che non si accorge della sua scomparsa è
+// una rete con un buco esattamente dove serve. `toHaveCount(1)` accanto è la
+// riga che la rende una prova.
 import { expect, test } from "@playwright/test";
 import {
   SYNTHETIC_LISTONE_POOL,
@@ -36,7 +53,20 @@ test("the private deposit wins over the static asset and says so, with its date"
   await expect(page.getByText(SYNTHETIC_LISTONE_POOL[0]!.name, { exact: true })).toHaveCount(0);
 
   const note = page.getByText(REMOTE_NOTE);
-  await expect(note).toBeVisible();
+  await expect(note).toHaveCount(1);
+  await expect(note).toBeHidden();
+  // LA PROVENIENZA RAGGIUNGE CHI NAVIGA A VOCE. `display: none` toglie il nodo
+  // anche dall'albero di accessibilità: senza questa riga la frase che dice DA
+  // DOVE arrivano le righe sarebbe sparita per tutti, non solo da schermo, e
+  // nessuna prova se ne sarebbe accorta. È lo stesso trattamento che Pico ha
+  // deciso per la provenienza della fascia.
+  const parlato = await page
+    .locator("#listone-block .panel--bordered")
+    .first()
+    .getAttribute("aria-label");
+  expect(parlato, "il pannello del listone non dichiara la provenienza a voce").toContain(
+    REMOTE_NOTE,
+  );
   await expect(note).toContainText(`(dati aggiornati al ${SYNTHETIC_REMOTE_MODIFIED_AT_LABEL})`);
   await expect(note).toContainText("non usato dal motore decisionale");
   await expect(page.getByText(FALLBACK_NOTE)).toHaveCount(0);
@@ -55,7 +85,8 @@ test("an unavailable deposit falls back to the static asset and keeps the fallba
   for (const player of SYNTHETIC_LISTONE_POOL) {
     await expect(page.getByText(player.name, { exact: true })).toBeVisible();
   }
-  await expect(page.getByText(FALLBACK_NOTE)).toBeVisible();
+  await expect(page.getByText(FALLBACK_NOTE)).toHaveCount(1);
+  await expect(page.getByText(FALLBACK_NOTE)).toBeHidden();
   await expect(page.getByText(REMOTE_NOTE)).toHaveCount(0);
   expect(externalRequests).toEqual([]);
 });
@@ -70,7 +101,8 @@ test("a deposit answered by the SPA fallback (200 text/html) is refused, not sho
   for (const player of SYNTHETIC_LISTONE_POOL) {
     await expect(page.getByText(player.name, { exact: true })).toBeVisible();
   }
-  await expect(page.getByText(FALLBACK_NOTE)).toBeVisible();
+  await expect(page.getByText(FALLBACK_NOTE)).toHaveCount(1);
+  await expect(page.getByText(FALLBACK_NOTE)).toBeHidden();
   await expect(page.getByText(REMOTE_NOTE)).toHaveCount(0);
   expect(externalRequests).toEqual([]);
 });
@@ -88,7 +120,8 @@ test("a deposit payload the UI validator refuses leaves the static asset on scre
     await expect(page.getByText(player.name, { exact: true })).toBeVisible();
   }
   await expect(page.getByText("Gino Vietato", { exact: true })).toHaveCount(0);
-  await expect(page.getByText(FALLBACK_NOTE)).toBeVisible();
+  await expect(page.getByText(FALLBACK_NOTE)).toHaveCount(1);
+  await expect(page.getByText(FALLBACK_NOTE)).toBeHidden();
   expect(externalRequests).toEqual([]);
 });
 
@@ -140,7 +173,8 @@ test("an index without its quality label is refused, index and rows together", a
     await expect(page.getByText(player.name, { exact: true })).toBeVisible();
   }
   await expect(page.getByText("Gino SenzaEtichetta", { exact: true })).toHaveCount(0);
-  await expect(page.getByText(FALLBACK_NOTE)).toBeVisible();
+  await expect(page.getByText(FALLBACK_NOTE)).toHaveCount(1);
+  await expect(page.getByText(FALLBACK_NOTE)).toBeHidden();
   await expect(page.locator(".listone-table-head")).not.toContainText("Indice");
   expect(externalRequests).toEqual([]);
 });

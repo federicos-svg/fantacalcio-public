@@ -1246,7 +1246,7 @@ describe("filterListonePool", () => {
   const beta = { name: "Beta Bianchi", role: "D" as const, club: "Club Beta" };
   const gamma = { name: "Gamma Verdi", role: "A" as const, club: "Club Alfa" };
   const pool = [alfa, beta, gamma];
-  const noFilter = { text: "", role: "" as const, club: "", status: "all" as const };
+  const noFilter = { text: "", roles: [] as const, club: "", status: "all" as const };
 
   it("filters by case-insensitive name substring", () => {
     const result = filterListonePool(pool, { ...noFilter, text: "ross" }, new Set());
@@ -1254,8 +1254,22 @@ describe("filterListonePool", () => {
   });
 
   it("filters by role", () => {
-    const result = filterListonePool(pool, { ...noFilter, role: "D" }, new Set());
+    const result = filterListonePool(pool, { ...noFilter, roles: ["D"] }, new Set());
     expect(result).toEqual([beta]);
+  });
+
+  // SELEZIONE MULTIPLA, dal 2026-08-29: due ruoli accesi sono l'UNIONE, non
+  // l'intersezione — che sarebbe sempre vuota, perché un giocatore ha un ruolo
+  // solo. È l'errore che questa riga esiste per non lasciar fare.
+  it("con due ruoli mostra le righe di ENTRAMBI, non l'insieme vuoto", () => {
+    const result = filterListonePool(pool, { ...noFilter, roles: ["A", "D"] }, new Set());
+    expect(result).toEqual([alfa, beta, gamma]);
+  });
+
+  // E l'elenco vuoto è l'assenza di un filtro, non un filtro che non ammette
+  // niente: quattro interruttori spenti sono la tabella intera.
+  it("nessun ruolo acceso significa TUTTI, non nessuno", () => {
+    expect(filterListonePool(pool, { ...noFilter, roles: [] }, new Set())).toEqual(pool);
   });
 
   it("filters by club", () => {
@@ -1264,7 +1278,7 @@ describe("filterListonePool", () => {
   });
 
   it("combines text/role/club filters", () => {
-    const result = filterListonePool(pool, { text: "gamma", role: "A", club: "Club Alfa", status: "all" }, new Set());
+    const result = filterListonePool(pool, { text: "gamma", roles: ["A"], club: "Club Alfa", status: "all" }, new Set());
     expect(result).toEqual([gamma]);
   });
 

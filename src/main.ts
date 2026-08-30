@@ -613,6 +613,13 @@ interface AppState {
   poolManualOverrideOpen: boolean;
   poolStatusFilter: ListoneStatusFilter;
   poolStatusFilterOpen: boolean;
+  /**
+   * I RUOLI SU CUI IL LISTONE È FILTRATO — vuoto significa «tutti», mai
+   * «nessuno». È un filtro DI VISTA e non ha niente a che vedere col ruolo che
+   * l'asta usa per i propri conti: quello resta `call.role`, ed è uno solo. La
+   * regola che li tiene allineati sta in `toggleListoneRole`.
+   */
+  listoneRoles: readonly Role[];
   offline: boolean;
   leagueRoster: LeagueRoster;
   /**
@@ -993,6 +1000,7 @@ const state: AppState = {
   poolManualOverrideOpen: false,
   poolStatusFilter: "available",
   poolStatusFilterOpen: false,
+  listoneRoles: [],
   offline: !navigator.onLine,
   leagueRoster: loadLeagueRoster(browserStorage, FANTA_TEAM_IDS),
   rolePlan: loadRolePlan(browserStorage),
@@ -1524,18 +1532,37 @@ function setPoolStatusFilter(status: ListoneStatusFilter): void {
 }
 
 /**
- * Il ruolo su cui il listone filtra, scritto da uno dei quattro interruttori.
+ * UN INTERRUTTORE DI RUOLO PREMUTO: si accende se era spento, si spegne se era
+ * acceso, e gli altri tre non si toccano. Selezione multipla, richiesta da
+ * Pico il 2026-08-29.
  *
- * FA ESATTAMENTE CIÒ CHE FA IL MENU «Ruolo» della ricerca, e non per pigrizia:
- * è lo stesso fatto, e due percorsi che scrivono lo stesso campo in due modi
- * diversi divergono alla prima correzione fatta su uno solo. Le tre righe
- * accanto all'assegnazione — il conteggio delle interazioni, la pagina che
- * torna alla prima, il render — sono le stesse per la stessa ragione: cambiare
- * filtro e restare a pagina sette mostrerebbe una tabella vuota che sembra un
- * elenco senza risultati.
+ * LA REGOLA CHE TIENE ALLINEATI I DUE CAMPI, in una riga sola: un ruolo acceso
+ * DA SOLO è anche il ruolo del giocatore chiamato; zero, due o quattro ruoli
+ * accesi non sono un ruolo, quindi `state.call.role` torna vuoto.
+ *
+ * Perché non basta più un campo solo. `state.call.role` è il ruolo che l'ASTA
+ * usa — il tetto di spesa del chiamato, la guardia sul ruolo obbligatorio — ed
+ * è uno per definizione: «difensori e centrocampisti insieme» non è una
+ * risposta che quei conti sappiano dare. Il filtro del listone invece è una
+ * VISTA, e due ruoli insieme sono una domanda legittima («chi resta fra
+ * difensori e centrocampisti»). Tenerli nello stesso campo obbligava a
+ * scegliere fra le due cose; separarli obbliga a dichiarare come si
+ * incontrano, ed è questa funzione a dichiararlo.
+ *
+ * Le tre righe accanto restano quelle di sempre: il conteggio delle
+ * interazioni, la pagina che torna alla prima — cambiare filtro e restare a
+ * pagina sette mostrerebbe una tabella vuota che sembra un elenco senza
+ * risultati — e il render.
  */
-function setListoneRoleFilter(role: Role | ""): void {
-  state.call.role = role;
+function toggleListoneRole(role: Role): void {
+  const acceso = state.listoneRoles.includes(role);
+  // L'ordine è quello dichiarato da `ROLES`, non quello dei clic: l'elenco
+  // finisce in un `aria-label` e in un filtro, e due sequenze di clic diverse
+  // che producono la stessa selezione devono produrre lo stesso stato.
+  state.listoneRoles = acceso
+    ? state.listoneRoles.filter((r) => r !== role)
+    : ROLES.filter((r) => r === role || state.listoneRoles.includes(r));
+  state.call.role = state.listoneRoles.length === 1 ? (state.listoneRoles[0] as Role) : "";
   state.callInteractions += 1;
   state.poolPage = 1;
   render();
@@ -2511,6 +2538,77 @@ function render(): void {
     ) as HTMLInputElement | null;
     if (priceInput) priceInput.focus({ preventScroll: true });
   }
+
+  misuraLaBarraFissa();
+}
+
+/**
+ * LO SPAZIO IN CODA ALLA PAGINA LO SCRIVE LA BARRA STESSA.
+ *
+ * Le due barre fisse — la riga di ricerca e il gesto d'asta — coprono il fondo
+ * dello schermo, e la pagina restituisce quello spazio in coda con
+ * `--assign-bar-h` (src/styles/layout.css). Era un numero scritto a mano,
+ * 132px, e una lente di review l'ha misurato: a 390px la barra del gesto è
+ * alta 417,5 e lo STORICO ACQUISTI finiva 193px SOTTO di lei, irraggiungibile
+ * scorrendo perché la pagina finiva prima. La riga di ricerca, 152px, lasciava
+ * zero pixel di margine.
+ *
+ * Un numero fisso non può seguire una barra che si allunga quando i controlli
+ * vanno a capo: chi sa quanto è alta è la barra, e da qui glielo si chiede.
+ *
+ * PERCHÉ UN `ResizeObserver` E NON UNA MISURA A OGNI RENDER. La barra cambia
+ * altezza anche SENZA un render — la finestra che si stringe, un font che
+ * arriva tardi, la tastiera del telefono che comparendo cambia la larghezza
+ * utile — e in tutti quei casi un valore scritto all'ultimo render sarebbe
+ * vecchio. L'osservatore vive quanto la barra: `render()` ricostruisce
+ * l'albero a ogni tasto, quindi si riattacca alla barra nuova e quello vecchio
+ * muore con il nodo che osservava.
+ *
+ * NESSUN NUMERO DI RIPIEGO SCRITTO QUI: se le barre non ci sono — ogni
+ * schermata che non sia l'asta — la variabile torna a quello che il CSS
+ * dichiara, e lo spazio in coda è quello di sempre.
+ */
+let osservatoreDellaBarra: ResizeObserver | null = null;
+let ascoltatoreDelResize: (() => void) | null = null;
+
+function misuraLaBarraFissa(): void {
+  osservatoreDellaBarra?.disconnect();
+  osservatoreDellaBarra = null;
+  // L'ascoltatore va tolto insieme all'osservatore: `render()` ricostruisce
+  // l'albero a ogni tasto, e uno per render si accumulerebbe fino a misurare
+  // la stessa barra qualche centinaio di volte a ogni ridimensionamento.
+  if (ascoltatoreDelResize !== null) {
+    window.removeEventListener("resize", ascoltatoreDelResize);
+    ascoltatoreDelResize = null;
+  }
+  const barra =
+    document.getElementById("assign-block") ?? document.getElementById("call-search-row");
+  if (barra === null) {
+    document.documentElement.style.removeProperty("--assign-bar-h");
+    return;
+  }
+  const scrivi = (): void => {
+    const altezza = Math.ceil(barra.getBoundingClientRect().height);
+    document.documentElement.style.setProperty("--assign-bar-h", `${altezza}px`);
+  };
+  scrivi();
+  // LA RETE SOTTO L'OSSERVATORE. `ResizeObserver` non esiste in ogni ambiente,
+  // e senza di lui la misura resterebbe quella dell'ultimo render: una lente
+  // di review l'ha provato togliendolo, e stringendo la finestra da 1280 a 390
+  // senza toccare niente la coda restava a 84px mentre la barra era già 152 —
+  // 68px di contenuto sotto la barra, cioè il difetto che questa funzione
+  // esiste per chiudere.
+  //
+  // `resize` non copre tutto quello che copre l'osservatore — un font che
+  // arriva tardi allunga la barra senza che la finestra si muova — ma copre il
+  // caso che capita davvero, e costa una riga. Resta attaccato anche quando
+  // l'osservatore c'è: i due si sovrappongono, e una misura in più scrive lo
+  // stesso numero.
+  ascoltatoreDelResize = scrivi;
+  window.addEventListener("resize", scrivi);
+  if (typeof ResizeObserver === "undefined") return;
+  osservatoreDellaBarra = new ResizeObserver(scrivi);
+  osservatoreDellaBarra.observe(barra);
 }
 
 function openMock(title: string, body: string): void {
@@ -6017,7 +6115,15 @@ function renderMomentoChiamata(
     roleSelect.appendChild(opt);
   }
   roleSelect.addEventListener("change", (e) => {
-    state.call.role = (e.target as HTMLSelectElement).value as Role | "";
+    const scelto = (e.target as HTMLSelectElement).value as Role | "";
+    state.call.role = scelto;
+    // IL MENU SCRIVE ANCHE IL FILTRO DEL LISTONE, e resta così la seconda
+    // maniglia della stessa porta finché la porta è una sola: scegliere «D»
+    // qui accende l'interruttore D e spegne gli altri, scegliere «Tutti» li
+    // spegne tutti. Senza questa riga i due controlli direbbero due cose
+    // diverse sulla stessa tabella — che è esattamente il difetto che la
+    // versione a ruolo singolo esisteva per non avere.
+    state.listoneRoles = scelto === "" ? [] : [scelto];
     state.callInteractions += 1;
     state.poolPage = 1;
     render();
@@ -6186,8 +6292,15 @@ function renderMomentoChiamata(
   // Honest placeholder: there is NO suggestion engine yet (richiede dati reali +
   // gate non attivi). Mostriamo il blocco in modo stabile, senza fingere una
   // predizione. Non è una raccomandazione.
+  // I DUE BLOCCHI DEL SUGGERITO STANNO AFFIANCATI — «Metti
+  // #suggested-player-mine e #bait-block uno affianco all'altro», Pico,
+  // 2026-08-29. Le due colonne sono una regola di stile (`.suggested-player`
+  // in asta.css) e non uno `style.cssText` a mano: le misure e la soglia a cui
+  // si reimpilano vivono col resto della schermata, non in mezzo alla
+  // costruzione del DOM.
   const suggested = document.createElement("div");
   suggested.id = "suggested-player";
+  suggested.className = "suggested-player";
   suggested.style.cssText = `background:${C.panelInner};border:1px solid ${C.border};border-radius:8px;padding:12px 16px;margin-top:18px;`;
   // PRIMA METÀ — «chi chiamare per me». Il segnaposto onesto che stava qui non
   // c'è più: al suo posto c'è il sottoblocco vero, e il segnaposto diceva «il
@@ -6255,7 +6368,7 @@ function renderMomentoChiamata(
     state.pool,
     {
       text: state.call.playerName,
-      role: state.call.role,
+      roles: state.listoneRoles,
       club: state.call.club,
       status: state.poolStatusFilter,
     },
@@ -6298,7 +6411,7 @@ function renderMomentoChiamata(
         // Lo STESSO campo che alimenta il menu «Ruolo» della ricerca e il
         // filtro qui sotto: gli interruttori sono una maniglia in più sulla
         // stessa porta, non una seconda porta.
-        roleFilter: state.call.role,
+        roleFilter: state.listoneRoles,
         selectedKey: state.call.selectedPlayer
           ? listonePlayerKey(state.call.selectedPlayer)
           : null,
@@ -6313,7 +6426,7 @@ function renderMomentoChiamata(
         onToggleManualOverride: toggleListoneManualOverride,
         onStatusFilterChange: setPoolStatusFilter,
         onToggleStatusFilter: togglePoolStatusFilter,
-        onRoleFilterChange: setListoneRoleFilter,
+        onRoleFilterChange: toggleListoneRole,
         onSelectPlayer: selectListonePlayer,
       },
     ),

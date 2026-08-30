@@ -60,6 +60,7 @@ import {
   evictDataAssetFromServiceWorkerCache,
   expectListoneRows,
   LISTONE_ASSET_PATH,
+  apriCaricamentoManuale,
 } from "./helpers.js";
 
 const SYNTHETIC_LISTONE_NAMES = SYNTHETIC_LISTONE_POOL.map((player) => player.name);
@@ -118,7 +119,7 @@ test.describe("listone pool persistence faults (audit r2, findings 4 and 5)", ()
     await page.goto("/");
     await expect(page.getByText(SYNTHETIC_LISTONE_POOL[0]!.name, { exact: true })).toBeVisible();
 
-    await page.getByRole("button", { name: /Caricamento manuale/ }).click();
+    await apriCaricamentoManuale(page);
     await page.getByText("Carica listone (JSON locale)").locator("input[type=file]").setInputFiles({
       name: "manual-pool.json",
       mimeType: "application/json",

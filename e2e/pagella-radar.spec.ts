@@ -123,6 +123,7 @@ test("completa — cinque voti, il poligono, e il totale che torna", async ({ pa
   await expect(page.locator("#player-insight-radar")).toBeHidden();
   // La didascalia, nascosta con lui, per la stessa ragione e con la stessa
   // pretesa: scritta nel documento, non a schermo.
+  await expect(page.locator("#player-insight-pagella-note")).toHaveCount(1);
   await expect(page.locator("#player-insight-pagella-note")).toBeHidden();
   await expect(page.locator("#player-insight-pagella-assi li")).toHaveCount(PAGELLA_ASSI);
   await expect(page.locator("#player-insight-pagella-totale")).toContainText("39/50");
@@ -156,7 +157,19 @@ test("parziale — i punti che ci sono e NESSUN poligono: un vertice mancante no
   expect(external).toEqual([]);
 });
 
-test("divergente — la somma e il totale della fonte NON coincidono, e restano tutti e due", async ({
+// ROVESCIATO IL 2026-08-29, e non allentato. Pretendeva entrambi i numeri e
+// l'accusa «letto male»: era la lettura giusta finché una riga con la somma
+// che non torna veniva SCARTATA in blocco dall'estrattore, cioè finché una
+// divergenza a schermo poteva solo essere colpa nostra. La misura sul corpus
+// reale ha trovato l'altro caso — la fonte scrive i cinque voti giusti e
+// sbaglia la propria somma — e quei giocatori arrivavano a schermo con cinque
+// «n/d». Decisione di Pico: «mostra i voti e rifai tu la somma».
+//
+// La pretesa nuova è più stretta di una versione allentata: dice che c'è la
+// NOSTRA somma, che il numero della fonte NON compare, e che nessuna accusa
+// viene mossa. La classe di stato resta — il contratto continua a chiamare
+// `divergente` questo caso, e `totaleFonte` resta nel dato.
+test("divergente — a schermo vale la nostra somma, e non c'è nessuna accusa", async ({
   page,
   context,
 }) => {
@@ -165,8 +178,8 @@ test("divergente — la somma e il totale della fonte NON coincidono, e restano 
 
   const totale = page.locator("#player-insight-pagella-totale");
   await expect(totale).toContainText("39/50");
-  await expect(totale).toContainText("41/50");
-  await expect(totale).toContainText("letto male");
+  await expect(totale).not.toContainText("41/50");
+  await expect(totale).not.toContainText("letto male");
   await expect(totale).toHaveClass(/pagella__totale--divergente/);
 
   expect(external).toEqual([]);

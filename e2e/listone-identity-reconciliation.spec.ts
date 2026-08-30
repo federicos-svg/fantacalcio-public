@@ -35,6 +35,14 @@
 //
 // Every row here is synthetic (see fixtures/synthetic-listone.ts) and the
 // network guard refuses anything but the intercepted paths.
+// LE NOTE SOTTO LA TABELLA DEL LISTONE NON SONO PIÙ A SCHERMO — «nascondi i
+// blocchi nello screenshot», Pico, 2026-08-29. Restano SCRITTE nel documento,
+// quindi ogni pretesa sul loro CONTENUTO vale ancora parola per parola: dove
+// c'era `toBeVisible()` ora c'è `toBeHidden()`, e le righe che provano la
+// provenienza del dato non si toccano. La provenienza non si perde nemmeno
+// per chi naviga a voce: la porta l'`aria-label` del pannello del listone
+// (src/ui/views.ts), come Pico ha deciso per la provenienza della fascia.
+
 import { expect, test } from "@playwright/test";
 import type { ListonePlayer } from "../src/ui/listone.js";
 import { listonePlayerKey } from "../src/ui/listone.js";
@@ -45,6 +53,8 @@ import {
   readLocalStorageJson,
   selectStatusFilter,
   LISTONE_REMOTE_PATH,
+  apriCaricamentoManuale,
+  premiNelCaricamentoManuale,
 } from "./helpers.js";
 
 const LOG_STORAGE_KEY = "fac_log";
@@ -185,7 +195,9 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
     // the table names the deposit as the source that actually won.
     await expect(page.getByText(RENAMED_BYSTANDER.name, { exact: true })).toBeVisible();
     await expect(page.getByText(BYSTANDER_PLAYER.name, { exact: true })).toHaveCount(0);
-    await expect(page.getByText(/Listone aggiornato automaticamente dal deposito privato/)).toBeVisible();
+    const provenienza = page.getByText(/Listone aggiornato automaticamente dal deposito privato/);
+    await expect(provenienza).toHaveCount(1);
+    await expect(provenienza).toBeHidden();
 
     // Not refused, and nothing else was announced either: no refusal, no
     // orphan clause, no spurious disarm — the notice surface is absent
@@ -315,9 +327,12 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
 
     // The explicit way out the notice names: it empties the pool, so there is
     // nothing left to orphan and the incoming listone applies.
-    await page.getByRole("button", { name: /Caricamento manuale/ }).click();
-    // `exact` because the notice above names this very affordance.
-    await page.getByText("✕ dimentica il listone salvato", { exact: true }).click();
+    await apriCaricamentoManuale(page);
+    // `exact` because the notice above names this very affordance. Il clic è
+    // programmatico perché il comando vive dentro il blocco nascosto (vedi
+    // `apriCaricamentoManuale`): quel che questa prova misura è la via d'uscita
+    // che l'avviso NOMINA, non la sua raggiungibilità col dito.
+    await premiNelCaricamentoManuale(page, "✕ dimentica il listone salvato");
 
     await expect(page.getByText(RENAMED_TARGET.name, { exact: true })).toBeVisible();
     // ...and the consequence is stated instead of being discovered later: the
@@ -390,7 +405,7 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
     await page.getByText(E2E_TARGET_PLAYER.name, { exact: true }).click();
     await expect(page.getByRole("button", { name: /^Avvia/ })).toBeEnabled();
 
-    await page.getByRole("button", { name: /Caricamento manuale/ }).click();
+    await apriCaricamentoManuale(page);
     await page.getByText("Carica listone (JSON locale)").locator("input[type=file]").setInputFiles({
       name: "malformed.json",
       mimeType: "application/json",

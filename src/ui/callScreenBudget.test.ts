@@ -50,18 +50,23 @@ const block = (domId: string, consumptionPx: number): MeasuredCallScreenBlock =>
 
 /**
  * Lo stato `ricerca` come è misurato oggi su main: tutto dentro le allocazioni.
- * Misura del 2026-08-25 su `4b2833d` — vedi CALL_SCREEN_BUDGET_MEASURED_ON.
+ * Misura del 2026-08-29 su `519d694` — vedi CALL_SCREEN_BUDGET_MEASURED_ON.
+ *
+ * DUE VALORI QUI DENTRO SONO LA FIRMA DELLA BARRA FISSA, e vanno letti insieme:
+ * `call-search-row` consuma 0 perché è `position: fixed` e non occupa altezza
+ * verticale, e `call-screen-eyebrow` consuma 18 perché lo span comincia dal SUO
+ * bordo superiore. Erano 151,5 e 0 fino al 2026-08-29.
  */
 const healthySweep = (over: Partial<CallScreenSweep> = {}): CallScreenSweep => ({
   state: "ricerca",
-  spanPx: 1654,
+  spanPx: 1572.5,
   blocks: [
-    block("call-screen-eyebrow", 0),
-    block("call-search-row", 151.5),
-    block("call-search-hint", 59.75),
+    block("call-screen-eyebrow", 18),
+    block("call-search-row", 0),
+    block("call-search-hint", 65.75),
     block("call-interaction-count", 17.25),
-    block("suggested-player", 286.5),
-    block("listone-block", 1139),
+    block("suggested-player", 300.5),
+    block("listone-block", 1171),
   ],
   listone: { rowCount: LISTONE_PAGE_SIZE, rowHeightPx: 92.5, headPx: 233, tailPx: 13 },
   ...over,
@@ -90,14 +95,19 @@ describe("l'identità aritmetica del mastro", () => {
   it("la somma è quella delle righe dichiarate, non un numero scritto a mano", () => {
     const sum = CALL_SCREEN_BUDGET_LEDGER.reduce((t, r) => t + r.allocationPx, 0);
     expect(CALL_SCREEN_ALLOCATED_PX).toBe(sum);
-    expect(sum).toBe(2788);
+    expect(sum).toBe(2674);
   });
 
   // Il numero che il mastro esiste per far vedere. Pinnato: se qualcuno alza
   // una riga senza restituire niente, questo test cambia valore e il diff lo
   // mostra in un file tracciato — che è l'allarme che oggi manca del tutto.
+  // ⚠️ RISALITA DA −1100 A −986 IL 2026-08-29, E NON PERCHÉ QUALCUNO ABBIA
+  // RESTITUITO SPAZIO: la riga di ricerca è uscita dal flusso e i suoi 152 px
+  // sono passati a `--assign-bar-h`, che questo mastro non contabilizza. Il
+  // test pinna il numero nuovo perché il diff mostri il movimento; la ragione
+  // per cui non è un miglioramento sta in BARRA_FISSA_FUORI_DAL_TOTALE.
   it("la riserva è oggi NEGATIVA: il totale è già sfondato dai blocchi che ci sono", () => {
-    expect(CALL_SCREEN_BUDGET_RESERVE_PX).toBe(-1100);
+    expect(CALL_SCREEN_BUDGET_RESERVE_PX).toBe(-986);
     expect(CALL_SCREEN_BUDGET_RESERVE_PX).toBeLessThan(0);
   });
 
@@ -105,8 +115,8 @@ describe("l'identità aritmetica del mastro", () => {
     // «chi chiamare per me» — la prima metà di GIOCATORE SUGGERITO, già in
     // lavorazione — non arriva in uno spazio vuoto: arriva dovendo restituire
     // la propria altezza PIÙ il rosso della riserva.
-    expect(callScreenNewBlockCostPx(0)).toBe(1100);
-    expect(callScreenNewBlockCostPx(120)).toBe(1220);
+    expect(callScreenNewBlockCostPx(0)).toBe(986);
+    expect(callScreenNewBlockCostPx(120)).toBe(1106);
   });
 });
 
@@ -184,17 +194,18 @@ describe("gli stati che oggi sfondano il totale, pinnati e non approvati", () =>
     }
   });
 
-  it("lo stato peggiore è il contesto aperto con la ricerca svuotata, al 163% del totale", () => {
-    // I due numeri scendono di 151 dal 2026-08-29: INSIGHT GIOCATORE non sta
-    // più in questa schermata (Pico l'ha messo dentro la scheda del chiamato,
-    // nel momento d'asta), quindi il mastro non lo alloca più. Il debito non è
-    // stato ripagato — è stato spostato, e dove è andato lo dice
-    // SCHEDA_ESPERTO_CON_DEPOSITO_NON_DICHIARATA.
+  it("lo stato peggiore è il contesto aperto con la ricerca svuotata, al 158% del totale", () => {
+    // I due numeri sono scesi due volte, e nessuna delle due è una
+    // riparazione: −151 il 2026-08-29 mattina (INSIGHT GIOCATORE se n'è andato
+    // nella scheda del chiamato, vedi SCHEDA_ESPERTO_CON_DEPOSITO_NON_DICHIARATA)
+    // e −113 la sera (la riga di ricerca è uscita dal flusso e il suo costo è
+    // passato a `--assign-bar-h`, vedi BARRA_FISSA_FUORI_DAL_TOTALE). Il debito
+    // è stato spostato due volte, mai ripagato.
     const worst = CALL_SCREEN_OVER_BUDGET_STATES.find(
       (s) => s.state === "contesto-aperto-ricerca-vuota",
     );
-    expect(worst?.spanPx).toBe(2782);
-    expect(worst?.overBudgetPx).toBe(1094);
+    expect(worst?.spanPx).toBe(2669);
+    expect(worst?.overBudgetPx).toBe(981);
     // La somma delle allocazioni È quello stato: il mastro non inventa un
     // tetto, descrive il peggio che la schermata raggiunge oggi.
     expect(CALL_SCREEN_ALLOCATED_PX - worst!.spanPx).toBeLessThanOrEqual(
@@ -216,7 +227,14 @@ describe("le scelte che restano tali", () => {
       "RISERVA_NEGATIVA_SENZA_PROPRIETARIO",
       "SCHEDA_ESPERTO_CON_DEPOSITO_NON_DICHIARATA",
       "MISURE_LEGATE_AL_RENDERING_PINNATO",
-      "PROVA_1_MARGINE_ESAURITO",
+      // La barra fissa del 2026-08-29: il totale non contabilizza più i suoi
+      // 152 px, che vivono adesso in un budget senza guardie.
+      "BARRA_FISSA_FUORI_DAL_TOTALE",
+      // Era PROVA_1_MARGINE_ESAURITO fino al 2026-08-29, e diceva il contrario:
+      // il margine è risalito da 2 a 115 px, ma per un trasloco e non per una
+      // riparazione. Un identificativo che dice «esaurito» su un margine di 115
+      // px sarebbe una voce che mente.
+      "PROVA_1_MARGINE_RIAPERTO_SENZA_RIPAGARE",
     ];
     // Stesso patto di UNRATIFIED_CHOICES nel motore: l'elenco del tipo e
     // l'elenco del dato non possono divergere, e nessuna voce può essere muta.
@@ -246,7 +264,7 @@ describe("la spazzata che attribuisce", () => {
   it("una riga di testo in più a un blocco esistente lo nomina, e nomina solo lui", () => {
     const findings = callScreenBudgetFindings(
       healthySweep({
-        spanPx: 1654 + 17.25,
+        spanPx: 1572.5 + 17.25,
         blocks: healthySweep().blocks.map((b) =>
           b.domId === "suggested-player" ? block(b.domId, b.consumptionPx + 17.25) : b,
         ),
@@ -256,8 +274,8 @@ describe("la spazzata che attribuisce", () => {
     expect(findings[0]).toMatchObject({
       kind: "oltre-allocazione",
       id: "giocatore-suggerito",
-      consumptionPx: 304,
-      allocationPx: 287,
+      consumptionPx: 318,
+      allocationPx: 301,
       overflowPx: 17,
     });
     expect(describeCallScreenBudgetFinding(findings[0]!)).toContain("giocatore-suggerito");
@@ -283,7 +301,7 @@ describe("la spazzata che attribuisce", () => {
     const line = describeCallScreenBudgetFinding(findings[0]!);
     expect(line).toContain("blocco-finto");
     expect(line).toContain("40px");
-    expect(line).toContain("-1100px");
+    expect(line).toContain("-986px");
   });
 
   it("un blocco senza id non scappa: viene nominato per forma", () => {
@@ -304,7 +322,7 @@ describe("la spazzata che attribuisce", () => {
   // arriva lo stesso, perché la forma non è più quella dichiarata.
   it("una riga in meno nel listone rompe l'uguaglianza derivata, non un tetto", () => {
     const sweep = healthySweep({
-      spanPx: 1654 - 92.5,
+      spanPx: 1572.5 - 92.5,
       blocks: healthySweep().blocks.map((b) =>
         b.domId === "listone-block" ? block(b.domId, b.consumptionPx - 92.5) : b,
       ),
@@ -319,7 +337,7 @@ describe("la spazzata che attribuisce", () => {
       declared: LISTONE_PAGE_SIZE,
     });
     // E il consumo, da solo, sarebbe passato: è la prova che il `<=` non basta.
-    expect(1139 - 92.5).toBeLessThan(LISTONE_ALLOCATION_PX);
+    expect(1171 - 92.5).toBeLessThan(LISTONE_ALLOCATION_PX);
   });
 
   it("una colonna in più che manda a capo nomina IL LISTONE, non l'ultimo blocco arrivato", () => {
@@ -327,7 +345,7 @@ describe("la spazzata che attribuisce", () => {
       healthySweep({
         listone: { rowCount: LISTONE_PAGE_SIZE, rowHeightPx: 112.5, headPx: 233, tailPx: 13 },
         blocks: healthySweep().blocks.map((b) =>
-          b.domId === "listone-block" ? block(b.domId, 1339) : b,
+          b.domId === "listone-block" ? block(b.domId, 1351) : b,
         ),
       }),
     );
@@ -369,18 +387,18 @@ describe("la spazzata che attribuisce", () => {
     // dieci righe qui sarebbe falsa, e una guardia falsa la disattiva qualcuno.
     const sweep: CallScreenSweep = {
       state: "riga-selezionata",
-      spanPx: 955.75,
+      spanPx: 874.25,
       blocks: [
-        block("call-screen-eyebrow", 0),
-        block("call-search-row", 151.5),
-        block("call-search-hint", 42.5),
+        block("call-screen-eyebrow", 18),
+        block("call-search-row", 0),
+        block("call-search-hint", 48.5),
         block("call-interaction-count", 17.25),
         block("nomination-context", 151.5),
         // Il riquadro INSIGHT GIOCATORE è obbligatorio in ogni stato con una
         // riga selezionata dal 2026-08-26: senza di lui la spazzata sarebbe
         // rossa per «riga-senza-blocco», ed è la guardia che lo pretende.
-        block("suggested-player", 286.5),
-        block("listone-block", 306.5),
+        block("suggested-player", 300.5),
+        block("listone-block", 338.5),
       ],
       listone: { rowCount: 1, rowHeightPx: 92.5, headPx: 233, tailPx: 13 },
     };
@@ -390,15 +408,15 @@ describe("la spazzata che attribuisce", () => {
   it("il contesto aperto sta esattamente sulla propria allocazione: un pixel in più è rosso", () => {
     const open = (consumption: number): CallScreenSweep => ({
       state: "contesto-aperto",
-      spanPx: 1900.5,
+      spanPx: 1819,
       blocks: [
-        block("call-screen-eyebrow", 0),
-        block("call-search-row", 151.5),
-        block("call-search-hint", 42.5),
+        block("call-screen-eyebrow", 18),
+        block("call-search-row", 0),
+        block("call-search-hint", 48.5),
         block("call-interaction-count", 17.25),
         block("nomination-context", consumption),
-        block("suggested-player", 286.5),
-        block("listone-block", 306.5),
+        block("suggested-player", 300.5),
+        block("listone-block", 338.5),
       ],
       listone: { rowCount: 1, rowHeightPx: 92.5, headPx: 233, tailPx: 13 },
     });
@@ -424,12 +442,12 @@ describe("il messaggio che oggi manca alla guardia totale", () => {
     );
     expect(msg).toContain("lo span è 1700px su 1688px");
     expect(msg).toContain("giocatore-suggerito");
-    expect(msg).toContain("+53px");
+    expect(msg).toContain("+39px");
   });
 
   it("quando nessun blocco sfora lo dice, invece di tacere", () => {
     const msg = callScreenBudgetAttribution(healthySweep(), CALL_SCREEN_BUDGET_VIEWPORT.height);
-    expect(msg).toContain("lo span è 1654px su 1688px");
+    expect(msg).toContain("lo span è 1573px su 1688px");
     expect(msg).toContain("nessun blocco è oltre la propria allocazione");
   });
 
@@ -446,9 +464,9 @@ describe("il messaggio che oggi manca alla guardia totale", () => {
       }),
       CALL_SCREEN_BUDGET_VIEWPORT.height,
     );
-    // +113px contro +40px: il messaggio nomina UNO, e nomina il peggiore.
+    // +99px contro +34px: il messaggio nomina UNO, e nomina il peggiore.
     expect(msg).toContain("giocatore-suggerito");
-    expect(msg).toContain("+113px");
+    expect(msg).toContain("+99px");
     expect(msg).not.toContain("esito-ricerca");
   });
 });

@@ -34,6 +34,23 @@
 // ZERO RETE ESTERNA in ogni caso: `installSyntheticNetworkGuard` aborta e
 // registra qualunque richiesta fuori dall'origine, e ogni test asserisce che
 // la lista sia vuota.
+// LE NOTE SOTTO LA TABELLA DEL LISTONE NON SONO PIÙ A SCHERMO — «nascondi i
+// blocchi nello screenshot», Pico, 2026-08-29. Restano SCRITTE nel documento,
+// quindi ogni pretesa sul loro CONTENUTO vale ancora parola per parola: dove
+// c'era `toBeVisible()` ora c'è `toBeHidden()`, e le righe che provano la
+// provenienza del dato non si toccano. La provenienza non si perde nemmeno
+// per chi naviga a voce: la porta l'`aria-label` del pannello del listone
+// (src/ui/views.ts), come Pico ha deciso per la provenienza della fascia.
+
+// ⚠️ `toBeHidden()` DA SOLO NON PROVA NIENTE, e questa nota esiste perché ci
+// sono cascato: in Playwright un locator che non trova NESSUN elemento è
+// «hidden», quindi un `toBeHidden()` senza un controllo di esistenza accanto
+// resta verde anche il giorno in cui la nota sparisce dal documento invece di
+// essere solo nascosta. Cinque asserzioni di questi file erano così, e la
+// differenza conta: la nota di fallback dichiara che il listone a schermo NON
+// è il deposito privato, e una prova che non si accorge della sua scomparsa è
+// una rete con un buco esattamente dove serve. `toHaveCount(1)` accanto è la
+// riga che la rende una prova.
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import {
   SYNTHETIC_LISTONE_POOL,
@@ -103,7 +120,8 @@ async function expectStaticPoolStatedHonestly(page: Page): Promise<void> {
   for (const player of SYNTHETIC_LISTONE_POOL) {
     await expect(page.getByText(player.name, { exact: true })).toBeVisible();
   }
-  await expect(page.getByText(FALLBACK_NOTE)).toBeVisible();
+  await expect(page.getByText(FALLBACK_NOTE)).toHaveCount(1);
+  await expect(page.getByText(FALLBACK_NOTE)).toBeHidden();
   // E soprattutto: NON dichiara una freschezza che non ha.
   await expect(page.getByText(REMOTE_NOTE)).toHaveCount(0);
   await expect(page.getByText("Nessun listone caricato al momento.")).toHaveCount(0);

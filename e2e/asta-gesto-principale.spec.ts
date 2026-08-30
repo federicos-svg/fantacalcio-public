@@ -626,3 +626,86 @@ test("il gesto funziona da dove sta: un acquisto si registra senza scorrere", as
 
   expect(externalRequests).toEqual([]);
 });
+
+// ── LO SPAZIO IN CODA ALLA PAGINA SEGUE LA BARRA ────────────────────────────
+//
+// Le due barre fisse coprono il fondo dello schermo, e la pagina restituisce
+// quello spazio in coda con `--assign-bar-h`. Era un numero scritto a mano —
+// 132px — e una lente di review l'ha misurato il 2026-08-29: a 390px la barra
+// del gesto è alta 418, e l'ultimo pannello della schermata finiva SOTTO di
+// lei, irraggiungibile scorrendo perché la pagina finiva prima. Non era un
+// rischio: era un pezzo di prodotto che non si poteva leggere.
+//
+// Adesso la misura la scrive la barra (`misuraLaBarraFissa`, src/main.ts), e
+// questa spec è ciò che impedisce a quel numero di tornare fisso: pretende
+// l'UGUAGLIANZA fra l'altezza vera e lo spazio riservato, non una soglia —
+// una soglia lascerebbe passare di nuovo un valore «abbastanza grande», che è
+// esattamente com'era.
+test("la coda della pagina è alta quanto la barra fissa, a ogni larghezza", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, LARGE_POOL, externalRequests);
+
+  for (const width of [390, 768, 1280, 1920]) {
+    await boot(page, { width, height: 844 });
+
+    const ricerca = await page.evaluate(() => {
+      const bar = document.getElementById("call-search-row");
+      const shell = document.querySelector(".app-shell");
+      if (bar === null || shell === null) return null;
+      return {
+        barra: Math.ceil(bar.getBoundingClientRect().height),
+        coda: Math.round(Number.parseFloat(getComputedStyle(shell).paddingBottom)),
+      };
+    });
+    expect(ricerca, `${width}px: barra o guscio assenti`).not.toBeNull();
+    expect(ricerca!.coda, `${width}px: la coda non segue la riga di ricerca`).toBe(ricerca!.barra);
+  }
+
+  // E sulla schermata d'asta, dove la barra è la più alta delle due: l'ultimo
+  // contenuto della pagina deve restare SOPRA il bordo alto della barra.
+  await boot(page, { width: 390, height: 844 });
+  await callPlayer(page);
+
+  // IL PANNELLO VERO, NON IL BORDO DEL GUSCIO. Una lente di review ha fatto
+  // notare che misurare il fondo di `.screen-container` contro la barra è
+  // algebricamente `barra - coda`, cioè la stessa uguaglianza di sopra scritta
+  // due volte: verde per costruzione, non per verifica. Qui si misura il
+  // PANNELLO PIÙ IN BASSO che si vede davvero — quello che nel difetto
+  // originale finiva 193px sotto la barra — e la misura è indipendente.
+  const asta = await page.evaluate(() => {
+    const bar = document.getElementById("assign-block");
+    const shell = document.querySelector(".app-shell");
+    if (bar === null || shell === null) return null;
+    window.scrollTo(0, document.body.scrollHeight);
+    const bordoBarra = bar.getBoundingClientRect().top;
+    let piuInBasso: number | null = null;
+    let chi: string | null = null;
+    for (const el of shell.querySelectorAll<HTMLElement>(".panel, .panel--bordered")) {
+      if (bar.contains(el)) continue;
+      const r = el.getBoundingClientRect();
+      if (r.height === 0) continue;
+      if (piuInBasso === null || r.bottom > piuInBasso) {
+        piuInBasso = r.bottom;
+        chi = el.id === "" ? (el.className || "senza nome") : el.id;
+      }
+    }
+    return {
+      barra: Math.ceil(bar.getBoundingClientRect().height),
+      coda: Math.round(Number.parseFloat(getComputedStyle(shell).paddingBottom)),
+      chi,
+      sottoLaBarra: piuInBasso === null ? null : Math.round(piuInBasso - bordoBarra),
+    };
+  });
+  expect(asta).not.toBeNull();
+  expect(asta!.coda, "la coda non segue la barra del gesto").toBe(asta!.barra);
+  expect(asta!.chi, "nessun pannello misurabile nella schermata d'asta").not.toBeNull();
+  expect(
+    asta!.sottoLaBarra,
+    `il pannello più in basso («${asta!.chi}») finisce ${asta!.sottoLaBarra}px sotto il bordo della barra: da lì non si legge`,
+  ).toBeLessThanOrEqual(0);
+
+  expect(externalRequests).toEqual([]);
+});

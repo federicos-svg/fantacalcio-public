@@ -4,6 +4,7 @@
 // because the duplication across those specs was real, not speculative.
 import { type BrowserContext, type Page, expect } from "@playwright/test";
 import { LISTONE_PAGE_SIZE } from "../src/ui/listone.js";
+import { CALL_SCREEN_SPAN_START_SELECTOR } from "../src/ui/callScreenBudget.js";
 import type { CallScreenState, CallScreenSweep } from "../src/ui/callScreenBudget.js";
 
 export const LISTONE_ASSET_PATH = "/data/listone_2025_26.json";
@@ -801,67 +802,180 @@ export async function waitForCallScreenSettled(page: Page): Promise<void> {
  *
  * LA PIASTRELLATURA È ESATTA. Ogni blocco copre da dove finisce il precedente
  * a dove finisce lui, ritagliato sullo span dichiarato (dal bordo superiore
- * del campo di ricerca a quello dell'indicatore di pagina). Quindi la somma
- * dei consumi È lo span, e i margini fra due blocchi non spariscono nel nulla:
- * li paga il blocco sotto, che è quello che li ha chiesti.
+ * del blocco che `CALL_SCREEN_SPAN_START_SELECTOR` nomina a quello
+ * dell'indicatore di pagina). Quindi la somma dei consumi È lo span, e i
+ * margini fra due blocchi non spariscono nel nulla: li paga il blocco sotto,
+ * che è quello che li ha chiesti.
+ *
+ * DUE REGOLE, E NESSUNA DELLE DUE È SCRITTA QUI DENTRO A MANO. L'inizio dello
+ * span è quello che il mastro dichiara (src/ui/callScreenBudget.ts), e un
+ * figlio FUORI DAL FLUSSO consuma 0 e non fa avanzare il cursore — un
+ * elemento `fixed`/`absolute` non occupa altezza verticale, quindi non c'è
+ * span da attribuirgli, e contarlo faceva sparire dalla piastrellatura il
+ * blocco subito dopo di lui. La dimostrazione, in numeri, sta nel ciclo.
  */
 export async function sweepCallScreen(
   page: Page,
   state: CallScreenState,
 ): Promise<CallScreenSweep> {
-  return page.evaluate((st) => {
-    const docTop = (el: Element): number => el.getBoundingClientRect().top + window.scrollY;
-    const docBottom = (el: Element): number => el.getBoundingClientRect().bottom + window.scrollY;
-
-    const column = document.getElementById("call-screen-column");
-    if (column === null) throw new Error("mastro: #call-screen-column non è a schermo");
-
-    // Deliberatamente NON un throw quando il campo di ricerca manca: una
-    // schermata svuotata deve arrivare alla spazzata e rompere l'ANTI-VACUITÀ
-    // con il suo nome, non morire prima con un errore d'infrastruttura che
-    // somiglia a un problema del test. Che il campo debba stare sopra la
-    // piega lo prova già e2e/call-screen-order.spec.ts.
-    const search = document.getElementById("search-player");
-    const indicator = Array.from(document.querySelectorAll("span")).find((s) =>
-      /^Pagina \d+ di \d+$/.test(s.textContent ?? ""),
-    );
-
-    const spanStart = search === null ? docTop(column) : docTop(search);
-    // Senza paginazione (listone non caricabile) lo span finisce dove finisce
-    // la colonna: non c'è un controllo di pagina da raggiungere.
-    const spanEnd = indicator === undefined ? docBottom(column) : docTop(indicator);
-
-    const children = Array.from(column.children);
-    const blocks = [];
-    let cursor = docTop(column);
-    for (const el of children) {
-      const bottom = docBottom(el);
-      const cls = typeof el.className === "string" ? el.className.trim() : "";
-      blocks.push({
-        domId: el.id,
-        description: `${el.tagName.toLowerCase()}${cls === "" ? "" : `.${cls.split(/\s+/).join(".")}`}`,
-        consumptionPx: Math.max(0, Math.min(spanEnd, bottom) - Math.max(spanStart, cursor)),
-      });
-      cursor = bottom;
-    }
-
-    const rows = Array.from(document.querySelectorAll(".listone-row"));
-    const listoneBlock = document.getElementById("listone-block");
-    let listone = null;
-    if (rows.length > 0 && listoneBlock !== null) {
-      const index = children.indexOf(listoneBlock);
-      const listoneStart = index > 0 ? docBottom(children[index - 1]!) : docTop(listoneBlock);
-      const last = rows[rows.length - 1]!;
-      listone = {
-        rowCount: rows.length,
-        // Il MASSIMO, non la prima: una riga sola che va a capo perché il suo
-        // club è più lungo degli altri deve bastare a rompere la forma.
-        rowHeightPx: Math.max(...rows.map((r) => r.getBoundingClientRect().height)),
-        headPx: docTop(rows[0]!) - listoneStart,
-        tailPx: spanEnd - docBottom(last),
+  return page.evaluate(
+    ({ st, startSelector }) => {
+      const docTop = (el: Element): number => el.getBoundingClientRect().top + window.scrollY;
+      const docBottom = (el: Element): number => el.getBoundingClientRect().bottom + window.scrollY;
+      const outOfFlow = (el: Element): boolean => {
+        const position = getComputedStyle(el).position;
+        return position === "fixed" || position === "absolute";
       };
-    }
 
-    return { state: st, spanPx: spanEnd - spanStart, blocks, listone };
-  }, state);
+      const column = document.getElementById("call-screen-column");
+      if (column === null) throw new Error("mastro: #call-screen-column non è a schermo");
+
+      // DA DOVE COMINCIA LO SPAN NON È PIÙ SCRITTO QUI. Fino al 2026-08-29
+      // questa riga cercava `#search-player` a mano mentre il mastro
+      // DICHIARAVA l'inizio dello span in `CALL_SCREEN_SPAN_START_SELECTOR`
+      // (src/ui/callScreenBudget.ts): la costante non aveva un solo lettore in
+      // tutto il repository, quindi il confine dichiarato e il confine
+      // misurato potevano divergere senza che niente diventasse rosso — ed è
+      // esattamente quello che è successo quando il campo di ricerca è uscito
+      // dal flusso. Adesso il selettore arriva dal mastro, che resta l'unico
+      // posto in cui quel confine è scritto.
+      //
+      // Deliberatamente NON un throw quando il blocco d'inizio manca: una
+      // schermata svuotata deve arrivare alla spazzata e rompere
+      // l'ANTI-VACUITÀ con il suo nome, non morire prima con un errore
+      // d'infrastruttura che somiglia a un problema del test. Che il campo
+      // debba stare sopra la piega lo prova già e2e/call-screen-order.spec.ts.
+      const start = document.querySelector(startSelector);
+      const indicator = Array.from(document.querySelectorAll("span")).find((s) =>
+        /^Pagina \d+ di \d+$/.test(s.textContent ?? ""),
+      );
+
+      const spanStart = start === null ? docTop(column) : docTop(start);
+      // Senza paginazione (listone non caricabile) lo span finisce dove finisce
+      // la colonna: non c'è un controllo di pagina da raggiungere.
+      const spanEnd = indicator === undefined ? docBottom(column) : docTop(indicator);
+
+      const children = Array.from(column.children);
+      const blocks = [];
+      let cursor = docTop(column);
+      for (const el of children) {
+        // UN FIGLIO FUORI DAL FLUSSO CONSUMA 0 E NON FA AVANZARE IL CURSORE.
+        //
+        // Perché, e non è una comodità: `position: fixed` (o `absolute`) toglie
+        // l'elemento dal flusso, quindi NON occupa altezza verticale — i
+        // fratelli sotto di lui salgono a prendersi il suo posto. Il suo
+        // rettangolo però continua a esistere, e per una barra fissata in
+        // fondo alla finestra sta CENTINAIA di pixel più in basso dei fratelli
+        // che nel documento lo seguono.
+        //
+        // Contarlo faceva due danni insieme, misurati il 2026-08-29 con
+        // `#call-search-row` fissato in fondo (Pico, vedi asta.css): la barra
+        // si prendeva 652 px di span che non consuma, e il cursore finiva a
+        // 844 px, cioè SOTTO il blocco successivo — che risultava consumare 0
+        // e spariva dalla piastrellatura, mentre la regione sotto di lui
+        // veniva contata due volte. Somma dei consumi 2158,75 contro uno span
+        // di 1572,5: la piastrellatura non era più esatta, e un'identità che
+        // non torna non attribuisce più niente a nessuno.
+        const skipped = outOfFlow(el);
+        const bottom = docBottom(el);
+        const cls = typeof el.className === "string" ? el.className.trim() : "";
+        blocks.push({
+          domId: el.id,
+          description: `${el.tagName.toLowerCase()}${cls === "" ? "" : `.${cls.split(/\s+/).join(".")}`}`,
+          consumptionPx: skipped
+            ? 0
+            : Math.max(0, Math.min(spanEnd, bottom) - Math.max(spanStart, cursor)),
+        });
+        if (!skipped) cursor = bottom;
+      }
+
+      const rows = Array.from(document.querySelectorAll(".listone-row"));
+      const listoneBlock = document.getElementById("listone-block");
+      let listone = null;
+      if (rows.length > 0 && listoneBlock !== null) {
+        const index = children.indexOf(listoneBlock);
+        // Il vicino di sopra è il precedente IN FLUSSO, per la stessa ragione
+        // del ciclo: un fratello fuori dal flusso non è il bordo da cui la
+        // testata del listone comincia, e prenderlo darebbe una testata
+        // misurata da un rettangolo che sta da un'altra parte.
+        let previous: Element | null = null;
+        for (let i = index - 1; i >= 0; i -= 1) {
+          const candidate = children[i]!;
+          if (!outOfFlow(candidate)) {
+            previous = candidate;
+            break;
+          }
+        }
+        const listoneStart = previous === null ? docTop(listoneBlock) : docBottom(previous);
+        const last = rows[rows.length - 1]!;
+        listone = {
+          rowCount: rows.length,
+          // Il MASSIMO, non la prima: una riga sola che va a capo perché il suo
+          // club è più lungo degli altri deve bastare a rompere la forma.
+          rowHeightPx: Math.max(...rows.map((r) => r.getBoundingClientRect().height)),
+          headPx: docTop(rows[0]!) - listoneStart,
+          tailPx: spanEnd - docBottom(last),
+        };
+      }
+
+      return { state: st, spanPx: spanEnd - spanStart, blocks, listone };
+    },
+    { st: state, startSelector: CALL_SCREEN_SPAN_START_SELECTOR },
+  );
+}
+
+/**
+ * APRE IL CARICAMENTO MANUALE, che dal 2026-08-29 non è più a schermo.
+ *
+ * «Nascondi anche quello» — Pico, sullo stesso screenshot delle quattro note
+ * sotto la tabella. Il comando resta COSTRUITO e funzionante: quel che sparisce
+ * è la via per raggiungerlo col dito. Quattro suite lo usano per caricare un
+ * listone a mano e provare quel che succede dopo — un file malformato, una
+ * scrittura che non tiene, due righe proxy ambigue — e quelle prove non
+ * parlano del bottone: parlano di che cosa fa l'app col file.
+ *
+ * Perciò il clic diventa PROGRAMMATICO. Non è un modo di aggirare la
+ * nascondibilità per far passare un test: è la sola forma in cui quelle prove
+ * possono continuare a esistere, e la riga che le precede — il blocco DEVE
+ * essere nascosto — è ciò che impedisce a questo helper di diventare il modo
+ * in cui il comando torna a schermo senza che nessuno se ne accorga.
+ */
+export async function apriCaricamentoManuale(page: Page): Promise<void> {
+  const blocco = page.locator("#listone-manual-override");
+  await expect(blocco).toHaveCount(1);
+  await expect(blocco, "il caricamento manuale è tornato a schermo").toBeHidden();
+  await page.evaluate(() => {
+    const bottone = document
+      .getElementById("listone-manual-override")
+      ?.querySelector("button");
+    if (bottone === null || bottone === undefined) throw new Error("CARICAMENTO_MANUALE_ASSENTE");
+    bottone.click();
+  });
+}
+
+/**
+ * Preme un comando DENTRO il caricamento manuale, che è nascosto: stessa
+ * ragione e stessi limiti di `apriCaricamentoManuale` qui sopra. Il testo si
+ * confronta per intero e non per sottostringa, perché dentro quel blocco
+ * convivono più comandi e prendere il primo che «contiene» sarebbe un test che
+ * preme un bottone diverso da quello che dichiara.
+ */
+export async function premiNelCaricamentoManuale(page: Page, testo: string): Promise<void> {
+  await page.evaluate((atteso) => {
+    const blocco = document.getElementById("listone-manual-override");
+    if (blocco === null) throw new Error("CARICAMENTO_MANUALE_ASSENTE");
+    // `button` e `span` insieme: dentro questo blocco un comando è un bottone
+    // e l'altro è uno span con un gestore di clic. Cercarne uno solo dei due
+    // farebbe fallire questa funzione con «non trovato» su un comando che
+    // esiste — e la differenza fra i due non è una proprietà che questa prova
+    // debba conoscere.
+    const bottoni = [...blocco.querySelectorAll<HTMLElement>("button, span")];
+    const trovato = bottoni.find((b) => (b.textContent ?? "").trim() === atteso);
+    if (trovato === undefined) {
+      throw new Error(
+        `COMANDO_NON_TROVATO: "${atteso}" fra [${bottoni.map((b) => (b.textContent ?? "").trim()).join(" | ")}]`,
+      );
+    }
+    trovato.click();
+  }, testo);
 }

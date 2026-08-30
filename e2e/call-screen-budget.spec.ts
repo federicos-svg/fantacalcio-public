@@ -65,6 +65,15 @@ import {
 // perché qualcosa si sia rotto. In quel caso si rimisura e si aggiornano i
 // numeri in src/ui/callScreenBudget.ts (con la data), non si allentano le
 // asserzioni.
+//
+// È SUCCESSO IL 2026-08-29, e non era una riparazione. «Metti #call-search-row
+// in position fixed con lo stesso stile di #assign-block» (Pico) ha tolto la
+// riga di ricerca dal flusso: i quattro span pinnati qui sotto sono scesi di
+// 113-114 px e il margine della PROVA 1 è risalito da 1 a 81. Nessuna
+// asserzione è stata allentata — i pin sono stati RIMISURATI e riscritti alla
+// lettera, e la PROVA 1 rovesciata con la ragione accanto. I 152 px non sono
+// stati restituiti: sono passati a `--assign-bar-h`, un budget che questo
+// mastro non contabilizza (BARRA_FISSA_FUORI_DAL_TOTALE).
 
 const ROLES = ["P", "D", "C", "A"] as const;
 
@@ -350,31 +359,46 @@ test("PROVA 1 — una riga di testo in più a un blocco esistente: rosso il mast
   await boot(page);
 
   // QUANTO ALTA DEV'ESSERE L'AGGIUNTA, E PERCHÉ È SCRITTA COSÌ. Allo stato
-  // `ricerca` lo span misura 1686 px su 1688 dichiarati: il margine residuo
-  // sul TOTALE è 2 px. L'aggiunta di questa prova è alta 1 px: sfonda
-  // l'allocazione del blocco (287 px) e resta dentro il totale, che è
+  // `ricerca` lo span misura 1573 px su 1688 dichiarati: il margine residuo
+  // sul TOTALE è 115 px. L'aggiunta di questa prova è alta 20 px: sfonda
+  // l'allocazione del blocco (301 px) e resta dentro il totale, che è
   // esattamente la scena da dimostrare.
   //
-  // ── IL GIORNO PREVISTO È ARRIVATO, ed è il 2026-08-29 ────────────────────
+  // ── LA PROVA È STATA ROVESCIATA IL 2026-08-29 (sera), E NON PERCHÉ IL
+  //    DEBITO SIA STATO RIPAGATO ────────────────────────────────────────────
   //
-  // Qui c'era scritto: «il margine si sta chiudendo, ed è un fatto del debito,
-  // non un dettaglio del test: quando sarà sotto i 20 px nessuna aggiunta
-  // potrà più sfondare un blocco senza sfondare anche il totale. Il giorno in
-  // cui questa prova diventa rossa qui, si rimisura e si guarda quel margine».
+  // Qui c'era scritto che il giorno previsto era arrivato: i quattro
+  // interruttori di ruolo avevano preso 32 dei 34 px che restavano, il margine
+  // era sceso a 2, e l'aggiunta era stata tagliata a UN pixel perché 2
+  // atterrava sul tetto e il tetto non è «dentro». Era «l'ultima volta»: la
+  // prossima aggiunta avrebbe sfondato il totale insieme alla propria riga e
+  // la scena sarebbe diventata irriproducibile.
   //
-  // È diventata rossa. I quattro interruttori di ruolo chiesti da Pico hanno
-  // preso 32 px dei 34 che restavano, e l'aggiunta da 20 px non ci sta più:
-  // 1706 su 1688. Rimisurato, il margine è 2 px, e l'aggiunta scende a 1 — perché 2 atterra sul tetto, e il tetto non è «dentro».
-  //
-  // La prova regge ancora — un blocco sfora la propria riga e il totale tiene
-  // — ma su UN pixel: il margine è 2 e un'aggiunta da 2 atterra esattamente
-  // sul tetto, che non è «dentro». È quanto dire «l'ultima volta». La prossima
-  // aggiunta a questa schermata, quale che sia, sfonderà il totale insieme
-  // alla propria riga, e questa dimostrazione diventerà irriproducibile: non
-  // per un difetto del test, ma perché la schermata avrà finito lo spazio che
-  // il totale le concede. Vedi PROVA_1_MARGINE_ESAURITO in
+  // Non è andata così, e la ragione non è un merito di nessuno. «Metti
+  // #call-search-row in position fixed con lo stesso stile di #assign-block»
+  // (Pico, 2026-08-29) ha tolto la riga di ricerca DAL FLUSSO: 152 px che lo
+  // span non vede più, quindi il margine risale da 2 a 115 e l'aggiunta torna
+  // a 20 px, cioè una riga di testo vera. QUEI 152 PX NON SONO STATI
+  // RESTITUITI: sono passati a `--assign-bar-h` (132 px in coda alla pagina,
+  // src/styles/layout.css), un budget che questo mastro non contabilizza e che
+  // nessuna guardia sorveglia. Il sollievo è PRESTATO: se la barra tornasse nel
+  // flusso, il margine torna a 2 px e questa scena torna sull'orlo. Vedi
+  // BARRA_FISSA_FUORI_DAL_TOTALE e PROVA_1_MARGINE_RIAPERTO_SENZA_RIPAGARE in
   // src/ui/callScreenBudget.ts.
-  const EXTRA_PX = 1;
+  const EXTRA_PX = 20;
+
+  // IL GAP DELLA GRIGLIA, NOMINATO E NON ASSORBITO. `#suggested-player` è una
+  // griglia dal 2026-08-29 («Metti #suggested-player-mine e #bait-block uno
+  // affianco all'altro», Pico) e a 390px sta su UNA colonna: le due metà si
+  // impilano e fra loro c'è un `gap` di 14 px. Un `div` in più dentro il blocco
+  // è quindi una terza riga della griglia, e costa la propria altezza PIÙ il
+  // gap — misurato: aggiunta da 1 px -> +15, da 20 -> +34, da 100 -> +114.
+  //
+  // Il numero sta scritto qui e non ingoiato dentro l'atteso perché uno
+  // sforamento di «+34 px» per un'aggiunta da 20 non si sa più leggere: o si
+  // dice da dove vengono i 14 px, o il giorno in cui la griglia cambia gap
+  // questa prova diventa rossa senza che nessuno sappia perché.
+  const SUGGESTED_GRID_GAP_PX = 14;
   await page.evaluate((extraPx) => {
     const host = document.getElementById("suggested-player");
     if (host === null) throw new Error("prova 1: #suggested-player non è a schermo");
@@ -393,7 +417,7 @@ test("PROVA 1 — una riga di testo in più a un blocco esistente: rosso il mast
   expect(findings[0]).toMatchObject({
     kind: "oltre-allocazione",
     id: "giocatore-suggerito",
-    overflowPx: EXTRA_PX,
+    overflowPx: EXTRA_PX + SUGGESTED_GRID_GAP_PX,
   });
   expect(describeCallScreenBudgetFinding(findings[0]!)).toContain("giocatore-suggerito");
 
@@ -409,17 +433,17 @@ test("PROVA 1 — una riga di testo in più a un blocco esistente: rosso il mast
   // …e di quanto è ancora verde: il margine residuo, misurato, è ciò che
   // resta prima che una scena come questa smetta di esistere.
   //
-  // ERA 14 PX. Dal 2026-08-29 è UNO. Non è un numero da aggiornare e basta: è
-  // la misura di quanto manca alla fine di questa dimostrazione, e la riga che
-  // la porta esiste apposta perché quel numero arrivi a qualcuno invece di
-  // scivolare via. Il prossimo blocco aggiunto a questa schermata sfonderà il
-  // totale insieme alla propria riga, e la scena «il mastro morde prima» non
-  // sarà più riproducibile — non per un difetto del test, ma perché la
-  // schermata avrà finito lo spazio che il totale le concede.
+  // ERA 14 PX, POI UNO, E ADESSO 81. La riga che lo porta esiste apposta
+  // perché quel numero arrivi a qualcuno invece di scivolare via, e oggi il
+  // numero da leggere è che è RISALITO: 115 px di margine a boot meno i 34
+  // (20 + il gap) che questa prova ci mette dentro. Non perché la schermata
+  // occupi meno, ma perché 152 px di riga di ricerca sono usciti dal flusso e
+  // sono finiti in un budget che nessuno misura. È un margine in prestito, e
+  // il giorno in cui la barra torna nel flusso questa riga torna a 1.
   expect(
     CALL_SCREEN_VERTICAL_BUDGET_PX - Math.round(sweep.spanPx),
     "margine residuo sul totale, con l'aggiunta già dentro",
-  ).toBe(1);
+  ).toBe(81);
 
   expect(externalRequests).toEqual([]);
 });

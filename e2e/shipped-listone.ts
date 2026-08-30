@@ -84,7 +84,7 @@ export const SHIPPED_LISTONE_FIRST_PAGE: readonly ListonePlayer[] = SHIPPED_LIST
  * not a re-implementation of it — can tell the two apart.
  */
 function isSearchSafe(pool: readonly ListonePlayer[], name: string): boolean {
-  const matches = filterListonePool(pool, { text: name, role: "", club: "", status: "all" }, new Set());
+  const matches = filterListonePool(pool, { text: name, roles: [], club: "", status: "all" }, new Set());
   return matches.length === 1;
 }
 

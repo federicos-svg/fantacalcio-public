@@ -4,14 +4,26 @@
    moving them out of inline style strings is part of "modular CSS files"
    (goal 2 of this batch), not just duplicate-reduction (goal 1). */
 
-/* LO SPAZIO CHE LA BARRA DEL GESTO SI PRENDE, restituito in coda alla pagina.
+/* LO SPAZIO CHE LA BARRA FISSA SI PRENDE, restituito in coda alla pagina.
 
    `#assign-block` è fissato in fondo allo schermo (Pico, 2026-08-29, vedi
    .assign-block in asta.css): senza questo margine l'ultimo riquadro della
    schermata finirebbe SOTTO la barra, leggibile solo scorrendo oltre il fondo
-   del documento — cioè non leggibile. Il valore è generoso di proposito: la
-   barra si allunga quando i campi vanno a capo sullo schermo stretto, e uno
-   spazio in più in coda non si vede, uno in meno nasconde una riga. */
+   del documento — cioè non leggibile.
+
+   ERA UN NUMERO FISSO, 132px, E NON BASTAVA. Una lente di review l'ha
+   misurato il 2026-08-29: a 390px la barra del gesto è alta 417,5px, e lo
+   STORICO ACQUISTI finiva 193px sotto di lei — irraggiungibile scorrendo,
+   perché la pagina finiva prima. La riga di ricerca, alta 152px sullo stesso
+   schermo, lasciava zero pixel di margine: un club dal nome più lungo e
+   spariva anche lei. Un numero scritto a mano non può seguire una barra che
+   si allunga quando i controlli vanno a capo.
+
+   ADESSO LO SCRIVE LA BARRA STESSA. `main.ts` misura l'altezza vera della
+   barra a schermo e la scrive qui con un `ResizeObserver`: il valore qui sotto
+   resta come RIPIEGO — è quello che vale nell'istante fra il primo paint e la
+   prima misura, e il giorno in cui l'osservatore non partisse la pagina
+   resterebbe con lo spazio che aveva prima invece che con zero. */
 :root {
   --assign-bar-h: 132px;
 }
