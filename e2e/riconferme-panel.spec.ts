@@ -37,7 +37,8 @@
 //   4. STORICO ACQUISTI non elenca MAI una riconferma: non è un evento del log,
 //      quindi non ha nemmeno un «Annulla» a cui appoggiarsi;
 //   5. la riconferma non è più dichiarabile appena lo storico dell'asta smette
-//      di essere vuoto (`#roster-slot-renewal-locked`);
+//      di essere vuoto — dal 2026-08-30 NON piu: il rinnovo resta aperto e
+//      a rifiutare e `renewalFeasibility`, caso per caso;
 //   6. reload a metà asta: lo stato torna identico;
 //   7. il tetto di ruolo di §4 (1 D, 1 C, 1 A, 0 P) e le sue frasi;
 //   8. il rifiuto semantico del motore arriva a schermo UMANIZZATO, non come
@@ -227,16 +228,18 @@ test("la riconferma entra dalla casella vuota: muove la fascia critica, blocca i
   const budgetMidAuction = INITIAL_BUDGET - RICONFERME_TARGET_PRICE - LIVE_PURCHASE_PRICE;
   await expect(page.locator("#critical-budget")).toHaveText(`${budgetMidAuction} cr`);
 
-  // ACCEPTANCE 5 — da qui in poi non si dichiarano più riconferme: seminano lo
-  // stato a t=0 e riscriverle sotto acquisti già registrati è esattamente ciò
-  // che il lucchetto impedisce. Vale per OGNI ruolo, non solo per quello già
-  // usato: qui il centrocampo, dove il tetto §4 è ancora intatto.
+  // ACCEPTANCE 5 — A META ASTA IL RINNOVO RESTA DICHIARABILE, e questa riga
+  // misura il capovolgimento del 2026-08-30. Prima c'era un lucchetto sul solo
+  // fatto che lo storico non fosse vuoto: costava piu di quanto proteggesse,
+  // perche il primo inserimento manuale lo faceva scattare per sempre. La
+  // riconferma continua a seminare t=0 — quello non e cambiato — ma a dire di
+  // no e adesso lo stato ricomposto per davvero (`renewalFeasibility`), e qui
+  // regge: il centrocampo ha il tetto §4 intatto e il budget capiente.
   await gotoScreen(page, "Rose");
   await openRenewalPanel(page, "roster-slot-Io-C-0");
-  await expect(page.locator("#roster-slot-renewal-locked")).toBeVisible();
-  await expect(page.locator("#roster-slot-renewal-locked")).toContainText("non è vuoto");
-  await expect(page.locator("#roster-slot-renewal-list")).toHaveCount(0);
-  await expect(renewButton(page, C_TARGET)).toHaveCount(0);
+  await expect(page.locator("#roster-slot-renewal-locked")).toHaveCount(0);
+  await expect(page.locator("#roster-slot-renewal-list")).toBeVisible();
+  await expect(renewButton(page, C_TARGET)).toBeVisible();
   await page.locator("#roster-slot-close").click();
 
   // ACCEPTANCE 6 — reload a metà asta: stato identico. La riconferma E

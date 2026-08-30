@@ -16,6 +16,9 @@ import {
   ROSTER_REQUIREMENTS,
 } from "./types.js";
 import { appendEvent } from "./events.js";
+import { type ConfirmationInput, type ConfirmationViolation, validateConfirmations } from "./confirmations.js";
+import { reduce } from "./reduce.js";
+import { hardReserve } from "./auction.js";
 
 /** A manual purchase the operator wants to record — before it becomes an event. */
 export interface ProposedPurchase {
@@ -524,4 +527,134 @@ export function recordTrade(
     creditsAToB: proposed.creditsAToB,
   };
   return appendEvent(log, event);
+}
+
+// ── Rinnovo con il log gia avviato ────────────────────────────────────────────
+
+/**
+ * IL RINNOVO E UNA RICONFERMA, E UNA RICONFERMA SEMINA t=0. Questo non cambia:
+ * `reduce()` la mette in rosa PRIMA di rigiocare il log, oggi come ieri.
+ *
+ * QUELLO CHE CAMBIA E CHI PUO DIRE DI NO. Fino al 2026-08-30 la schermata si
+ * proteggeva con una riga sola — «il log non e vuoto, quindi niente rinnovi» —
+ * e quella riga costava piu di quanto proteggesse: il primo inserimento
+ * manuale scrive un PURCHASE, quindi chiudeva i rinnovi per sempre. Due gesti
+ * della stessa modale, e uno uccideva l'altro senza dirlo.
+ *
+ * `validateConfirmations` non poteva sostituirla perche guarda le riconferme
+ * FRA LORO, a t=0, e il log non lo vede: dice se un batch e coerente da solo,
+ * non se regge sotto gli acquisti gia registrati. Le tre domande che restavano
+ * senza risposta sono esattamente quelle che qui hanno un nome:
+ *
+ *  - il giocatore e gia in una rosa? seminarlo a t=0 produrrebbe il conflitto
+ *    che `reduce()` rifiuta lanciando — e lanciare a schermata aperta, a meta
+ *    asta, e il modo peggiore di scoprirlo;
+ *  - il budget regge? le riconferme si validano contro `INITIAL_BUDGET`, ma
+ *    dopo il log quel budget e gia stato speso in parte;
+ *  - la rosa si chiude ancora a `COST_FLOOR`? stessa ragione.
+ *
+ * Il rifiuto lo dà quindi lo stato ricomposto per davvero, non una regola
+ * riscritta a mano: si rigioca `reduce(log, riconferme)` PRIMA di salvare, e
+ * si guarda che cosa ne esce. Se lanciasse comunque — non dovrebbe, le tre
+ * domande sopra coprono i casi noti — `replay-refused` tiene la rete chiusa
+ * invece di lasciar passare uno stato che nessuno ha ispezionato.
+ */
+export type RenewalViolation =
+  | ConfirmationViolation // le regole di t=0, invariate: le decide validateConfirmations
+  | "player-in-auction-log" // il log lo ha gia mosso: comprato, o comprato e svincolato
+  | "budget-exhausted-by-log" // dopo gli acquisti registrati il budget non regge la riconferma
+  | "role-slots-exhausted-by-log" // dopo gli acquisti registrati non c'e piu una casella di quel ruolo
+  | "roster-not-completable" // la rosa non si chiuderebbe piu a COST_FLOOR
+  | "replay-refused"; // reduce() ha rifiutato lo stato risultante — rete fail-closed
+
+export interface RenewalFeasibilityResult {
+  readonly ok: boolean;
+  readonly violations: readonly RenewalViolation[];
+}
+
+/**
+ * `confirmations` e il batch COMPLETO proposto, non la sola riga nuova: e lo
+ * stesso contratto del pannello che lo chiama («ogni azione ricompone il
+ * batch»), ed e l'unico che tiene veri per costruzione i limiti di ruolo e il
+ * totale di squadra, invece che per attenzione di chi scrive il chiamante.
+ */
+/**
+ * Ogni playerId che il log NOMINA in un evento non annullato. Non e «chi e in
+ * rosa adesso»: e piu largo apposta, perche una riconferma vale da t=0 e
+ * contraddice il log anche per un giocatore che l'asta ha solo attraversato.
+ * Serve unicamente a scegliere il MOTIVO di un rifiuto che `reduce()` ha gia
+ * deciso — mai a decidere il rifiuto al posto suo.
+ */
+function playerIdsTouchedByLog(log: readonly AuctionEvent[]): ReadonlySet<string> {
+  const voided = new Set<number>();
+  for (const e of log) if (e.type === "VOID") voided.add(e.targetSeq);
+
+  const touched = new Set<string>();
+  for (const e of log) {
+    if (e.type === "VOID" || voided.has(e.seq)) continue;
+    if (e.type === "PURCHASE" || e.type === "RELEASE") {
+      touched.add(e.playerId);
+    } else {
+      for (const id of e.fromA) touched.add(id);
+      for (const id of e.fromB) touched.add(id);
+    }
+  }
+  return touched;
+}
+
+export function renewalFeasibility(
+  log: readonly AuctionEvent[],
+  fantaTeamIds: readonly string[],
+  confirmations: readonly ConfirmationInput[],
+  fantaTeamId: string,
+): RenewalFeasibilityResult {
+  const validation = validateConfirmations(confirmations, fantaTeamIds);
+  if (!validation.ok) {
+    // Deduplicate: due riconferme che rompono la stessa regola non devono
+    // stampare due volte la stessa frase all'operatore.
+    return { ok: false, violations: [...new Set(validation.issues.map((i) => i.violation))] };
+  }
+
+  // L'ORACOLO E `reduce()`, NON UNA COPIA DELLE SUE REGOLE. Rigiocare qui la
+  // semantica dei VOID (un acquisto annullato non conta, uno scambio muove
+  // due liste) significherebbe scriverla una seconda volta e tenerla allineata
+  // a mano: la seconda copia sbaglierebbe per prima. Si chiede quindi al
+  // motore, e si traduce il suo rifiuto in un motivo leggibile.
+  let seeded: AuctionState;
+  try {
+    seeded = reduce(log, fantaTeamIds, confirmations);
+  } catch {
+    // UN CASO SOLO PORTA QUI, ed e piu ampio di «il giocatore e di qualcuno
+    // adesso»: la riconferma vale da t=0, quindi contraddice il log anche
+    // quando quel giocatore l'asta lo ha soltanto ATTRAVERSATO — comprato e
+    // poi svincolato. Seminarlo prima dell'inizio renderebbe il suo stesso
+    // acquisto irrappresentabile, e `reduce()` lancerebbe. Distinguere qui i
+    // due casi non aiuterebbe chi legge: la strada e la stessa, e passa dallo
+    // storico.
+    const touched = playerIdsTouchedByLog(log);
+    return {
+      ok: false,
+      violations: [
+        confirmations.some((c) => touched.has(c.playerId))
+          ? "player-in-auction-log"
+          : "replay-refused",
+      ],
+    };
+  }
+
+  const team = seeded.teams[fantaTeamId];
+  if (!team) return { ok: false, violations: ["unknown-team"] };
+
+  const violations: RenewalViolation[] = [];
+  if (team.budgetResidual < 0) violations.push("budget-exhausted-by-log");
+  if (ROLES.some((r) => team.slotsRemaining[r] < 0)) {
+    violations.push("role-slots-exhausted-by-log");
+  } else if (team.budgetResidual >= 0 && team.budgetResidual < hardReserve(team.totalSlotsRemaining)) {
+    // Solo con le caselle in ordine ha senso chiedere se la rosa si chiude:
+    // un conteggio di slot negativo renderebbe la riserva un numero senza
+    // significato, e la seconda frase coprirebbe la prima.
+    violations.push("roster-not-completable");
+  }
+
+  return { ok: violations.length === 0, violations };
 }

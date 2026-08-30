@@ -99,7 +99,15 @@ test("corrupted confirmations + non-empty log -> blocked screen; explicit two-st
   await expect(emptyDefenderSlot).toHaveClass(/roster-slot--empty/);
   await emptyDefenderSlot.click();
   await page.locator("#roster-slot-tab-rinnovo").click();
-  await expect(page.locator("#roster-slot-renewal-locked")).toBeVisible();
+  // DAL 2026-08-30 IL LUCCHETTO SUL LOG NON ESISTE PIU: qui il rinnovo si apre
+  // e dice la propria ragione di merito — questa scena non ha storico d'asta
+  // caricato — invece di rimandare a un cancello che non c'e. Il recupero da
+  // riconferme corrotte resta ortogonale, che era il punto di questa spec.
+  await expect(page.locator("#roster-slot-renewal-locked")).toHaveCount(0);
+  await expect(page.locator("#roster-slot-renewal-empty")).toHaveAttribute(
+    "data-reason",
+    "no-history",
+  );
   await page.locator("#roster-slot-close").click();
   await expect(page.locator("#roster-slot-overlay")).toHaveCount(0);
 
