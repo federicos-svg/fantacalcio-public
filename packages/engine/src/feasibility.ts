@@ -233,7 +233,26 @@ function supersededBy(
 
   for (const e of log) {
     if (e.seq <= target.seq || e.type === "VOID" || voided.has(e.seq)) continue;
-    if (e.type === "PURCHASE") continue; // non puo toccare un giocatore gia in rosa
+    if (e.type === "PURCHASE") {
+      // UN ACQUISTO SUCCESSIVO CONTA SOLO SE IL TARGET E UNO SVINCOLO, ed e il
+      // caso che questa funzione sbagliava.
+      //
+      // Il ragionamento che c'era prima — «un acquisto non puo toccare un
+      // giocatore gia in rosa, quindi si salta sempre» — e vero finche il
+      // target e un PURCHASE o un TRADE: in entrambi i casi il giocatore resta
+      // di qualcuno, e nessuno puo ricomprarlo. E FALSO quando il target e un
+      // RELEASE, perche e proprio quello svincolo ad averlo rimesso fra i
+      // liberi: l'acquisto successivo e legittimo, e annullare lo svincolo
+      // sotto di lui metterebbe lo stesso giocatore in DUE rose insieme.
+      //
+      // Trovato dalla lente Engineering sulla PR pubblica #73, con
+      // controesempio eseguito: `voidFeasibility` diceva ok, `reduce()` non
+      // lanciava, e a rifiutare restava solo `validateAuctionLog` al bordo del
+      // salvataggio — con un messaggio generico invece di quello che nomina il
+      // gesto da annullare per primo.
+      if (target.type === "RELEASE" && touched.has(e.playerId)) return e;
+      continue;
+    }
     if (e.type === "RELEASE") {
       if (touched.has(e.playerId)) return e;
       continue;

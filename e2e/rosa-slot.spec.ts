@@ -1,7 +1,12 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { INITIAL_BUDGET } from "../packages/engine/src/types.js";
 import { listonePlayerKey } from "../src/ui/listone.js";
-import { gotoScreen, installSyntheticNetworkGuard, selectStatusFilter } from "./helpers.js";
+import {
+  gotoScreen,
+  installSyntheticNetworkGuard,
+  readLocalStorageJson,
+  selectStatusFilter,
+} from "./helpers.js";
 import {
   A_ALFA,
   D_ALFA,
@@ -510,6 +515,88 @@ test("la modale è una finestra modale: Escape la chiude e il fuoco torna sulla 
   // il budget non si è mosso.
   await expect(casella).toHaveClass(/roster-slot--empty/);
   expect(await creditiResidui(page, "Io")).toBe(INITIAL_BUDGET);
+
+  expect(externalRequests).toEqual([]);
+});
+
+// ── I DUE DIFETTI CHE LE LENTI HANNO TROVATO SULLA PR #73 ────────────────────
+//
+// Sono entrambi difetti di ciò che la modale DICE, non di ciò che scrive, ed è
+// il motivo per cui i test che c'erano non li vedevano: misuravano i rifiuti
+// del motore (limiti di ruolo, crediti sopra il prezzo) e non quelli della
+// persistenza, e misuravano la visibilità dell'errore e non dove finiva il
+// fuoco. Le due prove qui sotto guardano esattamente quelle due cose.
+
+test("una scrittura rifiutata lo DICE dentro la modale, invece di lasciarla muta", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, ROSA_SLOT_POOL, externalRequests);
+  await page.goto("/");
+  await seedRosaSlotScene(page);
+  await gotoScreen(page, "Rose");
+
+  // LO SCENARIO VERO: un'altra scheda ha mosso il canonico, oppure la quota è
+  // finita. Il messaggio umano viveva in `state.persistenceError`, che si
+  // stampa SOLO in `renderAsta()` — cioè mai su questa schermata. La modale
+  // restava aperta e senza una parola: non una bugia, ma un silenzio
+  // indistinguibile da «non è successo niente».
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key: string, value: string): void {
+      if (key === "fac_log_lkg") {
+        throw new DOMException("synthetic quota", "QuotaExceededError");
+      }
+      original.call(this, key, value);
+    };
+  });
+
+  await page.locator("#roster-slot-Io-A-0").click();
+  await page.locator("#roster-slot-manual-player").selectOption({ index: 1 });
+  await page.locator("#roster-slot-manual-price").fill("9");
+  await page.locator("#roster-slot-manual-apply").click();
+
+  const error = page.locator("#roster-slot-error");
+  await expect(error).toBeVisible();
+  await expect(error).toContainText(/Impossibile salvare nel browser/);
+  // La modale resta aperta — c'è ancora qualcosa da fare — e niente è stato
+  // scritto: il log persistito non ha imparato nessun acquisto.
+  await expect(page.locator("#roster-slot-overlay")).toHaveCount(1);
+  const log = await readLocalStorageJson<Array<{ type: string }>>(page, "fac_log");
+  expect(log ?? []).toEqual([]);
+
+  expect(externalRequests).toEqual([]);
+});
+
+test("dopo un rifiuto il fuoco va sul messaggio, non torna in cima alle schede", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, ROSA_SLOT_POOL, externalRequests);
+  await page.goto("/");
+  await seedRosaSlotScene(page);
+  await gotoScreen(page, "Rose");
+
+  // Serve una casella piena, e la si riempie col gesto vero.
+  await page.locator("#roster-slot-Io-A-0").click();
+  await page.locator("#roster-slot-manual-player").selectOption({ index: 1 });
+  await page.locator("#roster-slot-manual-price").fill("9");
+  await page.locator("#roster-slot-manual-apply").click();
+  await expect(page.locator("#roster-slot-overlay")).toHaveCount(0);
+
+  await page.locator(".roster-slot--filled").first().click();
+  await expect(page.locator("#roster-slot-tab-svincolo")).toBeFocused();
+
+  // Il rifiuto del campo bianco. La modale si ridipinge, e il fuoco NON deve
+  // tornare sulla riga delle schede: chi naviga da tastiera dovrebbe
+  // ripercorrere tutto il pannello per rimettere le mani sul campo.
+  await page.locator("#roster-slot-release-apply").click();
+  await expect(page.locator("#roster-slot-error")).toBeFocused();
+  // E dal messaggio il Tab riporta dentro al pannello, non fuori dalla modale.
+  await page.keyboard.press("Tab");
+  await expect(page.locator("#roster-slot-overlay")).toHaveCount(1);
 
   expect(externalRequests).toEqual([]);
 });

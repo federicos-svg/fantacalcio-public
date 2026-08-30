@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   WAR_BOARD_ACQUISITIONS_SHOWN,
-  WAR_BOARD_FULL_NOTE,
   WAR_BOARD_MINI_NOTE,
   warBoardAcquisitionsShown,
   warBoardBidDisplay,
@@ -258,16 +257,23 @@ describe("§D9 — the war board carries accounting only", () => {
     expect(warBoardFullHtml(rows, labels, EMPTY_INDEX)).not.toMatch(DIRECTIVE);
   });
 
+  // LA NOTA DELLA VARIANTE COMPLETA NON ESISTE PIU, e con lei le sue due
+  // asserzioni. Il 2026-08-30 `#war-board-full-note` e stato tolto dallo
+  // schermo su richiesta di Pico: tenere in piedi una costante invisibile e i
+  // test che ne certificano il contenuto avrebbe prodotto la cosa peggiore —
+  // una prova verde su un testo che nessuno legge.
+  //
+  // LA GARANZIA §D9 NON E ANDATA VIA CON LA FRASE, perche non era nella frase:
+  // sta nel test qui sopra, che passa `warBoardFullHtml()` al setaccio di
+  // `DIRECTIVE` e pretende che il pannello non contenga nulla di direttivo.
+  // Quella misura il testo VERO, non la sua dichiarazione d'intenti.
   it("says in words that it is accounting and nothing more", () => {
     expect(WAR_BOARD_MINI_NOTE).toContain("nessun suggerimento");
-    expect(WAR_BOARD_FULL_NOTE).toContain("nessuna raccomandazione");
-    expect(WAR_BOARD_FULL_NOTE).toContain("nessun indice comportamentale");
   });
 
   it("never repeats the STORICO ACQUISTI panel title in its notes", () => {
     // Several e2e specs locate that panel with a case-insensitive `hasText`;
     // a nested repetition makes the locator ambiguous (strict-mode failure).
     expect(WAR_BOARD_MINI_NOTE.toLowerCase()).not.toContain("storico acquisti");
-    expect(WAR_BOARD_FULL_NOTE.toLowerCase()).not.toContain("storico acquisti");
   });
 });

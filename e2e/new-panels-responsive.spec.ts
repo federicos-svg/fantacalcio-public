@@ -114,6 +114,29 @@ test("every new panel is readable at 390, 768 and 1280 without sideways scrollin
     expect(await fitsHorizontally(page)).toBe(true);
     await page.keyboard.press("Escape");
     await expect(page.locator("#roster-slot-overlay")).toHaveCount(0);
+
+    // 6. LA COPPIA DELL'ALTRA CASELLA, che è la più larga delle due: lo
+    //    scambio porta un elenco di caselle di spunta con nome, ruolo e prezzo
+    //    su una riga sola, e un'etichetta di campo che nomina due squadre. La
+    //    misura di prima non la vedeva — la casella vuota non ha né l'una né
+    //    l'altra — e a 390px è esattamente lì che una riga va di lato.
+    //    La casella si riempie col gesto della modale stessa, che è già qui:
+    //    passare dalla chiamata costringerebbe a tornare su Asta e indietro,
+    //    e misurerebbe la stessa cosa con due schermate in mezzo.
+    await page.locator(".roster-slot--empty").first().click();
+    await page.locator("#roster-slot-manual-player").selectOption({ index: 1 });
+    await page.locator("#roster-slot-manual-price").fill("7");
+    await page.locator("#roster-slot-manual-apply").click();
+    await expect(page.locator("#roster-slot-overlay")).toHaveCount(0);
+    await page.locator(".roster-slot--filled").first().click();
+    await expect(page.locator("#roster-slot-tab-svincolo")).toBeInViewport();
+    await expect(page.locator("#roster-slot-release-apply")).toBeInViewport();
+    expect(await fitsHorizontally(page)).toBe(true);
+    await page.locator("#roster-slot-tab-scambio").click();
+    await page.locator("#roster-slot-trade-team").selectOption({ index: 1 });
+    await expect(page.locator("#roster-slot-trade-apply")).toBeInViewport();
+    expect(await fitsHorizontally(page)).toBe(true);
+    await page.keyboard.press("Escape");
   }
 
   expect(externalRequests).toEqual([]);

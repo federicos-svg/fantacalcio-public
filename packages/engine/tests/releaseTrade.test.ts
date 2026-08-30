@@ -349,6 +349,44 @@ describe("annullamento — il log resta riducibile", () => {
     );
   });
 
+  it("rifiuta di annullare lo svincolo sotto cui un altro ha gia ricomprato", () => {
+    // LA DIREZIONE SIMMETRICA, e quella che mancava. Il caso gia coperto e
+    // «acquisto sotto uno svincolo»; questo e «svincolo sotto un acquisto», ed
+    // e legittimo che quell'acquisto esista: e proprio lo svincolo ad aver
+    // rimesso il giocatore fra i liberi. Annullarlo lo metterebbe in DUE rose.
+    // Trovato dalla lente Engineering sulla PR pubblica #73, dove
+    // `voidFeasibility` rispondeva `ok` e nessuno se ne accorgeva fino al
+    // bordo del salvataggio.
+    const bought = buy([], [{ playerId: "A1", role: "A", fantaTeamId: A, price: 10 }]);
+    const released = recordRelease(bought, reduce(bought, TEAMS), {
+      playerId: "A1",
+      fantaTeamId: A,
+      creditsReturned: 5,
+    }, TS);
+    const rebought = buy(released, [{ playerId: "A1", role: "A", fantaTeamId: B, price: 8 }]);
+
+    const r = voidFeasibility(rebought, 1);
+    expect(r.ok).toBe(false);
+    expect(r.violations).toContain("target-superseded");
+
+    // E annullato prima il ri-acquisto, lo svincolo torna annullabile.
+    const undoneRebuy = recordVoid(rebought, 2, TS);
+    expect(voidFeasibility(undoneRebuy, 1).ok).toBe(true);
+  });
+
+  it("reduce() lancia se lo stesso giocatore finisce in due rose", () => {
+    // La rete sotto il rifiuto qui sopra, e non una ridondanza: `reduce()` e la
+    // funzione da cui ogni numero dell'app discende, e su questo log produceva
+    // otto budget plausibili e sbagliati invece di fermarsi.
+    const broken: AuctionEvent[] = [
+      { type: "PURCHASE", seq: 0, ts: TS, playerId: "A1", role: "A", fantaTeamId: A, price: 10 },
+      { type: "RELEASE", seq: 1, ts: TS, playerId: "A1", fantaTeamId: A, creditsReturned: 5 },
+      { type: "PURCHASE", seq: 2, ts: TS, playerId: "A1", role: "A", fantaTeamId: B, price: 8 },
+      { type: "VOID", seq: 3, ts: TS, targetSeq: 1 },
+    ];
+    expect(() => reduce(broken, TEAMS)).toThrow(/already on/);
+  });
+
   it("un VOID non si annulla a sua volta", () => {
     const bought = buy([], [{ playerId: "A1", role: "A", fantaTeamId: A, price: 40 }]);
     const undone = recordVoid(bought, 0, TS);

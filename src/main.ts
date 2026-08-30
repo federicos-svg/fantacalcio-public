@@ -7312,7 +7312,9 @@ function closeRosterSlot(returnFocusTo: string | null): void {
  * Torna `true` se ha attecchito. Il chiamante decide che cosa fare dopo: i due
  * gesti chiudono la modale, ma non e questa funzione a poterlo decidere.
  */
-function commitRosterLogChange(newLog: readonly AuctionEvent[]): boolean {
+type RosterLogChangeResult = { readonly ok: true } | { readonly ok: false; readonly message: string };
+
+function commitRosterLogChange(newLog: readonly AuctionEvent[]): RosterLogChangeResult {
   const saveResult = saveAuctionLog(
     browserStorage,
     newLog,
@@ -7322,11 +7324,30 @@ function commitRosterLogChange(newLog: readonly AuctionEvent[]): boolean {
   );
   if (!saveResult.ok) {
     handleSaveFailure(saveResult);
-    return false;
+    // IL MESSAGGIO TORNA AL CHIAMANTE, e non basta averlo messo in
+    // `state.persistenceError`.
+    //
+    // IL DIFETTO CHE QUESTO CHIUDE, trovato dalla lente Quality & Delivery
+    // sulla PR pubblica #73: quel campo si stampa in UN posto solo,
+    // `renderAsta()`, e questa modale vive sulla schermata ROSE. Una scrittura
+    // rifiutata — l'altra scheda ha mosso il canonico, la quota e finita —
+    // lasciava percio la modale aperta e MUTA: non una bugia, ma un silenzio
+    // indistinguibile da «non e successo niente», che alle 23 di sera e la
+    // stessa cosa. Il quarto gesto della modale, il rinnovo, lo faceva gia
+    // giusto perche passa da `saveConfirmations` e scrive in `slot.error`: era
+    // una svista nei tre rami paralleli, non una scelta.
+    //
+    // `partial-write` e l'eccezione che non ha bisogno di questo: li
+    // `handleSaveFailure` alza la schermata di recupero, che sostituisce tutto
+    // — modale compresa — e dice molto piu di una riga.
+    return {
+      ok: false,
+      message: persistenceErrorMessage(saveResult),
+    };
   }
   state.log = newLog as AuctionEvent[];
   state.persistenceError = "";
-  return true;
+  return { ok: true };
 }
 
 const RELEASE_VIOLATION_MESSAGES: Record<ReleaseViolation, string> = {
@@ -7365,7 +7386,7 @@ const RENEWAL_EMPTY_MESSAGES: Record<RenewalEmptyReason, string> = {
   "no-history":
     "Nessuno storico d'asta caricato: senza le rose dell'anno scorso non si sa chi sia rinnovabile. Si carica in Impostazioni → Archivio avversari.",
   "seat-unassigned":
-    "Questo posto non ha ancora una persona assegnata: senza persona non esiste uno storico da cui rinnovare. Si assegna in Impostazioni → Squadre.",
+    "Questo posto non ha ancora una persona assegnata: senza persona non esiste uno storico da cui rinnovare. Si assegna in Impostazioni → Partecipanti e squadre.",
   "no-previous-season":
     "Lo storico caricato non porta nessuna etichetta di stagione leggibile: «stagione precedente» non ha una definizione, e non se ne inventa una.",
   "no-pool":
@@ -7440,7 +7461,18 @@ function renderRosterSlotModal(slot: RosterSlotModal): HTMLElement {
     tab.setAttribute("aria-selected", String(slot.panel === p.id));
     tab.setAttribute("aria-controls", "roster-slot-panel");
     tab.textContent = p.label;
-    if (slot.panel === p.id) tab.dataset.dialogInitialFocus = "";
+    // IL FUOCO INIZIALE E DELLA SCHEDA SOLO QUANDO NON C'E UN RIFIUTO.
+    //
+    // `activateAccessibleDialog` rimette il fuoco su `[data-dialog-initial-focus]`
+    // a ogni render, e la modale si ridipinge anche quando un gesto viene
+    // rifiutato. Marcare sempre la scheda significava quindi che dopo ogni
+    // errore il fuoco saltava dal bottone appena premuto alla riga delle
+    // schede: chi naviga da tastiera doveva ripercorrere tutto il pannello per
+    // tornare al campo da correggere, ogni volta, proprio la sera in cui si ha
+    // fretta. Con un rifiuto a schermo il fuoco va sul messaggio, che e la
+    // cosa da leggere e da cui il Tab successivo riporta ai campi.
+    // Trovato dalla lente Product & Experience sulla PR pubblica #73.
+    if (slot.panel === p.id && slot.error === "") tab.dataset.dialogInitialFocus = "";
     tab.addEventListener("click", () => {
       slot.panel = p.id;
       // Un rifiuto appartiene al pannello che lo ha prodotto: portarselo
@@ -7470,6 +7502,11 @@ function renderRosterSlotModal(slot: RosterSlotModal): HTMLElement {
     error.id = "roster-slot-error";
     error.className = "roster-slot-dialog__error";
     error.setAttribute("role", "alert");
+    // `tabIndex = -1` lo rende focalizzabile da programma senza aggiungerlo al
+    // giro del Tab: e cio che serve perche il fuoco possa atterrare qui dopo un
+    // rifiuto senza che poi resti in mezzo ai piedi navigando.
+    error.tabIndex = -1;
+    error.dataset.dialogInitialFocus = "";
     error.textContent = slot.error;
     modal.appendChild(error);
   }
@@ -7608,8 +7645,9 @@ function commitSlotManual(slot: RosterSlotModal): void {
     return;
   }
   const newLog = recordPurchase(state.log, aState, proposed, new Date().toISOString());
-  if (!commitRosterLogChange(newLog)) {
-    slot.error = "";
+  const saved = commitRosterLogChange(newLog);
+  if (!saved.ok) {
+    slot.error = saved.message;
     render();
     return;
   }
@@ -7819,8 +7857,9 @@ function commitSlotRelease(slot: RosterSlotModal): void {
     return;
   }
   const newLog = recordRelease(state.log, aState, proposed, new Date().toISOString());
-  if (!commitRosterLogChange(newLog)) {
-    slot.error = "";
+  const saved = commitRosterLogChange(newLog);
+  if (!saved.ok) {
+    slot.error = saved.message;
     render();
     return;
   }
@@ -7981,8 +8020,9 @@ function commitSlotTrade(slot: RosterSlotModal): void {
     return;
   }
   const newLog = recordTrade(state.log, aState, proposed, new Date().toISOString());
-  if (!commitRosterLogChange(newLog)) {
-    slot.error = "";
+  const saved = commitRosterLogChange(newLog);
+  if (!saved.ok) {
+    slot.error = saved.message;
     render();
     return;
   }

@@ -37,7 +37,6 @@ import {
   paginateListonePool,
 } from "./listone.js";
 import {
-  WAR_BOARD_FULL_NOTE,
   WAR_BOARD_MINI_NOTE,
   warBoardFullHtml,
   warBoardMiniHtml,
@@ -2204,7 +2203,7 @@ export function renderConfirmationsBlockedScreen(
     const confirmBody = document.createElement("div");
     confirmBody.style.cssText = `font-size:13px;line-height:1.55;color:${C.textMid};margin-bottom:14px;`;
     confirmBody.textContent =
-      "Questo NON tocca lo storico asta già registrato: azzera solo le riconferme salvate, che dovranno essere reinserite da Impostazioni → Riconferme pre-asta. " +
+      "Questo NON tocca lo storico asta già registrato: azzera solo le riconferme salvate, che dovranno essere reinserite dalla schermata Rose, cliccando una casella vuota e scegliendo «Rinnova dall'anno scorso». " +
       "Il payload corrotto resta in quarantena e resta esportabile anche dopo questa conferma.";
     confirmPanel.appendChild(confirmBody);
 
@@ -2318,7 +2317,7 @@ export function renderConfirmationsQuarantineBanner(
   text.style.cssText = `font-size:13px;line-height:1.5;color:${C.textMid};`;
   text.textContent =
     props.reason === "quarantined-empty-log"
-      ? "Le riconferme pre-asta salvate non erano valide e sono state messe in quarantena. Lo storico asta è vuoto: puoi reinserirle da Impostazioni → Riconferme pre-asta."
+      ? "Le riconferme pre-asta salvate non erano valide e sono state messe in quarantena. Lo storico asta è vuoto: puoi reinserirle dalla schermata Rose, cliccando una casella vuota e scegliendo «Rinnova dall'anno scorso»."
       : "Le riconferme pre-asta precedenti non erano valide: hai scelto di ripartire senza riconferme. Il payload corrotto resta in quarantena ed esportabile.";
   banner.appendChild(text);
 

@@ -110,6 +110,27 @@ export function reduce(
     ledger.set(id, 0);
   }
 
+  /**
+   * playerId -> squadra che lo ha ADESSO. Serve a una cosa sola, e non e una
+   * comodita: rifiutare un acquisto di un giocatore che e gia di qualcuno.
+   *
+   * PERCHE LA RETE STA QUI E NON SOLO AL BORDO. `validateAuctionLog`
+   * (src/logRecovery.ts) rifiuta gia questo log quando lo si salva o lo si
+   * importa, ed e il motivo per cui nessuno stato corrotto e mai stato
+   * persistito. Ma `reduce()` e la funzione da cui ogni numero dell'app
+   * discende, e girava su quel log senza lanciare: produceva lo stesso
+   * giocatore in DUE rose, un `purchasedPlayerIds` con un doppione, e otto
+   * budget plausibili e sbagliati. Uno stato plausibile e sbagliato e la forma
+   * di errore peggiore per una contabilita d'asta, e questa riga la rende
+   * irrappresentabile invece che improbabile.
+   *
+   * Trovato dalla lente Engineering sulla PR pubblica #73: il commento su
+   * `target-superseded` (feasibility.ts) prometteva «e la condizione esatta
+   * sotto cui il replay lancerebbe», e per un caso il replay non lanciava.
+   * Adesso la promessa e vera.
+   */
+  const ownerOf = new Map<string, string>();
+
   /** La rosa di una squadra nominata da un evento, o un rifiuto. Un id di
    *  squadra che il tavolo non conosce e un log corrotto, non un caso da
    *  ignorare in silenzio: ignorarlo produrrebbe uno stato plausibile e
@@ -133,6 +154,7 @@ export function reduce(
       seq: index - confirmations.length,
     });
     confirmedBy.set(c.playerId, c.fantaTeamId);
+    ownerOf.set(c.playerId, c.fantaTeamId);
   });
 
   let lastSeq = -1;
@@ -157,12 +179,19 @@ export function reduce(
           `confirmations/live-log conflict: playerId "${e.playerId}" already confirmed (team ${confirmedTeam}), cannot also be purchased live by ${e.fantaTeamId}`,
         );
       }
+      const owner = ownerOf.get(e.playerId);
+      if (owner !== undefined) {
+        throw new Error(
+          `PURCHASE seq ${e.seq}: playerId "${e.playerId}" is already on ${owner}'s roster, cannot also be purchased by ${e.fantaTeamId}`,
+        );
+      }
       rosterOf(e.fantaTeamId, `PURCHASE seq ${e.seq}`).push({
         playerId: e.playerId,
         role: e.role,
         price: e.price,
         seq: e.seq,
       });
+      ownerOf.set(e.playerId, e.fantaTeamId);
       continue;
     }
 
@@ -181,6 +210,7 @@ export function reduce(
       }
       const [entry] = roster.splice(index, 1);
       ledger.set(e.fantaTeamId, ledger.get(e.fantaTeamId)! + entry!.price - e.creditsReturned);
+      ownerOf.delete(e.playerId);
       continue;
     }
 
@@ -192,6 +222,7 @@ export function reduce(
       to: RosterEntry[],
       playerIds: readonly string[],
       fromId: string,
+      moves: string[],
     ): number => {
       let pricesMoved = 0;
       for (const playerId of playerIds) {
@@ -204,6 +235,7 @@ export function reduce(
         const [entry] = from.splice(index, 1);
         to.push(entry!);
         pricesMoved += entry!.price;
+        moves.push(playerId);
       }
       return pricesMoved;
     };
@@ -211,8 +243,12 @@ export function reduce(
     // giocatori che stanno cedendo: un id presente in `fromA` e in `fromB`
     // non puo quindi essere spostato due volte, e `tradeFeasibility` lo
     // rifiuta comunque a monte (`duplicate-player`).
-    const pricesAToB = moved(rosterA, rosterB, e.fromA, e.teamAId);
-    const pricesBToA = moved(rosterB, rosterA, e.fromB, e.teamBId);
+    const toB: string[] = [];
+    const toA: string[] = [];
+    const pricesAToB = moved(rosterA, rosterB, e.fromA, e.teamAId, toB);
+    const pricesBToA = moved(rosterB, rosterA, e.fromB, e.teamBId, toA);
+    for (const playerId of toB) ownerOf.set(playerId, e.teamBId);
+    for (const playerId of toA) ownerOf.set(playerId, e.teamAId);
     // Il registro annulla il movimento dei prezzi e lascia passare il solo
     // conguaglio: vedi il commento su `buildTeam`.
     ledger.set(e.teamAId, ledger.get(e.teamAId)! + e.creditsAToB + pricesAToB - pricesBToA);
