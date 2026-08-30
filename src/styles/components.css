@@ -916,3 +916,138 @@
   }
 }
 
+
+/* ── LA CASELLA DI ROSA E LA SUA MODALE ─────────────────────────────────────
+
+   LA CASELLA È UN BOTTONE, e sembra ancora una riga. È il punto delicato di
+   questo blocco: il gesto è diventato vero (svincolo, scambio, inserimento,
+   rinnovo finiscono nel log), quindi il bersaglio deve essere grande e
+   raggiungibile da tastiera — un `<button>`, non uno `<span>` con un
+   `click` — ma la griglia delle otto rose resta una griglia da LEGGERE, e
+   otto bottoni con bordo e sfondo per ventotto caselle l'avrebbero resa
+   illeggibile. Da qui la forma: nessun bordo e nessun fondo a riposo, il
+   fondo compare sotto il puntatore e il contorno di fuoco è quello di
+   sistema, pieno, perché chi naviga da tastiera deve vedere dov'è. */
+.roster-slot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  margin: 0 -4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.roster-slot:hover {
+  background: var(--panel-inner);
+}
+.roster-slot--empty {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.roster-slot--empty:hover {
+  color: var(--text-sec);
+}
+
+/* La modale è più larga delle conferme (400px): dentro ci sta un elenco di
+   giocatori con prezzo e un bottone per riga, e a 400px quella riga andava a
+   capo tre volte. Il bordo NON è quello rosso delle conferme distruttive: da
+   qui si svincola, ma si anche inserisce e si rinnova, e vestire di rosso
+   quattro gesti di cui due sono ordinari è una bugia di colore. */
+.roster-slot-dialog {
+  width: min(560px, 100%);
+  border-color: var(--border);
+}
+.roster-slot-dialog__title {
+  margin-bottom: 14px;
+}
+.roster-slot-dialog__tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.roster-slot-dialog__tab {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-sec);
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 4px 8px;
+  cursor: pointer;
+}
+.roster-slot-dialog__tab[aria-selected="true"] {
+  color: var(--text-primary);
+  font-weight: 700;
+  border-bottom-color: var(--accent);
+}
+.roster-slot-dialog__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.roster-slot-dialog__panel .hint-text {
+  margin: 0;
+}
+.roster-slot-dialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.roster-slot-dialog__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow: auto;
+}
+.roster-slot-dialog__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--panel-inner);
+  font-size: 13px;
+  color: var(--text-mid);
+}
+.roster-slot-dialog__row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.roster-slot-dialog__row-price {
+  font-family: var(--font-mono);
+  color: var(--text-sec);
+  flex: none;
+}
+.roster-slot-dialog__check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+.roster-slot-dialog__error {
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--stop-red);
+}
+.roster-slot-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}

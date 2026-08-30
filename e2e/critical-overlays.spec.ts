@@ -67,7 +67,7 @@ test("assignment, undo and import confirmations preserve critical visibility and
     await page.locator("#void-confirm-apply").click();
     await expect(page.locator("#void-confirm-overlay")).toHaveCount(0);
     await expect(strip).toBeFocused();
-    await expect(page.getByText("Nessun acquisto registrato.")).toBeVisible();
+    await expect(page.getByText("Nessun gesto registrato.")).toBeVisible();
 
     await page.locator("#auction-log-import-file").setInputFiles({
       name: "synthetic-empty.v1.json",

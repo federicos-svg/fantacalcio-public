@@ -100,6 +100,20 @@ test("every new panel is readable at 390, 768 and 1280 without sideways scrollin
       viewport.width < 640 ? 1 : viewport.width < 1024 ? 2 : 4,
     );
     expect(await fitsHorizontally(page)).toBe(true);
+
+    // 5. LA MODALE DELLA CASELLA DI ROSA, che è la superficie più stretta di
+    //    questo batch: due schede affiancate, un elenco di giocatori con
+    //    prezzo e bottone per riga, e campi a piena larghezza. A 390px è
+    //    esattamente la forma che va di lato se qualcuno mette due colonne
+    //    dove ci sta una sola.
+    await page.locator(".roster-slot--empty").first().click();
+    await expect(page.locator("#roster-slot-title")).toBeInViewport();
+    await expect(page.locator("#roster-slot-tab-manuale")).toBeInViewport();
+    await expect(page.locator("#roster-slot-tab-rinnovo")).toBeInViewport();
+    await expect(page.locator("#roster-slot-close")).toBeInViewport();
+    expect(await fitsHorizontally(page)).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#roster-slot-overlay")).toHaveCount(0);
   }
 
   expect(externalRequests).toEqual([]);

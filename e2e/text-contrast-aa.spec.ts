@@ -398,6 +398,51 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
   }
   await sweepScene("rose");
 
+  // ── ROSE, LA CASELLA APERTA ───────────────────────────────────────────────
+  //
+  // La scena «rose» qui sopra misura la griglia a modale CHIUSA, ed e lo stato
+  // in cui si trova finche nessuno clicca. Ma i quattro pannelli della modale
+  // sono la superficie di testo NUOVA di questo batch — schede, campi, elenchi,
+  // e la frase di rifiuto in rosso — e `measureAllText` non salta quel testo:
+  // semplicemente non c'e nulla da saltare finche la modale non e aperta.
+  // Senza questo giro meta di cio che si e appena scritto resterebbe fuori
+  // sorveglianza, ed e la meta che parla quando qualcosa va storto.
+  //
+  // DUE APERTURE, perche le coppie di pannelli sono due e non condividono
+  // nemmeno un campo: la casella vuota porta inserimento e rinnovo, quella
+  // occupata svincolo e scambio.
+  await page.locator(".roster-slot--empty").first().click();
+  await expect(page.locator("#roster-slot-title")).toBeVisible();
+  await sweepScene("rose/casella-vuota-manuale");
+  await page.locator("#roster-slot-tab-rinnovo").click();
+  await sweepScene("rose/casella-vuota-rinnovo");
+  await page.locator("#roster-slot-close").click();
+
+  // Serve una casella OCCUPATA, e l'unico modo onesto di averne una e
+  // riempirla col gesto vero: la scena non semina uno stato che l'app non
+  // avrebbe potuto raggiungere da se.
+  await page.locator(".roster-slot--empty").first().click();
+  await page.locator("#roster-slot-manual-player").selectOption({ index: 1 });
+  await page.locator("#roster-slot-manual-price").fill("7");
+  await page.locator("#roster-slot-manual-apply").click();
+  await expect(page.locator("#roster-slot-overlay")).toHaveCount(0);
+
+  await page.locator(".roster-slot--filled").first().click();
+  await sweepScene("rose/casella-piena-svincolo");
+  // IL RIFIUTO IN ROSSO E IL TESTO CHE PIU DI OGNI ALTRO DEVE ESSERE LEGGIBILE,
+  // e vive dietro un gesto: si provoca invece di aspettarlo.
+  await page.locator("#roster-slot-release-apply").click();
+  await expect(page.locator("#roster-slot-error")).toBeVisible();
+  expect(
+    await textContrast(page, "#roster-slot-error"),
+    "rose/casella: la frase di rifiuto",
+  ).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+  await sweepScene("rose/casella-piena-rifiuto");
+  await page.locator("#roster-slot-tab-scambio").click();
+  await page.locator("#roster-slot-trade-team").selectOption({ index: 1 });
+  await sweepScene("rose/casella-piena-scambio");
+  await page.locator("#roster-slot-close").click();
+
   // ── IMPOSTAZIONI ──────────────────────────────────────────────────────────
   await gotoScreen(page, "Impostazioni");
   // Un partecipante creato prima della spazzata: senza nessuno in archivio la
@@ -408,10 +453,10 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
   await page.locator("#new-person-name").fill("Persona Sintetica");
   await page.locator("#add-person").click();
   await expect(page.locator("#league-people-list .person-id-value")).toHaveCount(1);
-  // CINQUE sezioni: la spazzata le attraversa tutte. `archivio` entra qui
-  // insieme alle altre — l'unione di id di `openSettingsSection` non è più
-  // ferma, quindi il giro a mano che serviva prima non serve più.
-  for (const section of ["teams", "riconferme", "schede", "archivio", "status"] as const) {
+  // QUATTRO sezioni: la spazzata le attraversa tutte. Erano cinque finché
+  // esisteva «Riconferme pre-asta»: quel pannello è stato rimosso e il rinnovo
+  // vive adesso nella modale della pagina Rose, il cui testo si misura da lì.
+  for (const section of ["teams", "schede", "archivio", "status"] as const) {
     await openSettingsSection(page, section);
     await sweepScene(`impostazioni/${section}`);
   }

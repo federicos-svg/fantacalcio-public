@@ -1512,7 +1512,6 @@ export function fillOpponentPrecedents(root: ParentNode, props: OpponentPreceden
 export const SETTINGS_ICONS = {
   people:
     '<circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 14c0-2.4 2-3.9 4.5-3.9s4.5 1.5 4.5 3.9"/><path d="M11 3.4a2.5 2.5 0 0 1 0 4.6"/><path d="M12.6 10.4c1.3.6 1.9 1.8 1.9 3.6"/>',
-  confirm: '<path d="M2 8.4 6 12l8-8"/>',
   status: '<path d="M1.5 8h3l2-4.6L9.6 12l1.9-4h3"/>',
   // Un foglio scritto: la scheda che si compila a mano prima dell'asta.
   scheda: '<rect x="2.5" y="1.5" width="11" height="13" rx="1.5"/><path d="M5 5h6"/><path d="M5 8h6"/><path d="M5 11h3.5"/>',
@@ -1599,17 +1598,30 @@ export function renderImpostazioniScreen(
   return wrap;
 }
 
-// ── Rose screen — read-only recap derived from the real AuctionState ─────────
-// The grid itself is REAL data (names/prices/slots from the event log via
-// reduce, done by the caller) — no marker on the grid. Only the interactive
-// controls (svincola / assegna / modifica budget) are non-operative and
-// carry the DEV badge; clicking them opens a mock modal via onMockAction.
+// ── Rose screen — la griglia derivata, e le porte che ci si aprono sopra ─────
+//
+// La griglia resta una proiezione dello stato vero (nomi, prezzi, slot da
+// `reduce()`, fatti dal chiamante): qui dentro non si deriva niente e non si
+// scrive niente. Quello che e cambiato e che ogni casella e adesso una PORTA:
+// un clic chiama `onSlotOpen` col posto, il ruolo e — se occupata — il
+// giocatore che ci sta, e chi apre la modale (src/main.ts) e l'unico che tocca
+// il log. L'unico controllo ancora finto e la matita sul credito residuo, che
+// porta il suo badge DEV e apre la modale dimostrativa.
 export function renderRoseScreen(
   aState: AuctionState,
   fantaTeamIds: readonly string[],
   selfId: string,
   pool: readonly ListonePlayer[],
   onMockAction: (title: string, body: string) => void,
+  /** Un clic su una casella: posto, ruolo, il giocatore che ci sta (o `null` se
+   *  e vuota) e l'id del bottone cliccato, perche chi apre la modale sappia
+   *  dove riportare il fuoco alla chiusura. Qui non si mutua nulla. */
+  onSlotOpen: (
+    fantaTeamId: string,
+    role: Role,
+    playerId: string | null,
+    slotElementId: string,
+  ) => void,
   // Display labels keyed by the stable team id; an id absent here shows itself.
   teamLabels: Readonly<Record<string, string>> = {},
   // Pure accounting rows from packages/engine/src/auction.ts opponentTier1(),
@@ -1639,7 +1651,17 @@ export function renderRoseScreen(
 
   for (const teamId of fantaTeamIds) {
     const team = aState.teams[teamId];
-    grid.appendChild(renderRoseCard(teamId, team, selfId, poolIndex, onMockAction, teamLabels[teamId] ?? teamId));
+    grid.appendChild(
+      renderRoseCard(
+        teamId,
+        team,
+        selfId,
+        poolIndex,
+        onMockAction,
+        onSlotOpen,
+        teamLabels[teamId] ?? teamId,
+      ),
+    );
   }
 
   wrap.appendChild(grid);
@@ -1714,6 +1736,12 @@ function renderRoseCard(
   selfId: string,
   poolIndex: ReadonlyMap<string, ListonePlayer>,
   onMockAction: (title: string, body: string) => void,
+  onSlotOpen: (
+    fantaTeamId: string,
+    role: Role,
+    playerId: string | null,
+    slotElementId: string,
+  ) => void,
   label: string,
 ): HTMLElement {
   const card = document.createElement("div");
@@ -1778,19 +1806,24 @@ function renderRoseCard(
         price.style.cssText = `font-family:${C.mono};color:oklch(0.78 0.006 270);flex:none;`;
         price.textContent = String(entry.price);
 
-        const svincola = document.createElement("span");
-        svincola.textContent = "✕";
-        svincola.title = "Svincola (non attivo)";
-        svincola.style.cssText = `color:${C.textDim};cursor:pointer;font-size:12px;flex:none;`;
-        svincola.appendChild(devStaticBadge());
-        svincola.addEventListener("click", () =>
-          onMockAction(
-            `Svincolare ${playerDisplay}?`,
-            `Funzione non attiva in questa shell di sviluppo. In produzione libererebbe lo slot ${role} senza restituire i ${entry.price} cr al budget residuo (azione irreversibile). Nessuna azione eseguita.`,
-          ),
+        // LA RIGA INTERA E LA PORTA, non una crocetta da centrare. Il gesto
+        // che si vuole fare su un giocatore in rosa e uno solo — «apri le
+        // opzioni per lui» — e restringerlo a un bersaglio di dodici pixel lo
+        // renderebbe piu difficile proprio la sera in cui si ha fretta.
+        const open = document.createElement("button");
+        open.type = "button";
+        open.className = "roster-slot roster-slot--filled";
+        open.id = `roster-slot-${teamId}-${role}-${i}`;
+        open.title = `${playerDisplay}: svincola o scambia`;
+        open.setAttribute(
+          "aria-label",
+          `${playerDisplay}, ${entry.price} crediti, ${label}: svincola o scambia`,
+        );
+        open.addEventListener("click", () =>
+          onSlotOpen(teamId, role, entry.playerId, open.id),
         );
 
-        row.appendChild(name);
+        open.appendChild(name);
         // Tranche 2b (#231): a riconferma pre-asta (LEAGUE_RULES.md §4) is
         // seeded into the roster by reduce() with seq < 0 (strictly below
         // every live event's seq, which is always >= 0 by schema — see
@@ -1806,22 +1839,21 @@ function renderRoseCard(
           // guaranteed accessible name for a plain <span> across AT — the
           // badge needs its own explicit name.
           confirmedBadge.setAttribute("aria-label", "Riconfermato");
-          row.appendChild(confirmedBadge);
+          open.appendChild(confirmedBadge);
         }
-        row.appendChild(price);
-        row.appendChild(svincola);
+        open.appendChild(price);
+        row.appendChild(open);
       } else {
-        const empty = document.createElement("span");
-        empty.textContent = "— assegna";
-        empty.title = "Assegna giocatore d'ufficio (non attivo)";
-        empty.style.cssText = `font-size:11px;color:${C.textDim};cursor:pointer;`;
-        empty.appendChild(devStaticBadge());
-        empty.addEventListener("click", () =>
-          onMockAction(
-            "Assegna giocatore",
-            `Funzione non attiva in questa shell di sviluppo. In produzione permetterebbe di assegnare un giocatore a questo slot ${role} per ${label}. Nessuna azione eseguita.`,
-          ),
+        const empty = document.createElement("button");
+        empty.type = "button";
+        empty.className = "roster-slot roster-slot--empty";
+        empty.id = `roster-slot-${teamId}-${role}-${i}`;
+        empty.textContent = "— inserisci o rinnova";
+        empty.setAttribute(
+          "aria-label",
+          `Slot ${ROLE_LABEL_SING[role]} libero di ${label}: inserisci o rinnova un giocatore`,
         );
+        empty.addEventListener("click", () => onSlotOpen(teamId, role, null, empty.id));
         row.appendChild(empty);
       }
 

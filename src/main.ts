@@ -37,7 +37,7 @@ import {
   ROSTER_REQUIREMENTS,
   COST_FLOOR,
 } from "../packages/engine/src/types.js";
-import { reduce } from "../packages/engine/src/reduce.js";
+import { reduce, standingPlayerIds } from "../packages/engine/src/reduce.js";
 import {
   maxSafe,
   opponentTier1,
@@ -78,8 +78,19 @@ import { budgetPlan } from "../packages/engine/src/budget.js";
 import {
   purchaseFeasibility,
   recordPurchase,
+  recordRelease,
+  recordTrade,
+  releaseFeasibility,
+  tradeFeasibility,
   type ProposedPurchase,
+  type ReleaseViolation,
+  type TradeViolation,
 } from "../packages/engine/src/feasibility.js";
+import {
+  renewalCandidates,
+  type RenewalCandidate,
+  type RenewalEmptyReason,
+} from "./renewals.js";
 import type { ConfirmationInput } from "../packages/engine/src/confirmations.js";
 import { C, escHtml, roleChipHtml, renderRoleChip } from "./ui/theme.js";
 import { ROLE_LABELS, ROLE_LABEL_SING } from "./ui/labels.js";
@@ -177,7 +188,6 @@ import {
   readQuarantinedConfirmations,
   type LoadConfirmationsResult,
 } from "./confirmationsStore.js";
-import { CONFIRMATION_LIMITS } from "../packages/engine/src/confirmations.js";
 import { renderClubBadge } from "./ui/serieA.js";
 import { activateAccessibleDialog } from "./ui/accessibleDialog.js";
 import {
@@ -364,16 +374,44 @@ interface AssignState {
   price: string;
 }
 
-// Post-review fix (round 2, #285) — see AppState.riconfermeDraft's own doc
-// comment for why this exists. `playerId`/`priceRaw` are the exact raw
-// strings read from the DOM at the moment of the failed attempt (not the
-// parsed price) — so re-rendering the form can put them back byte-for-byte,
-// including a value that failed to parse as a price at all.
-interface RiconfermeDraft {
-  readonly seatId: string;
+/** I quattro pannelli, a coppie: quali due si vedono lo decide `playerId`. */
+type RosterSlotPanel = "manuale" | "rinnovo" | "svincolo" | "scambio";
+
+interface RosterSlotModal {
+  readonly fantaTeamId: string;
   readonly role: Role;
-  readonly playerId: string;
-  readonly priceRaw: string;
+  /** `null` = casella vuota. */
+  readonly playerId: string | null;
+  /** Quale dei due pannelli della coppia e in primo piano. */
+  panel: RosterSlotPanel;
+  /** Il rifiuto dell'ultima azione tentata, o stringa vuota. */
+  error: string;
+  /** L'altra squadra scelta nel pannello scambio, o `null`. */
+  tradePartnerId: string | null;
+  /** I playerId che si riceverebbero dall'altra squadra. */
+  tradeIncoming: readonly string[];
+  /** Dove torna il fuoco alla chiusura: la casella da cui la modale e nata. */
+  readonly returnFocusId: string;
+  /**
+   * CIO CHE E STATO DIGITATO, tenuto qui e non nel DOM.
+   *
+   * Il difetto che questo chiude ha gia colpito questo repository una volta:
+   * il pannello riconferme delle Impostazioni ricostruiva i suoi campi a ogni
+   * `render()`, e un rifiuto li svuotava — cioe cancellava le scelte
+   * dell'operatore nell'istante esatto in cui il messaggio d'errore gli
+   * chiedeva di correggerle (fix 6, #285). Qui la modale si ridipinge per
+   * molte ragioni ordinarie — cambio scheda, scelta della squadra, spunta di
+   * un giocatore, comparsa di un errore — e ognuna di quelle avrebbe fatto la
+   * stessa cosa. I campi leggono da qui e ci riscrivono a ogni tasto: nessun
+   * ramo puo perdere quello che l'operatore ha scritto.
+   *
+   * Restano stringhe GREZZE, mai numeri: «7.5» e «» sono due input diversi e
+   * devono restare distinguibili fino al punto in cui vengono giudicati.
+   */
+  manualPlayerId: string;
+  manualPriceRaw: string;
+  releaseCreditsRaw: string;
+  tradeCreditsRaw: string;
 }
 
 interface MockModal {
@@ -474,24 +512,6 @@ interface AppState {
   // playerId is invalid — see reduce()'s fail-closed throw, audit fix 3).
   confirmations: ConfirmationInput[];
   confirmationsRecovery: ConfirmationsRecoveryState;
-  // Human-readable outcome of the last riconferme panel action (Impostazioni
-  // → Riconferme pre-asta). Cleared on the next successful action, on
-  // navigating away from the current screen/settings tab (post-review fix,
-  // round 2, #285 — a stale refusal must never sit there indefinitely), or
-  // together with `riconfermeDraft` below.
-  riconfermeError: string;
-  // Post-review fix (round 2, #285): the picker/price the operator was
-  // filling in for ONE seat+role slot when the last riconferme action was
-  // REFUSED — render() rebuilds the whole panel from scratch on every call
-  // (see renderRiconfermeSettings), which used to silently wipe an
-  // uncontrolled <select>/<input> back to blank right when the operator
-  // most needed to see (and fix) what they had just typed. Captured only at
-  // the moment of a failed attempt (confirmRiconferma/applyRiconfermeBatch),
-  // never on every keystroke — the rest of this form stays deliberately
-  // uncontrolled (see confirmRiconferma's own doc comment). Cleared on a
-  // successful apply and alongside `riconfermeError` (they are always set/
-  // cleared as a pair).
-  riconfermeDraft: RiconfermeDraft | null;
   // Set only when a mutation (purchase/void) could not be persisted — a
   // distinct surface from `error` (assign-form validation) so a storage
   // failure is never confused with "you typed something wrong", and stays
@@ -555,6 +575,19 @@ interface AppState {
   pendingImportRaw: string | null;
   error: string;
   mockModal: MockModal | null;
+  /**
+   * LA CASELLA DI ROSA APERTA, o `null` quando non c'e nessuna modale.
+   *
+   * Una sola chiave per quattro pannelli, e non quattro stati separati, perche
+   * i quattro non possono coesistere: una casella e vuota o e piena, e la
+   * modale mostra la coppia che corrisponde. Due stati indipendenti
+   * renderebbero rappresentabile «svincola» su uno slot vuoto, cioe uno stato
+   * che non esiste e che qualcuno prima o poi dovrebbe controllare a mano.
+   *
+   * `playerId === null` = casella vuota (inserimento manuale + rinnovo);
+   * valorizzato = casella occupata (svincolo + scambio).
+   */
+  rosterSlot: RosterSlotModal | null;
   // Listone Svincolati pool — see ui/listone.ts for the auto-load/
   // localStorage/manual-override priority. Never fed to the decision
   // engine, never promotes a gate.
@@ -941,8 +974,6 @@ const state: AppState = {
     bootConfirmationsResult,
     bootLogEvents.length === 0,
   ),
-  riconfermeError: "",
-  riconfermeDraft: null,
   persistenceError: "",
   call: { playerName: "", role: "", club: "", selectedPlayer: null },
   nominationContextOpen: false,
@@ -959,6 +990,7 @@ const state: AppState = {
   pendingImportRaw: null,
   error: "",
   mockModal: null,
+  rosterSlot: null,
   pool: bootPool.pool,
   poolSource: bootPool.source,
   poolModifiedAt: null,
@@ -1141,15 +1173,19 @@ const POOL_NOTICE_NAME_LIMIT = 6;
  * enforce structural + semantic validity before anything reaches `state`.
  */
 function standingPurchasedPlayerIds(): string[] {
-  const voided = new Set<number>();
-  for (const e of state.log) {
-    if (e.type === "VOID") voided.add(e.targetSeq);
-  }
-  const fromLog = state.log.flatMap((e) =>
-    e.type === "PURCHASE" && !voided.has(e.seq) ? [e.playerId] : [],
-  );
-  const fromConfirmations = state.confirmations.map((c) => c.playerId);
-  return [...fromLog, ...fromConfirmations];
+  // DELEGA AL MOTORE, invece di ripetere qui la sua aritmetica. Quando questa
+  // funzione e stata scritta il log conosceva solo acquisti e annullamenti, e
+  // rifarne il conto in cinque righe era onesto. Da quando ci sono svincoli e
+  // scambi la domanda e cambiata — non «chi e stato comprato» ma «chi e ancora
+  // di qualcuno» — e una seconda copia della risposta avrebbe cominciato a
+  // divergere dalla prima: un giocatore svincolato sarebbe rimasto «acquistato»
+  // qui, e questa guardia avrebbe rifiutato uno scambio di listone innocuo.
+  //
+  // `standingPlayerIds` da la stessa risposta di `reduce()` SENZA MAI LANCIARE,
+  // che e la ragione per cui questa funzione non chiamava reduce e continua a
+  // non chiamarlo: gira sul percorso asincrono di caricamento del pool, dove
+  // un'eccezione salterebbe il `render()`.
+  return standingPlayerIds(state.log, state.confirmations);
 }
 
 /** "Alfa Uno, Beta Due e altri 3" — names read from the pool that still
@@ -2428,6 +2464,7 @@ function render(): void {
         SELF_ID,
         auctionDisplayPool(),
         openMock,
+        openRosterSlot,
         seatLabelMap(),
         // Tier-1 accounting lives HERE, not on the Asta screen — see the UI
         // invariant in docs/FRONTEND_STRUCTURE.md and renderOpponentTier1Panel.
@@ -2438,12 +2475,6 @@ function render(): void {
     wrapper.appendChild(
       renderImpostazioniScreen(SETTINGS_AREAS, state.settingsArea, (id) => {
         state.settingsArea = id;
-        // Fix 7 (PX, round 2, #285): a riconferme refusal must not sit there
-        // sticky forever — switching settings tabs (away from riconferme OR
-        // back onto it) is a "next render" the operator clearly asked for,
-        // so it is exactly where the stale error/draft gets cleared.
-        state.riconfermeError = "";
-        state.riconfermeDraft = null;
         render();
         // Keep the keyboard where it was: arrow-key navigation re-renders.
         focusAfterRender(`settings-tab-${id}`);
@@ -2457,6 +2488,14 @@ function render(): void {
 
   if (state.pendingImportRaw !== null) {
     app.appendChild(renderImportConfirm());
+    return;
+  }
+
+  // LA MODALE DELLA CASELLA DI ROSA sta sopra la schermata, come le altre, e
+  // come le altre esce da qui: `activateAccessibleDialog` si prende il fuoco da
+  // sé, quindi il ripristino del fuoco piu sotto non deve girare.
+  if (state.rosterSlot) {
+    app.appendChild(renderRosterSlotModal(state.rosterSlot));
     return;
   }
 
@@ -2655,7 +2694,10 @@ function exportQuarantinedConfirmations(): void {
   const recovery = state.confirmationsRecovery;
   const raw = "quarantinedRaw" in recovery ? recovery.quarantinedRaw : null;
   if (raw === null) {
-    state.riconfermeError =
+    // ERA `state.riconfermeError`, che aveva un solo lettore: il pannello
+    // Riconferme delle Impostazioni. Quel pannello non c'e piu, e un errore
+    // scritto in un campo che nessuno stampa e un errore che non esiste.
+    state.persistenceError =
       "Export non disponibile: il payload non valido non è presente in memoria.";
     render();
     return;
@@ -3008,12 +3050,6 @@ function renderHeader(): HTMLElement {
     link.setAttribute("role", "button");
     link.addEventListener("click", () => {
       state.screen = item.screen;
-      // Fix 7 (PX, round 2, #285): see the settingsArea callback's own
-      // comment above — a top-level screen switch is the same kind of
-      // "next render the operator asked for" that clears a sticky
-      // riconferme refusal, not just a successful save.
-      state.riconfermeError = "";
-      state.riconfermeDraft = null;
       scrollToTop();
       render();
     });
@@ -3348,12 +3384,6 @@ const SETTINGS_AREAS: readonly SettingsArea[] = [
     title: "Partecipanti e squadre",
     icon: SETTINGS_ICONS.people,
     body: () => renderLeagueTeamsSettings(),
-  },
-  {
-    id: "riconferme",
-    title: "Riconferme pre-asta",
-    icon: SETTINGS_ICONS.confirm,
-    body: () => renderRiconfermeSettings(),
   },
   {
     id: "schede",
@@ -3857,361 +3887,16 @@ function renderLeagueTeamsSettings(): HTMLElement {
   return panel;
 }
 
-// ── Riconferme pre-asta (LEAGUE_RULES.md §4, tranche 2b, #231) ─────────────
-// Editable ONLY while state.log.length === 0: once the live auction has
-// started, a riconferma is an accounting fact fixed at t=0 (reduce() seeds
-// it BEFORE the log replays — packages/engine/src/reduce.ts), and changing
-// it mid-asta would be an out-of-band mutation the append-only log exists
-// to prevent. If Owner ever wants a mid-asta correction, that is a new
-// business rule (fascia C) — not anticipated here, only declared.
+// LE RICONFERME NON VIVONO PIU QUI. Erano un pannello delle Impostazioni: una
+// griglia di otto squadre per tre ruoli, lontana dalla schermata in cui una
+// rosa si guarda davvero. Adesso il rinnovo e un pannello della modale che si
+// apre cliccando una casella VUOTA della pagina Rose — nello stesso posto e con
+// lo stesso gesto dell'inserimento manuale, che e l'altro modo in cui un
+// giocatore entra in quella casella. Vedi renderSlotRenewalPanel.
 //
-// Picker is DAL LISTONE only (playerId = listonePlayerKey): with an empty
-// pool there is nothing to pick from, and this panel does not offer a
-// manual-id fallback — a deliberate limit, not an oversight (a hand-typed
-// id could not be cross-checked against the player's real role or against
-// a duplicate purchase later).
-//
-// The "due stagioni di fila" constraint (LEAGUE_RULES.md §4) needs last
-// SEASON's confirmations, which this app has no source for — the archived
-// design's proposal (c): NOT enforced, declared with a fixed, non-blocking
-// notice below rather than silently ignored. From this season on, the
-// persisted batch makes the constraint checkable starting next season
-// (`previouslyConfirmedPlayerIds` as a future engine extension) — not built
-// here.
-const RICONFERME_ROLES: readonly Role[] = (
-  Object.keys(CONFIRMATION_LIMITS) as Role[]
-).filter((role) => CONFIRMATION_LIMITS[role] > 0);
-
-function renderRiconfermeSettings(): HTMLElement {
-  const panel = document.createElement("section");
-  panel.id = "riconferme-settings";
-  panel.className = "riconferme-settings";
-  panel.setAttribute("aria-label", "Riconferme pre-asta");
-
-  const intro = document.createElement("p");
-  intro.className = "hint-text";
-  intro.textContent =
-    "Riconferme pre-asta (regolamento di lega, §4): fino a un difensore, un centrocampista e un attaccante per squadra, al prezzo pagato la scorsa stagione. Non sono acquisti: vengono sottratte al budget iniziale e a uno slot per ruolo PRIMA che l'asta cominci.";
-  panel.appendChild(intro);
-
-  const twoSeasonsNote = document.createElement("p");
-  twoSeasonsNote.id = "riconferme-two-seasons-note";
-  twoSeasonsNote.className = "hint-text riconferme-two-seasons-note";
-  twoSeasonsNote.textContent =
-    'Vincolo "due stagioni di fila" (regolamento di lega, §4) NON applicato automaticamente: l\'app non dispone dello storico della stagione precedente. Verifica manualmente prima di confermare.';
-  panel.appendChild(twoSeasonsNote);
-
-  const editable = state.log.length === 0;
-  if (editable) {
-    // Fix 8 (PX polish, round 2, #285): a fixed, always-visible warning that
-    // this editability is temporary — same idiom as twoSeasonsNote above,
-    // not a dismissible banner, so it cannot be missed-then-forgotten.
-    const lockNote = document.createElement("p");
-    lockNote.id = "riconferme-lock-note";
-    lockNote.className = "hint-text riconferme-two-seasons-note";
-    lockNote.textContent =
-      "Al primo acquisto live lo storico asta smette di essere vuoto: da quel momento questo pannello diventa di sola lettura e le riconferme non sono più modificabili.";
-    panel.appendChild(lockNote);
-  }
-  if (!editable) {
-    const readonlyNote = document.createElement("p");
-    readonlyNote.id = "riconferme-readonly-note";
-    readonlyNote.setAttribute("role", "note");
-    readonlyNote.className = "hint-text";
-    readonlyNote.textContent =
-      "Sola lettura: lo storico asta non è vuoto. Le riconferme fissano il budget e la rosa iniziali di ogni squadra a t=0 e non si modificano a partita iniziata.";
-    panel.appendChild(readonlyNote);
-  }
-
-  const poolAvailable = state.pool.length > 0;
-  if (editable && !poolAvailable) {
-    const emptyListoneNote = document.createElement("p");
-    emptyListoneNote.id = "riconferme-empty-listone-note";
-    emptyListoneNote.className = "hint-text";
-    emptyListoneNote.textContent =
-      "Carica il listone (Asta → Ricerca giocatore) per selezionare i giocatori da riconfermare: qui non è previsto un inserimento manuale dell'identificativo.";
-    panel.appendChild(emptyListoneNote);
-  }
-
-  // purchasedPlayerIds already includes every riconferma (reduce() seeds
-  // them, see deriveAuctionState()'s own comment) — with the log empty in
-  // the only state this panel is editable, it is EXACTLY the set of
-  // already-confirmed players, so it doubles as "not selectable again"
-  // without a second source of truth.
-  const aState = deriveAuctionState();
-  const usedPlayerIds = new Set(aState.purchasedPlayerIds);
-  const pool = auctionDisplayPool();
-  // resolvePlayerDisplayName takes the O(1) index (audit r2 D2 refactor,
-  // post-#285): #285 built the riconferme panel against the pre-refactor
-  // array signature, so this call site needs the index form alongside the
-  // array `pool` above, which the eligible-players filter below still uses.
-  const poolIndex = auctionDisplayIndex();
-
-  const grid = document.createElement("div");
-  grid.className = "riconferme-grid";
-  grid.id = "riconferme-grid";
-
-  for (const seatId of FANTA_TEAM_IDS) {
-    const seatRow = document.createElement("div");
-    seatRow.className = "riconferme-seat";
-    seatRow.id = `riconferme-seat-${seatId}`;
-
-    const seatLabelEl = document.createElement("div");
-    seatLabelEl.className = "riconferme-seat__label";
-    seatLabelEl.textContent = displayTeamLabel(seatId);
-    seatRow.appendChild(seatLabelEl);
-
-    const slots = document.createElement("div");
-    slots.className = "riconferme-seat__slots";
-
-    for (const role of RICONFERME_ROLES) {
-      const slot = document.createElement("div");
-      slot.className = "riconferme-slot";
-      slot.id = `riconferme-slot-${seatId}-${role}`;
-      slot.appendChild(renderRoleChip(role));
-
-      const existing = state.confirmations.find(
-        (c) => c.fantaTeamId === seatId && c.role === role,
-      );
-      if (existing) {
-        const display = resolvePlayerDisplayName(existing.playerId, poolIndex);
-        const name = document.createElement("span");
-        name.className = "riconferme-slot__name";
-        name.textContent = display;
-        name.title = display;
-        slot.appendChild(name);
-
-        const price = document.createElement("span");
-        price.className = "riconferme-slot__price";
-        price.textContent = `${existing.price} cr`;
-        slot.appendChild(price);
-
-        if (editable) {
-          const removeBtn = document.createElement("button");
-          removeBtn.type = "button";
-          removeBtn.id = `riconferme-remove-${seatId}-${role}`;
-          removeBtn.className = "btn btn--icon";
-          removeBtn.textContent = "✕";
-          // Fix 5 (a11y, round 2, #285): `title` alone is a weak accessible
-          // name (tooltip-only for most AT, absent on touch) — aria-label is
-          // the real accessible name here, kept byte-identical to the
-          // tooltip so the two never say different things.
-          removeBtn.title = `Rimuovi la riconferma di ${display}`;
-          removeBtn.setAttribute("aria-label", removeBtn.title);
-          removeBtn.addEventListener("click", () =>
-            removeRiconferma(seatId, role),
-          );
-          slot.appendChild(removeBtn);
-        }
-      } else if (editable && poolAvailable) {
-        // Role-filtered: "ruolo derivato non editabile" — the operator
-        // never picks a role separately, only a player already of the role
-        // this slot/column represents. Already-used players (confirmed
-        // elsewhere in this batch) are excluded, never shown as pickable.
-        const eligible = pool.filter(
-          (p) => p.role === role && !usedPlayerIds.has(listonePlayerKey(p)),
-        );
-
-        // Fix 6 (PX, round 2, #285): the last REFUSED attempt for exactly
-        // this slot, if any — see AppState.riconfermeDraft's own doc
-        // comment. render() rebuilds this <select>/<input> from scratch on
-        // every call, so without this the operator's picks silently vanish
-        // right when the error message tells them to fix something.
-        const draft =
-          state.riconfermeDraft &&
-          state.riconfermeDraft.seatId === seatId &&
-          state.riconfermeDraft.role === role
-            ? state.riconfermeDraft
-            : null;
-
-        const seatLabelText = displayTeamLabel(seatId);
-        const roleLabelText = ROLE_LABEL_SING[role];
-
-        const select = document.createElement("select");
-        select.id = `riconferme-picker-${seatId}-${role}`;
-        select.className = "field-input riconferme-slot__picker";
-        select.setAttribute(
-          "aria-label",
-          `Riconferma ${roleLabelText} per ${seatLabelText}`,
-        );
-        const emptyOpt = document.createElement("option");
-        emptyOpt.value = "";
-        emptyOpt.textContent =
-          eligible.length === 0
-            ? "— nessun giocatore disponibile —"
-            : "— seleziona —";
-        select.appendChild(emptyOpt);
-        for (const p of eligible) {
-          const opt = document.createElement("option");
-          opt.value = listonePlayerKey(p);
-          opt.textContent = p.club ? `${p.name} (${p.club})` : p.name;
-          select.appendChild(opt);
-        }
-        select.disabled = eligible.length === 0;
-        if (
-          draft &&
-          eligible.some((p) => listonePlayerKey(p) === draft.playerId)
-        ) {
-          select.value = draft.playerId;
-        }
-        slot.appendChild(select);
-
-        const priceInput = document.createElement("input");
-        priceInput.id = `riconferme-price-${seatId}-${role}`;
-        priceInput.type = "number";
-        priceInput.min = "1";
-        priceInput.step = "1";
-        priceInput.setAttribute("inputmode", "numeric");
-        priceInput.placeholder = "prezzo";
-        priceInput.title =
-          "Prezzo pagato per questo giocatore la scorsa stagione (crediti interi).";
-        priceInput.setAttribute(
-          "aria-label",
-          `Prezzo riconferma ${roleLabelText} per ${seatLabelText}`,
-        );
-        priceInput.className = "field-input riconferme-slot__price-input";
-        priceInput.disabled = eligible.length === 0;
-        if (draft) priceInput.value = draft.priceRaw;
-        slot.appendChild(priceInput);
-
-        const confirmBtn = document.createElement("button");
-        confirmBtn.type = "button";
-        confirmBtn.id = `riconferme-confirm-${seatId}-${role}`;
-        confirmBtn.className = "btn btn--secondary";
-        confirmBtn.textContent = "Conferma";
-        confirmBtn.setAttribute(
-          "aria-label",
-          `Conferma riconferma ${roleLabelText} per ${seatLabelText}`,
-        );
-        confirmBtn.disabled = eligible.length === 0;
-        confirmBtn.addEventListener("click", () =>
-          confirmRiconferma(seatId, role),
-        );
-        slot.appendChild(confirmBtn);
-      } else {
-        const empty = document.createElement("span");
-        empty.className = "riconferme-slot__empty";
-        empty.textContent = "—";
-        slot.appendChild(empty);
-      }
-
-      slots.appendChild(slot);
-    }
-
-    seatRow.appendChild(slots);
-    grid.appendChild(seatRow);
-  }
-  panel.appendChild(grid);
-
-  if (state.riconfermeError) {
-    const error = document.createElement("p");
-    error.id = "riconferme-error";
-    error.className = "riconferme-error";
-    error.setAttribute("role", "alert");
-    error.textContent = state.riconfermeError;
-    panel.appendChild(error);
-  }
-
-  return panel;
-}
-
-/**
- * Fix 6 (PX, round 2, #285): renders a riconferme-panel failure and then
- * scrolls `#riconferme-error` into view — the panel can be tall enough
- * (up to 8 seats × 3 slots) that an error appended at the very bottom lands
- * off-screen from wherever the operator was editing, and role="alert" alone
- * only guarantees it is ANNOUNCED, not that it is visible. `render()` is
- * synchronous (direct DOM rebuild, no framework tick), so the element is
- * already in the document by the time this call returns.
- */
-function renderRiconfermeFailure(): void {
-  render();
-  document
-    .getElementById("riconferme-error")
-    ?.scrollIntoView({ block: "nearest" });
-}
-
-/**
- * Reads the pending pick straight from the DOM at click time (same
- * uncontrolled-input style as the rest of this file's forms — e.g.
- * renderMomentoAsta's priceInput) rather than tracking it in AppState:
- * nothing here re-renders while the operator is choosing, so the browser's
- * own input value already IS the source of truth until this click.
- */
-function confirmRiconferma(seatId: string, role: Role): void {
-  const select = document.getElementById(
-    `riconferme-picker-${seatId}-${role}`,
-  ) as HTMLSelectElement | null;
-  const priceInput = document.getElementById(
-    `riconferme-price-${seatId}-${role}`,
-  ) as HTMLInputElement | null;
-  if (!select || !priceInput) return;
-
-  const playerId = select.value;
-  const priceRaw = priceInput.value;
-  const draft: RiconfermeDraft = { seatId, role, playerId, priceRaw };
-  if (!playerId) {
-    state.riconfermeError =
-      "Seleziona un giocatore dal listone prima di confermare.";
-    state.riconfermeDraft = draft;
-    renderRiconfermeFailure();
-    return;
-  }
-  const price = parsePositiveIntegerPrice(priceRaw);
-  if (price === null) {
-    state.riconfermeError =
-      "Prezzo non valido: inserisci un numero intero positivo (l'importo pagato la scorsa stagione).";
-    state.riconfermeDraft = draft;
-    renderRiconfermeFailure();
-    return;
-  }
-
-  // "ogni azione ricompone il batch" — replace this seat+role's entry (if
-  // any) and re-submit the WHOLE batch, never a partial/incremental update.
-  const next = [
-    ...state.confirmations.filter(
-      (c) => !(c.fantaTeamId === seatId && c.role === role),
-    ),
-    { fantaTeamId: seatId, playerId, role, price },
-  ];
-  applyRiconfermeBatch(next, draft);
-}
-
-function removeRiconferma(seatId: string, role: Role): void {
-  const next = state.confirmations.filter(
-    (c) => !(c.fantaTeamId === seatId && c.role === role),
-  );
-  applyRiconfermeBatch(next);
-}
-
-/**
- * validate-prima-di-scrivere -> saveConfirmations, humanized errors in the
- * panel (confirmationErrorText for the engine's 7 violation codes).
- * `draftOnFailure` (fix 6, round 2, #285) is the form values to restore into
- * state on a REFUSED attempt — omitted by removeRiconferma, which has no
- * picker/price of its own to preserve.
- */
-function applyRiconfermeBatch(
-  next: readonly ConfirmationInput[],
-  draftOnFailure?: RiconfermeDraft,
-): void {
-  const result = saveConfirmations(browserStorage, next, FANTA_TEAM_IDS);
-  if (!result.ok) {
-    state.riconfermeDraft = draftOnFailure ?? null;
-    state.riconfermeError =
-      result.reason === "invalid-semantic"
-        ? confirmationErrorText(result.issues.map((issue) => issue.violation))
-        : result.reason === "invalid-schema"
-          ? "Dati non validi: riprova la selezione."
-          : `Impossibile salvare (${result.message}).`;
-    renderRiconfermeFailure();
-    return;
-  }
-  state.confirmations = [...next];
-  state.riconfermeError = "";
-  state.riconfermeDraft = null;
-  render();
-}
+// Quello che NON e cambiato: le riconferme restano un batch validato e
+// riscritto per intero a ogni azione (`saveConfirmations`), restano dichiarabili
+// solo a log vuoto, e restano fuori dall'event log. E cambiato dove si clicca.
 
 // ── SCHEDE GRUPPO ESPERTI — la schermata che le compila ─────────────────────
 //
@@ -7320,7 +7005,14 @@ function renderZona4(aState: AuctionState): HTMLElement {
   header.style.cssText = `display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;`;
   const title = document.createElement("div");
   title.className = "panel-title";
-  title.textContent = "STORICO ACQUISTI";
+  // IL TITOLO SI ALLUNGA INVECE DI CAMBIARE. Il pannello adesso elenca anche
+  // svincoli e scambi, e chiamarlo ancora «acquisti» sarebbe un'etichetta che
+  // contraddice cio che etichetta. Ma «STORICO ACQUISTI» resta la testa della
+  // frase, e non per pigrizia: e la stringa con cui piu di una spec trova
+  // questo pannello (`hasText`, che e una sottostringa), ed e il nome con cui
+  // Pico lo chiama da un anno. Si aggiunge quello che mancava, non si
+  // ribattezza quello che c'era.
+  title.textContent = "STORICO ACQUISTI, SVINCOLI E SCAMBI";
   const actions = document.createElement("div");
   actions.style.cssText =
     "display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;";
@@ -7353,19 +7045,29 @@ function renderZona4(aState: AuctionState): HTMLElement {
   header.appendChild(actions);
   panel.appendChild(header);
 
-  // Build visible entries from log (PURCHASE only, not voided)
+  // LO STORICO MOSTRA TUTTI I GESTI, non piu i soli acquisti.
+  //
+  // Finche il log conosceva solo PURCHASE e VOID, «storico acquisti» e «storico»
+  // erano la stessa cosa. Da quando ci sono svincoli e scambi non lo sono piu, e
+  // un pannello che li nascondesse sarebbe la cosa peggiore che questo pannello
+  // possa essere: un elenco che sembra completo e non lo e. Un credito residuo
+  // che non torna e un giocatore che ha cambiato rosa devono avere, qui, la riga
+  // che li spiega.
   const voided = new Set<number>();
   for (const e of state.log) {
     if (e.type === "VOID") voided.add(e.targetSeq);
   }
   const entries = state.log
-    .filter((e) => e.type === "PURCHASE" && !voided.has(e.seq))
+    .filter(
+      (e): e is Exclude<AuctionEvent, { type: "VOID" }> =>
+        e.type !== "VOID" && !voided.has(e.seq),
+    )
     .reverse();
 
   if (entries.length === 0) {
     const empty = document.createElement("div");
     empty.style.cssText = `font-size:14px;color:${C.textDim};padding:10px 0;`;
-    empty.textContent = "Nessun acquisto registrato.";
+    empty.textContent = "Nessun gesto registrato.";
     panel.appendChild(empty);
     return panel;
   }
@@ -7377,8 +7079,11 @@ function renderZona4(aState: AuctionState): HTMLElement {
   const poolIndex = auctionDisplayIndex();
 
   entries.forEach((entry, idx) => {
-    if (entry.type !== "PURCHASE") return;
     const isLatest = idx === 0;
+    if (entry.type !== "PURCHASE") {
+      panel.appendChild(renderStoricoNonPurchaseRow(entry, isLatest, poolIndex));
+      return;
+    }
     const time = entry.ts
       ? new Date(entry.ts).toLocaleTimeString("it-IT", {
           hour: "2-digit",
@@ -7465,7 +7170,825 @@ function renderZona4(aState: AuctionState): HTMLElement {
   return panel;
 }
 
+/**
+ * La riga di uno SVINCOLO o di uno SCAMBIO nello storico.
+ *
+ * Sta a parte dalla riga d'acquisto e non prova a riusarla: un acquisto ha un
+ * giocatore, un ruolo, un prezzo e una squadra, e sono quattro cose che stanno
+ * in quattro colonne. Uno scambio ne ha DUE, di squadre, piu due elenchi che
+ * possono essere vuoti; uno svincolo ha due cifre che non vanno confuse — il
+ * prezzo pagato e i crediti tornati. Piegare la riga d'acquisto per farceli
+ * stare avrebbe prodotto colonne che dicono cose diverse a seconda della riga,
+ * che e il modo piu affidabile di rendere illeggibile una tabella.
+ *
+ * L'annullamento e lo stesso di sempre, e passa dagli stessi cancelli: un VOID
+ * su uno svincolo lo compensa, `voidFeasibility` rifiuta quello che
+ * renderebbe il log irriducibile.
+ */
+function renderStoricoNonPurchaseRow(
+  entry: Extract<AuctionEvent, { type: "RELEASE" | "TRADE" }>,
+  isLatest: boolean,
+  poolIndex: ReadonlyMap<string, ListonePlayer>,
+): HTMLElement {
+  const row = document.createElement("div");
+  row.style.cssText = `display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid ${C.border};font-size:14px;`;
+
+  const time = entry.ts
+    ? new Date(entry.ts).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })
+    : "";
+  const names = (ids: readonly string[]): string =>
+    ids.length === 0
+      ? "nessuno"
+      : ids.map((id) => resolvePlayerDisplayName(id, poolIndex)).join(", ");
+
+  const label =
+    entry.type === "RELEASE"
+      ? `svincola ${resolvePlayerDisplayName(entry.playerId, poolIndex)} · ${entry.creditsReturned} cr restituiti`
+      : `scambio · ${displayTeamLabel(entry.teamAId)} cede ${names(entry.fromA)} · ${displayTeamLabel(entry.teamBId)} cede ${names(entry.fromB)}${
+          entry.creditsAToB === 0
+            ? " · nessun conguaglio"
+            : entry.creditsAToB > 0
+              ? ` · ${entry.creditsAToB} cr da ${displayTeamLabel(entry.teamAId)}`
+              : ` · ${-entry.creditsAToB} cr da ${displayTeamLabel(entry.teamBId)}`
+        }`;
+
+  const left = document.createElement("div");
+  left.style.cssText = `display:flex;align-items:center;gap:14px;color:${C.textMid};flex-wrap:wrap;`;
+  left.innerHTML =
+    `<span style="font-family:${C.mono};color:${C.textDim};">${escHtml(time)}</span>` +
+    `<span class="storico-gesto" style="font-size:11.5px;color:${C.textSec};border:1px solid ${C.border};border-radius:5px;padding:1px 7px;white-space:nowrap;">${entry.type === "RELEASE" ? "svincolo" : "scambio"}</span>` +
+    `<span>${escHtml(label)}</span>` +
+    (entry.type === "RELEASE"
+      ? `<span style="color:${C.textDim};">${escHtml(displayTeamLabel(entry.fantaTeamId))}</span>`
+      : "");
+  row.appendChild(left);
+
+  const undoLink = document.createElement("span");
+  undoLink.id = `undo-purchase-${entry.seq}`;
+  undoLink.tabIndex = 0;
+  undoLink.setAttribute("role", "button");
+  undoLink.style.cssText = `font-size:12.5px;font-weight:600;color:${C.textAccent};cursor:pointer;white-space:nowrap;`;
+  undoLink.textContent = "Annulla";
+  undoLink.title =
+    entry.type === "RELEASE" ? "Annulla questo svincolo" : "Annulla questo scambio";
+  undoLink.addEventListener("click", () => {
+    state.confirmVoidSeq = entry.seq;
+    state.confirmVoidLabel = label;
+    state.confirmVoidIsLatest = isLatest;
+    render();
+  });
+  undoLink.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      undoLink.click();
+    }
+  });
+  row.appendChild(undoLink);
+  return row;
+}
+
 // ── Void confirm overlay ──────────────────────────────────────────────────────
+// ── LA CASELLA DI ROSA — quattro gesti dietro un clic ───────────────────────
+//
+// PERCHE QUI E NON IN views.ts. La griglia delle rose e una proiezione pura e
+// resta tale: chiama `onSlotOpen` e non sa che cosa succede dopo. Tutto cio che
+// TOCCA il log — fattibilita, append, persistenza, rifiuti — vive in questo
+// file, dove vive ogni altra mutazione dell'app. Il confine e lo stesso di
+// sempre, e non si sposta perche una modale e comoda da scrivere accanto a chi
+// la apre.
+//
+// LE DUE COPPIE, e perche sono coppie.
+//
+//   CASELLA VUOTA -> «inserisci a mano» + «rinnova». Sono i due modi in cui un
+//   giocatore entra in una rosa fuori dalla chiamata: uno lo si sceglie dal
+//   listone di quest'anno, l'altro viene dalla rosa dell'anno scorso e porta
+//   con se il prezzo pagato allora (LEAGUE_RULES.md §4). Metterli nello stesso
+//   posto e la ragione di questo batch: erano due schermate diverse, e una
+//   delle due era nascosta nelle Impostazioni.
+//
+//   CASELLA PIENA -> «svincola» + «scambia». Sono i due modi in cui un
+//   giocatore ESCE da una rosa. Il primo restituisce crediti, il secondo lo
+//   sostituisce con qualcun altro piu un conguaglio.
+//
+// NIENTE E DIMOSTRATIVO. Prima di questo batch ognuno di questi quattro gesti
+// apriva una modale DEV STATICO che spiegava che cosa avrebbe fatto in
+// produzione. Adesso lo fa, e ogni rifiuto e quello vero del motore, tradotto.
+
+function openRosterSlot(
+  fantaTeamId: string,
+  role: Role,
+  playerId: string | null,
+  returnFocusId: string,
+): void {
+  state.rosterSlot = {
+    fantaTeamId,
+    role,
+    playerId,
+    panel: playerId === null ? "manuale" : "svincolo",
+    error: "",
+    tradePartnerId: null,
+    tradeIncoming: [],
+    returnFocusId,
+    manualPlayerId: "",
+    manualPriceRaw: "",
+    releaseCreditsRaw: "",
+    tradeCreditsRaw: "",
+  };
+  render();
+}
+
+function closeRosterSlot(returnFocusTo: string | null): void {
+  state.rosterSlot = null;
+  render();
+  if (returnFocusTo !== null) focusAfterRender(returnFocusTo);
+}
+
+/**
+ * Il percorso di scrittura condiviso da svincolo e scambio: stessa sequenza di
+ * `commitPurchase` — evento gia ammesso dal motore, `saveAuctionLog` con il log
+ * corrente come baseline (la guardia di concorrenza fra schede), e il log in
+ * memoria che NON avanza oltre cio che e stato davvero persistito.
+ *
+ * Torna `true` se ha attecchito. Il chiamante decide che cosa fare dopo: i due
+ * gesti chiudono la modale, ma non e questa funzione a poterlo decidere.
+ */
+function commitRosterLogChange(newLog: readonly AuctionEvent[]): boolean {
+  const saveResult = saveAuctionLog(
+    browserStorage,
+    newLog,
+    FANTA_TEAM_IDS,
+    state.log,
+    state.confirmations,
+  );
+  if (!saveResult.ok) {
+    handleSaveFailure(saveResult);
+    return false;
+  }
+  state.log = newLog as AuctionEvent[];
+  state.persistenceError = "";
+  return true;
+}
+
+const RELEASE_VIOLATION_MESSAGES: Record<ReleaseViolation, string> = {
+  "unknown-team": "Squadra non riconosciuta: ricarica la pagina e riprova.",
+  "player-not-on-roster":
+    "Questo giocatore non risulta più nella rosa di questa squadra: lo storico potrebbe essere cambiato in un'altra scheda. Ricarica prima di riprovare.",
+  "credits-invalid": "Crediti non validi: inserisci un numero intero.",
+  "credits-negative": "Uno svincolo non può togliere crediti: inserisci zero o un numero positivo.",
+  "credits-above-price":
+    "Non puoi recuperare più di quanto è stato pagato: sarebbero crediti che nessuno ha messo sul tavolo.",
+};
+
+const TRADE_VIOLATION_MESSAGES: Record<TradeViolation, string> = {
+  "unknown-team": "Squadra non riconosciuta: ricarica la pagina e riprova.",
+  "same-team": "Scegli una squadra diversa: uno scambio con se stessi non è uno scambio.",
+  "empty-trade": "Non si muove niente: scegli almeno un giocatore da ricevere o un conguaglio.",
+  "duplicate-player": "Lo stesso giocatore compare due volte nella proposta.",
+  "player-not-on-roster":
+    "Uno dei giocatori scelti non risulta più nella rosa della sua squadra: ricarica prima di riprovare.",
+  "role-overflow":
+    "Lo scambio porterebbe una delle due rose oltre il tetto di un ruolo (3P/9D/9C/7A): il regolamento §8 chiede di mantenerla.",
+  "credits-invalid": "Conguaglio non valido: inserisci un numero intero (anche negativo).",
+  "insufficient-budget": "Il conguaglio manderebbe uno dei due budget sotto zero.",
+  "breaks-hard-reserve":
+    "Dopo lo scambio una delle due rose non sarebbe più completabile: non resterebbe un credito per ogni casella ancora vuota.",
+};
+
+/** L'etichetta del silenzio del pannello rinnovo. Sette motivi, sette frasi:
+ *  ognuno indica un ostacolo diverso, e fonderli direbbe a chi legge di
+ *  risolvere la cosa sbagliata. */
+const RENEWAL_EMPTY_MESSAGES: Record<RenewalEmptyReason, string> = {
+  "role-not-renewable":
+    "Il regolamento (§4) non ammette riconferme di portieri: questo slot si riempie solo dall'asta o a mano.",
+  "role-limit-reached":
+    "Questa squadra ha già usato la sua riconferma per questo ruolo: il regolamento (§4) ne concede una sola.",
+  "no-history":
+    "Nessuno storico d'asta caricato: senza le rose dell'anno scorso non si sa chi sia rinnovabile. Si carica in Impostazioni → Archivio avversari.",
+  "seat-unassigned":
+    "Questo posto non ha ancora una persona assegnata: senza persona non esiste uno storico da cui rinnovare. Si assegna in Impostazioni → Squadre.",
+  "no-previous-season":
+    "Lo storico caricato non porta nessuna etichetta di stagione leggibile: «stagione precedente» non ha una definizione, e non se ne inventa una.",
+  "no-pool":
+    "Nessun listone caricato: il ruolo di un giocatore si legge dal listone di quest'anno, e senza quello non si può dire chi è rinnovabile in questo slot.",
+  "no-renewable":
+    "Nessun giocatore rinnovabile per questo ruolo: o non ne aveva, o è stato già riconfermato l'anno scorso (§4: mai due stagioni di fila), o non è più nel listone.",
+};
+
+function rosterSlotSubject(slot: RosterSlotModal): {
+  readonly team: string;
+  readonly playerLabel: string;
+  readonly price: number | null;
+} {
+  const aState = deriveAuctionState();
+  const entry =
+    slot.playerId === null
+      ? undefined
+      : aState.teams[slot.fantaTeamId]?.roster.find((r) => r.playerId === slot.playerId);
+  return {
+    team: displayTeamLabel(slot.fantaTeamId),
+    playerLabel:
+      slot.playerId === null
+        ? ""
+        : resolvePlayerDisplayName(slot.playerId, auctionDisplayIndex()),
+    price: entry?.price ?? null,
+  };
+}
+
+function renderRosterSlotModal(slot: RosterSlotModal): HTMLElement {
+  const subject = rosterSlotSubject(slot);
+  const returnFocus = slot.returnFocusId;
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.id = "roster-slot-overlay";
+
+  const modal = document.createElement("div");
+  modal.className = "confirmation-dialog roster-slot-dialog";
+  modal.setAttribute("aria-labelledby", "roster-slot-title");
+
+  const title = document.createElement("h2");
+  title.id = "roster-slot-title";
+  title.className = "roster-slot-dialog__title";
+  title.textContent =
+    slot.playerId === null
+      ? `Slot ${ROLE_LABEL_SING[slot.role]} libero — ${subject.team}`
+      : `${subject.playerLabel} — ${subject.team}`;
+  modal.appendChild(title);
+
+  // I DUE PANNELLI SONO SCHEDE, non due colonne affiancate: a 390px due colonne
+  // diventano due strisce illeggibili, e la scelta fra i due gesti e sempre
+  // netta — non si svincola «un po'» mentre si scambia.
+  const tabs = document.createElement("div");
+  tabs.className = "roster-slot-dialog__tabs";
+  tabs.setAttribute("role", "tablist");
+  const panels: readonly { id: RosterSlotPanel; label: string }[] =
+    slot.playerId === null
+      ? [
+          { id: "manuale", label: "Inserisci a mano" },
+          { id: "rinnovo", label: "Rinnova dall'anno scorso" },
+        ]
+      : [
+          { id: "svincolo", label: "Svincola" },
+          { id: "scambio", label: "Scambia" },
+        ];
+  for (const p of panels) {
+    const tab = document.createElement("button");
+    tab.type = "button";
+    tab.id = `roster-slot-tab-${p.id}`;
+    tab.className = "roster-slot-dialog__tab";
+    tab.setAttribute("role", "tab");
+    tab.setAttribute("aria-selected", String(slot.panel === p.id));
+    tab.setAttribute("aria-controls", "roster-slot-panel");
+    tab.textContent = p.label;
+    if (slot.panel === p.id) tab.dataset.dialogInitialFocus = "";
+    tab.addEventListener("click", () => {
+      slot.panel = p.id;
+      // Un rifiuto appartiene al pannello che lo ha prodotto: portarselo
+      // dietro cambiando scheda farebbe leggere un errore accanto a un modulo
+      // che non lo ha mai generato.
+      slot.error = "";
+      render();
+      focusAfterRender(`roster-slot-tab-${p.id}`);
+    });
+    tabs.appendChild(tab);
+  }
+  modal.appendChild(tabs);
+
+  const panel = document.createElement("div");
+  panel.id = "roster-slot-panel";
+  panel.className = "roster-slot-dialog__panel";
+  panel.setAttribute("role", "tabpanel");
+  panel.setAttribute("aria-labelledby", `roster-slot-tab-${slot.panel}`);
+  if (slot.panel === "manuale") renderSlotManualPanel(panel, slot);
+  else if (slot.panel === "rinnovo") renderSlotRenewalPanel(panel, slot);
+  else if (slot.panel === "svincolo") renderSlotReleasePanel(panel, slot, subject.price);
+  else renderSlotTradePanel(panel, slot);
+  modal.appendChild(panel);
+
+  if (slot.error) {
+    const error = document.createElement("p");
+    error.id = "roster-slot-error";
+    error.className = "roster-slot-dialog__error";
+    error.setAttribute("role", "alert");
+    error.textContent = slot.error;
+    modal.appendChild(error);
+  }
+
+  const close = document.createElement("div");
+  close.className = "roster-slot-dialog__actions";
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.id = "roster-slot-close";
+  closeBtn.className = "btn btn--secondary";
+  closeBtn.textContent = "Chiudi";
+  closeBtn.addEventListener("click", () => closeRosterSlot(returnFocus));
+  close.appendChild(closeBtn);
+  modal.appendChild(close);
+
+  overlay.appendChild(modal);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) closeRosterSlot(returnFocus);
+  });
+  activateAccessibleDialog(overlay, modal, () => closeRosterSlot(returnFocus));
+  return overlay;
+}
+
+/** Inserimento manuale: una riga di listone libera del ruolo giusto, un prezzo,
+ *  e lo stesso `purchaseFeasibility` che governa ogni acquisto dell'asta. Non
+ *  esiste una porta di servizio che aggiri i cancelli perche il gesto e stato
+ *  fatto da qui invece che dalla chiamata. */
+function renderSlotManualPanel(panel: HTMLElement, slot: RosterSlotModal): void {
+  const aState = deriveAuctionState();
+  const owned = new Set(aState.purchasedPlayerIds);
+  const eligible = state.pool.filter(
+    (p) => p.role === slot.role && !owned.has(listonePlayerKey(p)),
+  );
+
+  const intro = document.createElement("p");
+  intro.className = "hint-text";
+  intro.textContent =
+    "Assegna un giocatore a questa casella senza passare dalla chiamata. Vale come un acquisto a tutti gli effetti: entra nel log dell'asta e paga budget e slot.";
+  panel.appendChild(intro);
+
+  if (state.pool.length === 0) {
+    const empty = document.createElement("p");
+    empty.id = "roster-slot-manual-empty";
+    empty.className = "hint-text";
+    empty.textContent =
+      "Nessun listone caricato: senza righe non c'è nessun giocatore da assegnare. Si carica dalla schermata Asta.";
+    panel.appendChild(empty);
+    return;
+  }
+
+  const pickField = document.createElement("label");
+  pickField.className = "roster-slot-dialog__field";
+  const pickLabel = document.createElement("span");
+  pickLabel.className = "field-label";
+  pickLabel.textContent = `Giocatore (${ROLE_LABEL_SING[slot.role]} ancora libero)`;
+  const pick = document.createElement("select");
+  pick.id = "roster-slot-manual-player";
+  pick.className = "field-input";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = eligible.length === 0 ? "— nessun libero di questo ruolo —" : "— seleziona —";
+  pick.appendChild(none);
+  for (const p of eligible) {
+    const opt = document.createElement("option");
+    opt.value = listonePlayerKey(p);
+    opt.textContent = p.club ? `${p.name} (${p.club})` : p.name;
+    pick.appendChild(opt);
+  }
+  pick.disabled = eligible.length === 0;
+  if (eligible.some((p) => listonePlayerKey(p) === slot.manualPlayerId)) {
+    pick.value = slot.manualPlayerId;
+  }
+  pick.addEventListener("change", () => {
+    slot.manualPlayerId = pick.value;
+  });
+  pickField.appendChild(pickLabel);
+  pickField.appendChild(pick);
+  panel.appendChild(pickField);
+
+  const priceField = document.createElement("label");
+  priceField.className = "roster-slot-dialog__field";
+  const priceLabel = document.createElement("span");
+  priceLabel.className = "field-label";
+  priceLabel.textContent = "Prezzo pagato (crediti)";
+  const price = document.createElement("input");
+  price.id = "roster-slot-manual-price";
+  price.className = "field-input";
+  price.type = "number";
+  price.min = "1";
+  price.step = "1";
+  price.inputMode = "numeric";
+  price.disabled = eligible.length === 0;
+  price.value = slot.manualPriceRaw;
+  price.addEventListener("input", () => {
+    slot.manualPriceRaw = price.value;
+  });
+  priceField.appendChild(priceLabel);
+  priceField.appendChild(price);
+  panel.appendChild(priceField);
+
+  const apply = document.createElement("button");
+  apply.type = "button";
+  apply.id = "roster-slot-manual-apply";
+  apply.className = "btn btn--primary";
+  apply.textContent = "Assegna";
+  apply.disabled = eligible.length === 0;
+  apply.addEventListener("click", () => commitSlotManual(slot));
+  panel.appendChild(apply);
+}
+
+function commitSlotManual(slot: RosterSlotModal): void {
+  const playerId = slot.manualPlayerId;
+  const priceRaw = slot.manualPriceRaw;
+  if (!playerId) {
+    slot.error = "Scegli un giocatore dal listone prima di assegnare.";
+    render();
+    return;
+  }
+  const price = parsePositiveIntegerPrice(priceRaw);
+  if (price === null) {
+    slot.error = "Prezzo non valido: inserisci un numero intero positivo.";
+    render();
+    return;
+  }
+  const aState = deriveAuctionState();
+  const proposed: ProposedPurchase = {
+    playerId,
+    role: slot.role,
+    fantaTeamId: slot.fantaTeamId,
+    price,
+  };
+  const feasibility = purchaseFeasibility(aState, proposed);
+  if (!feasibility.ok) {
+    slot.error = feasibilityErrorText(feasibility.violations, slot.role);
+    render();
+    return;
+  }
+  const newLog = recordPurchase(state.log, aState, proposed, new Date().toISOString());
+  if (!commitRosterLogChange(newLog)) {
+    slot.error = "";
+    render();
+    return;
+  }
+  closeRosterSlot(slot.returnFocusId);
+}
+
+/** Rinnovo: l'elenco lo deriva src/renewals.ts dallo storico d'asta gia
+ *  caricato. Qui non si filtra niente da capo — si stampa quello che quel
+ *  modulo dice, silenzi compresi. */
+function renderSlotRenewalPanel(panel: HTMLElement, slot: RosterSlotModal): void {
+  const intro = document.createElement("p");
+  intro.className = "hint-text";
+  intro.textContent =
+    "Riconferma un giocatore della rosa dell'anno scorso al prezzo pagato allora (regolamento §4). Non è un acquisto: viene sottratto al budget iniziale e a uno slot PRIMA che l'asta cominci.";
+  panel.appendChild(intro);
+
+  // LA RICONFERMA SEMINA LO STATO A t=0, e per questo smette di essere
+  // modificabile appena l'asta comincia: reduce() la mette in rosa PRIMA di
+  // rigiocare il log, quindi aggiungerne una a partita iniziata riscriverebbe
+  // il punto di partenza sotto acquisti gia registrati.
+  if (state.log.length > 0) {
+    const locked = document.createElement("p");
+    locked.id = "roster-slot-renewal-locked";
+    locked.setAttribute("role", "note");
+    locked.className = "hint-text";
+    locked.textContent =
+      "Lo storico dell'asta non è vuoto: le riconferme fissano rosa e budget iniziali a t=0 e non si dichiarano a partita cominciata. Per mettere qui un giocatore usa l'inserimento manuale.";
+    panel.appendChild(locked);
+    return;
+  }
+
+  const reading = renewalCandidates({
+    history: state.auctionHistory,
+    seats: state.leagueRoster.seats,
+    pool: state.pool,
+    confirmations: state.confirmations,
+    purchasedPlayerIds: deriveAuctionState().purchasedPlayerIds,
+    fantaTeamId: slot.fantaTeamId,
+    role: slot.role,
+  });
+
+  if (reading.kind === "empty") {
+    const empty = document.createElement("p");
+    empty.id = "roster-slot-renewal-empty";
+    empty.dataset.reason = reading.reason;
+    empty.className = "hint-text";
+    empty.textContent = RENEWAL_EMPTY_MESSAGES[reading.reason];
+    panel.appendChild(empty);
+    return;
+  }
+
+  const season = document.createElement("p");
+  season.id = "roster-slot-renewal-season";
+  season.className = "hint-text";
+  season.textContent = `Rinnovabili dalla stagione ${reading.season}, al prezzo pagato allora:`;
+  panel.appendChild(season);
+
+  const list = document.createElement("ul");
+  list.id = "roster-slot-renewal-list";
+  list.className = "roster-slot-dialog__list";
+  for (const candidate of reading.candidates) {
+    list.appendChild(renderRenewalRow(slot, candidate));
+  }
+  panel.appendChild(list);
+}
+
+function renderRenewalRow(slot: RosterSlotModal, candidate: RenewalCandidate): HTMLElement {
+  const row = document.createElement("li");
+  row.className = "roster-slot-dialog__row";
+
+  const who = document.createElement("span");
+  who.className = "roster-slot-dialog__row-name";
+  who.textContent = candidate.club ? `${candidate.name} (${candidate.club})` : candidate.name;
+  row.appendChild(who);
+
+  const price = document.createElement("span");
+  price.className = "roster-slot-dialog__row-price";
+  price.textContent = `${candidate.price} cr`;
+  row.appendChild(price);
+
+  const apply = document.createElement("button");
+  apply.type = "button";
+  apply.id = `roster-slot-renew-${candidate.playerId}`;
+  apply.className = "btn btn--secondary";
+  apply.textContent = "Rinnova";
+  apply.setAttribute("aria-label", `Rinnova ${candidate.name} a ${candidate.price} crediti`);
+  apply.addEventListener("click", () => commitSlotRenewal(slot, candidate));
+  row.appendChild(apply);
+  return row;
+}
+
+/** «Ogni azione ricompone il batch»: la riconferma non si aggiunge in
+ *  incrementale, si riscrive l'intero elenco e lo si rivalida. E la stessa
+ *  regola che governava il pannello nelle Impostazioni, ed e l'unica che tiene
+ *  i limiti di ruolo e il budget veri per costruzione invece che per
+ *  attenzione. */
+function commitSlotRenewal(slot: RosterSlotModal, candidate: RenewalCandidate): void {
+  const next: ConfirmationInput[] = [
+    ...state.confirmations.filter(
+      (c) => !(c.fantaTeamId === slot.fantaTeamId && c.role === slot.role),
+    ),
+    {
+      fantaTeamId: slot.fantaTeamId,
+      playerId: candidate.playerId,
+      role: slot.role,
+      price: candidate.price,
+    },
+  ];
+  const result = saveConfirmations(browserStorage, next, FANTA_TEAM_IDS);
+  if (!result.ok) {
+    slot.error =
+      result.reason === "invalid-semantic"
+        ? confirmationErrorText(result.issues.map((issue) => issue.violation))
+        : result.reason === "invalid-schema"
+          ? "Dati non validi: riprova la selezione."
+          : `Impossibile salvare (${result.message}).`;
+    render();
+    return;
+  }
+  state.confirmations = next;
+  closeRosterSlot(slot.returnFocusId);
+}
+
+/** Svincolo: un campo solo, e accanto il numero del regolamento §5 come FATTO
+ *  citato, non come valore precompilato. Precompilarlo sarebbe il sistema che
+ *  sceglie: §5 vale per l'aggiudicazione oltre budget, ogni altro svincolo si
+ *  concorda al tavolo, e l'app non sa quale dei due sta guardando. */
+function renderSlotReleasePanel(
+  panel: HTMLElement,
+  slot: RosterSlotModal,
+  pricePaid: number | null,
+): void {
+  const intro = document.createElement("p");
+  intro.className = "hint-text";
+  intro.textContent =
+    pricePaid === null
+      ? "Libera la casella e restituisce alla squadra i crediti che dichiari."
+      : `Pagato ${pricePaid} cr. Libera la casella e restituisce alla squadra i crediti che dichiari: la differenza resta spesa.`;
+  panel.appendChild(intro);
+
+  if (pricePaid !== null) {
+    const rule = document.createElement("p");
+    rule.id = "roster-slot-release-rule";
+    rule.className = "hint-text";
+    rule.textContent = `Regolamento §5 (aggiudicazione oltre budget): il recupero sarebbe ${Math.ceil(pricePaid / 2)} cr. Ogni altro svincolo si concorda al tavolo, quindi il numero lo scrivi tu.`;
+    panel.appendChild(rule);
+  }
+
+  const field = document.createElement("label");
+  field.className = "roster-slot-dialog__field";
+  const label = document.createElement("span");
+  label.className = "field-label";
+  label.textContent = "Crediti che tornano alla squadra";
+  const input = document.createElement("input");
+  input.id = "roster-slot-release-credits";
+  input.className = "field-input";
+  input.type = "number";
+  input.min = "0";
+  input.step = "1";
+  input.inputMode = "numeric";
+  if (pricePaid !== null) input.max = String(pricePaid);
+  input.value = slot.releaseCreditsRaw;
+  input.addEventListener("input", () => {
+    slot.releaseCreditsRaw = input.value;
+  });
+  field.appendChild(label);
+  field.appendChild(input);
+  panel.appendChild(field);
+
+  const apply = document.createElement("button");
+  apply.type = "button";
+  apply.id = "roster-slot-release-apply";
+  apply.className = "btn btn--danger";
+  apply.textContent = "Svincola";
+  apply.addEventListener("click", () => commitSlotRelease(slot));
+  panel.appendChild(apply);
+}
+
+function commitSlotRelease(slot: RosterSlotModal): void {
+  if (slot.playerId === null) return;
+  const text = slot.releaseCreditsRaw.trim();
+  // Il campo vuoto NON e uno zero: uno svincolo a zero e una decisione, e va
+  // scritta. Indovinarla farebbe bruciare l'intero prezzo per una distrazione.
+  if (text.length === 0) {
+    slot.error =
+      "Scrivi quanti crediti tornano alla squadra. Se non ne torna nessuno, scrivi 0: è una decisione, non un campo lasciato in bianco.";
+    render();
+    return;
+  }
+  if (!/^\d+$/.test(text)) {
+    slot.error = "Crediti non validi: inserisci un numero intero, zero compreso.";
+    render();
+    return;
+  }
+  const aState = deriveAuctionState();
+  const proposed = {
+    playerId: slot.playerId,
+    fantaTeamId: slot.fantaTeamId,
+    creditsReturned: Number(text),
+  };
+  const feasibility = releaseFeasibility(aState, proposed);
+  if (!feasibility.ok) {
+    slot.error = feasibility.violations
+      .map((v) => RELEASE_VIOLATION_MESSAGES[v] ?? v)
+      .join(" ");
+    render();
+    return;
+  }
+  const newLog = recordRelease(state.log, aState, proposed, new Date().toISOString());
+  if (!commitRosterLogChange(newLog)) {
+    slot.error = "";
+    render();
+    return;
+  }
+  closeRosterSlot(slot.returnFocusId);
+}
+
+/** Scambio: questo giocatore esce, si sceglie l'altra squadra e quali dei suoi
+ *  giocatori entrano, piu il conguaglio. La forma e libera (decisione di Pico)
+ *  e la guardia sta nel motore: qui non si ricontrolla nessuna regola, si
+ *  traduce il suo rifiuto. */
+function renderSlotTradePanel(panel: HTMLElement, slot: RosterSlotModal): void {
+  const aState = deriveAuctionState();
+
+  const intro = document.createElement("p");
+  intro.className = "hint-text";
+  intro.textContent =
+    "Questo giocatore passa all'altra squadra. Scegli chi ricevi in cambio (nessuno, uno o più) e l'eventuale conguaglio: i prezzi pagati viaggiano con i giocatori, solo il conguaglio muove i crediti.";
+  panel.appendChild(intro);
+
+  const teamField = document.createElement("label");
+  teamField.className = "roster-slot-dialog__field";
+  const teamLabel = document.createElement("span");
+  teamLabel.className = "field-label";
+  teamLabel.textContent = "Squadra con cui scambiare";
+  const teamPick = document.createElement("select");
+  teamPick.id = "roster-slot-trade-team";
+  teamPick.className = "field-input";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "— seleziona —";
+  teamPick.appendChild(none);
+  for (const id of FANTA_TEAM_IDS) {
+    if (id === slot.fantaTeamId) continue;
+    const opt = document.createElement("option");
+    opt.value = id;
+    opt.textContent = displayTeamLabel(id);
+    teamPick.appendChild(opt);
+  }
+  teamPick.value = slot.tradePartnerId ?? "";
+  teamPick.addEventListener("change", () => {
+    slot.tradePartnerId = teamPick.value === "" ? null : teamPick.value;
+    slot.tradeIncoming = [];
+    slot.error = "";
+    render();
+    focusAfterRender("roster-slot-trade-team");
+  });
+  teamField.appendChild(teamLabel);
+  teamField.appendChild(teamPick);
+  panel.appendChild(teamField);
+
+  if (slot.tradePartnerId !== null) {
+    const partnerRoster = aState.teams[slot.tradePartnerId]?.roster ?? [];
+    const poolIndex = auctionDisplayIndex();
+    const listTitle = document.createElement("p");
+    listTitle.className = "field-label";
+    listTitle.textContent = "Giocatori che ricevi";
+    panel.appendChild(listTitle);
+
+    if (partnerRoster.length === 0) {
+      const empty = document.createElement("p");
+      empty.id = "roster-slot-trade-empty";
+      empty.className = "hint-text";
+      empty.textContent =
+        "Questa squadra non ha ancora nessun giocatore in rosa: si può comunque scambiare, ma solo contro crediti.";
+      panel.appendChild(empty);
+    } else {
+      const list = document.createElement("ul");
+      list.id = "roster-slot-trade-incoming";
+      list.className = "roster-slot-dialog__list";
+      for (const entry of partnerRoster) {
+        const row = document.createElement("li");
+        row.className = "roster-slot-dialog__row";
+        const box = document.createElement("label");
+        box.className = "roster-slot-dialog__check";
+        const check = document.createElement("input");
+        check.type = "checkbox";
+        check.id = `roster-slot-trade-in-${entry.playerId}`;
+        check.checked = slot.tradeIncoming.includes(entry.playerId);
+        // NESSUN `render()` QUI. La spunta si rappresenta da se — il browser
+        // l'ha gia disegnata — e ridipingere per aggiornare qualcosa che e gia
+        // giusto costerebbe soltanto il fuoco e la posizione del cursore di chi
+        // sta compilando. Si aggiorna lo stato, e basta.
+        check.addEventListener("change", () => {
+          slot.tradeIncoming = check.checked
+            ? [...slot.tradeIncoming, entry.playerId]
+            : slot.tradeIncoming.filter((id) => id !== entry.playerId);
+        });
+        const name = document.createElement("span");
+        name.textContent = `${resolvePlayerDisplayName(entry.playerId, poolIndex)} · ${entry.role} · ${entry.price} cr`;
+        box.appendChild(check);
+        box.appendChild(name);
+        row.appendChild(box);
+        list.appendChild(row);
+      }
+      panel.appendChild(list);
+    }
+  }
+
+  const adjField = document.createElement("label");
+  adjField.className = "roster-slot-dialog__field";
+  const adjLabel = document.createElement("span");
+  adjLabel.className = "field-label";
+  adjLabel.textContent = `Conguaglio in crediti (positivo: paga ${displayTeamLabel(slot.fantaTeamId)}; negativo: paga l'altra)`;
+  const adj = document.createElement("input");
+  adj.id = "roster-slot-trade-credits";
+  adj.className = "field-input";
+  adj.type = "number";
+  adj.step = "1";
+  adj.inputMode = "numeric";
+  adj.placeholder = "0";
+  adj.value = slot.tradeCreditsRaw;
+  adj.addEventListener("input", () => {
+    slot.tradeCreditsRaw = adj.value;
+  });
+  adjField.appendChild(adjLabel);
+  adjField.appendChild(adj);
+  panel.appendChild(adjField);
+
+  const apply = document.createElement("button");
+  apply.type = "button";
+  apply.id = "roster-slot-trade-apply";
+  apply.className = "btn btn--primary";
+  apply.textContent = "Registra scambio";
+  apply.disabled = slot.tradePartnerId === null;
+  apply.addEventListener("click", () => commitSlotTrade(slot));
+  panel.appendChild(apply);
+}
+
+function commitSlotTrade(slot: RosterSlotModal): void {
+  if (slot.playerId === null) return;
+  if (slot.tradePartnerId === null) {
+    slot.error = "Scegli la squadra con cui scambiare.";
+    render();
+    return;
+  }
+  const text = slot.tradeCreditsRaw.trim();
+  // Qui il campo vuoto E uno zero, ed e l'opposto dello svincolo: «nessun
+  // conguaglio» e il caso normale di uno scambio alla pari, mentre «nessun
+  // credito restituito» non e mai il caso normale di uno svincolo.
+  const credits = text.length === 0 ? 0 : Number(text);
+  if (!/^-?\d+$/.test(text === "" ? "0" : text) || !Number.isInteger(credits)) {
+    slot.error = "Conguaglio non valido: inserisci un numero intero (anche negativo), oppure lascia il campo vuoto per nessun conguaglio.";
+    render();
+    return;
+  }
+  const aState = deriveAuctionState();
+  const proposed = {
+    teamAId: slot.fantaTeamId,
+    teamBId: slot.tradePartnerId,
+    fromA: [slot.playerId],
+    fromB: slot.tradeIncoming,
+    creditsAToB: credits,
+  };
+  const feasibility = tradeFeasibility(aState, proposed);
+  if (!feasibility.ok) {
+    slot.error = feasibility.violations.map((v) => TRADE_VIOLATION_MESSAGES[v] ?? v).join(" ");
+    render();
+    return;
+  }
+  const newLog = recordTrade(state.log, aState, proposed, new Date().toISOString());
+  if (!commitRosterLogChange(newLog)) {
+    slot.error = "";
+    render();
+    return;
+  }
+  closeRosterSlot(slot.returnFocusId);
+}
+
 function renderVoidConfirm(): HTMLElement {
   const overlay = document.createElement("div");
   // Opens on the Asta screen, under the sticky critical strip — see the

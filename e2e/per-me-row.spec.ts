@@ -35,7 +35,7 @@ test("senza piano dichiarato il sottoblocco dice QUALE dichiarazione manca", asy
   await expect(empty).toBeVisible();
   await expect(empty).toHaveAttribute("data-reason", "plan-absent");
   await expect(empty).toContainText("Nessun piano rosa dichiarato");
-  await expect(empty).toContainText("Il pannello che raccoglieva quella dichiarazione è stato rimosso");
+  await expect(empty).toContainText("Quel pannello è stato rimosso");
   await expect(page.locator("#per-me-rows")).toHaveCount(0);
 
   // SENZA POPOLAZIONE ORDINATA, IL BLOCCO NON RECITA PARAMETRI CHE NON HANNO

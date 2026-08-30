@@ -18,7 +18,7 @@ async function roseGridColumnCount(page: Page): Promise<number> {
   });
 }
 
-test("Rose screen lists every league team from the real event log, with inert DEV controls", async ({ page, context }) => {
+test("Rose screen lists every league team from the real event log, and every slot is a door", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
   await page.goto("/");
@@ -42,15 +42,32 @@ test("Rose screen lists every league team from the real event log, with inert DE
   await expect(page.getByText(`${500 - E2E_PURCHASE_PRICE} cr`, { exact: true })).toBeVisible();
   await expect(page.getByText(E2E_TARGET_PLAYER.name, { exact: true })).toBeVisible();
 
-  // The DEV svincola control is visible but never performs a real action —
-  // it only opens the mock modal (src/ui/views.ts renderMockModal).
-  await page.getByTitle("Svincola (non attivo)").click();
-  await expect(page.getByText("Funzione non attiva in questa shell di sviluppo", { exact: false })).toBeVisible();
-  await page.getByRole("button", { name: "Chiudi", exact: true }).click();
-  await expect(page.getByText("Funzione non attiva in questa shell di sviluppo", { exact: false })).toHaveCount(0);
+  // NIENTE PIÙ DEV STATICO SU QUESTA GRIGLIA. I controlli finti — «svincola
+  // (non attivo)», «assegna (non attivo)» — aprivano una modale che spiegava
+  // che cosa avrebbero fatto in produzione. Adesso lo fanno, e questa spec
+  // sorveglia che quella shell non torni: né i titoli finti, né la frase che
+  // li accompagnava. Che i quattro gesti funzionino è misurato da
+  // e2e/rosa-slot.spec.ts, che è la loro casa.
+  await expect(page.getByTitle("Svincola (non attivo)")).toHaveCount(0);
+  await expect(page.getByTitle("Assegna giocatore d'ufficio (non attivo)")).toHaveCount(0);
+  await expect(
+    page.getByText("Funzione non attiva in questa shell di sviluppo", { exact: false }),
+  ).toHaveCount(0);
 
-  // Read-only: the underlying purchase is untouched by the mock interaction.
+  // Ogni casella è una porta, e apre la modale giusta: piena per il giocatore
+  // appena comprato, vuota per tutte le altre.
+  await page.locator(".roster-slot--filled").first().click();
+  await expect(page.locator("#roster-slot-tab-svincolo")).toBeVisible();
+  await expect(page.locator("#roster-slot-tab-scambio")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.locator(".roster-slot--empty").first().click();
+  await expect(page.locator("#roster-slot-tab-manuale")).toBeVisible();
+  await expect(page.locator("#roster-slot-tab-rinnovo")).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  // Aprire e chiudere non tocca lo stato: l'acquisto è ancora lì.
   await expect(page.getByText(E2E_TARGET_PLAYER.name, { exact: true })).toBeVisible();
+  await expect(page.getByText(`${500 - E2E_PURCHASE_PRICE} cr`, { exact: true })).toBeVisible();
   expect(externalRequests).toEqual([]);
 });
 

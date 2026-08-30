@@ -66,14 +66,14 @@ test("undo persists a VOID and restores budget, slot, history and player availab
   await expect(page.locator("#critical-budget")).toHaveText("500 cr");
   await expect(page.locator("#critical-spent")).toHaveText("0 cr");
   await expect(page.locator("#critical-roster")).toContainText("0/7");
-  await expect(page.getByText("Nessun acquisto registrato.")).toBeVisible();
+  await expect(page.getByText("Nessun gesto registrato.")).toBeVisible();
   await expect(page.getByText(E2E_TARGET_PLAYER.name, { exact: true })).toBeVisible();
 
   await page.reload();
   await expect(page.locator("#critical-budget")).toHaveText("500 cr");
   await expect(page.locator("#critical-spent")).toHaveText("0 cr");
   await expect(page.locator("#critical-roster")).toContainText("0/7");
-  await expect(page.getByText("Nessun acquisto registrato.")).toBeVisible();
+  await expect(page.getByText("Nessun gesto registrato.")).toBeVisible();
   const log = await readLocalStorageJson<StoredEvent[]>(page, "fac_log");
   expect(log?.map((event) => event.type)).toEqual(["PURCHASE", "VOID"]);
   expect(log![1]?.targetSeq).toBe(0);

@@ -534,7 +534,7 @@ export const CALL_SCREEN_BUDGET_LEDGER: readonly CallScreenBlockAllocation[] = [
     id: "esito-ricerca",
     label: "esito della ricerca (conferma di selezione o errore di ruolo)",
     domId: "call-search-hint",
-    allocationPx: 66,
+    allocationPx: 49,
     measuredInState: "ricerca",
     measuredAtCommit: CALL_SCREEN_BUDGET_MEASURED_AT,
     requiredIn: ALL_STATES,
@@ -549,12 +549,12 @@ export const CALL_SCREEN_BUDGET_LEDGER: readonly CallScreenBlockAllocation[] = [
       "lo separavano dalla riga. Il blocco non è cresciuto: è cresciuto ciò che gli viene " +
       "attribuito, ed è la piastrellatura esatta a volerlo — un margine lo paga sempre il " +
       "blocco sotto, altrimenti sparisce dal conto di tutti. "
-      + "DAL 2026-08-30 QUESTO BLOCCO E MUTO NEL CASO NORMALE: l'istruzione su come si usa la "
-      + "ricerca e stata tolta, e restano solo l'errore di ruolo e la conferma di selezione. "
-      + "L'allocazione NON e stata abbassata perche nessuno ha rimisurato: 66 px restano un "
-      + "TETTO onesto — il blocco consuma meno e la guardia non se ne lamenta, mentre "
-      + "abbassarla a un numero inventato renderebbe rossa una schermata sana. Si abbassa "
-      + "alla prossima spazzata vera, con il suo commit accanto.",
+      + "66 -> 49 IL 2026-08-30, e non e una compressione: l'istruzione sempre a schermo su "
+      + "come si usa la ricerca e stata tolta, e il blocco parla adesso solo quando ha un "
+      + "fatto da riportare — l'errore di ruolo o la conferma di selezione. L'altezza che "
+      + "RAGGIUNGE e percio quella dello stato `riga-selezionata`, 48,5 px rimisurati; senza "
+      + "selezione il nodo e vuoto e ne consuma 14, che sono il margine del vicino di sotto. "
+      + "Non e un tetto scelto: e il massimo misurato sui cinque stati.",
   },
   {
     id: "contesto-chiamata",
@@ -575,7 +575,7 @@ export const CALL_SCREEN_BUDGET_LEDGER: readonly CallScreenBlockAllocation[] = [
     id: "giocatore-suggerito",
     label: "GIOCATORE SUGGERITO (chi chiamare ora + esca)",
     domId: "suggested-player",
-    allocationPx: 301,
+    allocationPx: 281,
     measuredInState: "ricerca",
     measuredAtCommit: CALL_SCREEN_BUDGET_MEASURED_AT,
     requiredIn: ALL_STATES,
@@ -589,7 +589,12 @@ export const CALL_SCREEN_BUDGET_LEDGER: readonly CallScreenBlockAllocation[] = [
       "colonna — le due metà si impilano e il `gap` di 14 px si mette fra loro, dove prima non " +
       "c'era niente. Misurato due volte: l'altezza propria del blocco passa da 268,5 a 282,5 e " +
       "il `row-gap` calcolato vale 14px. A schermo largo le due metà stanno affiancate e il " +
-      "gap non costa altezza; il mastro misura lo stretto, perché è lì che la piega morde.",
+      "gap non costa altezza; il mastro misura lo stretto, perché è lì che la piega morde. " +
+      "300,5 -> 281 IL 2026-08-30: il sottoblocco PER ME non ha più una sorgente di piano " +
+      "rosa (il pannello che la raccoglieva è stato rimosso) e mostra la sua frase di " +
+      "silenzio, che è più corta dell'elenco che mostrava prima. La frase È vincolata da " +
+      "questa riga: allungarla di due righe rimette il blocco fuori allocazione, ed è già " +
+      "successo una volta il giorno stesso — vedi perMeEmptyText in src/ui/perMeRow.ts.",
   },
   {
     id: "listone",
@@ -646,15 +651,24 @@ export const CALL_SCREEN_ALLOCATED_PX = CALL_SCREEN_BUDGET_LEDGER.reduce(
  * 2026-08-26 (il riquadro INSIGHT GIOCATORE, 151 px, entra nella schermata di
  * chiamata), −1100 il 2026-08-29 (lo stesso riquadro se ne va nel momento
  * d'asta e i quattro interruttori di ruolo prendono 32 px), −986 il 2026-08-29,
- * −969 oggi. Ogni volta la riga che si muove ha un nome, un'altezza misurata e
+ * −932 oggi. Ogni volta la riga che si muove ha un nome, un'altezza misurata e
  * un motivo, e i px escono da qui e non dal vicino di banco.
  *
- * OGGI LA RISERVA RISALE, ed è la prima volta che succede per una riga TOLTA
- * invece che per una entrata: il contatore delle interazioni di chiamata
- * (17 px misurati) è stato rimosso dalla schermata, quindi la sua allocazione
- * non è stata spostata su un vicino — è tornata qui. Una riserva che risale
- * perché un blocco se ne va è l'unico caso in cui questo numero è una buona
- * notizia, e va scritto per non farlo sembrare una riparazione.
+ * OGGI LA RISERVA RISALE DI 54 px, ed è la prima volta che succede per righe
+ * TOLTE O RIMPICCIOLITE invece che per una entrata. Tre movimenti, tutti
+ * rimisurati sul vivo il 2026-08-30:
+ *
+ *   −17  il contatore delle interazioni di chiamata è stato rimosso dalla
+ *        schermata, e la sua riga dal mastro;
+ *   −17  `esito-ricerca` scende da 66 a 49: l'istruzione sempre a schermo su
+ *        come si usa la ricerca se n'è andata, e il blocco parla adesso solo
+ *        quando ha un errore o una conferma da riportare;
+ *   −20  `giocatore-suggerito` scende da 301 a 281: senza una sorgente di
+ *        piano rosa il sottoblocco PER ME mostra la sua frase di silenzio, che
+ *        è più corta dell'elenco.
+ *
+ * È l'unico caso in cui questo numero è una buona notizia, e va scritto per
+ * non farlo sembrare un trasloco come i tre che l'hanno preceduto.
  *
  * Il prossimo blocco non arriva in uno spazio vuoto: arriva dovendo restituire
  * la propria altezza PIÙ 1219 px presi da righe con un nome
@@ -670,7 +684,7 @@ export const CALL_SCREEN_ALLOCATED_PX = CALL_SCREEN_BUDGET_LEDGER.reduce(
  * riparazione: vedi PROVA_1_MARGINE_RIAPERTO_SENZA_RIPAGARE e PROVA 1 in
  * e2e/call-screen-budget.spec.ts.
  */
-export const CALL_SCREEN_BUDGET_RESERVE_PX = -969;
+export const CALL_SCREEN_BUDGET_RESERVE_PX = -932;
 
 /**
  * Che cosa costa, oggi, far entrare un blocco nuovo alto `heightPx`: quanti px
@@ -709,29 +723,34 @@ export interface CallScreenOverBudgetState {
 export const CALL_SCREEN_OVER_BUDGET_STATES: readonly CallScreenOverBudgetState[] = [
   {
     state: "contesto-aperto",
-    spanPx: 1819,
-    overBudgetPx: 131,
+    spanPx: 1782,
+    overBudgetPx: 94,
     why:
       "il corpo di CONTESTO CHIAMATA aperto porta il blocco da 151,5 a 1096,25 px; il listone " +
       "è filtrato a una riga sola e lo span sfonda lo stesso. Erano 1874 px su ac8814c, 1901 " +
       "col sottoblocco PER ME di #55, 2051 dal 2026-08-26 — i 150 px in più erano il riquadro " +
       "INSIGHT GIOCATORE — e 1933 quando quel riquadro se n'è andato nel momento d'asta. " +
-      "1819 dal 2026-08-29 sera, e i 114 px in meno NON sono una riparazione: sono la riga di " +
-      "ricerca uscita dal flusso, il cui costo è passato a `--assign-bar-h` (vedi " +
-      "BARRA_FISSA_FUORI_DAL_TOTALE). Questo stato resta oltre il totale di 131 px con la " +
-      "tabella filtrata a UNA riga: il debito è più piccolo e non è pagato.",
+      "1819 dal 2026-08-29 sera, e i 114 px in meno NON erano una riparazione: erano la riga " +
+      "di ricerca uscita dal flusso, il cui costo è passato a `--assign-bar-h` (vedi " +
+      "BARRA_FISSA_FUORI_DAL_TOTALE). 1782 dal 2026-08-30, e QUESTI 37 px SONO una " +
+      "riparazione: due blocchi hanno smesso di esistere — il contatore delle interazioni di " +
+      "chiamata (17 px) e l'istruzione sempre a schermo su come si usa la ricerca, che ha " +
+      "lasciato al suo posto un nodo muto. Lo stato resta oltre il totale di 94 px con la " +
+      "tabella filtrata a UNA riga: il debito è più piccolo, e per la prima volta è più " +
+      "piccolo perché qualcosa è stato tolto.",
   },
   {
     state: "contesto-aperto-ricerca-vuota",
-    spanPx: 2669,
-    overBudgetPx: 981,
+    spanPx: 2566,
+    overBudgetPx: 878,
     why:
       "contesto aperto E listone di nuovo a pagina piena: 2669 px contro 1688, il 158% del " +
       "totale dichiarato (erano 2724 — il 161% — su ac8814c, 2901 il 2026-08-26 col riquadro " +
       "INSIGHT GIOCATORE, 2782 quando se n'è andato). È lo stato peggiore raggiungibile con " +
       "due gesti, ed è la somma delle allocazioni del mastro a meno dell'arrotondamento al " +
-      "pixel dell'altezza di riga del listone. La discesa a 2669 è il trasloco della barra " +
-      "fissa, non un blocco che occupa meno.",
+      "pixel dell'altezza di riga del listone. La discesa a 2669 era il trasloco della barra " +
+      "fissa, non un blocco che occupava meno; quella a 2566 (2026-08-30) sì: sono i due " +
+      "blocchi tolti alla colonna della chiamata.",
   },
 ];
 
@@ -762,7 +781,10 @@ export const CALL_SCREEN_BUDGET_UNRATIFIED: Readonly<
   NOME_GIOCATORE_LUNGHEZZA_NON_DICHIARATA:
     "nessun documento dichiara quanto può essere lungo un nome nel listone: con nomi da 18 " +
     "caratteri e i club veri già dichiarati nel repository la riga passa da 92,5 a 112,5 px e " +
-    "lo span sfonda il totale OGGI, senza nessun blocco nuovo (vedi CALL_SCREEN_NAME_LENGTH_PINS)",
+    "lo span si muove di 200 px senza nessun blocco nuovo. Dal 2026-08-30 quei 200 px non " +
+    "bastano più a sfondare il totale — restano dentro di 38 e 18 px — ma 18 px su 1688 sono " +
+    "l'1%: la lunghezza resta non dichiarata e il fatto resta non ratificato " +
+    "(vedi CALL_SCREEN_NAME_LENGTH_PINS)",
   CONTESTO_CHIAMATA_APERTO_NON_DICHIARATO:
     "nessun documento dichiara quanto CONTESTO CHIAMATA possa occupare da aperto: la sua " +
     "allocazione è semplicemente la misura di oggi, che da sola vale il 65% del totale",
@@ -825,32 +847,48 @@ export interface CallScreenNameLengthPin {
   readonly chars: number;
   /** Lo span misurato, in px, arrotondato al pixel. */
   readonly spanPx: number;
-  /** Di quanto supera il totale dichiarato. */
-  readonly overBudgetPx: number;
+  /**
+   * Distanza dal totale dichiarato, COL SEGNO: positiva se lo span lo sfonda,
+   * negativa se ci sta dentro.
+   *
+   * Il campo si chiamava `overBudgetPx` e presupponeva la prima delle due,
+   * perché quando è nato entrambi i pin erano oltre. Dal 2026-08-30 non lo
+   * sono più, e un nome che afferma un segno che il dato non ha piu' è il
+   * modo in cui una misura comincia a mentire.
+   */
+  readonly deltaFromBudgetPx: number;
 }
 
 /**
  * IL FATTO CHE RIMETTE IN DISCUSSIONE TUTTI GLI ALTRI NUMERI, pinnato.
  *
  * Cambiando SOLO le stringhe della fixture — nomi più lunghi, club veri già
- * dichiarati in `src/ui/serieA.ts` — lo span passa da 1573 px (dentro) a
- * 1753 px (fuori), senza che sia comparso un solo blocco nuovo. Cioè: il
- * margine su cui si è trattato per tre merge è in buona parte un artefatto
- * della lunghezza dei nomi finti.
+ * dichiarati in `src/ui/serieA.ts` — lo span si muove di 200 px senza che sia
+ * comparso un solo blocco nuovo: 1470 px con i 13 caratteri della fixture di
+ * oggi, 1650 con 18, 1670 con 22. Cioè: il margine su cui si è trattato per
+ * tre merge è in buona parte un artefatto della lunghezza dei nomi finti, e
+ * questo resta vero.
  *
- * I 115 px di margine che la barra fissa ha restituito allo stato di boot NON
- * bastano a coprirli: con 18 caratteri la riga del listone passa da 92,5 a
- * 112,5 px e le dieci righe si prendono 180 px in più. Il fatto regge, e i due
- * pin sono più piccoli soltanto perché lo span da cui partono è più corto.
+ * QUELLO CHE NON È PIÙ VERO, ed è la ragione per cui questo commento è stato
+ * riscritto il 2026-08-30: fino a ieri quei 200 px BASTAVANO a sfondare il
+ * totale (1753 e 1773 contro 1688, +65 e +85). Adesso non bastano più, e non
+ * perché la riga del listone sia dimagrita — è identica — ma perché la colonna
+ * della chiamata ha perso due blocchi: il contatore delle interazioni (17 px)
+ * e l'istruzione sempre a schermo su come si usa la ricerca. 103 px tolti a
+ * monte, e i due pin scendono sotto il totale di 38 e 18 px.
  *
- * Non si sceglie qui una lunghezza «giusta»: nessuno l'ha dichiarata. Si
- * PINNA la misura a 18 e 22 caratteri — documentare senza approvare — e il
+ * IL MARGINE È SOTTILE E VA DETTO: 18 px su 1688 sono l'1%. Il fatto non è
+ * «risolto», è «non più fuori»: due righe di testo in un blocco qualunque lo
+ * rimandano fuori. Per questo i pin restano pinnati alla lettera — documentare
+ * senza approvare — invece di essere cancellati come un problema passato.
+ *
+ * Non si sceglie qui una lunghezza «giusta»: nessuno l'ha dichiarata. Il
  * giorno in cui Owner dichiara la lunghezza vera si cambia una costante e il
  * mastro dice da solo quanto manca.
  */
 export const CALL_SCREEN_NAME_LENGTH_PINS: readonly CallScreenNameLengthPin[] = [
-  { chars: 18, spanPx: 1753, overBudgetPx: 65 },
-  { chars: 22, spanPx: 1773, overBudgetPx: 85 },
+  { chars: 18, spanPx: 1650, deltaFromBudgetPx: -38 },
+  { chars: 22, spanPx: 1670, deltaFromBudgetPx: -18 },
 ];
 
 /* ────────────────────────────────────────────────────────────────────────────

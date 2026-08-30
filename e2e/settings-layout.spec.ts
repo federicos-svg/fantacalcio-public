@@ -9,32 +9,34 @@ test("the settings menu swaps the right-hand panel and survives a re-render", as
   await gotoScreen(page, "Impostazioni");
 
   // Opens on the area you act on; each menu entry carries its own icon.
-  // CINQUE aree: teams, riconferme pre-asta (#231), schede Gruppo Esperti,
-  // archivio avversari (la via d'ingresso dello storico d'asta, senza la quale
-  // il pannello AVVERSARI resterebbe muto in produzione), status.
+  // QUATTRO aree: teams, schede Gruppo Esperti, archivio avversari (la via
+  // d'ingresso dello storico d'asta, senza la quale il pannello AVVERSARI
+  // resterebbe muto in produzione), status.
+  //
+  // ERANO CINQUE. «Riconferme pre-asta» (#231) e stata rimossa: il rinnovo si
+  // dichiara adesso dalla casella vuota della pagina Rose, accanto
+  // all'inserimento manuale, che e l'altro modo in cui un giocatore entra in
+  // quella casella. Questo numero non e allentato — se un'area sparisse dal
+  // menu senza che nessuno lo volesse, questa riga deve tornare rossa.
   await expect(page.locator("#settings-tab-teams")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("#settings-tab-riconferme")).toHaveAttribute("aria-selected", "false");
+  await expect(page.locator("#settings-tab-riconferme")).toHaveCount(0);
   await expect(page.locator("#settings-tab-schede")).toHaveAttribute("aria-selected", "false");
   await expect(page.locator("#settings-tab-archivio")).toHaveAttribute("aria-selected", "false");
   await expect(page.locator("#settings-tab-status")).toHaveAttribute("aria-selected", "false");
-  // Era 4 finché «schede» e «archivio» si contendevano lo stesso slot: sono
-  // nate in parallelo e sono atterrate entrambe, quindi le icone sono 5. Il
-  // numero è aggiornato al vero, non allentato: se un'area sparisse dal menu
-  // questa riga deve tornare rossa.
-  await expect(page.locator("#settings-menu svg")).toHaveCount(5);
+  await expect(page.locator("#settings-menu svg")).toHaveCount(4);
 
-  // …E OGNUNA DELLE CINQUE DISEGNA DAVVERO QUALCOSA.
+  // …E OGNUNA DELLE QUATTRO DISEGNA DAVVERO QUALCOSA.
   //
   // Il conteggio qui sopra conta gli INVOLUCRI, non i glifi.
   // `renderImpostazioniScreen` (src/ui/views.ts) emette il tag <svg> in ogni
   // caso e ci interpola dentro `area.icon`: un'area con `icon: ""` produce un
-  // <svg> vuoto, il conteggio resta 5 e questa riga resterebbe VERDE su un
+  // <svg> vuoto, il conteggio resta 4 e questa riga resterebbe VERDE su un
   // menu con un buco. Non è un ragionamento: provato svuotando davvero
   // ARCHIVE_SETTINGS_ICON, il test passava.
   //
   // La guardia qui sotto guarda DENTRO ogni involucro e pretende almeno una
   // forma disegnata. Raccoglie le schede per RUOLO (`[role="tab"]`) e non per
-  // nome, così un'area aggiunta domani entra in questa misura da sé; i cinque
+  // nome, così un'area aggiunta domani entra in questa misura da sé; i quattro
   // id sono il CONTROLLO che la raccolta stia guardando qualcosa, perché una
   // raccolta vuota passerebbe per vuoto — lo stesso difetto, un piano più in
   // basso, di quello che questo blocco esiste per chiudere.
@@ -48,7 +50,6 @@ test("the settings menu swaps the right-hand panel and survives a re-render", as
   );
   for (const expected of [
     "settings-tab-teams",
-    "settings-tab-riconferme",
     "settings-tab-schede",
     "settings-tab-archivio",
     "settings-tab-status",
@@ -95,14 +96,10 @@ test("the settings menu swaps the right-hand panel and survives a re-render", as
   await expect(page.locator("#new-person-name")).toBeFocused();
 
   // Arrow keys move within the menu, and focus follows across the re-render.
-  // CINQUE fermate ora, non quattro:
-  // teams -> riconferme -> schede -> archivio -> status -> torna a teams.
-  // È l'arrivo di «archivio» accanto a «schede» ad aver reso falsa la versione
-  // a quattro fermate di questa asserzione.
+  // QUATTRO fermate: teams -> schede -> archivio -> status -> torna a teams.
+  // Erano cinque finché esisteva «riconferme»; il giro si chiude comunque su
+  // sé stesso, ed è quella chiusura — non il numero — la cosa da sorvegliare.
   await page.locator("#settings-tab-teams").focus();
-  await page.keyboard.press("ArrowDown");
-  await expect(page.locator("#settings-tab-riconferme")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("#settings-tab-riconferme")).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(page.locator("#settings-tab-schede")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#settings-tab-schede")).toBeFocused();
@@ -117,7 +114,6 @@ test("the settings menu swaps the right-hand panel and survives a re-render", as
 
   // Roving tabindex: the menu is a single tab stop, not one per entry.
   await expect(page.locator("#settings-tab-teams")).toHaveAttribute("tabindex", "0");
-  await expect(page.locator("#settings-tab-riconferme")).toHaveAttribute("tabindex", "-1");
   await expect(page.locator("#settings-tab-schede")).toHaveAttribute("tabindex", "-1");
   await expect(page.locator("#settings-tab-archivio")).toHaveAttribute("tabindex", "-1");
   await expect(page.locator("#settings-tab-status")).toHaveAttribute("tabindex", "-1");
