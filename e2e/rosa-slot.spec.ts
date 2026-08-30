@@ -569,7 +569,7 @@ test("una scrittura rifiutata lo DICE dentro la modale, invece di lasciarla muta
   expect(externalRequests).toEqual([]);
 });
 
-test("dopo un rifiuto il fuoco va sul messaggio, non torna in cima alle schede", async ({
+test("dopo un rifiuto il fuoco resta sul bottone premuto, non torna in cima alle schede", async ({
   page,
   context,
 }) => {
@@ -593,10 +593,15 @@ test("dopo un rifiuto il fuoco va sul messaggio, non torna in cima alle schede",
   // tornare sulla riga delle schede: chi naviga da tastiera dovrebbe
   // ripercorrere tutto il pannello per rimettere le mani sul campo.
   await page.locator("#roster-slot-release-apply").click();
-  await expect(page.locator("#roster-slot-error")).toBeFocused();
-  // E dal messaggio il Tab riporta dentro al pannello, non fuori dalla modale.
-  await page.keyboard.press("Tab");
-  await expect(page.locator("#roster-slot-overlay")).toHaveCount(1);
+  await expect(page.locator("#roster-slot-error")).toBeVisible();
+  // Resta dov'erano le mani: sul bottone appena premuto. NON sul messaggio —
+  // `role="alert"` si annuncia da sé, e portarci sopra il fuoco e un pattern
+  // discusso che il resto di questo file non usa (vedi il commento in
+  // `renderRosterSlotModal`).
+  await expect(page.locator("#roster-slot-release-apply")).toBeFocused();
+  // E da lì Shift+Tab riporta al campo da correggere, che è il gesto vero.
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.locator("#roster-slot-release-credits")).toBeFocused();
 
   expect(externalRequests).toEqual([]);
 });

@@ -387,6 +387,38 @@ describe("annullamento — il log resta riducibile", () => {
     expect(() => reduce(broken, TEAMS)).toThrow(/already on/);
   });
 
+  it("un riconfermato svincolato torna comprabile da un'altra squadra", () => {
+    // IL FALSO POSITIVO CHE STAVA PER ENTRARE IN PRODUZIONE. §5 fa svincolare
+    // il giocatore col prezzo piu alto, che benissimo puo essere un
+    // riconfermato: dopo quello svincolo, un altro puo comprarlo. Il rifiuto
+    // di `reduce()` guardava pero chi lo aveva riconfermato a t=0 e non chi lo
+    // possedeva ADESSO, quindi lanciava — cioe fermava la schermata a meta
+    // asta. Trovato dalla lente Quality & Delivery alla seconda passata.
+    const confirmations = [{ fantaTeamId: A, playerId: "D1", role: "D" as const, price: 10 }];
+    const released: AuctionEvent[] = [
+      { type: "RELEASE", seq: 0, ts: TS, playerId: "D1", fantaTeamId: A, creditsReturned: 5 },
+      { type: "PURCHASE", seq: 1, ts: TS, playerId: "D1", role: "D", fantaTeamId: B, price: 8 },
+    ];
+    const s = reduce(released, TEAMS, confirmations);
+    expect(s.teams[B]!.roster.map((r) => r.playerId)).toEqual(["D1"]);
+    expect(s.teams[A]!.roster).toHaveLength(0);
+    // A ha pagato 10 alla riconferma e ne ha recuperati 5: 5 bruciati.
+    expect(s.teams[A]!.budgetResidual).toBe(INITIAL_BUDGET - 5);
+    expect(s.teams[B]!.budgetResidual).toBe(INITIAL_BUDGET - 8);
+  });
+
+  it("finche il riconfermato e in rosa, comprarlo resta un conflitto — con la sua frase", () => {
+    // L'altra meta: il rifiuto che deve restare, e col messaggio specifico che
+    // spiega da dove viene il conflitto invece di quello generico.
+    const confirmations = [{ fantaTeamId: A, playerId: "D1", role: "D" as const, price: 10 }];
+    const conflicting: AuctionEvent[] = [
+      { type: "PURCHASE", seq: 0, ts: TS, playerId: "D1", role: "D", fantaTeamId: B, price: 8 },
+    ];
+    expect(() => reduce(conflicting, TEAMS, confirmations)).toThrow(
+      /confirmations\/live-log conflict/,
+    );
+  });
+
   it("un VOID non si annulla a sua volta", () => {
     const bought = buy([], [{ playerId: "A1", role: "A", fantaTeamId: A, price: 40 }]);
     const undone = recordVoid(bought, 0, TS);

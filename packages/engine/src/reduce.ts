@@ -167,22 +167,33 @@ export function reduce(
     if (voided.has(e.seq)) continue;
 
     if (e.type === "PURCHASE") {
-      // Confirmations and the live log are validated independently: a riconferma
-      // for a player and a live PURCHASE of that same player are each valid on
-      // their own, and nothing else sees both. Replaying them together would
-      // put the same player on two rosters at once — a silent double count of
-      // budget and slots. Fail-closed, same style as the invalid-confirmations
-      // throw above, rather than silently producing a wrong state.
-      const confirmedTeam = confirmedBy.get(e.playerId);
-      if (confirmedTeam !== undefined) {
-        throw new Error(
-          `confirmations/live-log conflict: playerId "${e.playerId}" already confirmed (team ${confirmedTeam}), cannot also be purchased live by ${e.fantaTeamId}`,
-        );
-      }
+      // UN ACQUISTO SI RIFIUTA SOLO SE QUEL GIOCATORE E DI QUALCUNO ADESSO, e
+      // «adesso» e la parola che questo blocco ha dovuto imparare.
+      //
+      // La riconferma e il log erano validati indipendentemente, e replicarli
+      // insieme poteva mettere lo stesso giocatore su due rose: da qui il
+      // rifiuto, che guardava `confirmedBy` — chi lo aveva riconfermato a t=0 —
+      // e nient'altro. Era giusto finche una riconferma restava in rosa per
+      // sempre, cioe finche il log non conosceva lo svincolo.
+      //
+      // IL FALSO POSITIVO CHE QUESTA PR AVEVA APERTO, trovato dalla lente
+      // Quality & Delivery alla seconda passata: riconfermato, poi SVINCOLATO
+      // (§5 fa svincolare il giocatore col prezzo piu alto, che benissimo puo
+      // essere un riconfermato), poi ricomprato da un'altra squadra. Tutto
+      // legittimo, e `reduce()` lanciava — cioe fermava la schermata a meta
+      // asta, che e piu grave dello stato sbagliato che il rifiuto evitava.
+      //
+      // Adesso la condizione e la proprieta corrente (`ownerOf`, che lo
+      // svincolo azzera e lo scambio sposta). `confirmedBy` resta, ma solo per
+      // scegliere la FRASE: quando chi possiede il giocatore e anche chi lo
+      // aveva riconfermato, il messaggio specifico spiega molto piu di quello
+      // generico, e vale la pena tenerlo.
       const owner = ownerOf.get(e.playerId);
       if (owner !== undefined) {
         throw new Error(
-          `PURCHASE seq ${e.seq}: playerId "${e.playerId}" is already on ${owner}'s roster, cannot also be purchased by ${e.fantaTeamId}`,
+          confirmedBy.get(e.playerId) === owner
+            ? `confirmations/live-log conflict: playerId "${e.playerId}" already confirmed (team ${owner}), cannot also be purchased live by ${e.fantaTeamId}`
+            : `PURCHASE seq ${e.seq}: playerId "${e.playerId}" is already on ${owner}'s roster, cannot also be purchased by ${e.fantaTeamId}`,
         );
       }
       rosterOf(e.fantaTeamId, `PURCHASE seq ${e.seq}`).push({

@@ -2203,7 +2203,16 @@ export function renderConfirmationsBlockedScreen(
     const confirmBody = document.createElement("div");
     confirmBody.style.cssText = `font-size:13px;line-height:1.55;color:${C.textMid};margin-bottom:14px;`;
     confirmBody.textContent =
-      "Questo NON tocca lo storico asta già registrato: azzera solo le riconferme salvate, che dovranno essere reinserite dalla schermata Rose, cliccando una casella vuota e scegliendo «Rinnova dall'anno scorso». " +
+      // LA STRADA CHE SI NOMINA QUI E L'INSERIMENTO MANUALE, non il rinnovo, e
+      // la differenza non e una sfumatura: questa schermata si raggiunge SOLO a
+      // storico asta NON vuoto (confirmationsRecoveryFromLoadResult, src/main.ts),
+      // e a storico non vuoto la scheda «Rinnova dall'anno scorso» e chiusa —
+      // una riconferma semina lo stato a t=0 e non si dichiara a partita
+      // cominciata. Mandare qui qualcuno al rinnovo significherebbe mandarlo
+      // contro un lucchetto, nel momento in cui sta gia recuperando da un
+      // guasto. Il banner dell'altro caso (storico VUOTO, piu sotto) nomina
+      // invece il rinnovo, ed e giusto cosi: li e aperto.
+      "Questo NON tocca lo storico asta già registrato: azzera solo le riconferme salvate. Lo storico asta non è vuoto, quindi le riconferme non sono più dichiarabili: i giocatori che portavano si rimettono in rosa dalla schermata Rose, cliccando una casella vuota e scegliendo «Inserisci a mano». " +
       "Il payload corrotto resta in quarantena e resta esportabile anche dopo questa conferma.";
     confirmPanel.appendChild(confirmBody);
 

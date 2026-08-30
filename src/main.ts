@@ -7309,8 +7309,10 @@ function closeRosterSlot(returnFocusTo: string | null): void {
  * corrente come baseline (la guardia di concorrenza fra schede), e il log in
  * memoria che NON avanza oltre cio che e stato davvero persistito.
  *
- * Torna `true` se ha attecchito. Il chiamante decide che cosa fare dopo: i due
- * gesti chiudono la modale, ma non e questa funzione a poterlo decidere.
+ * Torna l'esito, e col rifiuto il suo MESSAGGIO: il chiamante decide che cosa
+ * fare dopo — i gesti che riescono chiudono la modale, quelli che falliscono la
+ * tengono aperta e scrivono la frase in `slot.error` — ma non e questa funzione
+ * a poterlo decidere.
  */
 type RosterLogChangeResult = { readonly ok: true } | { readonly ok: false; readonly message: string };
 
@@ -7470,8 +7472,7 @@ function renderRosterSlotModal(slot: RosterSlotModal): HTMLElement {
     // schede: chi naviga da tastiera doveva ripercorrere tutto il pannello per
     // tornare al campo da correggere, ogni volta, proprio la sera in cui si ha
     // fretta. Con un rifiuto a schermo il fuoco va sul messaggio, che e la
-    // cosa da leggere e da cui il Tab successivo riporta ai campi.
-    // Trovato dalla lente Product & Experience sulla PR pubblica #73.
+    // cosa da leggere. Trovato dalla lente Product & Experience sulla PR #73.
     if (slot.panel === p.id && slot.error === "") tab.dataset.dialogInitialFocus = "";
     tab.addEventListener("click", () => {
       slot.panel = p.id;
@@ -7495,6 +7496,17 @@ function renderRosterSlotModal(slot: RosterSlotModal): HTMLElement {
   else if (slot.panel === "rinnovo") renderSlotRenewalPanel(panel, slot);
   else if (slot.panel === "svincolo") renderSlotReleasePanel(panel, slot, subject.price);
   else renderSlotTradePanel(panel, slot);
+  // DOPO UN RIFIUTO IL FUOCO TORNA SUL BOTTONE APPENA PREMUTO. La modale si
+  // ridipinge, e senza questo `activateAccessibleDialog` lo rimetterebbe sulla
+  // scheda in cima: chi naviga da tastiera dovrebbe ripercorrere tutto il
+  // pannello a ogni correzione. Il bottone e dentro il pannello e a uno
+  // Shift+Tab dai campi, ed e dove le mani erano gia.
+  if (slot.error !== "") {
+    panel.querySelector<HTMLElement>("[data-roster-slot-action]")?.setAttribute(
+      "data-dialog-initial-focus",
+      "",
+    );
+  }
   modal.appendChild(panel);
 
   if (slot.error) {
@@ -7502,11 +7514,18 @@ function renderRosterSlotModal(slot: RosterSlotModal): HTMLElement {
     error.id = "roster-slot-error";
     error.className = "roster-slot-dialog__error";
     error.setAttribute("role", "alert");
-    // `tabIndex = -1` lo rende focalizzabile da programma senza aggiungerlo al
-    // giro del Tab: e cio che serve perche il fuoco possa atterrare qui dopo un
-    // rifiuto senza che poi resti in mezzo ai piedi navigando.
-    error.tabIndex = -1;
-    error.dataset.dialogInitialFocus = "";
+    // IL FUOCO NON VIENE QUI, ed e un ripensamento della seconda passata della
+    // lente Product & Experience. `role="alert"` e una live region assertiva:
+    // viene annunciata da se all'ingresso nel DOM, e portarci sopra anche il
+    // fuoco e un pattern discusso — su alcune combinazioni di screen reader e
+    // browser produce un doppio annuncio, e nel resto di questo file
+    // `role="alert"` non sposta mai il fuoco (vedi l'errore di ruolo della
+    // ricerca). Non ho modo di provarlo con uno screen reader vero, e nel
+    // dubbio si sceglie di non combinare due comportamenti contesi.
+    //
+    // Il fuoco resta invece dove le mani erano gia: sul bottone appena premuto
+    // (vedi `data-roster-slot-action` piu sotto), che e dentro il pannello, a
+    // uno Shift+Tab dai campi da correggere, e non e una live region.
     error.textContent = slot.error;
     modal.appendChild(error);
   }
@@ -7610,6 +7629,7 @@ function renderSlotManualPanel(panel: HTMLElement, slot: RosterSlotModal): void 
   const apply = document.createElement("button");
   apply.type = "button";
   apply.id = "roster-slot-manual-apply";
+  apply.dataset.rosterSlotAction = "";
   apply.className = "btn btn--primary";
   apply.textContent = "Assegna";
   apply.disabled = eligible.length === 0;
@@ -7820,6 +7840,7 @@ function renderSlotReleasePanel(
   const apply = document.createElement("button");
   apply.type = "button";
   apply.id = "roster-slot-release-apply";
+  apply.dataset.rosterSlotAction = "";
   apply.className = "btn btn--danger";
   apply.textContent = "Svincola";
   apply.addEventListener("click", () => commitSlotRelease(slot));
@@ -7981,6 +8002,7 @@ function renderSlotTradePanel(panel: HTMLElement, slot: RosterSlotModal): void {
   const apply = document.createElement("button");
   apply.type = "button";
   apply.id = "roster-slot-trade-apply";
+  apply.dataset.rosterSlotAction = "";
   apply.className = "btn btn--primary";
   apply.textContent = "Registra scambio";
   apply.disabled = slot.tradePartnerId === null;
