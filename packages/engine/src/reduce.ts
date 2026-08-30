@@ -14,9 +14,31 @@ function emptyFilled(): Record<Role, number> {
   return { P: 0, D: 0, C: 0, A: 0 };
 }
 
-function buildTeam(fantaTeamId: string, roster: RosterEntry[]): TeamState {
+/**
+ * `creditLedger` — LA CORREZIONE CHE TIENE INSIEME ROSA E BUDGET.
+ *
+ * Fino a quando il log conosceva solo acquisti, «speso» era la somma dei
+ * prezzi in rosa: una sola verita, letta in un posto solo. Svincoli e scambi
+ * rompono quell'uguaglianza, e la rompono in due modi diversi.
+ *
+ *  - SVINCOLO. La casella si libera e la riga esce dalla rosa, ma i crediti
+ *    tornati sono `creditsReturned`, non il prezzo pagato. La differenza —
+ *    quello che lo svincolo e costato — non e piu rappresentata da nessuna
+ *    riga di rosa, e senza registro sparirebbe: la squadra si ritroverebbe il
+ *    budget di prima dell'acquisto, come se non fosse mai successo niente.
+ *  - SCAMBIO. Le righe cambiano rosa portandosi il prezzo che avevano (il
+ *    prezzo e la memoria dell'asta, non un valore corrente). Se il budget
+ *    seguisse la somma dei prezzi, cedere un giocatore da 84 e riceverne uno
+ *    da 1 regalerebbe 83 crediti a chi cede — crediti che nessuno ha pagato.
+ *    Il registro annulla il movimento dei prezzi e lascia passare il solo
+ *    conguaglio, che e l'unica cosa che davvero cambia di mano.
+ *
+ * `spent = somma dei prezzi in rosa + registro`, e `budgetResidual` resta
+ * `INITIAL_BUDGET - spent` come e sempre stato.
+ */
+function buildTeam(fantaTeamId: string, roster: RosterEntry[], creditLedger: number): TeamState {
   const filled = emptyFilled();
-  let spent = 0;
+  let spent = creditLedger;
   for (const r of roster) {
     filled[r.role] += 1;
     spent += r.price;
@@ -82,9 +104,21 @@ export function reduce(
   }
 
   const rosters = new Map<string, RosterEntry[]>();
-  for (const id of fantaTeamIds) rosters.set(id, []);
+  const ledger = new Map<string, number>();
+  for (const id of fantaTeamIds) {
+    rosters.set(id, []);
+    ledger.set(id, 0);
+  }
 
-  const purchased: string[] = [];
+  /** La rosa di una squadra nominata da un evento, o un rifiuto. Un id di
+   *  squadra che il tavolo non conosce e un log corrotto, non un caso da
+   *  ignorare in silenzio: ignorarlo produrrebbe uno stato plausibile e
+   *  sbagliato — la forma di errore peggiore per una contabilita d'asta. */
+  const rosterOf = (fantaTeamId: string, where: string): RosterEntry[] => {
+    const roster = rosters.get(fantaTeamId);
+    if (!roster) throw new Error(`unknown fantaTeamId in log: ${fantaTeamId} (${where})`);
+    return roster;
+  };
 
   // Riconferme seed the roster first, with seq strictly below every live
   // event's seq (>= 0 by schema — see events.ts), so they always sort before
@@ -98,7 +132,6 @@ export function reduce(
       price: c.price,
       seq: index - confirmations.length,
     });
-    purchased.push(c.playerId);
     confirmedBy.set(c.playerId, c.fantaTeamId);
   });
 
@@ -108,38 +141,149 @@ export function reduce(
   const ordered = events.slice().sort((a, b) => a.seq - b.seq);
   for (const e of ordered) {
     lastSeq = Math.max(lastSeq, e.seq);
-    if (e.type !== "PURCHASE") continue;
+    if (e.type === "VOID") continue;
     if (voided.has(e.seq)) continue;
-    // Confirmations and the live log are validated independently: a riconferma
-    // for a player and a live PURCHASE of that same player are each valid on
-    // their own, and nothing else sees both. Replaying them together would
-    // put the same player on two rosters at once — a silent double count of
-    // budget and slots. Fail-closed, same style as the invalid-confirmations
-    // throw above, rather than silently producing a wrong state.
-    const confirmedTeam = confirmedBy.get(e.playerId);
-    if (confirmedTeam !== undefined) {
-      throw new Error(
-        `confirmations/live-log conflict: playerId "${e.playerId}" already confirmed (team ${confirmedTeam}), cannot also be purchased live by ${e.fantaTeamId}`,
-      );
+
+    if (e.type === "PURCHASE") {
+      // Confirmations and the live log are validated independently: a riconferma
+      // for a player and a live PURCHASE of that same player are each valid on
+      // their own, and nothing else sees both. Replaying them together would
+      // put the same player on two rosters at once — a silent double count of
+      // budget and slots. Fail-closed, same style as the invalid-confirmations
+      // throw above, rather than silently producing a wrong state.
+      const confirmedTeam = confirmedBy.get(e.playerId);
+      if (confirmedTeam !== undefined) {
+        throw new Error(
+          `confirmations/live-log conflict: playerId "${e.playerId}" already confirmed (team ${confirmedTeam}), cannot also be purchased live by ${e.fantaTeamId}`,
+        );
+      }
+      rosterOf(e.fantaTeamId, `PURCHASE seq ${e.seq}`).push({
+        playerId: e.playerId,
+        role: e.role,
+        price: e.price,
+        seq: e.seq,
+      });
+      continue;
     }
-    const roster = rosters.get(e.fantaTeamId);
-    if (!roster) {
-      throw new Error(`unknown fantaTeamId in log: ${e.fantaTeamId}`);
+
+    if (e.type === "RELEASE") {
+      const roster = rosterOf(e.fantaTeamId, `RELEASE seq ${e.seq}`);
+      const index = roster.findIndex((entry) => entry.playerId === e.playerId);
+      // Un log che svincola un giocatore che quella squadra non ha e un log
+      // che non descrive nessuna partita reale. Puo nascere solo da un VOID
+      // che toglie l'acquisto SOTTO uno svincolo gia registrato: e proprio
+      // quel VOID che `voidFeasibility` rifiuta (`target-superseded`), e
+      // questo throw e la rete sotto quel rifiuto.
+      if (index === -1) {
+        throw new Error(
+          `RELEASE seq ${e.seq}: playerId "${e.playerId}" is not on ${e.fantaTeamId}'s roster`,
+        );
+      }
+      const [entry] = roster.splice(index, 1);
+      ledger.set(e.fantaTeamId, ledger.get(e.fantaTeamId)! + entry!.price - e.creditsReturned);
+      continue;
     }
-    roster.push({ playerId: e.playerId, role: e.role, price: e.price, seq: e.seq });
-    purchased.push(e.playerId);
+
+    // TRADE
+    const rosterA = rosterOf(e.teamAId, `TRADE seq ${e.seq}`);
+    const rosterB = rosterOf(e.teamBId, `TRADE seq ${e.seq}`);
+    const moved = (
+      from: RosterEntry[],
+      to: RosterEntry[],
+      playerIds: readonly string[],
+      fromId: string,
+    ): number => {
+      let pricesMoved = 0;
+      for (const playerId of playerIds) {
+        const index = from.findIndex((entry) => entry.playerId === playerId);
+        if (index === -1) {
+          throw new Error(
+            `TRADE seq ${e.seq}: playerId "${playerId}" is not on ${fromId}'s roster`,
+          );
+        }
+        const [entry] = from.splice(index, 1);
+        to.push(entry!);
+        pricesMoved += entry!.price;
+      }
+      return pricesMoved;
+    };
+    // Le due chiamate leggono le rose PRIMA di scriverle a vicenda solo per i
+    // giocatori che stanno cedendo: un id presente in `fromA` e in `fromB`
+    // non puo quindi essere spostato due volte, e `tradeFeasibility` lo
+    // rifiuta comunque a monte (`duplicate-player`).
+    const pricesAToB = moved(rosterA, rosterB, e.fromA, e.teamAId);
+    const pricesBToA = moved(rosterB, rosterA, e.fromB, e.teamBId);
+    // Il registro annulla il movimento dei prezzi e lascia passare il solo
+    // conguaglio: vedi il commento su `buildTeam`.
+    ledger.set(e.teamAId, ledger.get(e.teamAId)! + e.creditsAToB + pricesAToB - pricesBToA);
+    ledger.set(e.teamBId, ledger.get(e.teamBId)! - e.creditsAToB + pricesBToA - pricesAToB);
   }
 
   const teams: Record<string, TeamState> = {};
+  // `purchasedPlayerIds` SI DERIVA DALLE ROSE, e non piu da una lista che
+  // cresce a ogni acquisto. Da quando esiste lo svincolo la domanda non e piu
+  // «chi e stato comprato» ma «chi e ancora di qualcuno»: un giocatore
+  // svincolato deve tornare libero nel listone, e una lista che accumula non
+  // saprebbe mai toglierlo. L'insieme delle rose e per costruzione la
+  // risposta giusta a entrambe le domande finche esistevano solo acquisti, e
+  // resta quella giusta adesso.
+  const owned: string[] = [];
   for (const id of fantaTeamIds) {
-    teams[id] = buildTeam(id, rosters.get(id)!);
+    const roster = rosters.get(id)!;
+    teams[id] = buildTeam(id, roster, ledger.get(id)!);
+    for (const entry of roster) owned.push(entry.playerId);
   }
 
   return {
     teams,
-    purchasedPlayerIds: purchased.slice().sort(),
+    purchasedPlayerIds: owned.slice().sort(),
     lastSeq,
   };
+}
+
+/**
+ * CHI E ANCORA DI QUALCUNO, senza mai lanciare.
+ *
+ * Stesse regole di `reduce()` — acquisti non annullati, riconferme, meno gli
+ * svincoli, con gli scambi che spostano e non tolgono — ma TOLLERANTE: un id
+ * di squadra sconosciuto o un evento che nomina un giocatore che non c'e
+ * vengono saltati invece di far lanciare.
+ *
+ * Esiste perche un chiamante ce l'ha davvero, e non e un capriccio: la
+ * guardia che rifiuta uno scambio di listone capace di orfanare dei giocatori
+ * gia acquistati gira sul percorso ASINCRONO di caricamento del pool, dove
+ * un'eccezione salterebbe il `render()` e lascerebbe la schermata ferma su
+ * uno stato vecchio senza dire perche. Li serve la lista, non la validazione:
+ * la validazione la fanno `validateAuctionLog` e `reduce()`, ognuno al suo
+ * posto.
+ */
+export function standingPlayerIds(
+  events: readonly AuctionEvent[],
+  confirmations: readonly ConfirmationInput[] = [],
+): string[] {
+  const voided = new Set<number>();
+  for (const e of events) if (e.type === "VOID") voided.add(e.targetSeq);
+
+  /** playerId -> squadra che lo ha adesso. */
+  const ownerOf = new Map<string, string>();
+  for (const c of confirmations) ownerOf.set(c.playerId, c.fantaTeamId);
+
+  for (const e of events.slice().sort((a, b) => a.seq - b.seq)) {
+    if (e.type === "VOID" || voided.has(e.seq)) continue;
+    if (e.type === "PURCHASE") {
+      ownerOf.set(e.playerId, e.fantaTeamId);
+    } else if (e.type === "RELEASE") {
+      if (ownerOf.get(e.playerId) === e.fantaTeamId) ownerOf.delete(e.playerId);
+    } else {
+      for (const playerId of e.fromA) {
+        if (ownerOf.get(playerId) === e.teamAId) ownerOf.set(playerId, e.teamBId);
+      }
+      for (const playerId of e.fromB) {
+        if (ownerOf.get(playerId) === e.teamBId) ownerOf.set(playerId, e.teamAId);
+      }
+    }
+  }
+  return [...ownerOf.keys()].sort();
 }
 
 export { ROLES };

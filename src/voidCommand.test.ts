@@ -105,9 +105,19 @@ describe("voidErrorText — humanized void violation messages", () => {
     expect(text.toLowerCase()).not.toContain("target seq");
   });
 
+  // Il codice si chiama ancora `target-not-purchase`, ma da quando il log
+  // porta anche svincoli e scambi il suo caso si e ristretto a UNO: il
+  // bersaglio e un annullamento. La frase dice quello, non piu «non e un
+  // acquisto» — che adesso sarebbe falsa per uno svincolo, che si annulla.
   it("maps target-not-purchase to an Italian sentence that says what to do", () => {
     const text = voidErrorText(["target-not-purchase"]);
-    expect(text).toContain("non è un acquisto");
+    expect(text).toContain("già un annullamento");
+  });
+
+  it("maps target-superseded naming the more recent gesture to undo first", () => {
+    const text = voidErrorText(["target-superseded"]);
+    expect(text).toContain("svincolato o scambiato");
+    expect(text).toContain("Annulla prima il gesto più recente");
   });
 
   it("maps already-voided to an Italian sentence that says what to do", () => {
@@ -117,7 +127,7 @@ describe("voidErrorText — humanized void violation messages", () => {
 
   it("joins multiple violations into one readable sentence", () => {
     const text = voidErrorText(["target-not-purchase", "already-voided"]);
-    expect(text).toContain("non è un acquisto");
+    expect(text).toContain("già un annullamento");
     expect(text).toContain("già annullato");
   });
 
@@ -125,7 +135,12 @@ describe("voidErrorText — humanized void violation messages", () => {
   // successful action, so "Chiudi questa finestra e…" was stale advice —
   // never reintroduce it.
   it("never tells the operator to close the dialog — it auto-closes", () => {
-    for (const violation of ["target-not-found", "target-not-purchase", "already-voided"] as const) {
+    for (const violation of [
+      "target-not-found",
+      "target-not-purchase",
+      "already-voided",
+      "target-superseded",
+    ] as const) {
       expect(voidErrorText([violation])).not.toMatch(/questa finestra/i);
     }
   });

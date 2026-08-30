@@ -42,16 +42,75 @@ export interface PurchaseEvent {
   readonly thirdGoalkeeperZeroDeclared?: true;
 }
 
-/** A compensating event that voids a prior purchase (undo / correction).
- *  We never mutate or delete events — we append a VOID. */
+/** A compensating event that voids a prior event (undo / correction).
+ *  We never mutate or delete events — we append a VOID. The target is a
+ *  PURCHASE, a RELEASE or a TRADE: every gesture that moves a roster or a
+ *  budget is undone the same way, by appending rather than by rewriting. */
 export interface VoidEvent {
   readonly type: "VOID";
   readonly seq: number;
   readonly ts: string;
-  readonly targetSeq: number; // seq of the PURCHASE being voided
+  readonly targetSeq: number; // seq of the event being voided
 }
 
-export type AuctionEvent = PurchaseEvent | VoidEvent;
+/**
+ * Uno SVINCOLO: un giocatore lascia la rosa e una quota di crediti torna al
+ * budget di quella squadra.
+ *
+ * PERCHE I CREDITI SONO UN CAMPO E NON UNA FORMULA. Il regolamento fissa il
+ * recupero in un caso solo — l'aggiudicazione oltre budget di
+ * LEAGUE_RULES.md §5, dove vale `ceil(prezzo / 2)` — e tace su ogni altro
+ * svincolo, che al tavolo si concorda. Calcolare qui il 50% e applicarlo
+ * sempre significherebbe far dire al motore una regola che il regolamento non
+ * ha: il numero lo DICHIARA chi registra, come il prezzo di un acquisto, e la
+ * schermata gli mostra accanto quanto varrebbe il caso §5 senza sceglierlo per
+ * lui.
+ *
+ * Il prezzo pagato all'acquisto NON viene riscritto: resta nel log, dove e un
+ * fatto. Quello che cambia e la rosa (una casella si libera) e il budget (di
+ * `creditsReturned`, non del prezzo), e la differenza fra i due — i crediti
+ * bruciati — e esattamente cio che uno svincolo costa.
+ */
+export interface ReleaseEvent {
+  readonly type: "RELEASE";
+  readonly seq: number;
+  readonly ts: string;
+  readonly playerId: string;
+  readonly fantaTeamId: string;
+  /** Crediti restituiti al budget: `0 <= creditsReturned <= prezzo pagato`. */
+  readonly creditsReturned: number;
+}
+
+/**
+ * Uno SCAMBIO fra due squadre: giocatori che cambiano rosa, piu un conguaglio.
+ *
+ * FORMA LIBERA, GUARDIA SUL TOTALE (decisione di Pico, 2026-08-30). Non si
+ * impone ne il pareggio numerico ne il pari ruolo: si impone che nessuna delle
+ * due rose esca da 3P/9D/9C/7A (LEAGUE_RULES.md §8: «mantenendo sempre la
+ * rosa») e che nessun budget vada sotto zero. Il vincolo e sul RISULTATO, non
+ * sulla forma della proposta, e vive in `tradeFeasibility`.
+ *
+ * I giocatori arrivano nella nuova rosa CON IL PREZZO CHE PORTAVANO: il prezzo
+ * e la memoria di quanto e costato all'asta, non un valore corrente, e
+ * riscriverlo cancellerebbe l'unico fatto che il log conosce. Il budget delle
+ * due squadre si muove percio del SOLO conguaglio — vedi il registro dei
+ * crediti in reduce().
+ */
+export interface TradeEvent {
+  readonly type: "TRADE";
+  readonly seq: number;
+  readonly ts: string;
+  readonly teamAId: string;
+  readonly teamBId: string;
+  /** playerId che passano da A a B. */
+  readonly fromA: readonly string[];
+  /** playerId che passano da B ad A. */
+  readonly fromB: readonly string[];
+  /** Conguaglio pagato da A a B. Negativo: e B a pagare A. Zero: nessuno. */
+  readonly creditsAToB: number;
+}
+
+export type AuctionEvent = PurchaseEvent | VoidEvent | ReleaseEvent | TradeEvent;
 
 export interface RosterEntry {
   readonly playerId: string;

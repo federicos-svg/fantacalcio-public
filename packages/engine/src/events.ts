@@ -26,7 +26,42 @@ export const voidSchema = z.object({
   targetSeq: z.number().int().nonnegative(),
 });
 
-export const eventSchema = z.discriminatedUnion("type", [purchaseSchema, voidSchema]);
+// Un playerId dentro uno scambio: stessa forma minima del playerId di un
+// acquisto. La verifica che quel giocatore sia DAVVERO nella rosa della
+// squadra che lo cede e semantica, non strutturale, e vive in
+// `tradeFeasibility` (feasibility.ts) — qui si controlla solo la forma.
+const playerIdSchema = z.string().min(1);
+
+export const releaseSchema = z.object({
+  type: z.literal("RELEASE"),
+  seq: z.number().int().nonnegative(),
+  ts: z.string().min(1),
+  playerId: playerIdSchema,
+  fantaTeamId: z.string().min(1),
+  // Interi non negativi: il tetto (mai piu del prezzo pagato) e semantico e lo
+  // impone `releaseFeasibility`, perche solo li si conosce il prezzo.
+  creditsReturned: z.number().int().nonnegative(),
+});
+
+export const tradeSchema = z.object({
+  type: z.literal("TRADE"),
+  seq: z.number().int().nonnegative(),
+  ts: z.string().min(1),
+  teamAId: z.string().min(1),
+  teamBId: z.string().min(1),
+  fromA: z.array(playerIdSchema),
+  fromB: z.array(playerIdSchema),
+  // Il conguaglio e l'UNICO campo firmato di tutto il log: il segno dice chi
+  // paga, e senza segno servirebbero due campi che possono contraddirsi.
+  creditsAToB: z.number().int(),
+});
+
+export const eventSchema = z.discriminatedUnion("type", [
+  purchaseSchema,
+  voidSchema,
+  releaseSchema,
+  tradeSchema,
+]);
 
 export function validateEvent(e: unknown): AuctionEvent {
   return eventSchema.parse(e) as AuctionEvent;
@@ -42,7 +77,9 @@ export function validateEvent(e: unknown): AuctionEvent {
  * appended. Manual purchase input MUST go through `recordPurchase`
  * (see feasibility.ts), which runs `purchaseFeasibility` before appending.
  * Use `appendEvent` directly only for events already known to be safe
- * (e.g. VOID, or a purchase already admitted by `recordPurchase`).
+ * (e.g. VOID, or a purchase already admitted by `recordPurchase`). Lo stesso
+ * vale per RELEASE e TRADE: passano da `recordRelease` / `recordTrade`, che
+ * eseguono `releaseFeasibility` / `tradeFeasibility` prima di appendere.
  */
 export function appendEvent(
   log: readonly AuctionEvent[],

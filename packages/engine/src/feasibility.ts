@@ -7,9 +7,13 @@ import {
   type AuctionEvent,
   type AuctionState,
   type PurchaseEvent,
+  type ReleaseEvent,
+  type TradeEvent,
   type VoidEvent,
   type Role,
   COST_FLOOR,
+  ROLES,
+  ROSTER_REQUIREMENTS,
 } from "./types.js";
 import { appendEvent } from "./events.js";
 
@@ -158,8 +162,18 @@ export function recordPurchase(
 
 export type VoidViolation =
   | "target-not-found" // no event in the log carries this seq
-  | "target-not-purchase" // the targeted event is not a PURCHASE (e.g. a VOID)
-  | "already-voided"; // a VOID already compensates this seq
+  | "target-not-purchase" // the targeted event is a VOID: a VOID of a VOID means nothing
+  | "already-voided" // a VOID already compensates this seq
+  /**
+   * Un gesto PIU RECENTE poggia su questo: l'acquisto che si vuole annullare
+   * ha gia portato quel giocatore dentro uno svincolo o uno scambio, e
+   * toglierlo adesso lascerebbe quel gesto a nominare un giocatore che nessuno
+   * ha mai comprato — un log che `reduce()` non sa piu leggere.
+   *
+   * Non e una regola di prudenza: e la condizione esatta sotto cui il replay
+   * lancerebbe. Si annulla prima il gesto piu recente, poi questo.
+   */
+  | "target-superseded";
 
 export interface VoidFeasibilityResult {
   readonly ok: boolean;
@@ -182,11 +196,53 @@ export function voidFeasibility(
     return { ok: false, violations: ["target-not-found"] };
   }
   const violations: VoidViolation[] = [];
-  if (target.type !== "PURCHASE") violations.push("target-not-purchase");
+  if (target.type === "VOID") violations.push("target-not-purchase");
   if (log.some((e) => e.type === "VOID" && e.targetSeq === targetSeq)) {
     violations.push("already-voided");
   }
+  if (target.type !== "VOID" && supersededBy(log, target) !== null) {
+    violations.push("target-superseded");
+  }
   return { ok: violations.length === 0, violations };
+}
+
+/**
+ * Il primo gesto ancora in piedi che poggia su `target`, o `null`.
+ *
+ * «Poggia su» ha una definizione sola e meccanica: `target` mette un giocatore
+ * in una rosa (PURCHASE, o TRADE che gliela consegna) e un evento successivo,
+ * non annullato, MUOVE quello stesso giocatore. Annullare il primo senza
+ * annullare il secondo produrrebbe un log irriducibile, ed e la ragione per cui
+ * `reduce()` lancia invece di ignorare: qui quel throw viene anticipato in un
+ * rifiuto leggibile.
+ */
+function supersededBy(
+  log: readonly AuctionEvent[],
+  target: Exclude<AuctionEvent, VoidEvent>,
+): AuctionEvent | null {
+  const voided = new Set<number>();
+  for (const e of log) if (e.type === "VOID") voided.add(e.targetSeq);
+
+  const touched = new Set<string>(
+    target.type === "PURCHASE"
+      ? [target.playerId]
+      : target.type === "RELEASE"
+        ? [target.playerId]
+        : [...target.fromA, ...target.fromB],
+  );
+
+  for (const e of log) {
+    if (e.seq <= target.seq || e.type === "VOID" || voided.has(e.seq)) continue;
+    if (e.type === "PURCHASE") continue; // non puo toccare un giocatore gia in rosa
+    if (e.type === "RELEASE") {
+      if (touched.has(e.playerId)) return e;
+      continue;
+    }
+    for (const playerId of [...e.fromA, ...e.fromB]) {
+      if (touched.has(playerId)) return e;
+    }
+  }
+  return null;
 }
 
 /**
@@ -209,5 +265,244 @@ export function recordVoid(
   }
   const nextSeq = log.length > 0 ? log[log.length - 1]!.seq + 1 : 0;
   const event: VoidEvent = { type: "VOID", seq: nextSeq, ts, targetSeq };
+  return appendEvent(log, event);
+}
+
+
+// ── SVINCOLO ────────────────────────────────────────────────────────────────
+
+/** Uno svincolo che l'operatore vuole registrare, prima che diventi evento. */
+export interface ProposedRelease {
+  readonly playerId: string;
+  readonly fantaTeamId: string;
+  /** Crediti restituiti al budget. Vedi `ReleaseEvent.creditsReturned`. */
+  readonly creditsReturned: number;
+}
+
+export type ReleaseViolation =
+  | "unknown-team" // fantaTeamId non e al tavolo
+  | "player-not-on-roster" // quella squadra non ha quel giocatore
+  | "credits-invalid" // non e un intero (NaN, Infinity, 7.5, ...)
+  | "credits-negative" // uno svincolo non puo togliere crediti
+  | "credits-above-price"; // recuperare piu del pagato sarebbe creare crediti dal nulla
+
+export interface ReleaseFeasibilityResult {
+  readonly ok: boolean;
+  readonly violations: readonly ReleaseViolation[];
+}
+
+/**
+ * Uno svincolo LIBERA sempre: una casella torna vuota e il budget non
+ * diminuisce. Non c'e quindi niente da controllare sul lato «la rosa resta
+ * completabile» — l'unica cosa che uno svincolo puo rompere e la contabilita,
+ * e la rompe in un modo solo: restituendo piu di quanto e stato pagato.
+ *
+ * IL TETTO NON E UNA REGOLA DI LEGA, E UNA CONSERVAZIONE. Il regolamento fissa
+ * il recupero solo per §5 (`ceil(prezzo / 2)`); qui non si impone quel numero —
+ * lo si mostra a schermo e lo si lascia scegliere — ma si rifiuta il caso in
+ * cui l'app fabbricherebbe crediti che nessuno ha mai messo sul tavolo.
+ */
+export function releaseFeasibility(
+  state: AuctionState,
+  proposed: ProposedRelease,
+): ReleaseFeasibilityResult {
+  const team = state.teams[proposed.fantaTeamId];
+  if (!team) return { ok: false, violations: ["unknown-team"] };
+
+  const violations: ReleaseViolation[] = [];
+  const entry = team.roster.find((r) => r.playerId === proposed.playerId);
+  if (entry === undefined) violations.push("player-not-on-roster");
+
+  if (!Number.isInteger(proposed.creditsReturned)) {
+    violations.push("credits-invalid");
+  } else if (proposed.creditsReturned < 0) {
+    violations.push("credits-negative");
+  } else if (entry !== undefined && proposed.creditsReturned > entry.price) {
+    violations.push("credits-above-price");
+  }
+
+  return { ok: violations.length === 0, violations };
+}
+
+/**
+ * Contratto di registrazione dello svincolo: `releaseFeasibility` prima,
+ * append dopo, eccezione se il gesto non passa. `ts` lo fornisce il chiamante
+ * (deterministico: qui non c'e orologio). Ritorna un log NUOVO.
+ */
+export function recordRelease(
+  log: readonly AuctionEvent[],
+  state: AuctionState,
+  proposed: ProposedRelease,
+  ts: string,
+): readonly AuctionEvent[] {
+  const feasibility = releaseFeasibility(state, proposed);
+  if (!feasibility.ok) {
+    throw new Error(
+      `infeasible release (${proposed.playerId} <- ${proposed.fantaTeamId}): ${feasibility.violations.join(", ")}`,
+    );
+  }
+  const event: ReleaseEvent = {
+    type: "RELEASE",
+    seq: log.length > 0 ? log[log.length - 1]!.seq + 1 : 0,
+    ts,
+    playerId: proposed.playerId,
+    fantaTeamId: proposed.fantaTeamId,
+    creditsReturned: proposed.creditsReturned,
+  };
+  return appendEvent(log, event);
+}
+
+// ── SCAMBIO ─────────────────────────────────────────────────────────────────
+
+/** Uno scambio che l'operatore vuole registrare, prima che diventi evento. */
+export interface ProposedTrade {
+  readonly teamAId: string;
+  readonly teamBId: string;
+  readonly fromA: readonly string[];
+  readonly fromB: readonly string[];
+  /** Conguaglio pagato da A a B; negativo se paga B. */
+  readonly creditsAToB: number;
+}
+
+export type TradeViolation =
+  | "unknown-team" // una delle due squadre non e al tavolo
+  | "same-team" // A e B sono la stessa squadra: non e uno scambio
+  | "empty-trade" // nessun giocatore e nessun conguaglio: non succede niente
+  | "duplicate-player" // lo stesso playerId compare due volte nella proposta
+  | "player-not-on-roster" // una delle due cede un giocatore che non ha
+  | "role-overflow" // una delle due rose sfonderebbe 3P/9D/9C/7A in un ruolo
+  | "credits-invalid" // il conguaglio non e un intero
+  | "insufficient-budget" // il conguaglio manderebbe un budget sotto zero
+  | "breaks-hard-reserve"; // dopo lo scambio una rosa non e piu completabile a COST_FLOOR
+
+export interface TradeFeasibilityResult {
+  readonly ok: boolean;
+  readonly violations: readonly TradeViolation[];
+}
+
+/**
+ * LA GUARDIA E SUL RISULTATO, NON SULLA FORMA (decisione di Pico, 2026-08-30).
+ *
+ * Non si chiede che lo scambio sia uno-a-uno ne che i ruoli combacino: si
+ * simula lo stato che ne uscirebbe e si rifiuta solo se quello stato e
+ * impossibile. Tre cose lo rendono impossibile, e sono le stesse tre che
+ * governano un acquisto:
+ *
+ *  1. IL CONTEGGIO PER RUOLO. LEAGUE_RULES.md §8 dice «mantenendo sempre la
+ *     rosa 3P/9D/9C/7A»: nessuna delle due puo superare il tetto di un ruolo.
+ *     Restare SOTTO e invece normale — a meta asta ogni rosa e sotto.
+ *  2. IL BUDGET. Il conguaglio non puo portare nessuno dei due sotto zero.
+ *  3. LA RISERVA DURA. Dopo lo scambio ogni casella ancora vuota deve restare
+ *     riempibile a COST_FLOOR, esattamente come dopo un acquisto: una rosa che
+ *     non si puo completare non e uno scambio audace, e un vicolo cieco.
+ *
+ * Ogni violazione trovata viene riportata, non solo la prima: la schermata
+ * deve poter dire tutto quello che non va in una volta sola.
+ */
+export function tradeFeasibility(
+  state: AuctionState,
+  proposed: ProposedTrade,
+): TradeFeasibilityResult {
+  const teamA = state.teams[proposed.teamAId];
+  const teamB = state.teams[proposed.teamBId];
+  if (!teamA || !teamB) return { ok: false, violations: ["unknown-team"] };
+  if (proposed.teamAId === proposed.teamBId) return { ok: false, violations: ["same-team"] };
+
+  const violations: TradeViolation[] = [];
+  const all = [...proposed.fromA, ...proposed.fromB];
+  if (all.length === 0 && proposed.creditsAToB === 0) violations.push("empty-trade");
+  if (new Set(all).size !== all.length) violations.push("duplicate-player");
+
+  // Le righe che si muovono, prese dalle rose vere: senza di loro non si
+  // conosce ne il ruolo ne il prezzo, e senza quelli non si simula niente.
+  const leaving = (
+    team: AuctionState["teams"][string],
+    playerIds: readonly string[],
+  ): { readonly entries: readonly { role: Role; price: number }[]; readonly missing: number } => {
+    const entries: { role: Role; price: number }[] = [];
+    let missing = 0;
+    for (const playerId of playerIds) {
+      const entry = team.roster.find((r) => r.playerId === playerId);
+      if (entry === undefined) missing += 1;
+      else entries.push({ role: entry.role, price: entry.price });
+    }
+    return { entries, missing };
+  };
+
+  const outA = leaving(teamA, proposed.fromA);
+  const outB = leaving(teamB, proposed.fromB);
+  if (outA.missing > 0 || outB.missing > 0) violations.push("player-not-on-roster");
+
+  if (!Number.isInteger(proposed.creditsAToB)) {
+    violations.push("credits-invalid");
+  }
+
+  // Da qui in giu si simula. Con righe mancanti o un conguaglio non intero la
+  // simulazione girerebbe su numeri che non descrivono niente: si e gia detto
+  // che cosa non va, e aggiungere violazioni derivate da un input rotto
+  // significherebbe far leggere all'operatore conseguenze inventate.
+  if (violations.length > 0) return { ok: false, violations };
+
+  const after = (
+    team: AuctionState["teams"][string],
+    out: readonly { role: Role; price: number }[],
+    incoming: readonly { role: Role; price: number }[],
+    creditsPaid: number,
+  ): { readonly overflow: boolean; readonly residual: number; readonly emptySlots: number } => {
+    const filled: Record<Role, number> = { ...team.filled };
+    for (const entry of out) filled[entry.role] -= 1;
+    for (const entry of incoming) filled[entry.role] += 1;
+    let overflow = false;
+    let emptySlots = 0;
+    for (const role of ROLES) {
+      if (filled[role] > ROSTER_REQUIREMENTS[role]) overflow = true;
+      emptySlots += Math.max(0, ROSTER_REQUIREMENTS[role] - filled[role]);
+    }
+    // Il budget si muove del SOLO conguaglio: i prezzi viaggiano con le righe
+    // ma non sono crediti che cambiano di mano (vedi il registro in reduce.ts).
+    return { overflow, residual: team.budgetResidual - creditsPaid, emptySlots };
+  };
+
+  const stateA = after(teamA, outA.entries, outB.entries, proposed.creditsAToB);
+  const stateB = after(teamB, outB.entries, outA.entries, -proposed.creditsAToB);
+
+  if (stateA.overflow || stateB.overflow) violations.push("role-overflow");
+  if (stateA.residual < 0 || stateB.residual < 0) violations.push("insufficient-budget");
+  else if (
+    stateA.residual < stateA.emptySlots * COST_FLOOR ||
+    stateB.residual < stateB.emptySlots * COST_FLOOR
+  ) {
+    violations.push("breaks-hard-reserve");
+  }
+
+  return { ok: violations.length === 0, violations };
+}
+
+/**
+ * Contratto di registrazione dello scambio: `tradeFeasibility` prima, append
+ * dopo, eccezione se il gesto non passa. Ritorna un log NUOVO.
+ */
+export function recordTrade(
+  log: readonly AuctionEvent[],
+  state: AuctionState,
+  proposed: ProposedTrade,
+  ts: string,
+): readonly AuctionEvent[] {
+  const feasibility = tradeFeasibility(state, proposed);
+  if (!feasibility.ok) {
+    throw new Error(
+      `infeasible trade (${proposed.teamAId} <-> ${proposed.teamBId}): ${feasibility.violations.join(", ")}`,
+    );
+  }
+  const event: TradeEvent = {
+    type: "TRADE",
+    seq: log.length > 0 ? log[log.length - 1]!.seq + 1 : 0,
+    ts,
+    teamAId: proposed.teamAId,
+    teamBId: proposed.teamBId,
+    fromA: [...proposed.fromA],
+    fromB: [...proposed.fromB],
+    creditsAToB: proposed.creditsAToB,
+  };
   return appendEvent(log, event);
 }

@@ -127,8 +127,11 @@ export function validateAuctionLog(
   }
   if (orderReasons.length > 0) return { ok: false, reasons: orderReasons };
 
-  // VOID coherence: target must exist, be a PURCHASE, precede the VOID in
-  // seq order, and be targeted by at most one VOID.
+  // VOID coherence: target must exist, not itself be a VOID, precede the VOID
+  // in seq order, and be targeted by at most one VOID. Da quando il log porta
+  // anche svincoli e scambi, il bersaglio ammesso non e piu il solo acquisto:
+  // ogni gesto che muove una rosa o un budget si annulla allo stesso modo. Un
+  // VOID di un VOID resta senza significato ed e l'unico caso escluso.
   const voidReasons: string[] = [];
   const bySeq = new Map<number, AuctionEvent>();
   for (const e of events) bySeq.set(e.seq, e);
@@ -140,8 +143,8 @@ export function validateAuctionLog(
       voidReasons.push(`VOID seq ${e.seq}: target seq ${e.targetSeq} does not exist`);
       continue;
     }
-    if (target.type !== "PURCHASE") {
-      voidReasons.push(`VOID seq ${e.seq}: target seq ${e.targetSeq} is not a PURCHASE`);
+    if (target.type === "VOID") {
+      voidReasons.push(`VOID seq ${e.seq}: target seq ${e.targetSeq} is itself a VOID`);
       continue;
     }
     if (e.targetSeq >= e.seq) {
@@ -195,19 +198,36 @@ export function validateAuctionLog(
   }
   if (invariantReasons.length > 0) return { ok: false, reasons: invariantReasons };
 
-  // A player can never be simultaneously active (purchased, not voided)
-  // more than once — purchaseFeasibility() prevents this at write time; a
-  // stored log that already contains it did not come through that path.
+  // UN GIOCATORE NON PUO STARE IN DUE ROSE NELLO STESSO ISTANTE —
+  // purchaseFeasibility() lo impedisce in scrittura; un log conservato che lo
+  // contiene gia non e passato di li.
+  //
+  // LA DOMANDA E CAMBIATA quando il log ha imparato lo svincolo. Prima bastava
+  // «comprato due volte senza un annullamento in mezzo»: adesso comprare due
+  // volte lo stesso giocatore e LEGITTIMO, se fra i due acquisti qualcuno lo ha
+  // svincolato. La proprieta va quindi seguita nel tempo — gli eventi sono gia
+  // stati verificati in ordine di seq stretto qui sopra, quindi scorrerli e
+  // scorrere la cronologia — e il difetto da cercare e un acquisto che arriva
+  // mentre il giocatore e ancora di qualcuno.
   const duplicateReasons: string[] = [];
-  const activePlayers = new Set<string>();
+  const ownerOf = new Map<string, string>();
   for (const e of events) {
-    if (e.type !== "PURCHASE") continue;
-    if (voidedTargets.has(e.seq)) continue;
-    if (activePlayers.has(e.playerId)) {
-      duplicateReasons.push(`player ${e.playerId} purchased more than once without a void`);
-      continue;
+    if (e.type === "VOID" || voidedTargets.has(e.seq)) continue;
+    if (e.type === "PURCHASE") {
+      const owner = ownerOf.get(e.playerId);
+      if (owner !== undefined) {
+        duplicateReasons.push(
+          `player ${e.playerId} purchased by ${e.fantaTeamId} while still on ${owner}'s roster`,
+        );
+        continue;
+      }
+      ownerOf.set(e.playerId, e.fantaTeamId);
+    } else if (e.type === "RELEASE") {
+      ownerOf.delete(e.playerId);
+    } else {
+      for (const playerId of e.fromA) ownerOf.set(playerId, e.teamBId);
+      for (const playerId of e.fromB) ownerOf.set(playerId, e.teamAId);
     }
-    activePlayers.add(e.playerId);
   }
   if (duplicateReasons.length > 0) return { ok: false, reasons: duplicateReasons };
 
