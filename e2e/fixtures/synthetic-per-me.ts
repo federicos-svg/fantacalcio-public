@@ -1,4 +1,4 @@
-// PER ME — listone e piano rosa sintetici per la suite E2E.
+// PER ME — listone sintetico per la suite E2E.
 //
 // Tutto inventato: club «ClubAlfa/Beta/Gamma», giocatori «Attaccante Forte» e
 // compagnia, quotazioni scelte per esercitare l'ordine e non copiate da nessuna
@@ -13,17 +13,9 @@
 // Scarso» a 2 cr, e i due da 40 e 60 sarebbero esclusi. Con i criteri veri
 // «Attaccante Scarso» è invece ULTIMO, e a tetto di tre righe non compare
 // nemmeno: è ciò che e2e/per-me-row.spec.ts asserisce sul DOM vivo.
-//
-// IL PIANO ROSA passa da `localStorage` con la stessa chiave e lo stesso schema
-// che `loadRolePlan` legge davvero (src/rolePlan.ts): la suite esercita il
-// percorso vero — parsing zod, forma parziale, lettura del motore — e non una
-// porta di servizio aperta apposta per i test.
 
-import type { Page } from "@playwright/test";
 import type { ListonePlayer } from "../../src/ui/listone.js";
 import { listonePlayerKey } from "../../src/ui/listone.js";
-
-export const ROLE_PLAN_KEY = "fac_role_plan";
 
 /** La ricetta dell'indice, nella forma che la Factory emette. Una sola per
  *  tutto il listone: con due ricette la provenienza non sarebbe dichiarabile e
@@ -73,22 +65,3 @@ export const PER_ME_KEYS = {
   scarso: listonePlayerKey(A_SCARSO),
   difensore: listonePlayerKey(D_FORTE),
 } as const;
-
-/** Il piano rosa DICHIARATO, completo: quattro target più la versione. */
-export const PER_ME_PLAN = {
-  schemaVersion: 1,
-  planVersion: "e2e pre-asta",
-  targets: { P: 20, D: 80, C: 140, A: 210 },
-} as const;
-
-/** Semina il piano rosa e ricarica, perché l'app lo legge al boot. Da chiamare
- *  dopo `page.goto("/")` e dopo l'eventuale `localStorage.clear()`. */
-export async function seedRolePlan(page: Page): Promise<void> {
-  await page.evaluate(
-    ([key, plan]) => {
-      localStorage.setItem(key as string, JSON.stringify(plan));
-    },
-    [ROLE_PLAN_KEY, PER_ME_PLAN] as const,
-  );
-  await page.reload();
-}

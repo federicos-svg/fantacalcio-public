@@ -101,7 +101,7 @@ export function perMeEmptyText(reason: PerMeEmptyReason): string {
     case "anchors-refused":
       return "Le quotazioni caricate non passano la validazione del motore: da un listino rotto non si deriva nessuna ancora.";
     case "plan-absent":
-      return "Nessun piano rosa dichiarato: il primo criterio dell'ordine è «dentro il tuo piano», e senza piano quell'ordine non esiste. Dichiaralo in ROSE → IL MIO PIANO.";
+      return "Nessun piano rosa dichiarato: il primo criterio dell'ordine è «dentro il tuo piano», e senza piano quell'ordine non esiste. Il pannello che raccoglieva quella dichiarazione è stato rimosso, quindi oggi questo sottoblocco non ha di che parlare: resta muto invece di ordinare su un piano indovinato.";
     case "plan-incomplete":
       return "Piano rosa dichiarato a metà: manca un target di ruolo o la versione del piano, e un piano incompleto non attraversa il confine verso il motore.";
     case "plan-invalid":

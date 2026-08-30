@@ -31,18 +31,15 @@ test("Rose screen lists every league team from the real event log, with inert DE
   await page.getByRole("button", { name: "Registra acquisto", exact: true }).click();
 
   await gotoScreen(page, "Rose");
-  // LA RIGA DI INTESTAZIONE DICE QUALE PARTE È DI SOLA LETTURA, e non più
-  // «Rose — sola lettura» tout court: da PLAN-01 questa schermata ospita il
-  // modulo del piano rosa, che è editabile e scrive in `localStorage`. Una
-  // schermata che si dichiara di sola lettura sopra un campo che accetta
-  // scrittura si contraddice da sé — e la prima frase che un operatore impara a
-  // non credere si porta dietro tutte le altre. Le due asserzioni tengono
-  // insieme le due metà: che cosa resta derivato, e che cosa non è più detto.
-  await expect(page.locator("#role-plan-panel")).toBeVisible();
+  // LA RIGA DI INTESTAZIONE DICE ENTRAMBE LE COSE: che la griglia è derivata, e
+  // che ogni casella è una porta che scrive. Una schermata che si dichiarasse
+  // «di sola lettura» sopra un gesto che finisce nel log si contraddirebbe da
+  // sé — e la prima frase che un operatore impara a non credere si porta dietro
+  // tutte le altre.
   await expect(page.locator("#rose-screen-hint")).toContainText(
-    "le rose e la contabilità sono di sola lettura, derivate dallo storico acquisti",
+    "la griglia è derivata dallo storico acquisti",
   );
-  await expect(page.locator("#rose-screen-hint")).not.toContainText("Rose — sola lettura,");
+  await expect(page.locator("#rose-screen-hint")).not.toContainText("sola lettura");
 
   // 8 fixed league teams (see FANTA_TEAM_IDS in src/main.ts), one card each.
   await expect(page.locator(".panel--compact")).toHaveCount(8);

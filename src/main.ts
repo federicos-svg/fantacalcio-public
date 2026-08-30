@@ -101,20 +101,6 @@ import {
   seatPerson,
   type LeagueRoster,
 } from "./leagueTeams.js";
-// PIANO ROSA (PLAN-01): la dichiarazione di Owner e la sua lettura. Il calcolo
-// vero resta nel motore (livePlan.ts) — qui si legge, si conserva, e si passa
-// al pannello. La forma PARZIALE della dichiarazione (`RolePlanDraft`) è ciò
-// che tiene separati «ruolo non dichiarato» e «ruolo dichiarato a zero»: vedi
-// la testa di src/rolePlan.ts.
-import {
-  EMPTY_ROLE_PLAN_DRAFT,
-  type RolePlanDraft,
-  clearRolePlan,
-  declaredTotal,
-  loadRolePlan,
-  rolePlanReading,
-  saveRolePlan,
-} from "./rolePlan.js";
 import { requiredRoleError } from "./callGuard.js";
 import { parsePositiveIntegerPrice } from "./price.js";
 import {
@@ -150,7 +136,6 @@ import {
   renderRoleScarcityPanel,
   renderWarBoardFull,
   renderWarBoardMini,
-  renderRolePlanPanel,
   renderRoseScreen,
   renderMockModal,
   renderRecoveryBlockedScreen,
@@ -623,15 +608,6 @@ interface AppState {
   offline: boolean;
   leagueRoster: LeagueRoster;
   /**
-   * La dichiarazione di piano rosa di Owner, in forma parziale.
-   *
-   * `null` = non è mai stata dichiarata (o la copia conservata era illeggibile
-   * ed è stata rifiutata in blocco: fail-closed, mai una dichiarazione
-   * parziale indovinata). Non è la stessa cosa di una dichiarazione con tutti i
-   * ruoli a zero, e il pannello le mostra in due modi diversi.
-   */
-  rolePlan: RolePlanDraft | null;
-  /**
    * Lo storico d'asta multi-stagione e i profili d'intervista, letti al boot
    * dallo storage locale del browser.
    *
@@ -1003,7 +979,6 @@ const state: AppState = {
   listoneRoles: [],
   offline: !navigator.onLine,
   leagueRoster: loadLeagueRoster(browserStorage, FANTA_TEAM_IDS),
-  rolePlan: loadRolePlan(browserStorage),
   // Fail-closed entrambi: assente o corrotto -> lista vuota, mai parziale. Un
   // conteggio di precedenti fatto su metà delle righe sarebbe un numero
   // sbagliato con l'aria di un fatto.
@@ -1685,33 +1660,6 @@ function resetListoneSearch(): void {
 // touching reduce() directly. render() guards this exact call against a
 // confirmations/live-log conflict throw (audit fix 3) before any screen is
 // built — see the render() comment "Fix 3 (#283) fail-closed guard".
-// ── IL MIO PIANO (PLAN-01) — costruzione del pannello ───────────────────────
-//
-// Il motore calcolava già il piano rosa vivo e nessuna schermata lo importava.
-// Qui si chiudono i due fili che mancavano: la LETTURA (`rolePlanReading`, che
-// chiama `livePlan()` solo quando la dichiarazione è completa e valida) e la
-// PERSISTENZA della dichiarazione. views.ts riceve le due funzioni e non tocca
-// né il motore né lo storage, come ogni altro pannello.
-function renderMyRolePlanPanel(aState: AuctionState): HTMLElement | null {
-  const team = myTeam(aState);
-  if (team === undefined) return null;
-  return renderRolePlanPanel({
-    draft: state.rolePlan ?? EMPTY_ROLE_PLAN_DRAFT,
-    read: (draft) => rolePlanReading(team, draft),
-    persist: (draft) => {
-      state.rolePlan = draft;
-      // Una dichiarazione tornata completamente vuota non lascia dietro di sé
-      // un guscio conservato: niente dichiarato, niente scritto. Al prossimo
-      // avvio si rilegge «nessun piano», che è la verità.
-      const { roles } = declaredTotal(draft);
-      if (roles === 0 && draft.planVersion.trim().length === 0) {
-        return clearRolePlan(browserStorage);
-      }
-      return saveRolePlan(browserStorage, draft);
-    },
-  });
-}
-
 function deriveAuctionState(): AuctionState {
   return reduce(state.log, FANTA_TEAM_IDS, state.confirmations);
 }
@@ -1870,15 +1818,16 @@ function baitSectionProps(aState: AuctionState): BaitSectionProps {
  * un libro vero e il criterio 2 si accende senza toccare né la lettura né la
  * vista.
  *
- * Le tre memorie che legge sono quelle che l'app ha già: le righe del listone
- * (con la loro Qt.A e il loro indice di appetibilità), il log d'asta (da cui
- * l'inflazione misurata) e la dichiarazione di piano rosa conservata in
- * `state.rolePlan`. Nessuna sorgente nuova, nessun dato inventato.
+ * Le due memorie che legge sono quelle che l'app ha già: le righe del listone
+ * (con la loro Qt.A e il loro indice di appetibilità) e il log d'asta (da cui
+ * l'inflazione misurata). Nessuna sorgente nuova, nessun dato inventato.
  *
- * `state.rolePlan` attraversa il confine COSÌ COM'È, nella sua forma parziale:
- * un ruolo non dichiarato resta una chiave assente e non diventa uno zero
- * (src/rolePlan.ts), e il sottoblocco lo dice invece di ordinare su un piano
- * che Pico non ha scritto.
+ * `planDraft: null` NON è un ripiego: il pannello PIANO ROSA è stato rimosso e
+ * con lui la sola sorgente di una dichiarazione, quindi oggi non ne esiste
+ * nessuna da passare. `perMeCandidates` conosce già questo esito e lo DICE
+ * («nessun piano rosa dichiarato», src/perMeCandidates.ts): il primo criterio
+ * dell'ordine resta spento e l'ordine cade su quelli che restano, invece di
+ * essere calcolato su un piano indovinato.
  */
 function perMeSectionProps(aState: AuctionState): PerMeSectionProps {
   const selected = state.call.selectedPlayer;
@@ -1889,7 +1838,7 @@ function perMeSectionProps(aState: AuctionState): PerMeSectionProps {
       state: aState,
       log: state.log,
       selfId: SELF_ID,
-      planDraft: state.rolePlan,
+      planDraft: null,
       values: null,
     }),
     selectedKey: selected === null ? null : listonePlayerKey(selected),
@@ -2012,14 +1961,16 @@ function tierBandProps(aState: AuctionState): TierBandProps {
  * di default sarebbe far dire all'app che Pico ha dichiarato qualcosa che non
  * ha dichiarato (§D9, ingrediente 2).
  *
- * LO SLOT 3 HA GIÀ TUTTI I SUOI INGRESSI. Il valore assoluto è DERIVATO
- * (packages/engine/src/absoluteValue.ts): budget del regolamento ripartito dai
- * TARGET DI RUOLO che Pico dichiara nel piano rosa (`state.rolePlan`, che una
- * sorgente ce l'ha), diviso per gli slot del ruolo, collocato dalla fascia del
- * libro. Le tre gambe arrivano da dove già vivono — la titolarità e la pagella
- * dalla scheda del Gruppo Esperti, la partecipazione alle coppe dall'elenco
- * dichiarato di src/serieACompetitions.ts — e oggi hanno tutte peso zero,
- * quindi la loro assenza non toglie il numero.
+ * LO SLOT 3 È SPENTO, e lo è per mancanza di un INGRESSO. Il valore assoluto è
+ * DERIVATO (packages/engine/src/absoluteValue.ts): budget del regolamento
+ * ripartito dai TARGET DI RUOLO, diviso per gli slot del ruolo, collocato dalla
+ * fascia del libro. Quei target li dichiarava il pannello PIANO ROSA, che è
+ * stato rimosso: senza dichiarazione `absoluteValue()` risponde
+ * `assente: ruolo-senza-target` e lo slot lo dice, invece di ripartire il
+ * budget su una ripartizione che nessuno ha scritto. Le tre gambe restano dove
+ * già vivono — la titolarità e la pagella dalla scheda del Gruppo Esperti, la
+ * partecipazione alle coppe dall'elenco dichiarato di
+ * src/serieACompetitions.ts — e oggi hanno tutte peso zero.
  *
  * LO SLOT 4 SI ACCENDE DAL PRIMO SECONDO, e `table` è la ragione. Dal
  * 2026-08-24 quel numero è «quanto costa vincere adesso» — il secondo max bid
@@ -2106,10 +2057,12 @@ function valueBoxProps(aState: AuctionState): ValueBoxProps {
         selfId: SELF_ID,
       },
       absolute: {
-        // I TARGET DICHIARATI, così come Pico li ha scritti: la forma parziale
-        // attraversa il confine intatta, e un ruolo non dichiarato resta una
-        // chiave assente invece di diventare uno zero (src/rolePlan.ts).
-        roleTargets: state.rolePlan?.targets ?? {},
+        // NESSUN TARGET DICHIARATO, e non per omissione: il pannello PIANO ROSA
+        // è stato rimosso, quindi non esiste più un posto in cui Pico dichiari
+        // la ripartizione del budget per ruolo. `absoluteValue()` risponde
+        // `assente: ruolo-senza-target` e lo slot 3 lo dice, invece di
+        // ripartire il budget su una ripartizione che nessuno ha scritto.
+        roleTargets: {},
         book: book.kind === "book" ? book.book : null,
         legs: {
           titolarita: insight?.titolarita ?? null,
@@ -2485,7 +2438,6 @@ function render(): void {
         // Tier-1 accounting lives HERE, not on the Asta screen — see the UI
         // invariant in docs/FRONTEND_STRUCTURE.md and renderOpponentTier1Panel.
         opponentTier1(roseState, SELF_ID),
-        renderMyRolePlanPanel(roseState),
       ),
     );
   } else if (state.screen === "impostazioni") {
