@@ -709,3 +709,54 @@ test("la coda della pagina è alta quanto la barra fissa, a ogni larghezza", asy
 
   expect(externalRequests).toEqual([]);
 });
+
+/**
+ * IL VALORE CHIESTO, FISSATO — e la divergenza fra le due barre con lui.
+ *
+ * «#call-search-row padding 24px» (Pico, 2026-08-30). Una lente di review ha
+ * fatto notare che la prova qui sopra NON copre questa richiesta: verifica
+ * un'uguaglianza RELATIVA (la coda segue la barra, qualunque altezza abbia la
+ * barra) e resterebbe verde identica se il padding tornasse a `12px 24px`. È
+ * vero, ed è il motivo di questo test.
+ *
+ * Si misura il calcolato e non il foglio di stile: `getComputedStyle` dice che
+ * cosa vede davvero il browser dopo cascata e media query, che è l'unica cosa
+ * che conta per una richiesta fatta guardando lo schermo.
+ *
+ * E SI MISURA ANCHE L'ALTRA BARRA, che deve restare a 12. Le due regole sono
+ * scritte due volte apposta: senza questa metà, il giorno in cui qualcuno le
+ * unisse in una classe comune «per pulizia» il test resterebbe verde mentre la
+ * barra d'asta ingrassa senza che nessuno l'abbia chiesto.
+ */
+test("la riga di ricerca ha i 24px chiesti, e la barra d'asta resta a 12", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, LARGE_POOL, externalRequests);
+
+  await boot(page, { width: 1280, height: 900 });
+
+  const ricerca = await page.evaluate(() => {
+    const el = document.getElementById("call-search-row");
+    if (el === null) return null;
+    const s = getComputedStyle(el);
+    return { top: s.paddingTop, right: s.paddingRight, bottom: s.paddingBottom, left: s.paddingLeft };
+  });
+  expect(ricerca, "#call-search-row non è a schermo nella chiamata").not.toBeNull();
+  expect(ricerca).toEqual({ top: "24px", right: "24px", bottom: "24px", left: "24px" });
+
+  // La barra del gesto vive nella schermata d'asta, non in quella di chiamata.
+  await callPlayer(page);
+
+  const gesto = await page.evaluate(() => {
+    const el = document.getElementById("assign-block");
+    if (el === null) return null;
+    const s = getComputedStyle(el);
+    return { top: s.paddingTop, right: s.paddingRight, bottom: s.paddingBottom, left: s.paddingLeft };
+  });
+  expect(gesto, "#assign-block non è a schermo nel momento d'asta").not.toBeNull();
+  expect(gesto).toEqual({ top: "12px", right: "24px", bottom: "12px", left: "24px" });
+
+  expect(externalRequests).toEqual([]);
+});
