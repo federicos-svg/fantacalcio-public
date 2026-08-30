@@ -35,6 +35,7 @@ import {
   type ConfirmationViolation,
   validateConfirmations,
 } from "../packages/engine/src/confirmations.js";
+import type { RenewalViolation } from "../packages/engine/src/feasibility.js";
 
 export const CONFIRMATIONS_STORAGE_KEY = "fac_confirmations";
 export const CONFIRMATIONS_QUARANTINE_STORAGE_KEY = "fac_confirmations_quarantine";
@@ -227,4 +228,37 @@ const CONFIRMATION_VIOLATION_MESSAGES: Record<ConfirmationViolation, string> = {
 
 export function confirmationErrorText(violations: readonly ConfirmationViolation[]): string {
   return violations.map((v) => CONFIRMATION_VIOLATION_MESSAGES[v] ?? v).join(" ");
+}
+
+// Le cinque violazioni che il log aggiunge alle sette di t=0. Vivono qui e non
+// accanto alle altre perche' rispondono a una domanda diversa: non «questo
+// batch di riconferme sta in piedi da solo» ma «sta in piedi SOTTO gli
+// acquisti gia' registrati». Ognuna nomina la causa nel log, perche' un
+// rifiuto che non dice che cosa lo ha causato costringe a indovinare proprio
+// nel momento in cui non c'e' tempo.
+const RENEWAL_ONLY_VIOLATION_MESSAGES: Record<
+  Exclude<RenewalViolation, ConfirmationViolation>,
+  string
+> = {
+  "player-in-auction-log":
+    "Questo giocatore compare già nello storico dell'asta. Una riconferma vale da t=0, cioè da prima che l'asta cominci: non può riguardare un giocatore che l'asta ha già mosso. Se deve stare in questa rosa, mettilo con l'inserimento manuale.",
+  "budget-exhausted-by-log":
+    "Il budget di questa squadra non regge la riconferma: gli acquisti già registrati ne hanno speso troppo.",
+  "role-slots-exhausted-by-log":
+    "Non c'è più una casella libera di questo ruolo: gli acquisti già registrati le hanno occupate tutte.",
+  "roster-not-completable":
+    "Con questa riconferma la rosa non sarebbe più completabile: il budget residuo non basterebbe a riempire gli altri slot obbligatori al minimo.",
+  "replay-refused":
+    "Lo stato che ne risulterebbe non è rappresentabile e la riconferma è stata rifiutata. Non è stato scritto niente.",
+};
+
+export function renewalViolationText(violations: readonly RenewalViolation[]): string {
+  return violations
+    .map(
+      (v) =>
+        RENEWAL_ONLY_VIOLATION_MESSAGES[v as Exclude<RenewalViolation, ConfirmationViolation>] ??
+        CONFIRMATION_VIOLATION_MESSAGES[v as ConfirmationViolation] ??
+        v,
+    )
+    .join(" ");
 }

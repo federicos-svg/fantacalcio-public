@@ -79,6 +79,7 @@ import {
   purchaseFeasibility,
   recordPurchase,
   recordRelease,
+  renewalFeasibility,
   recordTrade,
   releaseFeasibility,
   tradeFeasibility,
@@ -185,6 +186,7 @@ import {
   loadConfirmations,
   saveConfirmations,
   confirmationErrorText,
+  renewalViolationText,
   readQuarantinedConfirmations,
   type LoadConfirmationsResult,
 } from "./confirmationsStore.js";
@@ -7681,23 +7683,18 @@ function renderSlotRenewalPanel(panel: HTMLElement, slot: RosterSlotModal): void
   const intro = document.createElement("p");
   intro.className = "hint-text";
   intro.textContent =
-    "Riconferma un giocatore della rosa dell'anno scorso al prezzo pagato allora (regolamento §4). Non è un acquisto: viene sottratto al budget iniziale e a uno slot PRIMA che l'asta cominci.";
+    "Riconferma un giocatore della rosa dell'anno scorso al prezzo pagato allora (regolamento §4). Non è un acquisto: viene sottratto al budget iniziale e a uno slot, e conta da t=0 anche se la dichiari adesso.";
   panel.appendChild(intro);
 
-  // LA RICONFERMA SEMINA LO STATO A t=0, e per questo smette di essere
-  // modificabile appena l'asta comincia: reduce() la mette in rosa PRIMA di
-  // rigiocare il log, quindi aggiungerne una a partita iniziata riscriverebbe
-  // il punto di partenza sotto acquisti gia registrati.
-  if (state.log.length > 0) {
-    const locked = document.createElement("p");
-    locked.id = "roster-slot-renewal-locked";
-    locked.setAttribute("role", "note");
-    locked.className = "hint-text";
-    locked.textContent =
-      "Lo storico dell'asta non è vuoto: le riconferme fissano rosa e budget iniziali a t=0 e non si dichiarano a partita cominciata. Per mettere qui un giocatore usa l'inserimento manuale.";
-    panel.appendChild(locked);
-    return;
-  }
+  // NON C'E PIU UN BLOCCO SUL LOG NON VUOTO, ed e una correzione, non un
+  // allentamento. La riconferma continua a seminare t=0 — reduce() la mette in
+  // rosa PRIMA di rigiocare il log — ma vietarla per il solo fatto che il log
+  // esista costava piu di quanto proteggesse: l'inserimento manuale scrive un
+  // PURCHASE, quindi il primo uso della scheda accanto chiudeva i rinnovi per
+  // sempre, e il messaggio di blocco indirizzava proprio verso quel gesto.
+  // Adesso a dire di no e lo stato ricomposto per davvero, caso per caso:
+  // `renewalFeasibility` rigioca log + riconferme PRIMA di salvare
+  // (commitSlotRenewal), e ogni rifiuto porta il proprio motivo.
 
   const reading = renewalCandidates({
     history: state.auctionHistory,
@@ -7776,6 +7773,18 @@ function commitSlotRenewal(slot: RosterSlotModal, candidate: RenewalCandidate): 
       price: candidate.price,
     },
   ];
+  // IL MOTORE PRIMA DELLO STORAGE. `saveConfirmations` valida le riconferme
+  // fra loro, a t=0, e il log non lo vede: da solo lascerebbe salvare un batch
+  // che poi `reduce()` rifiuta lanciando — a schermata aperta, a meta asta.
+  // `renewalFeasibility` rigioca log + riconferme e risponde prima che
+  // qualcosa venga scritto.
+  const feasibility = renewalFeasibility(state.log, FANTA_TEAM_IDS, next, slot.fantaTeamId);
+  if (!feasibility.ok) {
+    slot.error = renewalViolationText(feasibility.violations);
+    render();
+    return;
+  }
+
   const result = saveConfirmations(browserStorage, next, FANTA_TEAM_IDS);
   if (!result.ok) {
     slot.error =

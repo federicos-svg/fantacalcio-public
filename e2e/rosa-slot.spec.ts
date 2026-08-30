@@ -188,7 +188,7 @@ test("una casella vuota apre sull'inserimento manuale e offre solo i due gesti d
 // poi il rinnovo si chiude, perché le riconferme fissano rosa e budget a t=0 e
 // aggiungerne una a partita cominciata riscriverebbe il punto di partenza
 // sotto acquisti già registrati.
-test("l'inserimento manuale entra nel log dell'asta, paga il budget, e da lì in poi chiude il rinnovo", async ({
+test("l'inserimento manuale entra nel log dell'asta, paga il budget, e NON chiude il rinnovo", async ({
   page,
   context,
 }) => {
@@ -214,13 +214,20 @@ test("l'inserimento manuale entra nel log dell'asta, paga il budget, e da lì in
   await expect(storico).toContainText(A_ALFA.name);
   await expect(storico).toContainText(`${PREZZO_ATTACCANTE} cr`);
 
-  // E adesso il rinnovo tace, con la sua ragione dichiarata.
+  // E ADESSO IL RINNOVO RESTA APERTO. Fino al 2026-08-30 qui c'era un
+  // lucchetto — «lo storico non e vuoto, niente rinnovi» — e questa riga lo
+  // misurava. Il difetto lo ha trovato Pico usando l'app: l'inserimento
+  // manuale scrive un PURCHASE, quindi il primo uso della scheda accanto
+  // chiudeva i rinnovi per sempre, e il messaggio del lucchetto indirizzava
+  // proprio verso quel gesto. Adesso a decidere e `renewalFeasibility`, caso
+  // per caso: qui l'acquisto e un ATTACCANTE, non tocca ne il ruolo ne il
+  // budget del difensore rinnovabile, e il rinnovo deve restare possibile.
   await gotoScreen(page, "Rose");
   await page.locator(slotId("Io", "D", 0)).click();
   await page.locator("#roster-slot-tab-rinnovo").click();
-  await expect(page.locator("#roster-slot-renewal-locked")).toBeVisible();
-  // Chiuso vuol dire chiuso: nessuna riga rinnovabile resta cliccabile.
-  await expect(page.locator("#roster-slot-renewal-list")).toHaveCount(0);
+  await expect(page.locator("#roster-slot-renewal-locked")).toHaveCount(0);
+  await expect(page.locator("#roster-slot-renewal-list")).toBeVisible();
+  await expect(page.locator(`#roster-slot-renew-${KEY_ALFA}`)).toBeVisible();
 
   expect(externalRequests).toEqual([]);
 });
@@ -602,6 +609,67 @@ test("dopo un rifiuto il fuoco resta sul bottone premuto, non torna in cima alle
   // E da lì Shift+Tab riporta al campo da correggere, che è il gesto vero.
   await page.keyboard.press("Shift+Tab");
   await expect(page.locator("#roster-slot-release-credits")).toBeFocused();
+
+  expect(externalRequests).toEqual([]);
+});
+
+// ── 10. Il rinnovo rifiuta con un motivo, non con un lucchetto ───────────────
+//
+// LA SCENA CHE HA FATTO NASCERE QUESTA SPEC. Il 2026-08-30 Pico ha aperto la
+// scheda «Rinnova dall'anno scorso» e non ha trovato l'elenco: c'era un
+// lucchetto sul solo fatto che lo storico d'asta non fosse vuoto. Siccome
+// l'inserimento manuale scrive un PURCHASE, il primo uso della scheda accanto
+// chiudeva i rinnovi per sempre — e il messaggio del lucchetto mandava proprio
+// li. Il lucchetto e stato tolto.
+//
+// Toglierlo pero non basta, e questa spec misura la meta che conta: un rinnovo
+// che non si puo fare deve essere RIFIUTATO CON IL SUO MOTIVO, e nulla deve
+// essere scritto. Il caso scelto e il piu insidioso, perche il giocatore
+// SEMBRA disponibile: e stato messo in rosa a mano, quindi il log lo ha gia
+// mosso, e seminarlo a t=0 renderebbe irrappresentabile quello stesso
+// inserimento.
+test("un giocatore gia nel log non si rinnova, e il rifiuto dice perche", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await apriScenaRose(page, context, externalRequests);
+
+  // Alfa entra a mano nella prima casella da difensore.
+  await assegnaAMano(page, "Io", "D", 0, KEY_ALFA, 7);
+  await expect(page.locator(slotId("Io", "D", 0))).toContainText(D_ALFA.name);
+
+  // Sulla SECONDA casella il rinnovo si apre — nessun lucchetto — e Alfa non
+  // e nemmeno fra i candidati: `renewalCandidates` esclude chi e gia di
+  // qualcuno. Beta invece c'e.
+  await page.locator(slotId("Io", "D", 1)).click();
+  await page.locator("#roster-slot-tab-rinnovo").click();
+  await expect(page.locator("#roster-slot-renewal-locked")).toHaveCount(0);
+  await expect(page.locator("#roster-slot-renewal-list")).toBeVisible();
+  await expect(page.locator(`#roster-slot-renew-${KEY_ALFA}`)).toHaveCount(0);
+  await expect(page.locator(`#roster-slot-renew-${KEY_BETA}`)).toBeVisible();
+
+  // E il rinnovo che SI puo fare va fino in fondo: Beta entra al prezzo
+  // dell'anno scorso, non a uno digitato.
+  await page.locator(`#roster-slot-renew-${KEY_BETA}`).click();
+  await expect(page.locator("#roster-slot-overlay")).toHaveCount(0);
+
+  // E QUI LE CASELLE SI RINUMERANO, che non e un dettaglio di rendering: la
+  // riconferma semina t=0 con `seq` negativo, quindi in rosa sta PRIMA
+  // dell'acquisto anche se dichiarata dopo. Beta finisce nella casella 0 e
+  // Alfa — inserito per primo — scala nella 1. E la prova visibile che il
+  // rinnovo non e diventato «un acquisto come gli altri» nel togliere il
+  // lucchetto: resta il gesto che riscrive il punto di partenza.
+  await expect(page.locator(slotId("Io", "D", 1))).toContainText(D_ALFA.name);
+  const casellaBeta = page.locator(slotId("Io", "D", 0));
+  await expect(casellaBeta).toContainText(D_BETA.name);
+  await expect(casellaBeta).toContainText(String(LAST_SEASON_PRICE.beta));
+  // Questa E una riconferma: la pastiglia «R» la distingue da un acquisto.
+  await expect(casellaBeta.locator(".roster-badge-confirmed")).toHaveCount(1);
+
+  // Contabilita: l'inserimento manuale e la riconferma pesano entrambi, e la
+  // riconferma pesa col prezzo di allora.
+  expect(await creditiResidui(page, "Io")).toBe(INITIAL_BUDGET - 7 - LAST_SEASON_PRICE.beta);
 
   expect(externalRequests).toEqual([]);
 });
