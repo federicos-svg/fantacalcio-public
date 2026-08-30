@@ -1215,11 +1215,24 @@
    pixel, e `--assign-bar-h` (layout.css) è lo spazio che la pagina restituisce
    in coda per tutte e due.
 
-   Le regole sono LE STESSE di `.assign-block` e stanno scritte qui accanto
-   invece di essere ereditate da una classe comune: le due barre hanno lo
-   stesso aspetto oggi per decisione di Pico, non per parentela, e una classe
-   condivisa avrebbe fatto seguire alla ricerca ogni futuro ritocco del gesto
-   d'asta senza che nessuno lo chieda. */
+   Le regole sono LE STESSE di `.assign-block` — tranne una — e stanno scritte
+   qui accanto invece di essere ereditate da una classe comune: le due barre
+   hanno lo stesso aspetto per decisione di Pico, non per parentela, e una
+   classe condivisa avrebbe fatto seguire alla ricerca ogni futuro ritocco del
+   gesto d'asta senza che nessuno lo chieda.
+
+   E LA DIVERGENZA È ARRIVATA SUBITO, il giorno dopo: «#call-search-row padding
+   24px» (Pico, 2026-08-30). Il respiro verticale qui passa da 12 a 24 px,
+   `.assign-block` resta a 12. È esattamente il caso che la scelta di non
+   ereditare aveva previsto — con una classe comune questa riga avrebbe
+   ingrassato anche la barra d'asta, che nessuno ha chiesto di toccare.
+
+   NON COSTA NIENTE AL MASTRO VERTICALE. La riga è `position: fixed`, quindi
+   fuori dal flusso: nel libro del budget (src/ui/callScreenBudget.ts) vale 0 px
+   per costruzione e i 24 px in più non entrano in nessun totale. Escono invece
+   dalla coda della pagina, e lì si pagano da soli: `--assign-bar-h` è MISURATA
+   a runtime da `misuraLaBarraFissa()`, non scritta a mano, quindi la riserva in
+   fondo cresce con la barra e l'ultimo riquadro non finisce sotto di lei. */
 #call-search-row {
   background: var(--panel);
   border-top: 1px solid var(--border);
@@ -1227,7 +1240,7 @@
   box-shadow: 0 -6px 18px oklch(0 0 0 / 0.35);
   left: 0;
   margin: 0;
-  padding: 12px 24px;
+  padding: 24px;
   position: fixed;
   width: 100%;
   z-index: 40;
