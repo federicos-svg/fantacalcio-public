@@ -832,7 +832,15 @@ function renderListoneManualOverride(
   open: boolean,
   onToggle: () => void,
 ): HTMLElement {
+  // L'id serve a nasconderlo per NOME e non per posizione: «nascondi anche
+  // quello», Pico, 2026-08-29, sullo stesso screenshot delle quattro note.
+  // Avevo lasciato questo comando a schermo di mia iniziativa — «è un gesto,
+  // non un blocco di testo» — e una lente di review ha fatto notare che stavo
+  // interpretando uno screenshot al posto suo. Gliel'ho chiesto, e la risposta
+  // è stata di nasconderlo. Resta costruito e funzionante: torna a schermo
+  // togliendo una riga di stile.
   const wrap = document.createElement("div");
+  wrap.id = "listone-manual-override";
   wrap.style.cssText = `margin-top:10px;`;
 
   const toggle = document.createElement("button");

@@ -1250,7 +1250,12 @@
      posizione, perché `div:nth-child(n)` sotto un pannello che cresce fa
      sparire quello sbagliato il giorno in cui qualcuno aggiunge una riga.
      Il comando «Caricamento manuale (debug/override)», che nell'immagine si
-     vede appena sotto, NON è nascosto: è un gesto, non un blocco di testo.
+     vede appena sotto, l'avevo LASCIATO di mia iniziativa — «è un gesto, non
+     un blocco di testo» — e una lente di review ha fatto notare che stavo
+     interpretando uno screenshot al posto di Pico. Gliel'ho chiesto:
+     «nascondi anche quello». Nascosto, non smontato: il caricamento manuale
+     resta costruito e funzionante, e torna togliendo il suo id da questo
+     elenco.
 
    L'ULTIMA DELLE QUATTRO HA RICHIESTO UNA DECISIONE, e non è stata presa qui.
    Il record del 2026-08-16 dichiara una condizione vincolante: la fascia non
@@ -1274,6 +1279,7 @@
    `#war-board-mini-Io` è la riga della MIA squadra dentro il tabellone
    ridotto: sparisce la riga, non il tabellone, e le altre sette restano al
    loro posto. Il selettore è un id, quindi non tocca nessun avversario. */
+#listone-manual-override,
 #listone-count-note,
 #listone-appeal-index-note,
 #listone-gen-forecast-note,

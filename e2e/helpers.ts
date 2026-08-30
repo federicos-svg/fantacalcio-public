@@ -923,3 +923,59 @@ export async function sweepCallScreen(
     { st: state, startSelector: CALL_SCREEN_SPAN_START_SELECTOR },
   );
 }
+
+/**
+ * APRE IL CARICAMENTO MANUALE, che dal 2026-08-29 non è più a schermo.
+ *
+ * «Nascondi anche quello» — Pico, sullo stesso screenshot delle quattro note
+ * sotto la tabella. Il comando resta COSTRUITO e funzionante: quel che sparisce
+ * è la via per raggiungerlo col dito. Quattro suite lo usano per caricare un
+ * listone a mano e provare quel che succede dopo — un file malformato, una
+ * scrittura che non tiene, due righe proxy ambigue — e quelle prove non
+ * parlano del bottone: parlano di che cosa fa l'app col file.
+ *
+ * Perciò il clic diventa PROGRAMMATICO. Non è un modo di aggirare la
+ * nascondibilità per far passare un test: è la sola forma in cui quelle prove
+ * possono continuare a esistere, e la riga che le precede — il blocco DEVE
+ * essere nascosto — è ciò che impedisce a questo helper di diventare il modo
+ * in cui il comando torna a schermo senza che nessuno se ne accorga.
+ */
+export async function apriCaricamentoManuale(page: Page): Promise<void> {
+  const blocco = page.locator("#listone-manual-override");
+  await expect(blocco).toHaveCount(1);
+  await expect(blocco, "il caricamento manuale è tornato a schermo").toBeHidden();
+  await page.evaluate(() => {
+    const bottone = document
+      .getElementById("listone-manual-override")
+      ?.querySelector("button");
+    if (bottone === null || bottone === undefined) throw new Error("CARICAMENTO_MANUALE_ASSENTE");
+    bottone.click();
+  });
+}
+
+/**
+ * Preme un comando DENTRO il caricamento manuale, che è nascosto: stessa
+ * ragione e stessi limiti di `apriCaricamentoManuale` qui sopra. Il testo si
+ * confronta per intero e non per sottostringa, perché dentro quel blocco
+ * convivono più comandi e prendere il primo che «contiene» sarebbe un test che
+ * preme un bottone diverso da quello che dichiara.
+ */
+export async function premiNelCaricamentoManuale(page: Page, testo: string): Promise<void> {
+  await page.evaluate((atteso) => {
+    const blocco = document.getElementById("listone-manual-override");
+    if (blocco === null) throw new Error("CARICAMENTO_MANUALE_ASSENTE");
+    // `button` e `span` insieme: dentro questo blocco un comando è un bottone
+    // e l'altro è uno span con un gestore di clic. Cercarne uno solo dei due
+    // farebbe fallire questa funzione con «non trovato» su un comando che
+    // esiste — e la differenza fra i due non è una proprietà che questa prova
+    // debba conoscere.
+    const bottoni = [...blocco.querySelectorAll<HTMLElement>("button, span")];
+    const trovato = bottoni.find((b) => (b.textContent ?? "").trim() === atteso);
+    if (trovato === undefined) {
+      throw new Error(
+        `COMANDO_NON_TROVATO: "${atteso}" fra [${bottoni.map((b) => (b.textContent ?? "").trim()).join(" | ")}]`,
+      );
+    }
+    trovato.click();
+  }, testo);
+}

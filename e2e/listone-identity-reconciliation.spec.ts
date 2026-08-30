@@ -53,6 +53,8 @@ import {
   readLocalStorageJson,
   selectStatusFilter,
   LISTONE_REMOTE_PATH,
+  apriCaricamentoManuale,
+  premiNelCaricamentoManuale,
 } from "./helpers.js";
 
 const LOG_STORAGE_KEY = "fac_log";
@@ -323,9 +325,12 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
 
     // The explicit way out the notice names: it empties the pool, so there is
     // nothing left to orphan and the incoming listone applies.
-    await page.getByRole("button", { name: /Caricamento manuale/ }).click();
-    // `exact` because the notice above names this very affordance.
-    await page.getByText("✕ dimentica il listone salvato", { exact: true }).click();
+    await apriCaricamentoManuale(page);
+    // `exact` because the notice above names this very affordance. Il clic è
+    // programmatico perché il comando vive dentro il blocco nascosto (vedi
+    // `apriCaricamentoManuale`): quel che questa prova misura è la via d'uscita
+    // che l'avviso NOMINA, non la sua raggiungibilità col dito.
+    await premiNelCaricamentoManuale(page, "✕ dimentica il listone salvato");
 
     await expect(page.getByText(RENAMED_TARGET.name, { exact: true })).toBeVisible();
     // ...and the consequence is stated instead of being discovered later: the
@@ -398,7 +403,7 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
     await page.getByText(E2E_TARGET_PLAYER.name, { exact: true }).click();
     await expect(page.getByRole("button", { name: /^Avvia/ })).toBeEnabled();
 
-    await page.getByRole("button", { name: /Caricamento manuale/ }).click();
+    await apriCaricamentoManuale(page);
     await page.getByText("Carica listone (JSON locale)").locator("input[type=file]").setInputFiles({
       name: "malformed.json",
       mimeType: "application/json",

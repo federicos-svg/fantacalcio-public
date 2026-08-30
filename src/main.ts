@@ -2538,6 +2538,58 @@ function render(): void {
     ) as HTMLInputElement | null;
     if (priceInput) priceInput.focus({ preventScroll: true });
   }
+
+  misuraLaBarraFissa();
+}
+
+/**
+ * LO SPAZIO IN CODA ALLA PAGINA LO SCRIVE LA BARRA STESSA.
+ *
+ * Le due barre fisse — la riga di ricerca e il gesto d'asta — coprono il fondo
+ * dello schermo, e la pagina restituisce quello spazio in coda con
+ * `--assign-bar-h` (src/styles/layout.css). Era un numero scritto a mano,
+ * 132px, e una lente di review l'ha misurato: a 390px la barra del gesto è
+ * alta 417,5 e lo STORICO ACQUISTI finiva 193px SOTTO di lei, irraggiungibile
+ * scorrendo perché la pagina finiva prima. La riga di ricerca, 152px, lasciava
+ * zero pixel di margine.
+ *
+ * Un numero fisso non può seguire una barra che si allunga quando i controlli
+ * vanno a capo: chi sa quanto è alta è la barra, e da qui glielo si chiede.
+ *
+ * PERCHÉ UN `ResizeObserver` E NON UNA MISURA A OGNI RENDER. La barra cambia
+ * altezza anche SENZA un render — la finestra che si stringe, un font che
+ * arriva tardi, la tastiera del telefono che comparendo cambia la larghezza
+ * utile — e in tutti quei casi un valore scritto all'ultimo render sarebbe
+ * vecchio. L'osservatore vive quanto la barra: `render()` ricostruisce
+ * l'albero a ogni tasto, quindi si riattacca alla barra nuova e quello vecchio
+ * muore con il nodo che osservava.
+ *
+ * NESSUN NUMERO DI RIPIEGO SCRITTO QUI: se le barre non ci sono — ogni
+ * schermata che non sia l'asta — la variabile torna a quello che il CSS
+ * dichiara, e lo spazio in coda è quello di sempre.
+ */
+let osservatoreDellaBarra: ResizeObserver | null = null;
+
+function misuraLaBarraFissa(): void {
+  osservatoreDellaBarra?.disconnect();
+  osservatoreDellaBarra = null;
+  const barra =
+    document.getElementById("assign-block") ?? document.getElementById("call-search-row");
+  if (barra === null) {
+    document.documentElement.style.removeProperty("--assign-bar-h");
+    return;
+  }
+  const scrivi = (): void => {
+    const altezza = Math.ceil(barra.getBoundingClientRect().height);
+    document.documentElement.style.setProperty("--assign-bar-h", `${altezza}px`);
+  };
+  scrivi();
+  // `ResizeObserver` non esiste in ogni ambiente di prova: senza di lui la
+  // misura resta quella dell'ultimo render, che è comunque meglio di un numero
+  // scritto a mano, e la pagina non si rompe.
+  if (typeof ResizeObserver === "undefined") return;
+  osservatoreDellaBarra = new ResizeObserver(scrivi);
+  osservatoreDellaBarra.observe(barra);
 }
 
 function openMock(title: string, body: string): void {
