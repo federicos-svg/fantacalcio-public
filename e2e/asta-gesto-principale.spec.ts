@@ -669,27 +669,42 @@ test("la coda della pagina è alta quanto la barra fissa, a ogni larghezza", asy
   await boot(page, { width: 390, height: 844 });
   await callPlayer(page);
 
+  // IL PANNELLO VERO, NON IL BORDO DEL GUSCIO. Una lente di review ha fatto
+  // notare che misurare il fondo di `.screen-container` contro la barra è
+  // algebricamente `barra - coda`, cioè la stessa uguaglianza di sopra scritta
+  // due volte: verde per costruzione, non per verifica. Qui si misura il
+  // PANNELLO PIÙ IN BASSO che si vede davvero — quello che nel difetto
+  // originale finiva 193px sotto la barra — e la misura è indipendente.
   const asta = await page.evaluate(() => {
     const bar = document.getElementById("assign-block");
     const shell = document.querySelector(".app-shell");
     if (bar === null || shell === null) return null;
     window.scrollTo(0, document.body.scrollHeight);
-    const figli = shell.querySelectorAll(":scope > *");
-    const ultimo = figli[figli.length - 1] as HTMLElement | undefined;
+    const bordoBarra = bar.getBoundingClientRect().top;
+    let piuInBasso: number | null = null;
+    let chi: string | null = null;
+    for (const el of shell.querySelectorAll<HTMLElement>(".panel, .panel--bordered")) {
+      if (bar.contains(el)) continue;
+      const r = el.getBoundingClientRect();
+      if (r.height === 0) continue;
+      if (piuInBasso === null || r.bottom > piuInBasso) {
+        piuInBasso = r.bottom;
+        chi = el.id === "" ? (el.className || "senza nome") : el.id;
+      }
+    }
     return {
       barra: Math.ceil(bar.getBoundingClientRect().height),
       coda: Math.round(Number.parseFloat(getComputedStyle(shell).paddingBottom)),
-      ultimoSottoLaBarra:
-        ultimo === undefined
-          ? null
-          : Math.round(ultimo.getBoundingClientRect().bottom - bar.getBoundingClientRect().top),
+      chi,
+      sottoLaBarra: piuInBasso === null ? null : Math.round(piuInBasso - bordoBarra),
     };
   });
   expect(asta).not.toBeNull();
   expect(asta!.coda, "la coda non segue la barra del gesto").toBe(asta!.barra);
+  expect(asta!.chi, "nessun pannello misurabile nella schermata d'asta").not.toBeNull();
   expect(
-    asta!.ultimoSottoLaBarra,
-    "l'ultimo contenuto della pagina finisce sotto la barra: da lì non si legge",
+    asta!.sottoLaBarra,
+    `il pannello più in basso («${asta!.chi}») finisce ${asta!.sottoLaBarra}px sotto il bordo della barra: da lì non si legge`,
   ).toBeLessThanOrEqual(0);
 
   expect(externalRequests).toEqual([]);

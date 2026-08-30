@@ -182,3 +182,52 @@ test("i quattro restano su una riga sola, anche a 390px, e non fanno scorrere di
 
   expect(externalRequests).toEqual([]);
 });
+
+// ── IL CARICAMENTO MANUALE RESTA IRRAGGIUNGIBILE, A OGNI LARGHEZZA ──────────
+//
+// «Nascondi anche quello» — Pico, 2026-08-29, sullo screenshot delle note
+// sotto la tabella. Il blocco porta un file upload e un comando distruttivo
+// («dimentica il listone salvato»), quindi la sua irraggiungibilità è una
+// proprietà di prodotto e non un dettaglio di stile.
+//
+// UNA LENTE DI REVIEW HA MOSTRATO COME FARLO TORNARE SENZA NESSUN ROSSO: la
+// regola che lo nasconde non ha media query, ma le tre suite che lo usano
+// girano tutte alla larghezza di default di Playwright. Una regola che lo
+// nascondesse solo sopra una certa larghezza — o un secondo punto d'accesso
+// con un altro id — sarebbe passata liscia. Questa spec chiude quella strada:
+// misura a quattro larghezze, e guarda anche la tastiera, che è l'altro modo
+// di arrivarci senza il dito.
+test("il caricamento manuale è nascosto a 390, 768, 1280 e 1920, e non lo trova nemmeno il tab", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
+
+  for (const width of [390, 768, 1280, 1920]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto("/");
+    await expect(page.locator("#search-player")).toBeVisible();
+
+    const blocco = page.locator("#listone-manual-override");
+    // Costruito — se sparisse dal documento sarebbe smontato, non nascosto, e
+    // questa riga lo direbbe.
+    await expect(blocco, `${width}px: il blocco non è nel documento`).toHaveCount(1);
+    await expect(blocco, `${width}px: il caricamento manuale è tornato a schermo`).toBeHidden();
+
+    // E non c'è nemmeno per la tastiera: un blocco `display: none` esce
+    // dall'ordine di tabulazione, e questa riga è ciò che impedisce a un
+    // domani `visibility: hidden` — che lo lascerebbe raggiungibile col tab —
+    // di sembrare la stessa cosa.
+    const raggiungibili = await page.evaluate(() => {
+      const blocco = document.getElementById("listone-manual-override");
+      if (blocco === null) return -1;
+      return [...blocco.querySelectorAll("button, input, [tabindex]")].filter(
+        (el) => (el as HTMLElement).offsetParent !== null,
+      ).length;
+    });
+    expect(raggiungibili, `${width}px: comandi ancora raggiungibili`).toBe(0);
+  }
+
+  expect(externalRequests).toEqual([]);
+});

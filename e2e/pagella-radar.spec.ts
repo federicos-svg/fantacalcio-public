@@ -123,6 +123,7 @@ test("completa — cinque voti, il poligono, e il totale che torna", async ({ pa
   await expect(page.locator("#player-insight-radar")).toBeHidden();
   // La didascalia, nascosta con lui, per la stessa ragione e con la stessa
   // pretesa: scritta nel documento, non a schermo.
+  await expect(page.locator("#player-insight-pagella-note")).toHaveCount(1);
   await expect(page.locator("#player-insight-pagella-note")).toBeHidden();
   await expect(page.locator("#player-insight-pagella-assi li")).toHaveCount(PAGELLA_ASSI);
   await expect(page.locator("#player-insight-pagella-totale")).toContainText("39/50");

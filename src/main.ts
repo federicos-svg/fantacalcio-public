@@ -2569,10 +2569,18 @@ function render(): void {
  * dichiara, e lo spazio in coda è quello di sempre.
  */
 let osservatoreDellaBarra: ResizeObserver | null = null;
+let ascoltatoreDelResize: (() => void) | null = null;
 
 function misuraLaBarraFissa(): void {
   osservatoreDellaBarra?.disconnect();
   osservatoreDellaBarra = null;
+  // L'ascoltatore va tolto insieme all'osservatore: `render()` ricostruisce
+  // l'albero a ogni tasto, e uno per render si accumulerebbe fino a misurare
+  // la stessa barra qualche centinaio di volte a ogni ridimensionamento.
+  if (ascoltatoreDelResize !== null) {
+    window.removeEventListener("resize", ascoltatoreDelResize);
+    ascoltatoreDelResize = null;
+  }
   const barra =
     document.getElementById("assign-block") ?? document.getElementById("call-search-row");
   if (barra === null) {
@@ -2584,9 +2592,20 @@ function misuraLaBarraFissa(): void {
     document.documentElement.style.setProperty("--assign-bar-h", `${altezza}px`);
   };
   scrivi();
-  // `ResizeObserver` non esiste in ogni ambiente di prova: senza di lui la
-  // misura resta quella dell'ultimo render, che è comunque meglio di un numero
-  // scritto a mano, e la pagina non si rompe.
+  // LA RETE SOTTO L'OSSERVATORE. `ResizeObserver` non esiste in ogni ambiente,
+  // e senza di lui la misura resterebbe quella dell'ultimo render: una lente
+  // di review l'ha provato togliendolo, e stringendo la finestra da 1280 a 390
+  // senza toccare niente la coda restava a 84px mentre la barra era già 152 —
+  // 68px di contenuto sotto la barra, cioè il difetto che questa funzione
+  // esiste per chiudere.
+  //
+  // `resize` non copre tutto quello che copre l'osservatore — un font che
+  // arriva tardi allunga la barra senza che la finestra si muova — ma copre il
+  // caso che capita davvero, e costa una riga. Resta attaccato anche quando
+  // l'osservatore c'è: i due si sovrappongono, e una misura in più scrive lo
+  // stesso numero.
+  ascoltatoreDelResize = scrivi;
+  window.addEventListener("resize", scrivi);
   if (typeof ResizeObserver === "undefined") return;
   osservatoreDellaBarra = new ResizeObserver(scrivi);
   osservatoreDellaBarra.observe(barra);

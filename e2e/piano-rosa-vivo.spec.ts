@@ -75,6 +75,7 @@ test("senza piano dichiarato il pannello mostra i fatti misurati e nessun numero
   await expect(page.locator("#role-plan-P")).toContainText("riserva");
 
   // I totali di piano non esistono senza piano.
+  await expect(page.locator("#role-plan-totals")).toHaveCount(1);
   await expect(page.locator("#role-plan-totals")).toBeHidden();
   await expect(page.locator("#role-plan-declared-total")).toContainText("Nessun target dichiarato");
 
@@ -256,6 +257,7 @@ test("un piano che il motore rifiuta viene riportato, non corretto", async ({ pa
   await expect(page.locator("#role-plan-state")).toContainText("supera la dotazione iniziale di lega");
   // Nessun numero di piano viene mostrato su un piano che non passa la
   // validazione, e i target restano scritti come sono stati scritti.
+  await expect(page.locator("#role-plan-totals")).toHaveCount(1);
   await expect(page.locator("#role-plan-totals")).toBeHidden();
   await expect(page.locator("#role-plan-P")).not.toContainText("allocazione viva");
   await expect(targetCell(page, "P")).toContainText("100 cr");

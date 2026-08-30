@@ -195,7 +195,9 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
     // the table names the deposit as the source that actually won.
     await expect(page.getByText(RENAMED_BYSTANDER.name, { exact: true })).toBeVisible();
     await expect(page.getByText(BYSTANDER_PLAYER.name, { exact: true })).toHaveCount(0);
-    await expect(page.getByText(/Listone aggiornato automaticamente dal deposito privato/)).toBeHidden();
+    const provenienza = page.getByText(/Listone aggiornato automaticamente dal deposito privato/);
+    await expect(provenienza).toHaveCount(1);
+    await expect(provenienza).toBeHidden();
 
     // Not refused, and nothing else was announced either: no refusal, no
     // orphan clause, no spurious disarm — the notice surface is absent
