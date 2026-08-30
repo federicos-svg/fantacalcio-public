@@ -679,3 +679,61 @@ test("un giocatore gia nel log non si rinnova, e il rifiuto dice perche", async 
 
   expect(externalRequests).toEqual([]);
 });
+
+// ── 11. Il rifiuto per budget attraversa la UI, non solo il motore ───────────
+//
+// BUCO CHIUSO SU RILIEVO DELLA LENTE QUALITY & DELIVERY (PR #74). I cinque
+// motivi di rifiuto del rinnovo erano provati uno per uno sul motore, ma
+// NESSUN e2e passava dal ramo che li porta a schermo: `slot.error =
+// renewalViolationText(...)` in commitSlotRenewal. L'unico rifiuto misurato
+// end-to-end era quello che `renewalCandidates` filtra a monte — il giocatore
+// non compariva proprio, quindi il cablaggio non veniva mai esercitato.
+//
+// E la stessa forma di lacuna che aveva lasciato passare in produzione il
+// lucchetto: una suite che misura il codice invece del percorso. Qui il
+// candidato E cliccabile — `renewalCandidates` non guarda il budget, e non
+// deve: sapere se un rinnovo sta in piedi richiede di ricomporre lo stato, che
+// e il mestiere di `renewalFeasibility`.
+test("un rinnovo che sfonda il budget viene rifiutato DENTRO la modale, e non scrive niente", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await apriScenaRose(page, context, externalRequests);
+
+  // Si spende quasi tutto: 473 = 500 - 27, il massimo che la riserva dura
+  // consente con 27 caselle ancora da riempire. Un credito in piu e sarebbe
+  // l'acquisto stesso a essere rifiutato, e misureremmo la guardia sbagliata.
+  const QUASI_TUTTO = INITIAL_BUDGET - 27;
+  await assegnaAMano(page, "Io", "A", 0, KEY_ATTACCANTE, QUASI_TUTTO);
+  expect(await creditiResidui(page, "Io")).toBe(INITIAL_BUDGET - QUASI_TUTTO);
+
+  // Beta costava 31 l'anno scorso: 473 + 31 sfonda i 500.
+  await page.locator(slotId("Io", "D", 0)).click();
+  await page.locator("#roster-slot-tab-rinnovo").click();
+  const bottoneBeta = page.locator(`#roster-slot-renew-${KEY_BETA}`);
+  await expect(bottoneBeta).toBeVisible();
+  await bottoneBeta.click();
+
+  // LA MODALE RESTA APERTA e porta il motivo: un rifiuto che chiude la finestra
+  // e un rifiuto che l'operatore non legge.
+  await expect(page.locator("#roster-slot-overlay")).toBeVisible();
+  const errore = page.locator("#roster-slot-error");
+  await expect(errore).toBeVisible();
+  await expect(errore).toContainText("budget");
+
+  // E NON HA SCRITTO NIENTE: ne in rosa, ne nei crediti, ne in localStorage.
+  await page.locator("#roster-slot-close").click();
+  await expect(page.locator(slotId("Io", "D", 0))).toHaveClass(/roster-slot--empty/);
+  expect(await creditiResidui(page, "Io")).toBe(INITIAL_BUDGET - QUASI_TUTTO);
+  const salvate = await page.evaluate(() => localStorage.getItem("fac_confirmations"));
+  expect(salvate).toBeNull();
+
+  // La prova che regge nel tempo: dopo un reload lo stato e ancora quello.
+  await page.reload();
+  await gotoScreen(page, "Rose");
+  await expect(page.locator(slotId("Io", "D", 0))).toHaveClass(/roster-slot--empty/);
+  expect(await creditiResidui(page, "Io")).toBe(INITIAL_BUDGET - QUASI_TUTTO);
+
+  expect(externalRequests).toEqual([]);
+});
