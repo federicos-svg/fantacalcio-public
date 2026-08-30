@@ -318,16 +318,13 @@ test("IL TAVOLO è sempre aperto: nessun gesto lo apre, nessun controllo lo chiu
   await boot(page, { width: 1280, height: 720 });
 
   const body = page.locator("#table-detail-body");
-  const head = page.locator("#table-detail-head");
 
   // 1. APERTO AL BOOT, senza che nessuno abbia toccato niente.
   await expect(body).toBeVisible();
-  // La testata dice ancora il nome del gruppo e che cosa contiene: era la
-  // ragione per cui il vecchio gesto lo dichiarava prima di aprirsi, e resta
-  // valida su una testata che non apre nulla.
-  await expect(head).toContainText("IL TAVOLO");
-  await expect(head).toContainText("scarsità per ruolo");
-  await expect(head).toContainText("war board");
+  // La testata «IL TAVOLO · scarsità per ruolo · war board» è stata tolta: i
+  // due pannelli dentro il gruppo portano già il proprio nome, e una didascalia
+  // di didascalie costava verticale su una schermata che ne ha poca.
+  await expect(page.locator("#table-detail-head")).toHaveCount(0);
 
   // 2. NON C'È NIENTE DA CLICCARE. Il vecchio controllo non esiste più, e non
   //    è tornato con un altro nome: dentro il gruppo non c'è nessun bottone e
@@ -337,12 +334,11 @@ test("IL TAVOLO è sempre aperto: nessun gesto lo apre, nessun controllo lo chiu
   expect(
     await page.evaluate(() => ({
       buttons: document.querySelectorAll("#table-detail > button, #table-detail__head button").length,
-      headButtons: document.querySelectorAll("#table-detail-head button").length,
       expanded: document.querySelectorAll("#table-detail [aria-expanded]").length,
       hidden: document.querySelectorAll("#table-detail [hidden]").length,
     })),
     "IL TAVOLO non deve avere un controllo che lo chiuda",
-  ).toEqual({ buttons: 0, headButtons: 0, expanded: 0, hidden: 0 });
+  ).toEqual({ buttons: 0, expanded: 0, hidden: 0 });
 
   // 3. I DUE PANNELLI SONO QUELLI DI SEMPRE — stessi numeri, stessa struttura:
   //    otto schede di war board, quattro celle di scarsità. Nessuna

@@ -31,15 +31,10 @@ test("Rose screen lists every league team from the real event log, with inert DE
   await page.getByRole("button", { name: "Registra acquisto", exact: true }).click();
 
   await gotoScreen(page, "Rose");
-  // LA RIGA DI INTESTAZIONE DICE ENTRAMBE LE COSE: che la griglia è derivata, e
-  // che ogni casella è una porta che scrive. Una schermata che si dichiarasse
-  // «di sola lettura» sopra un gesto che finisce nel log si contraddirebbe da
-  // sé — e la prima frase che un operatore impara a non credere si porta dietro
-  // tutte le altre.
-  await expect(page.locator("#rose-screen-hint")).toContainText(
-    "la griglia è derivata dallo storico acquisti",
-  );
-  await expect(page.locator("#rose-screen-hint")).not.toContainText("sola lettura");
+  // NESSUNA RIGA DI INTESTAZIONE. La schermata non si presenta più a parole:
+  // #rose-screen-hint è stato tolto, e la spec lo sorveglia perché non torni
+  // per inerzia insieme a un pannello nuovo.
+  await expect(page.locator("#rose-screen-hint")).toHaveCount(0);
 
   // 8 fixed league teams (see FANTA_TEAM_IDS in src/main.ts), one card each.
   await expect(page.locator(".panel--compact")).toHaveCount(8);

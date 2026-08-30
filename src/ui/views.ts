@@ -919,17 +919,6 @@ export function renderRoleScarcityPanel(
   }).join("");
   panel.appendChild(grid);
 
-  const note = document.createElement("p");
-  note.className = "hint-text";
-  note.id = "role-scarcity-note";
-  // Wording note: this copy deliberately says "log dell'asta" and never the
-  // exact phrase used as the STORICO ACQUISTI panel title — several E2E specs
-  // locate that panel with a case-insensitive `hasText`, which any nested
-  // panel repeating the phrase would make ambiguous.
-  note.textContent = poolLoaded
-    ? "Slot liberi: slot di quel ruolo ancora vuoti su tutto il tavolo, somma delle 8 squadre, derivata dal log dell'asta. In listone: righe di quel ruolo non ancora assegnate nel listone caricato. Nessun dato di modello, nessun suggerimento."
-    : "Slot liberi: slot di quel ruolo ancora vuoti su tutto il tavolo, somma delle 8 squadre, derivata dal log dell'asta. Nessun listone caricato: la disponibilità a listone resta n/d. Nessun dato di modello, nessun suggerimento.";
-  panel.appendChild(note);
 
   return panel;
 }
@@ -1018,11 +1007,6 @@ export function renderWarBoardFull(
   grid.innerHTML = warBoardFullHtml(rows, teamLabels, poolIndex);
   panel.appendChild(grid);
 
-  const note = document.createElement("p");
-  note.className = "hint-text";
-  note.id = "war-board-full-note";
-  note.textContent = WAR_BOARD_FULL_NOTE;
-  panel.appendChild(note);
 
   return panel;
 }
@@ -1636,18 +1620,6 @@ export function renderRoseScreen(
   wrap.className = "screen-container";
   wrap.style.cssText = `flex:1;padding:18px 24px;gap:12px;`;
 
-  const hint = document.createElement("div");
-  hint.className = "hint-text";
-  hint.id = "rose-screen-hint";
-  // LE ROSE SONO DERIVATE, I GESTI SONO VERI. La griglia qui sotto continua a
-  // essere una proiezione del log — nessun numero è digitato dentro la scheda —
-  // ma da questo batch ogni casella è anche una PORTA: uno slot vuoto apre
-  // inserimento manuale e rinnovo, uno slot pieno apre svincolo e scambio. La
-  // frase deve dire tutte e due le cose, perché una schermata che si dichiara
-  // «di sola lettura» sopra un gesto che scrive nel log si smentisce da sé.
-  hint.textContent =
-    "Rose — la griglia è derivata dallo storico acquisti. Ogni casella si apre: uno slot vuoto per inserire o rinnovare un giocatore, uno slot occupato per svincolarlo o scambiarlo. Ogni gesto finisce nel log dell'asta.";
-  wrap.appendChild(hint);
 
   if (opponents.length > 0) {
     wrap.appendChild(renderOpponentTier1Panel(opponents, teamLabels));

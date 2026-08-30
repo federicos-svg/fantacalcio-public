@@ -64,7 +64,6 @@ const healthySweep = (over: Partial<CallScreenSweep> = {}): CallScreenSweep => (
     block("call-screen-eyebrow", 18),
     block("call-search-row", 0),
     block("call-search-hint", 65.75),
-    block("call-interaction-count", 17.25),
     block("suggested-player", 300.5),
     block("listone-block", 1171),
   ],
@@ -95,7 +94,7 @@ describe("l'identità aritmetica del mastro", () => {
   it("la somma è quella delle righe dichiarate, non un numero scritto a mano", () => {
     const sum = CALL_SCREEN_BUDGET_LEDGER.reduce((t, r) => t + r.allocationPx, 0);
     expect(CALL_SCREEN_ALLOCATED_PX).toBe(sum);
-    expect(sum).toBe(2674);
+    expect(sum).toBe(2657);
   });
 
   // Il numero che il mastro esiste per far vedere. Pinnato: se qualcuno alza
@@ -107,7 +106,7 @@ describe("l'identità aritmetica del mastro", () => {
   // test pinna il numero nuovo perché il diff mostri il movimento; la ragione
   // per cui non è un miglioramento sta in BARRA_FISSA_FUORI_DAL_TOTALE.
   it("la riserva è oggi NEGATIVA: il totale è già sfondato dai blocchi che ci sono", () => {
-    expect(CALL_SCREEN_BUDGET_RESERVE_PX).toBe(-986);
+    expect(CALL_SCREEN_BUDGET_RESERVE_PX).toBe(-969);
     expect(CALL_SCREEN_BUDGET_RESERVE_PX).toBeLessThan(0);
   });
 
@@ -115,8 +114,8 @@ describe("l'identità aritmetica del mastro", () => {
     // «chi chiamare per me» — la prima metà di GIOCATORE SUGGERITO, già in
     // lavorazione — non arriva in uno spazio vuoto: arriva dovendo restituire
     // la propria altezza PIÙ il rosso della riserva.
-    expect(callScreenNewBlockCostPx(0)).toBe(986);
-    expect(callScreenNewBlockCostPx(120)).toBe(1106);
+    expect(callScreenNewBlockCostPx(0)).toBe(969);
+    expect(callScreenNewBlockCostPx(120)).toBe(1089);
   });
 });
 
@@ -301,7 +300,7 @@ describe("la spazzata che attribuisce", () => {
     const line = describeCallScreenBudgetFinding(findings[0]!);
     expect(line).toContain("blocco-finto");
     expect(line).toContain("40px");
-    expect(line).toContain("-986px");
+    expect(line).toContain("-969px");
   });
 
   it("un blocco senza id non scappa: viene nominato per forma", () => {
@@ -366,7 +365,6 @@ describe("la spazzata che attribuisce", () => {
       "intestazione-ricerca",
       "ricerca",
       "esito-ricerca",
-      "contatore-interazioni",
       "giocatore-suggerito",
       "listone",
     ]);
@@ -375,11 +373,11 @@ describe("la spazzata che attribuisce", () => {
   it("un blocco sparito nello stato in cui deve esserci è rosso col suo nome", () => {
     const findings = callScreenBudgetFindings(
       healthySweep({
-        blocks: healthySweep().blocks.filter((b) => b.domId !== "call-interaction-count"),
+        blocks: healthySweep().blocks.filter((b) => b.domId !== "call-search-hint"),
       }),
     );
     expect(findings).toHaveLength(1);
-    expect(findings[0]).toMatchObject({ kind: "riga-senza-blocco", id: "contatore-interazioni" });
+    expect(findings[0]).toMatchObject({ kind: "riga-senza-blocco", id: "esito-ricerca" });
   });
 
   it("dove il listone non mostra una pagina piena la forma non si pretende", () => {
@@ -392,7 +390,6 @@ describe("la spazzata che attribuisce", () => {
         block("call-screen-eyebrow", 18),
         block("call-search-row", 0),
         block("call-search-hint", 48.5),
-        block("call-interaction-count", 17.25),
         block("nomination-context", 151.5),
         // Il riquadro INSIGHT GIOCATORE è obbligatorio in ogni stato con una
         // riga selezionata dal 2026-08-26: senza di lui la spazzata sarebbe
@@ -413,7 +410,6 @@ describe("la spazzata che attribuisce", () => {
         block("call-screen-eyebrow", 18),
         block("call-search-row", 0),
         block("call-search-hint", 48.5),
-        block("call-interaction-count", 17.25),
         block("nomination-context", consumption),
         block("suggested-player", 300.5),
         block("listone-block", 338.5),

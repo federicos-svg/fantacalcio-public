@@ -498,7 +498,6 @@ interface AppState {
   // visible regardless of chiamata/asta moment (see renderAsta()).
   persistenceError: string;
   call: CallState;
-  callInteractions: number;
   // D7 Binario A: the "Contesto chiamata" panel is ON-DEMAND, so it starts
   // closed and is reopened only by an explicit click. Reset to false whenever
   // the selected player changes, so the panel never shows a previous player's
@@ -946,7 +945,6 @@ const state: AppState = {
   riconfermeDraft: null,
   persistenceError: "",
   call: { playerName: "", role: "", club: "", selectedPlayer: null },
-  callInteractions: 0,
   nominationContextOpen: false,
   criticalPlanOpen: false,
   momentFactsDetailOpen: false,
@@ -1211,7 +1209,6 @@ function disarmSelectionOutsidePool(
   if (selected === null || index.has(listonePlayerKey(selected))) return null;
   const wasInAsta = state.moment === "asta";
   state.call = { playerName: "", role: "", club: "", selectedPlayer: null };
-  state.callInteractions = 0;
   state.nominationContextOpen = false;
   // An assignment form still pointed at a player who is no longer in any
   // listone is worse than no form: back to the call moment, same shape as
@@ -1538,7 +1535,6 @@ function toggleListoneRole(role: Role): void {
     ? state.listoneRoles.filter((r) => r !== role)
     : ROLES.filter((r) => r === role || state.listoneRoles.includes(r));
   state.call.role = state.listoneRoles.length === 1 ? (state.listoneRoles[0] as Role) : "";
-  state.callInteractions += 1;
   state.poolPage = 1;
   render();
 }
@@ -1579,7 +1575,6 @@ document.addEventListener("keydown", (e) => {
 // Avvia CTA — see isCallCorrelated. Populates the search bar's three fields
 // with this exact player so the search visibly "agrees" with the listone.
 function selectListonePlayer(p: ListonePlayer): void {
-  state.callInteractions += 1;
   state.call.playerName = p.name;
   state.call.role = p.role;
   state.call.club = p.club;
@@ -1643,7 +1638,6 @@ function isCallCorrelated(call: CallState): boolean {
 // it never creates an event, and has no effect on budget/roster/void state.
 function resetListoneSearch(): void {
   state.call = { playerName: "", role: "", club: "", selectedPlayer: null };
-  state.callInteractions = 0;
   state.nominationContextOpen = false;
   state.poolStatusFilter = "available";
   state.poolPage = 1;
@@ -5897,20 +5891,10 @@ function renderTableDetail(
   section.className = "table-detail";
   section.setAttribute("aria-label", "Tavolo: scarsità e war board");
 
-  // LA TESTATA NON È PIÙ UN CONTROLLO, quindi non è più un `<button>`: un
-  // bottone che non fa niente è una promessa non mantenuta per chi naviga da
-  // tastiera, e `aria-expanded` su un pannello che non si può chiudere
-  // dichiarerebbe uno stato che non esiste. Resta ciò che la testata diceva —
-  // il nome e il proprio contenuto — perché serviva a leggere il gruppo, non
-  // ad aprirlo.
-  const head = document.createElement("div");
-  head.id = "table-detail-head";
-  head.className = "table-detail__head";
-  head.innerHTML =
-    `<span class="panel-title">IL TAVOLO</span>` +
-    `<span class="table-detail__what">scarsità per ruolo · war board</span>`;
-  section.appendChild(head);
-
+  // NESSUNA TESTATA. La riga «IL TAVOLO · scarsità per ruolo · war board»
+  // nominava un raggruppamento i cui due pannelli portano già il proprio nome:
+  // era una didascalia di una didascalia, e occupava verticale su una
+  // schermata che ne ha poca (vedi src/ui/callScreenBudget.ts).
   const body = document.createElement("div");
   body.id = "table-detail-body";
   body.className = "table-detail__body";
@@ -6035,7 +6019,6 @@ function renderMomentoChiamata(
     // renderListoneSvincolati call below) — cursor position is preserved
     // across the re-render, see render().
     state.call.playerName = (e.target as HTMLInputElement).value;
-    state.callInteractions += 1;
     state.poolPage = 1;
     render();
   });
@@ -6076,7 +6059,6 @@ function renderMomentoChiamata(
     // diverse sulla stessa tabella — che è esattamente il difetto che la
     // versione a ruolo singolo esisteva per non avere.
     state.listoneRoles = scelto === "" ? [] : [scelto];
-    state.callInteractions += 1;
     state.poolPage = 1;
     render();
   });
@@ -6127,7 +6109,6 @@ function renderMomentoChiamata(
   }
   clubSelect.addEventListener("change", (e) => {
     state.call.club = (e.target as HTMLSelectElement).value;
-    state.callInteractions += 1;
     state.poolPage = 1;
     render();
   });
@@ -6166,31 +6147,33 @@ function renderMomentoChiamata(
   row.appendChild(resetBtn);
   wrap.appendChild(row);
 
+  // QUESTA RIGA NON SPIEGA PIÙ COME SI USA LA RICERCA, e resta muta finché non
+  // ha un fatto da riportare. L'istruzione («filtra, poi clicca la riga») era
+  // sempre a schermo e diceva a ogni render una cosa che si impara una volta
+  // sola, pagandola in verticale su una schermata che ne ha poca.
+  //
+  // IL NODO PERÒ RESTA, e non è una mezza misura: qui dentro vivono anche le
+  // due cose che NON sono istruzioni — l'errore di ruolo (`role="alert"`, che
+  // se sparisse sparirebbe in silenzio proprio quando serve) e la conferma di
+  // che cosa è stato selezionato. Un elemento vuoto non si vede; un errore che
+  // non ha più un posto dove comparire non si vede mai.
   const hint = document.createElement("div");
   hint.id = "call-search-hint";
   hint.className = "hint-text";
-  hint.style.marginTop = "8px";
   const roleError = state.call.selectedPlayer
     ? requiredRoleError(state.call.role)
     : null;
   if (roleError) {
+    hint.style.marginTop = "8px";
     hint.setAttribute("role", "alert");
     hint.style.color = C.stopRed;
     hint.textContent = roleError;
   } else if (correlated && state.call.selectedPlayer) {
+    hint.style.marginTop = "8px";
     hint.style.color = C.green;
     hint.textContent = `✓ Selezionato dal listone: ${state.call.selectedPlayer.name} (${state.call.selectedPlayer.role} — ${state.call.selectedPlayer.club}). Premi Avvia o Invio.`;
-  } else {
-    hint.textContent =
-      "Filtra per nome/ruolo/squadra, poi clicca il giocatore nel listone qui sotto per selezionarlo: solo così l'asta può partire.";
   }
   wrap.appendChild(hint);
-
-  const interactionCount = document.createElement("div");
-  interactionCount.id = "call-interaction-count";
-  interactionCount.className = "hint-text";
-  interactionCount.textContent = `Interazioni chiamata: ${state.callInteractions}`;
-  wrap.appendChild(interactionCount);
 
   // D7 Binario A — "Contesto chiamata": read-only, on-demand, and only for a
   // player Owner has already selected. No selection, no panel: there is no
@@ -7092,7 +7075,6 @@ function launchAsta(): void {
   // CTA is disabled in the UI for this exact condition (see renderMomentoChiamata) —
   // this guard is defense-in-depth against a stray Enter keypress.
   if (!isCallCorrelated(state.call)) return;
-  state.callInteractions += 1;
   state.moment = "asta";
   if (!state.assign.fantaTeamId) {
     state.assign.fantaTeamId = SELF_ID;
@@ -7195,7 +7177,6 @@ function commitPurchase(
     state.moment = "chiamata";
     state.chiamataFocusPending = true;
     state.call = { playerName: "", role: "", club: "", selectedPlayer: null };
-    state.callInteractions = 0;
     state.nominationContextOpen = false;
     state.assign = { fantaTeamId: SELF_ID, price: "" };
     state.error = "";

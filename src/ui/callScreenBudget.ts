@@ -532,7 +532,7 @@ export const CALL_SCREEN_BUDGET_LEDGER: readonly CallScreenBlockAllocation[] = [
   },
   {
     id: "esito-ricerca",
-    label: "esito della ricerca (suggerimento o errore di ruolo)",
+    label: "esito della ricerca (conferma di selezione o errore di ruolo)",
     domId: "call-search-hint",
     allocationPx: 66,
     measuredInState: "ricerca",
@@ -548,17 +548,13 @@ export const CALL_SCREEN_BUDGET_LEDGER: readonly CallScreenBlockAllocation[] = [
       "vicino. L'esito adesso paga i 14 px che lo separano dall'occhiello invece degli 8 che " +
       "lo separavano dalla riga. Il blocco non è cresciuto: è cresciuto ciò che gli viene " +
       "attribuito, ed è la piastrellatura esatta a volerlo — un margine lo paga sempre il " +
-      "blocco sotto, altrimenti sparisce dal conto di tutti.",
-  },
-  {
-    id: "contatore-interazioni",
-    label: "contatore delle interazioni di chiamata",
-    domId: "call-interaction-count",
-    allocationPx: 17,
-    measuredInState: "ricerca",
-    measuredAtCommit: CALL_SCREEN_BUDGET_MEASURED_AT,
-    requiredIn: ALL_STATES,
-    why: "17,25 px misurati: una riga di testo sola, uguale in tutti gli stati.",
+      "blocco sotto, altrimenti sparisce dal conto di tutti. "
+      + "DAL 2026-08-30 QUESTO BLOCCO E MUTO NEL CASO NORMALE: l'istruzione su come si usa la "
+      + "ricerca e stata tolta, e restano solo l'errore di ruolo e la conferma di selezione. "
+      + "L'allocazione NON e stata abbassata perche nessuno ha rimisurato: 66 px restano un "
+      + "TETTO onesto — il blocco consuma meno e la guardia non se ne lamenta, mentre "
+      + "abbassarla a un numero inventato renderebbe rossa una schermata sana. Si abbassa "
+      + "alla prossima spazzata vera, con il suo commit accanto.",
   },
   {
     id: "contesto-chiamata",
@@ -649,9 +645,16 @@ export const CALL_SCREEN_ALLOCATED_PX = CALL_SCREEN_BUDGET_LEDGER.reduce(
  * sottoblocco PER ME dentro GIOCATORE SUGGERITO, da 260 a 287 px), −1219 il
  * 2026-08-26 (il riquadro INSIGHT GIOCATORE, 151 px, entra nella schermata di
  * chiamata), −1100 il 2026-08-29 (lo stesso riquadro se ne va nel momento
- * d'asta e i quattro interruttori di ruolo prendono 32 px), −986 oggi. Ogni
- * volta la riga che si muove ha un nome, un'altezza misurata e un motivo, e i
- * px escono da qui e non dal vicino di banco.
+ * d'asta e i quattro interruttori di ruolo prendono 32 px), −986 il 2026-08-29,
+ * −969 oggi. Ogni volta la riga che si muove ha un nome, un'altezza misurata e
+ * un motivo, e i px escono da qui e non dal vicino di banco.
+ *
+ * OGGI LA RISERVA RISALE, ed è la prima volta che succede per una riga TOLTA
+ * invece che per una entrata: il contatore delle interazioni di chiamata
+ * (17 px misurati) è stato rimosso dalla schermata, quindi la sua allocazione
+ * non è stata spostata su un vicino — è tornata qui. Una riserva che risale
+ * perché un blocco se ne va è l'unico caso in cui questo numero è una buona
+ * notizia, e va scritto per non farlo sembrare una riparazione.
  *
  * Il prossimo blocco non arriva in uno spazio vuoto: arriva dovendo restituire
  * la propria altezza PIÙ 1219 px presi da righe con un nome
@@ -667,7 +670,7 @@ export const CALL_SCREEN_ALLOCATED_PX = CALL_SCREEN_BUDGET_LEDGER.reduce(
  * riparazione: vedi PROVA_1_MARGINE_RIAPERTO_SENZA_RIPAGARE e PROVA 1 in
  * e2e/call-screen-budget.spec.ts.
  */
-export const CALL_SCREEN_BUDGET_RESERVE_PX = -986;
+export const CALL_SCREEN_BUDGET_RESERVE_PX = -969;
 
 /**
  * Che cosa costa, oggi, far entrare un blocco nuovo alto `heightPx`: quanti px
