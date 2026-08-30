@@ -249,7 +249,7 @@ const RENEWAL_ONLY_VIOLATION_MESSAGES: Record<
   "roster-not-completable":
     "Con questa riconferma la rosa non sarebbe più completabile: il budget residuo non basterebbe a riempire gli altri slot obbligatori al minimo.",
   "replay-refused":
-    "Lo stato che ne risulterebbe non è rappresentabile e la riconferma è stata rifiutata. Non è stato scritto niente.",
+    "Lo stato che ne risulterebbe non è rappresentabile e la riconferma è stata rifiutata: non è stato scritto niente. Riprova; se il rifiuto si ripete, metti il giocatore con l'inserimento manuale e segnala il caso.",
 };
 
 export function renewalViolationText(violations: readonly RenewalViolation[]): string {

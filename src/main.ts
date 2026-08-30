@@ -7686,6 +7686,22 @@ function renderSlotRenewalPanel(panel: HTMLElement, slot: RosterSlotModal): void
     "Riconferma un giocatore della rosa dell'anno scorso al prezzo pagato allora (regolamento §4). Non è un acquisto: viene sottratto al budget iniziale e a uno slot, e conta da t=0 anche se la dichiari adesso.";
   panel.appendChild(intro);
 
+  // LA SORPRESA SI ANTICIPA, NON SI SPIEGA DOPO. «Conta da t=0» ha una
+  // conseguenza che si VEDE: la riconferma entra in rosa prima di ogni
+  // acquisto (seq negativo, reduce.ts), quindi chi era gia in una casella
+  // scala di uno. Chi sta preparando l'asta di corsa vedrebbe un giocatore
+  // «spostarsi» e penserebbe a un guasto. Rilievo della lente Product &
+  // Experience sulla PR #74, e la nota vive solo dove il caso puo davvero
+  // capitare — a rosa gia popolata.
+  if (state.log.length > 0) {
+    const reorder = document.createElement("p");
+    reorder.id = "roster-slot-renewal-reorder-note";
+    reorder.className = "hint-text";
+    reorder.textContent =
+      "In questa rosa c'è già qualcuno: siccome la riconferma conta da prima dell'asta, si sistema davanti agli acquisti e le caselle si rinumerano. Non sparisce nessuno.";
+    panel.appendChild(reorder);
+  }
+
   // NON C'E PIU UN BLOCCO SUL LOG NON VUOTO, ed e una correzione, non un
   // allentamento. La riconferma continua a seminare t=0 — reduce() la mette in
   // rosa PRIMA di rigiocare il log — ma vietarla per il solo fatto che il log

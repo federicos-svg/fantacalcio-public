@@ -262,6 +262,9 @@ test("il rinnovo elenca solo i rinnovabili, in ordine di prezzo pagato, e non pa
 
   // La stagione da cui si rinnova è detta, non lasciata intendere.
   await expect(page.locator("#roster-slot-renewal-season")).toContainText(PREVIOUS_SEASON);
+  // Rosa vuota: niente da rinumerare, quindi niente nota. Una nota che compare
+  // sempre e rumore, e il rumore si smette di leggere.
+  await expect(page.locator("#roster-slot-renewal-reorder-note")).toHaveCount(0);
 
   const lista = page.locator("#roster-slot-renewal-list");
   await expect(lista.locator(".roster-slot-dialog__row-name")).toHaveText([
@@ -646,6 +649,9 @@ test("un giocatore gia nel log non si rinnova, e il rifiuto dice perche", async 
   await page.locator("#roster-slot-tab-rinnovo").click();
   await expect(page.locator("#roster-slot-renewal-locked")).toHaveCount(0);
   await expect(page.locator("#roster-slot-renewal-list")).toBeVisible();
+  // La rinumerazione delle caselle e ANNUNCIATA prima che accada, non spiegata
+  // dopo: qui la rosa ha gia qualcuno, quindi la nota deve esserci.
+  await expect(page.locator("#roster-slot-renewal-reorder-note")).toBeVisible();
   await expect(page.locator(`#roster-slot-renew-${KEY_ALFA}`)).toHaveCount(0);
   await expect(page.locator(`#roster-slot-renew-${KEY_BETA}`)).toBeVisible();
 
