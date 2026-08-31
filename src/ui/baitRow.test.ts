@@ -4,6 +4,16 @@
 // src/postPurchaseProjection.ts), quindi tutta la COPIA vive in funzioni pure e
 // il gesto vero — clic, tastiera, tocco — è provato da e2e/bait-row.spec.ts.
 //
+// LA RIGA È DIVENTATA TRE COSE — nome, ruolo, squadra — per decisione di Pico
+// del 2026-08-31: «Non devo usarle per leggere ma come consiglio». Le
+// asserzioni sul conteggio degli avversari, sulla proiezione «se resta a te»,
+// sulle righe di evidenza e sul marcatore di prima fascia non sono state
+// cancellate per far passare il codice nuovo: le funzioni che producevano
+// quelle stringhe NON ESISTONO PIÙ, perché nessuna superficie le disegna. Al
+// loro posto c'è la pretesa opposta, e più forte — che nessuno di quei fatti
+// torni sulla riga senza che questo test diventi rosso. Il motore che li
+// calcola è intatto e coperto da src/baitCandidates.test.ts.
+//
 // E14 — LA GUARDIA DI DERIVA. Modello: src/ui/warBoard.test.ts §D9. Una regex
 // su TUTTO il testo del sottoblocco, in ogni suo esito, che deve dare ZERO
 // riscontri: nessuna parola che affermi un'intenzione, un carattere, una
@@ -17,15 +27,11 @@ import {
   BAIT_SELECTED_MARK,
   BAIT_TITLE,
   BAIT_TITLE_SHORT,
-  BAIT_TOP_TIER_MARKER,
   baitNoteApplies,
   baitTitleFor,
-  baitCountText,
   baitEmptyText,
-  baitEvidenceLines,
   baitHeadText,
   baitNoteText,
-  baitProjectionText,
   baitSectionText,
   baitShownCandidates,
 } from "./baitRow.js";
@@ -33,7 +39,6 @@ import { BAIT_PARAMETERS, type BaitCandidate, type BaitEmptyReason, type BaitRea
 import type { ListonePlayer } from "./listone.js";
 
 const SEASONS = ["2021/22", "2022/23", "2023/24"];
-const LABELS = { Squadra2: "Dinamo Sintetica", Squadra3: "Atletico Sintetico" };
 
 const PLAYER: ListonePlayer = { name: "Sintetico Alfa", role: "A", club: "ClubAlfa", quotation: 20 };
 
@@ -143,23 +148,18 @@ describe("E14 — nessuna parola che affermi un'intenzione o una previsione", ()
   it("nessuno dei sei silenzi contiene una parola vietata", () => {
     for (const reason of EMPTY_REASONS) {
       expect(baitEmptyText(reason), reason).not.toMatch(DRIFT);
-      expect(baitSectionText(emptyReading(reason), LABELS), reason).not.toMatch(DRIFT);
+      expect(baitSectionText(emptyReading(reason)), reason).not.toMatch(DRIFT);
     }
   });
 
   it("il testo INTERO del sottoblocco con le righe non contiene una parola vietata", () => {
     const full = baitSectionText(
       reading({ candidates: [candidate({ alsoTopTier: true })], withoutAppealIndex: 1 }),
-      LABELS,
     );
     expect(full).not.toMatch(DRIFT);
     // E la guardia morde davvero: la frase vietata più naturale è a un passo.
     expect("nessuno abbocca").toMatch(DRIFT);
     expect("lo vuole").toMatch(DRIFT);
-  });
-
-  it("il marcatore di prima fascia non promette e non predice", () => {
-    expect(BAIT_TOP_TIER_MARKER).not.toMatch(DRIFT);
   });
 });
 
@@ -205,54 +205,52 @@ describe("quando non compare, dice QUALE silenzio è", () => {
 
 // ─── La riga ─────────────────────────────────────────────────────────────────
 
-describe("la riga: due righe, e la seconda è contenuto obbligato", () => {
-  it("la prima dice chi è e quanti avversari, con le tre condizioni", () => {
+describe("la riga è UN giocatore: nome, ruolo, squadra — e nient'altro", () => {
+  it("la testa dice chi è, in una riga sola", () => {
     expect(baitHeadText(candidate())).toBe("Sintetico Alfa (A · ClubAlfa)");
-    expect(baitCountText(2)).toBe("2 avversari con un precedente, lo slot e i crediti");
-    expect(baitCountText(1)).toBe("1 avversario con un precedente, lo slot e i crediti");
   });
 
-  it("la seconda è il costo del piano B: slot del reparto e crediti residui", () => {
-    expect(baitProjectionText(candidate())).toBe(
-      "se resta a te a 1 cr: slot A 7→6 · restano 214 cr e 27 slot",
-    );
+  it("il tetto ratificato è UNO: la vista mostra un giocatore soltanto", () => {
+    expect(BAIT_PARAMETERS.rowsMax).toBe(1);
+    const many = [1, 2, 3, 4, 5].map((i) => candidate({ playerId: `id-${i}` }));
+    expect(baitShownCandidates(reading({ candidates: many })).map((c) => c.playerId)).toEqual([
+      "id-1",
+    ]);
   });
 
-  it("e porta l'allarme quando la rosa non resterebbe completabile", () => {
-    const text = baitProjectionText(
-      candidate({
-        projection: {
-          kind: "after",
-          fantaTeamId: "Io",
-          creditsAfter: 20,
-          slotsAfter: 27,
-          reserveAfter: 27,
-          completable: false,
-          missingCredits: 7,
-        },
-      }),
-    );
-    expect(text).toContain("rosa non completabile: mancano 7 cr");
+  it("SULLA RIGA NON C'È NESSUN FATTO DA LEGGERE, e questo è il punto", () => {
+    // La lista è scritta per esteso perché sia falsificabile una voce alla
+    // volta: se una di queste cose tornasse sulla riga, questa asserzione lo
+    // direbbe col suo nome invece di lasciarla passare. I fatti non sono
+    // spariti dal prodotto — i precedenti stanno nel loro pannello, il costo
+    // sulla schermata che il clic arma — sono spariti da QUI.
+    const riga = baitSectionText(reading({ candidates: [candidate({ alsoTopTier: true })] }))
+      .split("\n")
+      .find((l) => l.startsWith("Sintetico Alfa"));
+    expect(riga).toBe("Sintetico Alfa (A · ClubAlfa)");
+    expect(riga).not.toContain("avversari"); // il censimento degli esposti
+    expect(riga).not.toContain("avversario");
+    expect(riga).not.toContain("se resta a te"); // la proiezione del piano B
+    expect(riga).not.toContain("slot");
+    expect(riga).not.toContain("restano");
+    expect(riga).not.toContain("ricomprato"); // le righe di evidenza
+    expect(riga).not.toContain("ha speso su");
+    expect(riga).not.toContain("⚠"); // il marcatore di prima fascia
+    expect(riga).not.toContain("ripiego");
   });
 
-  it("la prova viaggia col fatto, ed è quella del pannello dei precedenti", () => {
-    const lines = baitEvidenceLines(candidate().exposed[0]!, "Dinamo Sintetica");
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain("Dinamo Sintetica l'ha ricomprato all'asta");
-    expect(lines[0]).toContain("2 volte — 60 cr nel 2021/22, 71 cr nel 2022/23");
-    expect(lines[0]).toContain("1 rinnovo non contato");
-  });
-
-  it("la prova del fatto sul club porta la soglia e la numerosità", () => {
-    const lines = baitEvidenceLines(candidate().exposed[1]!, "Atletico Sintetico");
-    expect(lines[0]).toContain("Atletico Sintetico ha speso su ClubAlfa");
-    expect(lines[0]).toContain("3 stagioni su 3 misurate dal 15% in su");
-  });
-
-  it("il marcatore di prima fascia compare accanto, senza spostare la riga", () => {
-    const text = baitSectionText(reading({ candidates: [candidate({ alsoTopTier: true })] }), LABELS);
-    expect(text).toContain(BAIT_TOP_TIER_MARKER);
-    expect(BAIT_TOP_TIER_MARKER).toContain("non è un ripiego");
+  it("i fatti del motore restano NEL DATO, e nessuno di essi è stato tolto", () => {
+    // La riga non li disegna più; il candidato li porta ancora tutti. È la
+    // differenza fra «la vista mostra meno» e «il motore calcola meno».
+    const c = candidate({ alsoTopTier: true });
+    expect(c.exposedCount).toBe(2);
+    expect(c.exposed).toHaveLength(2);
+    expect(c.exposed[0]!.facts).toHaveLength(1);
+    expect(c.projection.kind).toBe("after");
+    expect(c.openingPrice).toBe(1);
+    expect(c.roleSlotsBefore).toBe(7);
+    expect(c.appealIndex).toBe(12);
+    expect(c.alsoTopTier).toBe(true);
   });
 
   it("la parola della selezione è un secondo canale oltre al colore", () => {
@@ -262,37 +260,43 @@ describe("la riga: due righe, e la seconda è contenuto obbligato", () => {
 
 // ─── I parametri, ispezionabili accanto ai numeri ────────────────────────────
 
-describe("la nota porta provenienza e i tre parametri in vigore", () => {
+describe("la nota resta la targa della provenienza e i tre parametri, e basta", () => {
   it("dichiara lo storico d'asta, l'apertura, la soglia di campione e il tetto righe", () => {
-    const note = baitNoteText(BAIT_PARAMETERS, SEASONS, 0);
+    const note = baitNoteText(BAIT_PARAMETERS, SEASONS);
     expect(note).toContain("provenienza: storico d'asta misurato");
     expect(note).toContain("3 stagioni (2021/22 → 2023/24)");
     expect(note).toContain("apertura a 1 cr");
     expect(note).toContain("almeno 1 stagione misurata per fatto");
-    expect(note).toContain("al massimo 3 righe (ratificato da Pico il 2026-08-31)");
+    expect(note).toContain("al massimo 1 riga (ratificato da Pico il 2026-08-31)");
+    // Il singolare non è un vezzo: «1 righe» sarebbe la spia che il tetto è
+    // cambiato e la frase no.
+    expect(note).not.toContain("1 righe");
   });
 
   it("il tetto delle righe DICHIARA la propria ratifica, e non è più provvisorio", () => {
-    // Era «provvisorio — in attesa di conferma di Pico»: il DTI l'ha proposto
-    // come parametro dichiarato e Pico l'ha ratificato il 2026-08-31.
-    expect(baitNoteText(BAIT_PARAMETERS, SEASONS, 0)).toContain("ratificato da Pico");
-    expect(baitNoteText(BAIT_PARAMETERS, SEASONS, 0)).not.toContain("provvisorio");
+    // Era «provvisorio — in attesa di conferma di Pico»; ratificato da Pico il
+    // 2026-08-31, prima a 3 e poi — nella stessa giornata, decisione che
+    // supera la precedente — a 1.
+    expect(baitNoteText(BAIT_PARAMETERS, SEASONS)).toContain("ratificato da Pico");
+    expect(baitNoteText(BAIT_PARAMETERS, SEASONS)).not.toContain("provvisorio");
   });
 
-  it("le righe senza indice sono dichiarate, non azzerate in silenzio", () => {
-    expect(baitNoteText(BAIT_PARAMETERS, SEASONS, 2)).toContain(
-      "2 righe senza indice di appetibilità",
-    );
-    expect(baitNoteText(BAIT_PARAMETERS, SEASONS, 2)).toContain("senza numero fabbricato");
-    expect(baitNoteText(BAIT_PARAMETERS, SEASONS, 0)).not.toContain("senza indice");
+  it("LA LETTURA È USCITA DALLA NOTA: niente contatore delle righe senza indice", () => {
+    // Era lettura, e questo pannello ha smesso di essere una lettura. Il fatto
+    // resta ispezionabile nel dato — `BaitReading.withoutAppealIndex` — e i
+    // test di src/baitCandidates.test.ts lo pinnano lì.
+    const note = baitNoteText(BAIT_PARAMETERS, SEASONS);
+    expect(note).not.toContain("senza indice");
+    expect(note).not.toContain("senza numero fabbricato");
+    expect(reading({ withoutAppealIndex: 2 })).toMatchObject({ withoutAppealIndex: 2 });
   });
 });
 
 describe("il tetto di righe è quello dichiarato nell'esito", () => {
-  it("con più candidati del tetto, si mostrano solo i primi", () => {
+  it("con più candidati del tetto, si mostra solo il primo dell'ordine", () => {
     const many = [1, 2, 3, 4, 5].map((i) => candidate({ playerId: `id-${i}` }));
     const shown = baitShownCandidates(reading({ candidates: many }));
-    expect(shown.map((c) => c.playerId)).toEqual(["id-1", "id-2", "id-3"]);
+    expect(shown.map((c) => c.playerId)).toEqual(["id-1"]);
   });
 
   it("un esito vuoto non mostra righe", () => {
@@ -304,15 +308,15 @@ describe("il blocco vuoto non recita parametri che non hanno governato niente", 
   it("senza popolazione (no-pool, no-history) la nota non compare", () => {
     for (const reason of ["no-pool", "no-history"] as const) {
       expect(baitNoteApplies(emptyReading(reason)), reason).toBe(false);
-      expect(baitSectionText(emptyReading(reason), LABELS)).not.toContain("apertura a");
+      expect(baitSectionText(emptyReading(reason))).not.toContain("apertura a");
     }
   });
 
   it("negli altri quattro silenzi la nota resta per intero", () => {
     for (const reason of ["no-open-role", "no-affordable-opening", "no-exposed", "below-sample"] as const) {
       expect(baitNoteApplies(emptyReading(reason)), reason).toBe(true);
-      expect(baitSectionText(emptyReading(reason), LABELS), reason).toContain("apertura a 1 cr");
-      expect(baitSectionText(emptyReading(reason), LABELS), reason).toContain(
+      expect(baitSectionText(emptyReading(reason)), reason).toContain("apertura a 1 cr");
+      expect(baitSectionText(emptyReading(reason)), reason).toContain(
         "ratificato da Pico il 2026-08-31",
       );
     }
@@ -320,7 +324,7 @@ describe("il blocco vuoto non recita parametri che non hanno governato niente", 
 
   it("con le righe la nota c'è sempre", () => {
     expect(baitNoteApplies(reading())).toBe(true);
-    expect(baitSectionText(reading(), LABELS)).toContain("al massimo 3 righe");
+    expect(baitSectionText(reading())).toContain("al massimo 1 riga");
   });
 
   it("i parametri restano nel DATO anche dove la vista non li stampa", () => {

@@ -607,9 +607,14 @@ export const CALL_SCREEN_BUDGET_LEDGER: readonly CallScreenBlockAllocation[] = [
       "RIMISURATO IL 2026-08-31 DOPO IL PIANO DINAMICO, e il numero NON si è mosso: 258,5 px, " +
       "gli stessi. Il sottoblocco PER ME ha cambiato il proprio silenzio — da «nessun piano " +
       "rosa dichiarato» a «deposito assente o monco» — e in questa fixture, che non porta le " +
-      "previsioni servite, `#per-me-block` misura 78 px con l'una e con l'altra frase. Lo " +
-      "stesso sottoblocco PIENO ne misura 1002: quella scena non esiste qui e la differenza è " +
-      "dichiarata in PER_ME_POPOLATO_FUORI_DALLA_MISURA, col suo tetto di regressione in " +
+      "previsioni servite, `#per-me-block` misura 78 px con l'una e con l'altra frase. " +
+      "RIMISURATO ANCORA IL 2026-08-31 DOPO «UN GIOCATORE SOLTANTO» (Pico), e ancora NON si è " +
+      "mosso: 258,5 px. In questa scena i due sottoblocchi sono entrambi MUTI — PER ME dice " +
+      "`no-forecast`, l'esca non ha righe — e la decisione di Pico tocca solo ciò che una " +
+      "RIGA disegna, quindi qui non c'è niente da rimisurare. Dove la differenza si vede è " +
+      "nella scena piena, che questo mastro non ospita: `#per-me-block` popolato è passato da " +
+      "1002 a 133,5 px, e il divario col muto da 924 a 55,5 — vedi " +
+      "PER_ME_POPOLATO_FUORI_DALLA_MISURA e il tetto di regressione in " +
       "e2e/per-me-row.spec.ts.",
   },
   {
@@ -838,23 +843,29 @@ export const CALL_SCREEN_BUDGET_UNRATIFIED: Readonly<
     "risalita di 114 px per questo trasloco e non per una riparazione: chi legge il numero " +
     "senza questa voce crederebbe che la schermata abbia guadagnato spazio",
   PER_ME_POPOLATO_FUORI_DALLA_MISURA:
-    "QUESTO MASTRO MISURA IL SOTTOBLOCCO «PER ME» MUTO, e dal 2026-08-31 la differenza vale " +
-    "924 px. La fixture di e2e/call-screen-budget.spec.ts non porta né le previsioni servite " +
-    "né lo storico d'asta, quindi in questa scena il sottoblocco dice `no-forecast` e " +
-    "`#per-me-block` misura 78 px — esattamente quanto misurava col motivo di ieri, e per " +
-    "questo nessuna allocazione si è mossa. Ma il pannello non è più muto per costruzione: " +
-    "col deposito e lo storico che il prodotto avrà al tavolo mostra tre righe piene di fatti " +
-    "misurati (V con la sua targa, il prezzo atteso coi tre qualificatori obbligatori di " +
-    "§B.3, il surplus, il costo per vincere adesso, i due conteggi di scarsità, " +
-    "l'appetibilità, l'ancora e l'allocazione del piano) e `#per-me-block` MISURA 1002 px a " +
-    "390×844 — rimisurato sul DOM vivo, non stimato. Il tetto di regressione di quel numero " +
-    "sta in e2e/per-me-row.spec.ts, che è l'unico posto in cui la scena piena esiste. " +
-    "PORTARE QUELLA SCENA DENTRO QUESTO MASTRO NON È UNA MODIFICA CHE UN WORKER POSSA FARE " +
-    "DA SÉ: un pool con le previsioni accende tre colonne in più nel listone e rimette in " +
-    "discussione ogni pin di questa spec, e l'allocazione di `giocatore-suggerito` " +
-    "passerebbe da 259 a circa 1183 px, portando la riserva intorno a −1834. Quanto il " +
-    "riquadro del giocatore suggerito possa occupare col deposito pieno non l'ha dichiarato " +
-    "nessuno: qui si registra il numero e da dove viene, non lo si condona",
+    "QUESTO MASTRO MISURA IL SOTTOBLOCCO «PER ME» MUTO, e dal 2026-08-31 sera la differenza " +
+    "vale 55,5 px: ERANO 924. La voce NON SI CHIUDE — la scena piena continua a stare fuori " +
+    "dalla misura — ma il buco che dichiara si è ridotto di diciassette volte, e il numero " +
+    "nuovo è misurato sul DOM vivo, non stimato. " +
+    "LA FIXTURE DI e2e/call-screen-budget.spec.ts non porta né le previsioni servite né lo " +
+    "storico d'asta, quindi in questa scena il sottoblocco dice `no-forecast` e " +
+    "`#per-me-block` misura 78 px — invariato attraverso tutti i cambiamenti di stamane, e " +
+    "per questo nessuna allocazione si è mossa. " +
+    "COL DEPOSITO E LO STORICO che il prodotto avrà al tavolo il pannello mostra UNA riga con " +
+    "nome, ruolo e squadra («Non devo usarle per leggere ma come consiglio», Pico) e " +
+    "`#per-me-block` misura 133,5 px: 1002 fino a stamane, quando la riga portava V con la " +
+    "sua targa, il prezzo atteso coi tre qualificatori di §B.3, il surplus, il costo per " +
+    "vincere adesso, i due conteggi di scarsità, l'appetibilità, l'ancora, l'allocazione del " +
+    "piano e il marcatore del momento. Di quei 133,5 px, 92 sono LA NOTA — la targa della " +
+    "provenienza e i parametri dichiarati — e ~28 la riga: l'annotazione costa più del triplo " +
+    "del consiglio che annota, ed è un fatto che nessuna altra superficie riporta. " +
+    "CHE COSA COMPORTEREBBE PORTARE LA SCENA PIENA QUI DENTRO: l'allocazione di " +
+    "`giocatore-suggerito` passerebbe da 259 a circa 315 px (259 + 55,5, arrotondato per " +
+    "eccesso) e la riserva da −910 a circa −966. Resta una rimisura vera e non un ritocco — " +
+    "un pool con le previsioni accende tre colonne in più nel listone e rimette in " +
+    "discussione ogni pin di questa spec — e quanto il riquadro del giocatore suggerito possa " +
+    "occupare col deposito pieno non l'ha dichiarato nessuno: qui si registra il numero e da " +
+    "dove viene, non lo si condona",
   PROVA_1_MARGINE_RIAPERTO_SENZA_RIPAGARE:
     "il margine residuo sul TOTALE, allo stato di boot, è RISALITO a 115 px. Questa voce si " +
     "chiamava PROVA_1_MARGINE_ESAURITO fino al 2026-08-29 e diceva il contrario: il margine " +

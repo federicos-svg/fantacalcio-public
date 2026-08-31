@@ -13,31 +13,37 @@ import { PER_ME_TITLE_SHORT } from "../src/ui/perMeRow.js";
  * IL TETTO DI REGRESSIONE DEL SOTTOBLOCCO PIENO, in px, misurato a 390×844 sul
  * DOM vivo. Non è una soglia scelta: è la misura arrotondata per eccesso al
  * pixel, come fa il mastro del budget con le proprie allocazioni.
+ *
+ * ERA 1002 px, ED È 134 DAL 2026-08-31. Non è una compressione: è la riga
+ * ridotta a nome, ruolo e squadra e il tetto delle righe portato a UNA — «un
+ * giocatore soltanto», decisione di Pico. Dei 134 px che restano, 92 sono la
+ * NOTA: la targa della provenienza e i parametri dichiarati costano oggi tre
+ * volte e mezzo il consiglio che annotano, ed è un fatto misurato che vale la
+ * pena guardare in faccia invece di lasciarlo implicito in un numero solo.
  */
-const PER_ME_FULL_HEIGHT_CEILING_PX = 1002;
+const PER_ME_FULL_HEIGHT_CEILING_PX = 134;
 
 // «PER ME» — I DUE ESITI VERI DEL SOTTOBLOCCO, SUL DOM VIVO.
 //
-// CHE COSA C'ERA QUI PRIMA, E PERCHÉ NON DESCRIVE PIÙ LA REALTÀ. Fino al
-// 2026-08-31 questa spec asseriva un esito solo — `plan-absent`, «nessun piano
-// rosa dichiarato» — perché il pannello PIANO ROSA era stato rimosso e con lui
-// la sola sorgente di una dichiarazione: senza piano il sottoblocco taceva
-// SEMPRE. Il piano non è più una dichiarazione a monte ma `PLAN*`, il piano
-// dinamico (NOM-PROTOCOL-A §A.4), che si ricalcola dallo stato a ogni evento:
-// quell'esito non esiste più, e una spec che continuasse ad aspettarselo
-// sarebbe verde su una pagina che nessuno vede.
+// CHE COSA C'ERA QUI PRIMA, E PERCHÉ NON DESCRIVE PIÙ LA REALTÀ. Fino a stamane
+// questa spec verificava che la riga portasse `V` con la sua targa, il prezzo
+// atteso coi tre qualificatori, il surplus, il costo per vincerlo adesso, i due
+// conteggi di scarsità, l'appetibilità, l'ancora, l'allocazione del piano e il
+// marcatore «⚑ adesso». Pico ha deciso altro, e in prima persona: «Quello che
+// voglio nelle due feature è un giocatore soltanto con Nome, ruolo e squadra.
+// Non devo usarle per leggere ma come consiglio.»
 //
-// LA COPERTURA CHE TORNA. Quella spec dichiarava di aver PERSO la catena
-// end-to-end del gesto — clic, tastiera, fino alla schermata d'asta con QUEL
-// giocatore — «perché il gesto non è raggiungibile». Adesso lo è: le righe
-// arrivano a schermo, quindi la catena torna qui, provata sul DOM vivo e non
-// promessa. È la stessa catena di e2e/bait-row.spec.ts §E15/E16, e riusa la
-// stessa unica via che arma la CTA «Avvia» (`selectListonePlayer`).
+// QUELLE ASSERZIONI NON SONO STATE ALLENTATE, SONO STATE ROVESCIATE: al posto
+// di «la riga porta questi fatti» c'è «la riga NON porta nessuno di questi
+// fatti», voce per voce, così che il giorno in cui uno tornasse a schermo
+// questa spec lo dica col suo nome. È la stessa tecnica con cui il mastro del
+// budget pinna un debito: documentare, non condonare.
 //
-// LA COPERTURA CHE RESTA. Il silenzio dichiarato non è sparito: ha cambiato
-// motivo. Senza le previsioni servite non si forma nessun `V`, quindi il
-// sottoblocco dice `no-forecast` — e le due pretese sul titolo nascosto
-// («non occupa la vista» / «dà ancora il nome al blocco») restano dove erano.
+// LA COPERTURA CHE RESTA, INTATTA. La catena end-to-end del gesto — clic e
+// tastiera, fino alla schermata d'asta con QUEL giocatore — è la ragione per
+// cui la semplificazione non perde niente: i numeri sono a un clic. Restano
+// anche il ricalcolo del piano dinamico provato sul vivo, il silenzio
+// dichiarato (`no-forecast`) e le due pretese sul titolo nascosto.
 //
 // Fixture sintetiche: nessun giocatore reale, nessun prezzo d'asta reale,
 // nessuna persona reale. Il network guard aborta ogni richiesta esterna.
@@ -56,7 +62,7 @@ async function bootServed(page: Page): Promise<void> {
   await expect(page.locator("#per-me-rows")).toBeVisible();
 }
 
-test("con deposito e storico il pannello PARLA: tre righe, e ogni numero porta la sua provenienza", async ({
+test("con deposito e storico il pannello CONSIGLIA: un giocatore, con nome ruolo e squadra", async ({
   page,
   context,
 }) => {
@@ -64,44 +70,51 @@ test("con deposito e storico il pannello PARLA: tre righe, e ogni numero porta l
   await installSyntheticNetworkGuard(context, PER_ME_DEPOSIT_POOL, externalRequests);
   await bootServed(page);
 
-  // IL TETTO RATIFICATO TRONCA DAVVERO: tre righe, non sessanta.
+  // IL TETTO RATIFICATO TRONCA DAVVERO: UNA riga, non tre e non sessanta.
   const rows = page.locator("#per-me-rows .per-me-row");
-  await expect(rows).toHaveCount(3);
+  await expect(rows).toHaveCount(1);
   await expect(page.locator("#per-me-empty")).toHaveCount(0);
 
-  const first = rows.first();
-  // `V` COL SUO MARCHIO — la targa arriva dal dato servito, non da una
-  // costante della vista.
-  await expect(first).toContainText(`V `);
-  await expect(first).toContainText(`(generatore ${PER_ME_GEN_RECIPE})`);
-  // IL SURPLUS È LA SOTTRAZIONE, coi due addendi accanto: si rifà a mano.
-  await expect(first).toContainText(/S [+−]\d+ cr \(\d+ − \d+\)/);
-  // IL PREZZO ATTESO COI TRE QUALIFICATORI OBBLIGATORI (§B.3): scalare, `n`,
-  // scarti tipici e bias firmato. Mai una banda «da X a Y».
-  await expect(first).toContainText(/atteso \d+ cr · su \d+ aste simili · tipicamente −\d+\/\+\d+/);
-  await expect(first).toContainText(/tende a sbagliare (basso|alto)|non tende a sbagliare/);
-  await expect(first).not.toContainText(/\bda \d+ a \d+\b/);
-  // I DUE FATTI DI SCARSITÀ, due conteggi.
-  await expect(first).toContainText(/\d+ alternativ[ae] a scendere nel ruolo/);
-  await expect(first).toContainText(/\d+ rival[ei] eleggibil[ei] con slot/);
-  // L'APPETIBILITÀ RESTA UN FATTO MOSTRATO anche da quando non ordina più.
-  await expect(first).toContainText(/\d+ª di \d+ per appetibilità/);
-  // LA SCOMPOSIZIONE DELL'INFLAZIONE MISURATA non è sparita con l'ancora.
-  await expect(first).toContainText(/ancora \d+ cr \(Qt\.A \d+ ·/);
-  // L'ALLOCAZIONE DINAMICA DEL RUOLO, con l'etichetta di chi l'ha decisa, e il
-  // max bid come fatto a sé.
-  await expect(first).toContainText(/(nel|fuori dal) piano A \(\d+ cr \/ \d+ slot · piano ricalcolato adesso\)/);
-  await expect(first).toContainText(/max bid \d+ cr/);
+  // LA RIGA È TRE COSE, e l'asserzione è sulla FORMA INTERA e non su un
+  // «contiene»: «Nome (R · Club)», niente prima e niente dopo.
+  const riga = ((await rows.first().innerText()) ?? "").trim();
+  expect(riga).toMatch(/^[^()]+ \([PDCA] · [^()]+\)$/);
 
-  // LA NOTA: ordine per esteso, parametri, ratifica e letture aperte.
+  // E QUI SOTTO C'È IL ROVESCIO DI CIÒ CHE QUESTA SPEC ASSERIVA IERI: nessuno
+  // dei fatti che la riga portava è tornato a schermo. Sono a un clic — sulla
+  // schermata di chiamata che la riga arma — e il motore che li calcola è
+  // intatto, coperto da src/perMeCandidates.test.ts e da packages/engine.
+  expect(riga).not.toContain(PER_ME_GEN_RECIPE); // la targa di `V`
+  expect(riga).not.toMatch(/\bV \d/);
+  expect(riga).not.toMatch(/\bS [+−]\d/); // il surplus
+  expect(riga).not.toContain("atteso"); // il prezzo atteso e i tre qualificatori
+  expect(riga).not.toContain("aste simili");
+  expect(riga).not.toContain("tende a sbagliare");
+  expect(riga).not.toContain("vincerlo adesso"); // il costo per vincerlo ora
+  expect(riga).not.toContain("alternativ"); // i due fatti di scarsità
+  expect(riga).not.toContain("rival");
+  expect(riga).not.toContain("appetibilità");
+  expect(riga).not.toContain("ancora"); // la scomposizione dell'ancora
+  expect(riga).not.toContain("Qt.A");
+  expect(riga).not.toContain("piano"); // l'allocazione dinamica del ruolo
+  expect(riga).not.toContain("max bid");
+  expect(riga).not.toContain("⚑"); // il marcatore del momento
+  await expect(page.locator("#per-me-rows .per-me-row__now")).toHaveCount(0);
+
+  // LA NOTA RESTA, ASCIUGATA: la targa della provenienza e i parametri
+  // dichiarati. È ciò che rende il consiglio ispezionabile invece che oracolare
+  // — con UNA riga sola è l'unica cosa che permette di non fidarsi.
   const note = page.locator("#per-me-note");
-  await expect(note).toContainText(
-    "ordine: piano → surplus → alternative a scendere → V → chiave di listone",
-  );
+  await expect(note).toContainText("V dal generatore e prezzo atteso dalla curva storica");
   await expect(note).toContainText("piano ricalcolato adesso «NOM-DYN@-1»");
-  await expect(note).toContainText("3 righe al massimo (ratificato da Pico il 2026-08-31)");
+  await expect(note).toContainText("campione minimo 5 (inflazione) e 5 (fascia di prezzo)");
+  await expect(note).toContainText("riserva 1 cr per ogni slot non ancora pianificato");
+  await expect(note).toContainText("1 riga al massimo (ratificato da Pico il 2026-08-31)");
   await expect(note).not.toContainText("provvisorio");
-  await expect(note).toContainText("NON RATIFICATE");
+  // …e la LETTURA ne è uscita: niente ordine per esteso, niente contatori,
+  // niente elenco delle scelte non ratificate. Restano nel dato.
+  await expect(note).not.toContainText("ordine:");
+  await expect(note).not.toContainText("NON RATIFICATE");
 
   // NESSUN VERBO DI PREVISIONE O DI DESIDERIO nel testo reso: la guardia di
   // deriva vive in src/ui/perMeRow.test.ts, qui si verifica che ciò che arriva
@@ -109,26 +122,6 @@ test("con deposito e storico il pannello PARLA: tre righe, e ogni numero porta l
   const testo = (await page.locator("#per-me-block").textContent()) ?? "";
   expect(testo).not.toMatch(/valore|vale |conviene|affare|occasion|sconto|preved|probabil|stima/i);
 
-  expect(externalRequests).toEqual([]);
-});
-
-test("il marcatore «⚑ adesso» compare solo su una riga che il piano copre", async ({
-  page,
-  context,
-}) => {
-  const externalRequests: string[] = [];
-  await installSyntheticNetworkGuard(context, PER_ME_DEPOSIT_POOL, externalRequests);
-  await bootServed(page);
-
-  // Il marcatore è la congiunzione di due fatti già definiti — `withinPlan` e
-  // `isCliff` — e non una soglia nuova. Sul DOM la metà verificabile è che non
-  // possa comparire su una riga FUORI dal piano.
-  const marks = page.locator("#per-me-rows .per-me-row__now");
-  const count = await marks.count();
-  for (let i = 0; i < count; i++) {
-    const row = page.locator("#per-me-rows .per-me-row").filter({ has: marks.nth(i) });
-    await expect(row).toContainText("nel piano");
-  }
   expect(externalRequests).toEqual([]);
 });
 
@@ -177,10 +170,13 @@ test("la stessa catena da TASTIERA: la riga è un <button> vero", async ({ page,
   await installSyntheticNetworkGuard(context, PER_ME_DEPOSIT_POOL, externalRequests);
   await bootServed(page);
 
-  const second = page.locator("#per-me-rows .per-me-row").nth(1);
-  await second.focus();
-  await expect(second).toBeFocused();
-  const nome = (await second.locator(".per-me-row__name").textContent()) ?? "";
+  // La riga è UNA sola dal 2026-08-31, quindi la tastiera si prova su quella:
+  // era `.nth(1)` quando le righe erano tre. Ciò che il test dimostra non
+  // cambia — che la riga è un `<button>` vero e che Invio la attiva.
+  const row = page.locator("#per-me-rows .per-me-row").first();
+  await row.focus();
+  await expect(row).toBeFocused();
+  const nome = (await row.locator(".per-me-row__name").textContent()) ?? "";
   const soloNome = nome.slice(0, nome.indexOf(" (")).trim();
 
   await page.keyboard.press("Enter");
@@ -294,17 +290,23 @@ test("il sottoblocco PIENO ha un tetto di regressione, misurato a 390×844", asy
     .locator("#per-me-block")
     .evaluate((el) => el.getBoundingClientRect().height);
 
-  // ⚠️ QUESTO NUMERO È UNA MISURA, NON UNA SCELTA, ed è il costo vero dei fatti
-  // che il DTI ha portato sulla riga: `V` con la sua targa, il prezzo atteso
-  // coi tre qualificatori, il surplus, il costo per vincere adesso, i due
-  // conteggi di scarsità, l'appetibilità, l'ancora e l'allocazione del piano.
+  // ⚠️ QUESTO NUMERO È UNA MISURA, NON UNA SCELTA. Era 1002 px quando la riga
+  // portava i nove fatti del DTI; è 133,5 da quando ne porta tre — nome, ruolo
+  // e squadra — e il tetto delle righe è UNO (Pico, 2026-08-31).
   //
-  // IL MASTRO DEL BUDGET NON LO VEDE, e la lacuna è dichiarata invece che
-  // nascosta: la fixture di e2e/call-screen-budget.spec.ts non porta il
-  // deposito, quindi là il sottoblocco è MUTO (78px) e l'allocazione di
-  // `giocatore-suggerito` è misurata su quello stato — vedi
-  // PER_ME_POPOLATO_FUORI_DALLA_MISURA in src/ui/callScreenBudget.ts. Il tetto
-  // sta QUI perché è qui che la scena piena esiste.
+  // DOVE VANNO I 133,5 px, ed è il fatto che questa misura mette in luce: 92
+  // sono la NOTA e ~28 la riga. La targa della provenienza e i parametri
+  // dichiarati costano oggi più del triplo del consiglio che annotano. È voluto
+  // — senza di loro il consiglio sarebbe un oracolo — ma è un numero che
+  // qualcuno deve poter guardare, e per questo sta scritto qui e non solo in un
+  // totale.
+  //
+  // IL MASTRO DEL BUDGET NON VEDE ANCORA QUESTA SCENA, e la lacuna resta
+  // dichiarata invece che nascosta: la fixture di
+  // e2e/call-screen-budget.spec.ts non porta il deposito, quindi là il
+  // sottoblocco è MUTO (78px) e l'allocazione di `giocatore-suggerito` è
+  // misurata su quello stato — vedi PER_ME_POPOLATO_FUORI_DALLA_MISURA in
+  // src/ui/callScreenBudget.ts, dove il divario è sceso da 924 a 55,5 px.
   expect(
     Math.round(fullHeight),
     `il sottoblocco pieno costa ${Math.round(fullHeight)}px a 390×844 (78 da muto)`,

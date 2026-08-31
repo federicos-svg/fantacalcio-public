@@ -165,8 +165,20 @@ const RATIFICATION: RatificationStatus = {
 
 // ─── I parametri dichiarati ──────────────────────────────────────────────────
 
-/** Quante righe al massimo. RATIFICATO da Pico il 2026-08-31. */
-export const PER_ME_ROWS_MAX = 3;
+/**
+ * QUANTE RIGHE AL MASSIMO: UNA. Ratificato da Pico il 2026-08-31.
+ *
+ * Era 3, ratificato da Pico la mattina dello stesso giorno; la sua decisione
+ * successiva lo porta a 1 e supera quella: «Quello che voglio nelle due feature
+ * è un giocatore soltanto con Nome, ruolo e squadra. Non devo usarle per
+ * leggere ma come consiglio.»
+ *
+ * IL TETTO NON È UN'AMPUTAZIONE DEL MOTORE: la popolazione, i cancelli e
+ * l'ordine restano quelli di sempre e continuano a girare su tutti i liberi
+ * eleggibili. Cambia solo quante righe di quell'ordine la vista disegna — e
+ * con una sola, la scelta che l'ordine compie conta più di prima, non meno.
+ */
+export const PER_ME_ROWS_MAX = 1;
 
 /**
  * LO STATO DI `rowsMax`, NEL DATO E NON IN UN COMMENTO.

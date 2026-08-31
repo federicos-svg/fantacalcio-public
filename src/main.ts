@@ -1820,7 +1820,6 @@ function baitSectionProps(aState: AuctionState): BaitSectionProps {
       selfId: SELF_ID,
       logLength: state.log.length,
     }),
-    teamLabels: seatLabelMap(),
     selectedKey: selected === null ? null : listonePlayerKey(selected),
   };
 }

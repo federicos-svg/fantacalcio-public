@@ -193,8 +193,19 @@ export interface BaitParameters {
   readonly rowsMaxStatus: "ratificato da Pico il 2026-08-31";
 }
 
-/** Quante righe al massimo: 3, ratificato da Pico il 2026-08-31. */
-export const BAIT_ROWS_MAX = 3;
+/**
+ * QUANTE RIGHE AL MASSIMO: UNA. Ratificato da Pico il 2026-08-31.
+ *
+ * Era 3, ratificato da Pico la mattina dello stesso giorno; la sua decisione
+ * successiva lo porta a 1 e supera quella — un giocatore soltanto, per
+ * ciascuno dei due pannelli, «non per leggere ma come consiglio».
+ *
+ * L'ordine dichiarato (avversari esposti → indice di appetibilità → prezzo di
+ * apertura → chiave di listone) e i cancelli restano intatti: qui si tronca
+ * ciò che quell'ordine ha già deciso, e con una riga sola quella decisione
+ * pesa di più.
+ */
+export const BAIT_ROWS_MAX = 1;
 
 export const BAIT_PARAMETERS: BaitParameters = {
   openingPrice: COST_FLOOR,

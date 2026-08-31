@@ -5,24 +5,35 @@
 // stringa nasce da una funzione pura ed è coperta da test, così anche la COPIA
 // è falsificabile e non solo i numeri.
 //
+// ─────────────────────────────────────────────────────────────────────────────
+// LA RIGA È UN CONSIGLIO, NON UNA LETTURA — Pico, 2026-08-31
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// «Quello che voglio nelle due feature è un giocatore soltanto con Nome, ruolo
+// e squadra. Non devo usarle per leggere ma come consiglio.» La riga porta
+// quindi TRE COSE E NIENT'ALTRO. Sono spariti da qui il conteggio degli
+// avversari esposti, le righe di evidenza dei precedenti, la proiezione «se
+// resta a te» e il marcatore di prima fascia.
+//
+// I FATTI NON SONO SPARITI DAL PRODOTTO, SONO SPARITI DA QUI. Il pannello
+// AVVERSARI: I PRECEDENTI continua a mostrare i gesti misurati con la loro
+// prova, e la schermata di chiamata — quella che si arma cliccando la riga —
+// continua a mostrare che cosa costa. Sono a un clic di distanza.
+//
+// IL MOTORE NON È STATO TOCCATO: src/baitCandidates.ts calcola la stessa
+// popolazione, gli stessi cancelli, lo stesso ordine e gli stessi sei motivi
+// di silenzio. Con UNA riga sola (`rowsMax` 1, ratificato da Pico il
+// 2026-08-31) quella scelta conta più di prima.
+//
 // IL TITOLO NOMINA CIÒ CHE IL BLOCCO CONTIENE, NON UN'INTENZIONE. È la regola
 // con cui src/ui/liveFacts.ts ha corretto «INTERESSE SUL GIOCATORE» in «I
-// PRECEDENTI»: il titolo visibile deve dire cosa c'è dentro — gesti passati
-// misurati, uno slot, dei crediti — e non affermare uno stato d'animo che
-// nessun calcolo dietro di lui produce. Per questo NON si chiama «CHI ABBOCCA»:
-// nessuno qui sa se qualcuno abboccherà, e dirlo sarebbe una previsione di
-// comportamento, cioè la cosa che l'intero pacchetto avversari vieta.
+// PRECEDENTI»: per questo NON si chiama «CHI ABBOCCA» — nessuno qui sa se
+// qualcuno abboccherà, e dirlo sarebbe una previsione di comportamento, cioè
+// la cosa che l'intero pacchetto avversari vieta.
 //
-// LA PROVA VIAGGIA COL FATTO, e non viene riscritta: `precedentMotive()` e
-// `precedentEvidence()` sono quelle di src/ui/liveFacts.ts, importate. Il
-// pannello AVVERSARI: I PRECEDENTI e questa riga non possono quindi dire due
-// cose diverse dello stesso fatto.
-//
-// IL COSTO DEL PIANO B È CONTENUTO OBBLIGATO, non un di più: se nessuno
-// rilancia, l'esca la paghi tu, quindi la seconda riga mostra sempre cosa
-// succede se resta a te — e la producono `projectAfterPurchase()` e
-// `projectionValueText`/`projectionAlarmText` di src/postPurchaseProjection.ts,
-// già scritti, già testati, già in uso altrove. Qui non se ne riscrive nessuno.
+// LA NOTA RESTA, ASCIUGATA: la targa della provenienza e i tre parametri
+// dichiarati. È ciò che rende il consiglio ISPEZIONABILE e lo distingue da un
+// oracolo.
 //
 // IL GESTO È QUELLO DEL LISTONE, E LO È DAVVERO. La riga chiama
 // `selectListonePlayer()` — l'UNICA via che arma la CTA «Avvia» — con la
@@ -37,16 +48,10 @@
 import type {
   BaitCandidate,
   BaitEmptyReason,
-  BaitExposure,
   BaitParameters,
   BaitReading,
 } from "../baitCandidates.js";
-import {
-  projectionAlarmText,
-  projectionValueText,
-} from "../postPurchaseProjection.js";
-import type { PrecedentFact } from "../../packages/opponent-profiles/src/types.js";
-import { precedentEvidence, precedentMotive, seasonsSpan } from "./liveFacts.js";
+import { seasonsSpan } from "./liveFacts.js";
 import type { ListonePlayer } from "./listone.js";
 import { renderSchedaCardTitle } from "./schedaCard.js";
 
@@ -79,15 +84,6 @@ export const BAIT_TITLE = `${BAIT_TITLE_SHORT} — liberi su cui più avversari 
 export function baitTitleFor(reading: BaitReading): string {
   return reading.kind === "candidates" ? BAIT_TITLE : BAIT_TITLE_SHORT;
 }
-
-/**
- * Il marcatore della prima fascia. Il fatto SI ACCOSTA, NON PESA: il candidato
- * non viene rimosso (sarebbe il sistema a decidere al posto di Pico) e non
- * viene promosso (resta dove l'ordine lo mette). Compare accanto alla riga e
- * non la sposta di una posizione.
- */
-export const BAIT_TOP_TIER_MARKER =
-  "⚠ è anche fra i primi liberi del suo ruolo: se resta a te non è un ripiego";
 
 /** Il secondo canale della selezione, oltre al contorno: una parola. */
 export const BAIT_SELECTED_MARK = "✓ selezionato";
@@ -152,65 +148,35 @@ export function baitHeadText(candidate: BaitCandidate): string {
 }
 
 /**
- * Il CENSIMENTO, non una misura: quanti avversari, e di che cosa ne è fatta
- * l'esposizione. La frase intera è sempre la stessa e dice le tre condizioni
- * insieme, perché una sola delle tre non è esposizione.
- */
-export function baitCountText(exposedCount: number): string {
-  const who = exposedCount === 1 ? "1 avversario" : `${exposedCount} avversari`;
-  return `${who} con un precedente, lo slot e i crediti`;
-}
-
-/**
- * «Se resta a te»: il costo del piano B, mostrato INSIEME alla mossa.
- * I numeri sono di `projectAfterPurchase()`; gli slot del reparto sono
- * l'unica sottrazione locale, ed è quella che DEFINISCE l'acquisto (uno slot
- * esce dagli slot), la stessa che `reduce()` esegue quando diventa evento.
- */
-export function baitProjectionText(candidate: BaitCandidate): string {
-  const head =
-    `se resta a te a ${candidate.openingPrice} cr: ` +
-    `slot ${candidate.role} ${candidate.roleSlotsBefore}→${candidate.roleSlotsBefore - 1}`;
-  const alarm = projectionAlarmText(candidate.projection);
-  const value = `${head} · ${projectionValueText(candidate.projection)}`;
-  return alarm === "" ? value : `${value} · ${alarm}`;
-}
-
-/** Una riga di prova per ogni fatto: chi, che gesto, con quali numeri. */
-export function baitEvidenceLines(
-  exposure: BaitExposure,
-  teamLabel: string,
-): readonly string[] {
-  return exposure.facts.map(
-    (fact: PrecedentFact) => `${teamLabel} ${precedentMotive(fact)} — ${precedentEvidence(fact)}`,
-  );
-}
-
-/**
- * La nota del blocco: la PROVENIENZA e i TRE PARAMETRI in vigore, accanto ai
- * numeri che governano — stesso modello di `PrecedentsReading.thresholds`. Il
- * parametro non confermato dichiara di esserlo.
+ * LA NOTA, ASCIUGATA AL MINIMO CHE TIENE IN PIEDI L'ISPEZIONE — decisione di
+ * Pico del 2026-08-31, la stessa che ha ridotto la riga a nome, ruolo e
+ * squadra.
+ *
+ * DUE COSE, E DUE SOLE. La TARGA DELLA PROVENIENZA — «storico d'asta
+ * misurato», con l'arco di stagioni su cui poggia — e i TRE PARAMETRI in
+ * vigore, ciascuno accanto al numero che governa: il prezzo di apertura che
+ * apre il cancello, la soglia di stagioni sotto cui un fatto non conta, e il
+ * tetto delle righe col suo stato di ratifica. Sono le soglie che hanno
+ * lasciato passare QUESTA riga e non un'altra: con una riga sola sono l'unica
+ * cosa che permette di non fidarsi a scatola chiusa.
+ *
+ * CHE COSA NE È USCITO: il contatore delle righe senza indice di appetibilità.
+ * Era lettura, e questo pannello ha smesso di essere una lettura. Resta
+ * ispezionabile nel dato (`BaitReading.withoutAppealIndex`) e pinnato dai test
+ * di src/baitCandidates.test.ts, che questo diff non tocca.
  */
 export function baitNoteText(
   parameters: BaitParameters,
   seasons: readonly string[],
-  withoutAppealIndex: number,
 ): string {
-  const parts = [
+  return [
     `provenienza: storico d'asta misurato, ${seasonsSpan(seasons)}`,
     `apertura a ${parameters.openingPrice} cr`,
     `almeno ${parameters.minSeasonsMeasured} ${
       parameters.minSeasonsMeasured === 1 ? "stagione misurata" : "stagioni misurate"
     } per fatto`,
     `al massimo ${parameters.rowsMax} ${parameters.rowsMax === 1 ? "riga" : "righe"} (${parameters.rowsMaxStatus})`,
-  ];
-  if (withoutAppealIndex > 0) {
-    parts.push(
-      `${withoutAppealIndex} ${withoutAppealIndex === 1 ? "riga" : "righe"} senza indice di appetibilità: ` +
-        "a parità di avversari restano in fondo, senza numero fabbricato",
-    );
-  }
-  return parts.join(" · ");
+  ].join(" · ");
 }
 
 /** Le righe davvero mostrate: l'ordine è già quello dichiarato, qui si tronca. */
@@ -223,33 +189,26 @@ export function baitShownCandidates(reading: BaitReading): readonly BaitCandidat
 /**
  * TUTTO il testo del sottoblocco, in una stringa. Esiste per essere passato
  * alla guardia di deriva: una regex su questa stringa copre titolo, motivi,
- * conteggi, proiezioni, prove, marcatori e nota insieme, invece di sette
- * asserzioni che si dimenticano l'ottava.
+ * teste e nota insieme, invece di quattro asserzioni che si dimenticano la
+ * quinta. Riproduce SOLO ciò che il sottoblocco RENDE davvero — una guardia
+ * che leggesse testo non renderizzato sorveglierebbe un'altra pagina.
+ *
+ * È PIÙ CORTO DI IERI PERCHÉ LA PAGINA LO È, non perché la guardia guardi
+ * meno.
  */
-export function baitSectionText(
-  reading: BaitReading,
-  teamLabels: Readonly<Record<string, string>>,
-): string {
+export function baitSectionText(reading: BaitReading): string {
   const out: string[] = [baitTitleFor(reading)];
   if (reading.kind === "empty") {
     out.push(baitEmptyText(reading.reason));
-    // Solo ciò che la vista mostra DAVVERO: una guardia di deriva che leggesse
-    // testo non renderizzato sorveglierebbe un'altra pagina.
     if (baitNoteApplies(reading)) {
-      out.push(baitNoteText(reading.parameters, reading.seasons, 0));
+      out.push(baitNoteText(reading.parameters, reading.seasons));
     }
     return out.join("\n");
   }
   for (const candidate of baitShownCandidates(reading)) {
     out.push(baitHeadText(candidate));
-    out.push(baitCountText(candidate.exposedCount));
-    out.push(baitProjectionText(candidate));
-    if (candidate.alsoTopTier) out.push(BAIT_TOP_TIER_MARKER);
-    for (const exposure of candidate.exposed) {
-      out.push(...baitEvidenceLines(exposure, teamLabels[exposure.fantaTeamId] ?? exposure.fantaTeamId));
-    }
   }
-  out.push(baitNoteText(reading.parameters, reading.seasons, reading.withoutAppealIndex));
+  out.push(baitNoteText(reading.parameters, reading.seasons));
   return out.join("\n");
 }
 
@@ -257,8 +216,6 @@ export function baitSectionText(
 
 export interface BaitSectionProps {
   readonly reading: BaitReading;
-  /** posto → nome mostrato. La riga scrive il POSTO, mai la persona. */
-  readonly teamLabels: Readonly<Record<string, string>>;
   /** `listonePlayerKey` del giocatore attualmente selezionato, o `null`. */
   readonly selectedKey: string | null;
 }
@@ -285,7 +242,7 @@ export function renderBaitSection(
   props: BaitSectionProps,
   onSelect: (player: ListonePlayer) => void,
 ): HTMLElement {
-  const { reading, teamLabels, selectedKey } = props;
+  const { reading, selectedKey } = props;
   const section = document.createElement("section");
   section.id = "bait-block";
   section.className = "bait";
@@ -315,22 +272,12 @@ export function renderBaitSection(
       row.setAttribute("aria-pressed", selected ? "true" : "false");
       row.title = "Clic per selezionare questo giocatore nella ricerca";
 
+      // LA RIGA È TRE COSE: nome, ruolo, squadra. Il resto è a un clic —
+      // «Non devo usarle per leggere ma come consiglio» (Pico, 2026-08-31).
       const head = document.createElement("span");
       head.className = "bait-row__head";
       head.appendChild(line("bait-row__name", baitHeadText(candidate)));
-      head.appendChild(line("bait-row__count", baitCountText(candidate.exposedCount)));
       row.appendChild(head);
-
-      row.appendChild(line("bait-row__projection", baitProjectionText(candidate)));
-      if (candidate.alsoTopTier) {
-        row.appendChild(line("bait-row__mark", BAIT_TOP_TIER_MARKER));
-      }
-      for (const exposure of candidate.exposed) {
-        const label = teamLabels[exposure.fantaTeamId] ?? exposure.fantaTeamId;
-        for (const text of baitEvidenceLines(exposure, label)) {
-          row.appendChild(line("bait-row__evidence", text));
-        }
-      }
       if (selected) row.appendChild(line("bait-row__selected", BAIT_SELECTED_MARK));
 
       row.addEventListener("click", () => onSelect(candidate.player));
@@ -343,11 +290,7 @@ export function renderBaitSection(
     const note = document.createElement("p");
     note.id = "bait-note";
     note.className = "bait__note";
-    note.textContent = baitNoteText(
-      reading.parameters,
-      reading.seasons,
-      reading.kind === "candidates" ? reading.withoutAppealIndex : 0,
-    );
+    note.textContent = baitNoteText(reading.parameters, reading.seasons);
     section.appendChild(note);
   }
 

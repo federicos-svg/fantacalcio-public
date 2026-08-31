@@ -86,9 +86,10 @@
   border-radius: 7px;
   padding: 7px 10px;
   cursor: pointer;
-  /* Interlinea DICHIARATA e non ereditata: con quella del corpo pagina le
-     quattro righe di un candidato costavano 175px a 390px, e tre candidati
-     mezza schermata. Misurato, non stimato. */
+  /* Interlinea DICHIARATA e non ereditata: nasce da quando un candidato
+     occupava quattro righe di testo (175px a 390px). Dal 2026-08-31 la riga è
+     una sola — nome, ruolo, squadra — e resta dichiarata perché l'interlinea
+     del corpo pagina qui non c'entra: è la riga a decidere la propria. */
   line-height: 1.35;
 }
 
@@ -120,53 +121,6 @@
   font-size: 13.5px;
   font-weight: 700;
   color: var(--text-primary);
-}
-
-/* IL MARCATORE DEL MOMENTO sta nella testa, accanto al nome: la testa è un
-   flex CHE AVVOLGE, quindi a 390px va a capo da solo e non costa una riga
-   fissa per candidato. Porta il colore d'accento perché è l'unico segnale di
-   questa riga che non sia un numero — ma NON è un badge dipinto: è testo, e
-   chi non distingue i colori legge comunque «⚑ adesso». */
-.per-me-row__now {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-accent);
-}
-
-/* `V` con la sua targa e la sottrazione che ne discende: il criterio 2, tutto
-   su una riga logica. Colore del testo medio e non d'accento: è un fatto
-   ordinatore, non un badge. */
-.per-me-row__value {
-  font-size: 12.5px;
-  color: var(--text-mid);
-}
-
-/* IL PREZZO ATTESO E IL COSTO PER VINCERE ADESSO sono due fatti diversi e
-   stanno in due span dentro lo stesso flex che avvolge: accanto, mai fusi —
-   una media fra i due sarebbe un peso scelto dal sistema. */
-.per-me-row__price,
-.per-me-row__scarcity {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px 10px;
-}
-
-.per-me-row__forecast,
-.per-me-row__winnow,
-.per-me-row__alternatives,
-.per-me-row__appeal {
-  font-size: 12px;
-  color: var(--text-mid);
-}
-
-.per-me-row__anchor {
-  font-size: 12px;
-  color: var(--text-sec);
-}
-
-.per-me-row__plan {
-  font-size: 12px;
-  color: var(--text-sec);
 }
 
 .per-me-row__selected {

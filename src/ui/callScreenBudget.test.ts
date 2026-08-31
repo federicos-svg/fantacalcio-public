@@ -258,7 +258,10 @@ describe("le scelte che restano tali", () => {
       "BARRA_FISSA_FUORI_DAL_TOTALE",
       // Il sottoblocco PER ME dal 2026-08-31: questo mastro lo misura MUTO
       // (78 px) perché la fixture non porta il deposito, mentre pieno ne
-      // misura 1002. La differenza è dichiarata qui, non condonata.
+      // misura 133,5 — erano 1002 finché la riga portava i nove fatti del DTI,
+      // e la riduzione a «un giocatore soltanto» (Pico) ha portato il divario
+      // da 924 a 55,5 px. La voce NON si chiude: la scena piena resta fuori
+      // dalla misura, e la differenza è dichiarata qui, non condonata.
       "PER_ME_POPOLATO_FUORI_DALLA_MISURA",
       // Era PROVA_1_MARGINE_ESAURITO fino al 2026-08-29, e diceva il contrario:
       // il margine è risalito da 2 a 115 px, ma per un trasloco e non per una

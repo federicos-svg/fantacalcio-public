@@ -734,8 +734,13 @@ describe("i parametri e la ratifica viaggiano nel dato", () => {
     expect(reading.parameters.rowsMax).toBe(PER_ME_ROWS_MAX);
     expect(reading.parameters.rowsMaxStatus).toBe("ratificato da Pico il 2026-08-31");
     expect(reading.parameters.rowsMaxStatus).not.toContain("provvisorio");
-    expect(perMeShownCandidates(reading)).toHaveLength(3);
-    expect(candidatesOf(reading).length).toBeGreaterThan(3);
+    // UNO, dal 2026-08-31: «un giocatore soltanto», decisione di Pico che
+    // supera la ratifica a 3 della mattina dello stesso giorno. Il troncamento
+    // è VERO — l'ordine continua a girare su tutta la popolazione, e la riga
+    // che resta è la prima di quell'ordine, non l'unica calcolata.
+    expect(perMeShownCandidates(reading)).toHaveLength(1);
+    expect(candidatesOf(reading).length).toBeGreaterThan(1);
+    expect(perMeShownCandidates(reading)[0]).toBe(candidatesOf(reading)[0]);
   });
 
   it("i due sottoblocchi del riquadro dicono lo stato del tetto NELLO STESSO MODO", () => {

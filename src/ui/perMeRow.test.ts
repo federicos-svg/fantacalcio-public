@@ -4,17 +4,25 @@
 // COPIA vive in funzioni pure e il gesto vero — clic, tastiera, tocco — è
 // provato da e2e/per-me-row.spec.ts.
 //
+// LA RIGA È DIVENTATA TRE COSE, e questi test lo dicono alla lettera. «Quello
+// che voglio nelle due feature è un giocatore soltanto con Nome, ruolo e
+// squadra. Non devo usarle per leggere ma come consiglio» (Pico, 2026-08-31).
+// Le asserzioni su `V`, prezzo atteso, surplus, costo per vincerlo adesso,
+// scarsità, appetibilità, ancora, piano e «⚑ adesso» non sono state cancellate
+// per far passare il codice nuovo: le funzioni che producevano quelle stringhe
+// NON ESISTONO PIÙ, perché nessuna superficie le disegna. Al loro posto c'è la
+// pretesa opposta, e più forte — che nessuno di quei fatti torni sulla riga
+// senza che questo test diventi rosso.
+//
+// IL MOTORE NON È TOCCATO: l'ordine, i cancelli e i motivi restano coperti da
+// src/perMeCandidates.test.ts e dai test di packages/engine, che questo diff
+// non sfiora.
+//
 // LA GUARDIA DI DERIVA. Modello: src/ui/baitRow.test.ts §E14 e
 // src/ui/warBoard.test.ts §D9. Una regex su TUTTO il testo del sottoblocco, in
 // ogni suo esito, che deve dare ZERO riscontri: nessuna parola che affermi una
-// convenienza, un'occasione o una previsione.
-//
-// LA GUARDIA SI È STRETTA, E NON PER GUSTO. Fino a ieri lasciava passare la
-// forma «valore dichiarato» — l'unico modo in cui il blocco poteva nominare un
-// valore — attraverso una maschera. Quella maschera NON C'È PIÙ: `V` si scrive
-// con la sua sigla e la sua targa («V 42 cr (generatore GEN-RECIPE@1.0.0)»),
-// quindi la parola «valore» non compare in nessun esito e la regex può cercarla
-// senza eccezioni. Una maschera in meno è un buco in meno.
+// convenienza, un'occasione o una previsione. Nessuna maschera e nessuna
+// eccezione — una maschera in meno è un buco in meno.
 //
 // Fixture sintetiche: nomi «Sintetico …», club «ClubAlfa».
 
@@ -28,23 +36,14 @@ import {
 } from "../perMeCandidates.js";
 import { BAIT_SELECTED_MARK } from "./baitRow.js";
 import {
-  PER_ME_NOW_MARK,
   PER_ME_SELECTED_MARK,
   PER_ME_TITLE,
   PER_ME_TITLE_SHORT,
-  perMeAnchorText,
-  perMeAppealText,
   perMeEmptyText,
   perMeHeadText,
   perMeNoteApplies,
   perMeNoteText,
-  perMePlanText,
-  perMePriceText,
-  perMeScarcityText,
   perMeSectionText,
-  perMeValueProvenance,
-  perMeValueText,
-  perMeWinNowText,
 } from "./perMeRow.js";
 import { perMeTitleFor } from "./perMeRow.js";
 import type { ListonePlayer } from "./listone.js";
@@ -276,219 +275,92 @@ describe("i sette silenzi hanno sette frasi diverse", () => {
   });
 });
 
-describe("le righe dicono i fatti con la loro provenienza", () => {
-  it("la testa dice chi è", () => {
+describe("la riga è UN giocatore: nome, ruolo, squadra — e nient'altro", () => {
+  it("la testa dice chi è, in una riga sola", () => {
     expect(perMeHeadText(candidate())).toBe("Sintetico Alfa (A · ClubAlfa)");
   });
 
-  it("V porta la TARGA della ricetta, letta dal dato e non cablata qui", () => {
-    expect(perMeValueProvenance(candidate())).toBe(`generatore ${RECIPE}`);
-    expect(perMeValueText(candidate())).toContain(`V 42 cr (generatore ${RECIPE})`);
-  });
-
-  it("l'override di Pico ha la sua targa, e non quella del generatore", () => {
-    const c = candidate({ valueSource: "dichiarato", valueRecipe: null });
-    expect(perMeValueProvenance(c)).toBe("dichiarato da te");
-    expect(perMeValueText(c)).toContain("V 42 cr (dichiarato da te)");
-  });
-
-  it("una previsione senza targa lo DICE, invece di riceverne una inventata", () => {
-    expect(perMeValueProvenance(candidate({ valueRecipe: null }))).toBe(
-      "generatore, ricetta non dichiarata",
+  it("il tetto ratificato è UNO: la vista mostra un giocatore soltanto", () => {
+    // Non è una scelta di questo file: `PER_ME_ROWS_MAX` è il parametro che
+    // Pico ha ratificato il 2026-08-31, e la vista tronca su quello.
+    expect(PER_ME_PARAMETERS.rowsMax).toBe(1);
+    const text = perMeSectionText(
+      withCandidates([candidate(), candidate({ playerId: "b" }), candidate({ playerId: "c" })]),
+    );
+    expect(text.split("\n").filter((l) => l.includes("Sintetico Alfa (A · ClubAlfa)"))).toHaveLength(
+      1,
     );
   });
 
-  it("il surplus è la sottrazione, coi due addendi accanto: si rifà a mano", () => {
-    expect(perMeValueText(candidate())).toBe(
-      `V 42 cr (generatore ${RECIPE}) · S +4 cr (42 − 38)`,
-    );
+  it("SULLA RIGA NON C'È NESSUN NUMERO DEL MOTORE, e questo è il punto", () => {
+    // La lista è scritta per esteso perché sia falsificabile una voce alla
+    // volta: se una qualunque di queste cose tornasse sulla riga, questa
+    // asserzione lo direbbe col suo nome invece di lasciarla passare.
+    //
+    // I fatti non sono spariti dal prodotto: sono a UN CLIC, sulla schermata
+    // di chiamata che la riga arma. Il motore che li calcola è intatto, e i
+    // suoi test lo dimostrano da soli.
+    const riga = perMeSectionText(withCandidates([candidate()]))
+      .split("\n")
+      .find((l) => l.startsWith("Sintetico Alfa"));
+    expect(riga).toBe("Sintetico Alfa (A · ClubAlfa)");
+    expect(riga).not.toMatch(/\bV \d/); // il valore in crediti con la sua targa
+    expect(riga).not.toContain("generatore"); // la targa della ricetta
+    expect(riga).not.toMatch(/\bS [+−]/); // il surplus
+    expect(riga).not.toContain("atteso"); // il prezzo atteso e i suoi qualificatori
+    expect(riga).not.toContain("aste simili");
+    expect(riga).not.toContain("tende a sbagliare");
+    expect(riga).not.toContain("vincerlo adesso"); // il costo per vincerlo ora
+    expect(riga).not.toContain("alternativ"); // i due fatti di scarsità
+    expect(riga).not.toContain("rival");
+    expect(riga).not.toContain("appetibilità"); // la posizione di appetibilità
+    expect(riga).not.toContain("ancora"); // la scomposizione dell'ancora
+    expect(riga).not.toContain("Qt.A");
+    expect(riga).not.toContain("piano"); // l'allocazione del piano
+    expect(riga).not.toContain("max bid"); // il tetto hard-safe
+    expect(riga).not.toContain("slot");
+    expect(riga).not.toContain("⚑"); // il marcatore del momento
   });
 
-  it("un surplus NEGATIVO si mostra col suo segno, e la riga resta per dirlo", () => {
-    const price = candidate().expectedPrice;
-    if (price.kind !== "prezzo") throw new Error("la fixture porta un prezzo");
-    const c = candidate({ surplus: -8, expectedPrice: { ...price, credits: 50 } });
-    expect(perMeValueText(c)).toContain("S −8 cr (42 − 50)");
+  it("i fatti del motore restano NEL DATO, e nessuno di essi è stato tolto", () => {
+    // La riga non li disegna più; il candidato li porta ancora tutti. È la
+    // differenza fra «la vista mostra meno» e «il motore calcola meno», ed è
+    // esattamente la prima delle due.
+    const c = candidate();
+    expect(c.value).toBe(42);
+    expect(c.surplus).toBe(4);
+    expect(c.expectedPrice.kind).toBe("prezzo");
+    expect(c.relativePrice.kind).toBe("prezzo");
+    expect(c.cliff.alternativesAtOrBelow).toBe(3);
+    expect(c.rivalsWithSlot).toBe(5);
+    expect(c.maxBid).toBe(473);
+    expect(c.planAllocation).toBe(210);
+    expect(c.appealPosition).toBe(1);
+    expect(c.flagNow).toBe(true);
   });
 
-  it("senza prezzo atteso non c'è surplus, e non c'è uno zero al posto suo", () => {
-    const c = candidate({
-      surplus: null,
-      expectedPrice: { kind: "assente", reason: "fascia-senza-osservazioni" },
-    });
-    const t = perMeValueText(c);
-    expect(t).toBe(`V 42 cr (generatore ${RECIPE})`);
-    expect(t).not.toContain("S ");
-  });
-
-  it("il prezzo atteso è uno SCALARE coi suoi tre qualificatori, mai una banda", () => {
-    expect(perMePriceText(candidate())).toBe(
-      "atteso 38 cr · su 24 aste simili · tipicamente −4/+9 · tende a sbagliare basso",
-    );
-    // «da X a Y» è la forma vietata: non compare.
-    expect(perMePriceText(candidate())).not.toMatch(/\bda \d+ a \d+/);
-  });
-
-  it("il bias si dice a parole chiuse, non si deduce dal segno", () => {
-    const con = (d: "basso" | "alto" | "nessuno"): string => {
-      const price = candidate().expectedPrice;
-      if (price.kind !== "prezzo") throw new Error("la fixture porta un prezzo");
-      return perMePriceText(
-        candidate({
-          expectedPrice: {
-            ...price,
-            uncertainty: { ...price.uncertainty, biasDirection: d },
-          },
-        }),
-      );
-    };
-    expect(con("alto")).toContain("tende a sbagliare alto");
-    expect(con("nessuno")).toContain("non tende a sbagliare da un lato");
-  });
-
-  it("quando il prezzo atteso non c'è, c'è il MOTIVO e non un numero", () => {
-    for (const reason of [
-      "curva-assente",
-      "previsione-assente",
-      "rango-ignoto",
-      "fascia-senza-osservazioni",
-      "fascia-sotto-campione",
-    ] as const) {
-      const t = perMePriceText(candidate({ expectedPrice: { kind: "assente", reason } }));
-      expect(t).toContain("prezzo atteso non formabile");
-      expect(t).not.toMatch(/\d+ cr/);
+  it("il marcatore «⚑ adesso» non esiste più a schermo, in nessuno dei due casi", () => {
+    for (const flagNow of [true, false]) {
+      expect(perMeSectionText(withCandidates([candidate({ flagNow })]))).not.toContain("⚑");
     }
-    // Le cinque frasi sono cinque, non una sola ripetuta.
-    const frasi = new Set(
-      (
-        [
-          "curva-assente",
-          "previsione-assente",
-          "rango-ignoto",
-          "fascia-senza-osservazioni",
-          "fascia-sotto-campione",
-        ] as const
-      ).map((reason) => perMePriceText(candidate({ expectedPrice: { kind: "assente", reason } }))),
-    );
-    expect(frasi.size).toBe(5);
-  });
-
-  it("il costo per vincerlo adesso porta il vincolo che l'ha fissato", () => {
-    expect(perMeWinNowText(candidate())).toBe("vincerlo adesso 62 cr (scala dei rivali)");
-  });
-
-  it("senza secondo max bid non c'è un numero di ripiego: non c'è niente", () => {
-    expect(
-      perMeWinNowText(
-        candidate({ relativePrice: { kind: "assente", reason: "un-solo-rivale-eleggibile" } }),
-      ),
-    ).toBeNull();
-  });
-
-  it("i due fatti di scarsità sono due CONTEGGI, e concordano al singolare", () => {
-    expect(perMeScarcityText(candidate())).toBe(
-      "3 alternative a scendere nel ruolo · 5 rivali eleggibili con slot",
-    );
-    const solo = candidate({
-      cliff: { ...candidate().cliff, alternativesAtOrBelow: 1 },
-      rivalsWithSlot: 1,
-    });
-    expect(perMeScarcityText(solo)).toBe(
-      "1 alternativa a scendere nel ruolo · 1 rivale eleggibile con slot",
-    );
-  });
-
-  it("la posizione di appetibilità resta un fatto mostrato, con la sua numerosità", () => {
-    expect(perMeAppealText(candidate())).toBe("1ª di 47 per appetibilità");
-  });
-
-  it("senza verdetto lo dice, e non inventa un numero", () => {
-    const text = perMeAppealText(candidate({ appealPosition: null, appealOrderSize: null }));
-    expect(text).toBe("senza verdetto di appetibilità");
-    expect(text).not.toMatch(/\d/);
-  });
-
-  it("l'ancora porta la Qt.A nuda, l'inflazione applicata e il campione", () => {
-    expect(perMeAnchorText(candidate())).toBe(
-      "ancora 24 cr (Qt.A 20 · inflazione misurata +20% su 9 acquisti del ruolo)",
-    );
-  });
-
-  it("distingue il campione DEL RUOLO da quello del tavolo", () => {
-    expect(
-      perMeAnchorText(
-        candidate({ anchor: { ...candidate().anchor, basis: "overall-inflation", n: 12 } }),
-      ),
-    ).toContain("su 12 acquisti del tavolo");
-  });
-
-  it("in cold start non c'è un numero al posto della misura che manca", () => {
-    const text = perMeAnchorText(
-      candidate({
-        anchor: {
-          ...candidate().anchor,
-          basis: "none",
-          inflationApplied: null,
-          n: 0,
-          coldStart: true,
-          correctedAnchor: 20,
-        },
-      }),
-    );
-    expect(text).toBe("ancora 20 cr (Qt.A 20 · nessuna inflazione misurata)");
-    expect(text).not.toContain("%");
-  });
-
-  it("il piano dice dentro/fuori, l'allocazione, gli slot, CHI l'ha deciso e il max bid", () => {
-    expect(perMePlanText(candidate(), "piano ricalcolato adesso")).toBe(
-      "nel piano A (210 cr / 7 slot · piano ricalcolato adesso) · max bid 473 cr",
-    );
-    expect(perMePlanText(candidate({ withinPlan: false }), "piano dichiarato da te")).toContain(
-      "fuori dal piano A",
-    );
-    expect(perMePlanText(candidate(), "piano dichiarato da te")).toContain(
-      "piano dichiarato da te",
-    );
-  });
-
-  it("il nome del tetto è quello dichiarato una volta sola, non una formulazione propria", () => {
-    expect(perMePlanText(candidate(), "piano ricalcolato adesso")).toContain("max bid");
-    expect(perMePlanText(candidate(), "piano ricalcolato adesso")).not.toContain("max reparto");
-  });
-
-  it("«⚑ adesso» compare solo dove i due fatti valgono insieme", () => {
-    const text = perMeSectionText(withCandidates([candidate({ flagNow: true })]));
-    expect(text).toContain(PER_ME_NOW_MARK);
-    expect(perMeSectionText(withCandidates([candidate({ flagNow: false })]))).not.toContain(
-      PER_ME_NOW_MARK,
-    );
   });
 });
 
-describe("la nota stampa l'ordine, i parametri e le letture non ratificate", () => {
-  const note = (): string => perMeNoteText(PER_ME_PARAMETERS, DYNAMIC_PLAN, 0, 0, 0);
+describe("la nota resta la targa della provenienza e i parametri, e basta", () => {
+  const note = (): string => perMeNoteText(PER_ME_PARAMETERS, DYNAMIC_PLAN);
 
-  it("l'ordine è scritto per esteso, criterio per criterio", () => {
-    expect(note()).toContain(
-      "ordine: piano → surplus → alternative a scendere → V → chiave di listone",
-    );
-  });
-
-  it("la posizione di appetibilità non compare più nell'ordine stampato", () => {
-    expect(note()).not.toContain("appetibilità del ruolo");
-  });
-
-  it("le due letture non ratificate sono dichiarate a schermo", () => {
-    expect(note()).toContain("NON RATIFICATE");
-    expect(note()).toContain("la scala delle Qt.A");
-    expect(note()).toContain("il piano dichiarato provato sul prezzo atteso");
+  it("la PROVENIENZA c'è: da dove vengono i numeri che hanno scelto la riga", () => {
+    expect(note()).toContain("V dal generatore e prezzo atteso dalla curva storica");
   });
 
   it("i parametri sono ispezionabili accanto al numero che governano", () => {
     expect(note()).toContain("campione minimo 5 (inflazione) e 5 (fascia di prezzo)");
     expect(note()).toContain("riserva 1 cr per ogni slot non ancora pianificato");
-    expect(note()).toContain("3 righe al massimo (ratificato da Pico il 2026-08-31)");
+    expect(note()).toContain("1 riga al massimo (ratificato da Pico il 2026-08-31)");
     expect(note()).not.toContain("provvisorio");
+    // Il singolare non è un vezzo: «1 righe al massimo» sarebbe la spia che il
+    // tetto è cambiato e la frase no.
+    expect(note()).not.toContain("1 righe");
   });
 
   it("l'etichetta e la versione del piano viaggiano con la nota", () => {
@@ -499,43 +371,45 @@ describe("la nota stampa l'ordine, i parametri e le letture non ratificate", () 
       label: "piano dichiarato da te",
       live: {} as never,
     };
-    expect(perMeNoteText(PER_ME_PARAMETERS, dichiarato, 0, 0, 0)).toContain(
+    expect(perMeNoteText(PER_ME_PARAMETERS, dichiarato)).toContain(
       "piano dichiarato da te «pre-asta 1»",
     );
-    expect(perMeNoteText(PER_ME_PARAMETERS, null, 0, 0, 0)).not.toContain("«");
+    expect(perMeNoteText(PER_ME_PARAMETERS, null)).not.toContain("«");
   });
 
   it("una dichiarazione di piano rotta si dice, e si dice che comanda il dinamico", () => {
+    // RESTA, ed è ancora provenienza: l'etichetta dice «piano ricalcolato
+    // adesso» PROPRIO PERCHÉ la dichiarazione di Pico non ha retto, e tacerlo
+    // farebbe sembrare dichiarato un piano che non lo è.
     const monco: PerMePlanReading = { ...DYNAMIC_PLAN, declaredIssue: "plan-incomplete" };
     const rifiutato: PerMePlanReading = { ...DYNAMIC_PLAN, declaredIssue: "plan-invalid" };
-    expect(perMeNoteText(PER_ME_PARAMETERS, monco, 0, 0, 0)).toContain("è a metà");
-    expect(perMeNoteText(PER_ME_PARAMETERS, rifiutato, 0, 0, 0)).toContain("rifiutata dal motore");
+    expect(perMeNoteText(PER_ME_PARAMETERS, monco)).toContain("è a metà");
+    expect(perMeNoteText(PER_ME_PARAMETERS, rifiutato)).toContain("rifiutata dal motore");
     for (const plan of [monco, rifiutato]) {
-      expect(perMeNoteText(PER_ME_PARAMETERS, plan, 0, 0, 0)).toContain(
-        "comanda il piano ricalcolato",
-      );
+      expect(perMeNoteText(PER_ME_PARAMETERS, plan)).toContain("comanda il piano ricalcolato");
     }
     expect(note()).not.toContain("comanda il piano ricalcolato");
   });
 
-  it("i TRE contatori sono tre, e non uno solo che li appiattisce", () => {
-    expect(perMeNoteText(PER_ME_PARAMETERS, DYNAMIC_PLAN, 4, 0, 0)).toContain(
-      "4 liberi senza V, fuori dalla popolazione",
-    );
-    expect(perMeNoteText(PER_ME_PARAMETERS, DYNAMIC_PLAN, 1, 0, 0)).toContain("1 libero senza V");
-    expect(perMeNoteText(PER_ME_PARAMETERS, DYNAMIC_PLAN, 0, 2, 0)).toContain(
-      "2 righe senza prezzo atteso, in fondo senza surplus fabbricato",
-    );
-    expect(perMeNoteText(PER_ME_PARAMETERS, DYNAMIC_PLAN, 0, 1, 0)).toContain(
-      "1 riga senza prezzo atteso",
-    );
-    expect(perMeNoteText(PER_ME_PARAMETERS, DYNAMIC_PLAN, 0, 0, 3)).toContain(
-      "3 righe senza verdetto di appetibilità, in fondo senza posizione fabbricata",
-    );
-    // Ognuno compare SOLO quando ha qualcosa da contare.
-    expect(note()).not.toContain("senza V");
-    expect(note()).not.toContain("senza prezzo atteso");
-    expect(note()).not.toContain("senza verdetto");
+  it("LA LETTURA È USCITA DALLA NOTA: niente ordine per esteso, niente contatori", () => {
+    // Quello che non c'è più è scritto una voce alla volta, perché il giorno
+    // in cui qualcuno lo rimettesse questo test lo dicesse col suo nome.
+    const n = note();
+    expect(n).not.toContain("ordine:");
+    expect(n).not.toContain("chiave di listone");
+    expect(n).not.toContain("NON RATIFICATE");
+    expect(n).not.toContain("senza V");
+    expect(n).not.toContain("senza prezzo atteso");
+    expect(n).not.toContain("senza verdetto di appetibilità");
+  });
+
+  it("…ma quelle letture aperte restano NEL DATO, non sono state chiuse da nessuno", () => {
+    // Sparire dalla nota non è essere ratificate: la lettura le porta ancora,
+    // e il vocabolario del motore le nomina. Questa è la prova che la
+    // semplificazione della vista non ha promosso niente di nascosto.
+    const reading = withCandidates([candidate()]);
+    expect(reading.ratification.ratified).toBe(false);
+    expect(reading.ratification.unratifiedChoices.length).toBeGreaterThan(0);
   });
 });
 
@@ -552,8 +426,8 @@ describe("guardia di deriva — il vocabolario che questo blocco non può usare"
     expect("è un'occasione").toMatch(DRIFT);
     // …e non morde sulle parole che il blocco USA davvero: se lo facesse,
     // il test qui sotto sarebbe verde per la ragione sbagliata.
-    expect("V 42 cr (generatore GEN-RECIPE@1.0.0)").not.toMatch(DRIFT);
-    expect("atteso 38 cr · su 24 aste simili · tende a sbagliare basso").not.toMatch(DRIFT);
+    expect("Sintetico Alfa (A · ClubAlfa)").not.toMatch(DRIFT);
+    expect("V dal generatore e prezzo atteso dalla curva storica").not.toMatch(DRIFT);
   });
 
   it("nessun esito del sottoblocco contiene una parola vietata", () => {
@@ -592,23 +466,20 @@ describe("guardia di deriva — il vocabolario che questo blocco non può usare"
   });
 
   it("il testo del sottoblocco copre DAVVERO tutte le sue parti", () => {
+    // Sono tre, e sono tutte: il nome accessibile, la riga, la nota. Una
+    // guardia che leggesse più di così sorveglierebbe una pagina che non c'è.
     const shown = candidate();
     const text = perMeSectionText(withCandidates([shown]));
-    expect(text).toContain(perMeHeadText(shown));
-    expect(text).toContain(perMeValueText(shown));
-    expect(text).toContain(perMePriceText(shown));
-    expect(text).toContain(perMeWinNowText(shown));
-    expect(text).toContain(perMeScarcityText(shown));
-    expect(text).toContain(perMeAppealText(shown));
-    expect(text).toContain(perMeAnchorText(shown));
-    expect(text).toContain(perMePlanText(shown, DYNAMIC_PLAN.label));
-    expect(text).toContain(PER_ME_NOW_MARK);
-    expect(text).toContain("NON RATIFICATE");
+    expect(text.split("\n")).toEqual([
+      PER_ME_TITLE,
+      perMeHeadText(shown),
+      perMeNoteText(PER_ME_PARAMETERS, DYNAMIC_PLAN),
+    ]);
   });
 
   it("un esito vuoto senza nota non stampa parametri che non hanno governato niente", () => {
     const text = perMeSectionText(emptyReading("no-pool"));
     expect(text).toContain(perMeEmptyText("no-pool"));
-    expect(text).not.toContain("3 righe al massimo");
+    expect(text).not.toContain("riga al massimo");
   });
 });
