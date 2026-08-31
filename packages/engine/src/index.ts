@@ -67,3 +67,10 @@ export * from "./expectedPrice.js";
 // posto della targa del generatore — mai una media fra i due. Vedi
 // packages/engine/src/creditValue.ts.
 export * from "./creditValue.js";
+// `E_o`, `drain`, `D` e `S_base` — LA SPESA ATTESA DEGLI ALTRI E IL DIVARIO
+// DELL'ESCA (NOM-PROTOCOL-A §A.5/§A.6): il tetto contabile di ciascun esposto
+// incrociato col prezzo di mercato e col sovrapprezzo INIETTATO dei suoi
+// precedenti (interruttore spento di default), poi la scala degli esposti —
+// secondo più uno, col tetto al massimo — e le due sottrazioni che ne
+// discendono. Vedi packages/engine/src/baitDrain.ts.
+export * from "./baitDrain.js";
