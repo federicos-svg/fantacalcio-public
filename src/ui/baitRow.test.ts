@@ -269,11 +269,14 @@ describe("la nota porta provenienza e i tre parametri in vigore", () => {
     expect(note).toContain("3 stagioni (2021/22 → 2023/24)");
     expect(note).toContain("apertura a 1 cr");
     expect(note).toContain("almeno 1 stagione misurata per fatto");
-    expect(note).toContain("al massimo 3 righe (provvisorio — in attesa di conferma di Pico)");
+    expect(note).toContain("al massimo 3 righe (ratificato da Pico il 2026-08-31)");
   });
 
-  it("il parametro non confermato DICHIARA di esserlo", () => {
-    expect(baitNoteText(BAIT_PARAMETERS, SEASONS, 0)).toContain("provvisorio");
+  it("il tetto delle righe DICHIARA la propria ratifica, e non è più provvisorio", () => {
+    // Era «provvisorio — in attesa di conferma di Pico»: il DTI l'ha proposto
+    // come parametro dichiarato e Pico l'ha ratificato il 2026-08-31.
+    expect(baitNoteText(BAIT_PARAMETERS, SEASONS, 0)).toContain("ratificato da Pico");
+    expect(baitNoteText(BAIT_PARAMETERS, SEASONS, 0)).not.toContain("provvisorio");
   });
 
   it("le righe senza indice sono dichiarate, non azzerate in silenzio", () => {
@@ -309,7 +312,9 @@ describe("il blocco vuoto non recita parametri che non hanno governato niente", 
     for (const reason of ["no-open-role", "no-affordable-opening", "no-exposed", "below-sample"] as const) {
       expect(baitNoteApplies(emptyReading(reason)), reason).toBe(true);
       expect(baitSectionText(emptyReading(reason), LABELS), reason).toContain("apertura a 1 cr");
-      expect(baitSectionText(emptyReading(reason), LABELS), reason).toContain("provvisorio");
+      expect(baitSectionText(emptyReading(reason), LABELS), reason).toContain(
+        "ratificato da Pico il 2026-08-31",
+      );
     }
   });
 

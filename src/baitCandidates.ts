@@ -176,24 +176,31 @@ export interface BaitParameters {
    * sia leggibile accanto alle altre due.
    */
   readonly minSeasonsMeasured: number;
-  /** Quante righe al massimo. PROVVISORIO, vedi `rowsMaxStatus`. */
+  /** Quante righe al massimo. RATIFICATO, vedi `rowsMaxStatus`. */
   readonly rowsMax: number;
   /**
-   * Lo stato di `rowsMax`, nel dato e non in un commento: è l'unico dei tre
-   * parametri che Pico non ha ancora confermato, e chi legge l'esito lo deve
-   * poter sapere senza aprire questo file.
+   * Lo stato di `rowsMax`, nel dato e non in un commento: chi legge l'esito lo
+   * deve poter sapere senza aprire questo file.
+   *
+   * ERA «provvisorio — in attesa di conferma di Pico» dal giorno in cui il
+   * numero è stato scritto. Il DTI l'ha proposto come parametro dichiarato
+   * (§E, §J.3) e Pico l'ha RATIFICATO il 2026-08-31. Il letterale è lo STESSO
+   * che porta `PerMeParameters.rowsMaxStatus` (src/perMeCandidates.ts, dove è
+   * esportato come `ROWS_MAX_STATUS`): i due sottoblocchi del riquadro non
+   * possono dire in due modi diversi la stessa cosa, e un test confronta i due
+   * letterali invece di fidarsi.
    */
-  readonly rowsMaxStatus: "provvisorio — in attesa di conferma di Pico";
+  readonly rowsMaxStatus: "ratificato da Pico il 2026-08-31";
 }
 
-/** Quante righe al massimo. PROVVISORIO: 3, in attesa di conferma di Pico. */
+/** Quante righe al massimo: 3, ratificato da Pico il 2026-08-31. */
 export const BAIT_ROWS_MAX = 3;
 
 export const BAIT_PARAMETERS: BaitParameters = {
   openingPrice: COST_FLOOR,
   minSeasonsMeasured: DEFAULT_PRECEDENT_THRESHOLDS.minSeasonsMeasured,
   rowsMax: BAIT_ROWS_MAX,
-  rowsMaxStatus: "provvisorio — in attesa di conferma di Pico",
+  rowsMaxStatus: "ratificato da Pico il 2026-08-31",
 };
 
 // ─── Il libro dell'esposizione ───────────────────────────────────────────────

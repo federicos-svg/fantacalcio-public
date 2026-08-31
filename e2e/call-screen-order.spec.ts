@@ -372,11 +372,14 @@ test("IL TAVOLO è sempre aperto: nessun gesto lo apre, nessun controllo lo chiu
   await expect(suggested).toHaveCount(1);
   await expect(suggested).toContainText("GIOCATORE SUGGERITO — CHI CHIAMARE ORA");
   // La prima metà del blocco non è più un segnaposto: è il sottoblocco «PER
-  // ME». Qui il piano rosa non è dichiarato, quindi dice quale dichiarazione
-  // manca — che è ancora «esattamente quello che diceva», cioè la verità sul
-  // proprio stato, e non una frase generica.
+  // ME». Qui la fixture non porta le previsioni servite né lo storico d'asta,
+  // quindi il sottoblocco dice QUALE deposito manca — che è ancora
+  // «esattamente quello che diceva», cioè la verità sul proprio stato, e non
+  // una frase generica. Era `plan-absent` fino al piano dinamico del
+  // 2026-08-31: quel motivo non esiste più, perché il piano non è più una
+  // dichiarazione a monte da attendere.
   await expect(suggested).toContainText(PER_ME_TITLE_SHORT);
-  await expect(page.locator("#per-me-empty")).toHaveAttribute("data-reason", "plan-absent");
+  await expect(page.locator("#per-me-empty")).toHaveAttribute("data-reason", "no-forecast");
 
   // 6. INSERIMENTO RAPIDO è stato RIMOSSO su richiesta di Pico (2026-08-17):
   //    né il pannello né i suoi controlli esistono più, in nessun momento.

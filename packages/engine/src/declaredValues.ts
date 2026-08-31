@@ -70,8 +70,8 @@ export type UnratifiedChoiceId =
   | "COPPE_BASELINE_IS_ABSENCE" // «non gioca in Europa» = 0, non −1
   | "PAGELLA_POSITION_IS_TOTAL_OVER_MAX" // rapporto sul fondo scala, non scarto dal punto medio
   // ── Le due letture del sottoblocco «PER ME» (src/perMeCandidates.ts) ──────
-  | "PER_ME_ORDER_APPEAL_BREAKS_SURPLUS_TIES" // chi decide a parità di surplus, e senza surplus
-  | "PER_ME_REQUIRES_COMPLETE_ROLE_PLAN" // senza piano completo il sottoblocco tace
+  | "PER_ME_DECLARED_PLAN_FITS_ON_EXPECTED_PRICE" // in override, `fitsPlan` contro quale prezzo
+  | "PER_ME_REQUIRES_ANCHOR_SCALE" // senza la scala delle Qt.A il sottoblocco tace
   // ── Le otto letture dell'indice relativo (relativeIndex.ts). Pico ha deciso
   //    la FORMA il 2026-08-24 («un punteggio da 0 a 100»); qui restano aperte le
   //    letture che quella decisione NON nomina. `RELATIVE_NUMBER_IS_A_POSITION`
@@ -117,10 +117,10 @@ export const UNRATIFIED_CHOICES: Readonly<Record<UnratifiedChoiceId, string>> =
       "«non gioca in Europa» è trattato come linea di base (0) e non come l'opposto di «ci gioca»: è una lettura, non il dato",
     PAGELLA_POSITION_IS_TOTAL_OVER_MAX:
       "il totale entra come rapporto sul fondo scala della fonte: uno scarto dal punto medio sarebbe altrettanto scrivibile e nessuno ha scelto",
-    PER_ME_ORDER_APPEAL_BREAKS_SURPLUS_TIES:
-      "l'ordine «piano prima, surplus poi» viene dalla decisione di Pico del 2026-08-25 (in sessione: il piano filtra, il surplus ordina); che a parità di surplus — e per le righe senza valore dichiarato, dove un surplus non esiste — decida la posizione nell'ordine di appetibilità del ruolo è invece una lettura del motore, e nessun documento assegna quel posto a quel criterio",
-    PER_ME_REQUIRES_COMPLETE_ROLE_PLAN:
-      "«dentro il mio piano» è il primo criterio dell'ordine: qui senza piano completo il sottoblocco tace invece di ordinare con un criterio in meno, e nessun documento sceglie fra le due",
+    PER_ME_DECLARED_PLAN_FITS_ON_EXPECTED_PRICE:
+      "il DTI §A.4 dice che con un piano DICHIARATO `withinPlan` torna a essere `fitsPlan` sul piano vivo, ma non dice contro QUALE prezzo si provi la capienza: qui si prova `P̂`, cioè lo stesso prezzo su cui poggiano la popolazione e l'ordine del sottoblocco, mentre la lettura di ieri provava l'ancora corrente. Le due divergono su ogni riga in cui `P̂` e l'ancora non coincidono, e nessun documento sceglie fra loro",
+    PER_ME_REQUIRES_ANCHOR_SCALE:
+      "senza la scala delle Qt.A il sottoblocco tace del tutto, anche dove `V` e `P̂` sarebbero formabili: da quella scala vengono l'inflazione misurata che entra in `P̂`, le alternative a scendere del criterio 3 e la scomposizione dell'inflazione che la riga mostra. Il DTI §B.1 chiude il vocabolario del silenzio su cinque motivi e questo non è fra loro: è la lettura fail-closed di questa superficie, e nessun documento la firma",
     RELATIVE_SCORE_IS_SHARE_OF_FREE_RANKED:
       "Pico ha deciso la scala (0-100) e non la curva: qui il riscalamento è scritto come QUOTA degli altri liberi ordinati che il chiamato precede, cioè l'unica forma senza parametri liberi (riscalare linearmente un rango coincide con il percent rank inclusivo). La dimostrazione è nell'intestazione del modulo, ma la lettura resta nostra",
     RELATIVE_DENOMINATOR_IS_FREE_RANKED:

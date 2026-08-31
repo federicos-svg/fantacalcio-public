@@ -628,7 +628,7 @@ describe("invarianti — verificati, non assunti", () => {
       openingPrice: COST_FLOOR,
       minSeasonsMeasured: DEFAULT_PRECEDENT_THRESHOLDS.minSeasonsMeasured,
       rowsMax: 3,
-      rowsMaxStatus: "provvisorio — in attesa di conferma di Pico",
+      rowsMaxStatus: "ratificato da Pico il 2026-08-31",
     });
     expect(BAIT_PARAMETERS.openingPrice).toBe(COST_FLOOR);
     expect(BAIT_PARAMETERS.minSeasonsMeasured).toBe(1);

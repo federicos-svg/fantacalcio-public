@@ -9,37 +9,44 @@
 // IL TITOLO NOMINA CIÒ CHE IL BLOCCO CONTIENE, NON UN'INTENZIONE — la regola
 // con cui ./liveFacts.ts ha corretto «INTERESSE SUL GIOCATORE» in «I
 // PRECEDENTI». L'occhiello per esteso dice quindi che cosa le righe SONO —
-// liberi che il piano copre, che si possono pagare, ordinati per surplus e
-// poi per appetibilità — e nient'altro.
+// liberi che il piano copre, che si possono pagare al prezzo atteso, ordinati
+// per surplus e poi per scarsità misurata — e nient'altro.
 //
-// LA FRASE CHE IL BLOCCO PUÒ DIRE, E QUELLA CHE NON PUÒ. Con la decisione di
-// Pico del 2026-08-25 («il numero uno è il filtro a monte ma il due è quello
-// successivo») il surplus è tornato al suo posto nell'ordine, quindi «costa
-// meno di quanto vale per te» è di nuovo DICIBILE — ma **solo** per le righe
-// che portano un valore dichiarato da Pico, e infatti solo quelle lo dicono.
-// Per le altre non c'è nessuna sottrazione da fare: nessun numero di ripiego,
-// nessuno zero al posto della dichiarazione che manca, e l'assenza detta una
-// volta sola nella nota, contata («N righe senza valore dichiarato»). Il
-// perché di «una volta sola» invece che «su ogni riga» è misurato e sta
-// accanto a `perMeSurplusText`.
+// ─────────────────────────────────────────────────────────────────────────────
+// LA PAROLA «VALORE» NON COMPARE PIÙ, E NON È UN GIRO DI PAROLE
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// `V` è il valore in crediti del DTI §A.1: un numero DERIVATO dal generatore
+// (o dichiarato da Pico come override), non l'output direttivo `value` che il
+// gate di `docs/NO_GO.md` tiene spento. Scriverlo per esteso a schermo lo
+// renderebbe indistinguibile in lettura da quell'altro; la sigla con la sua
+// TARGA accanto — «V 42 cr (generatore GEN-RECIPE@1.0.0)» — dice esattamente
+// che numero è e da quale ricetta viene, e la targa arriva DAL DATO
+// (`genForecast.recipeVersion`), mai da una costante scritta qui.
 //
 // NESSUN NUMERO DIRETTIVO, e non per prudenza: `fair_to_me_promoted` e
 // `decision_promoted` sono gate OFF (PROJECT_STATE.md §"Gate attivi"). Qui non
-// compare un «offri Y», una banda, un prezzo previsto, un badge OCCASIONE o un
-// punteggio di occasione. Compaiono il valore che PICO HA DICHIARATO (§D9
-// ingrediente 2, non un numero del motore) con la sua distanza dall'ancora,
-// l'ancora corrente misurata con la sua provenienza, il piano dichiarato da
-// Pico, il max bid hard-safe e una posizione in un ordine dichiarato.
-// `perMeRow.test.ts` §"guardia di deriva" cerca il vocabolario vietato su TUTTO
-// il testo del sottoblocco, e la sola parola «valore» che lascia passare è
-// quella che porta con sé «dichiarato».
+// compare un «offri Y», una banda, un badge OCCASIONE o un punteggio di
+// occasione. Compaiono `V` con la sua targa, il prezzo atteso coi suoi tre
+// qualificatori obbligatori (§B.3), la loro sottrazione, il costo per vincerlo
+// adesso col vincolo che l'ha fissato, due conteggi di scarsità,
+// l'allocazione del piano, il max bid hard-safe e una posizione in un ordine
+// dichiarato. `perMeRow.test.ts` §"guardia di deriva" cerca il vocabolario
+// vietato su TUTTO il testo del sottoblocco.
+//
+// LO SCALARE, MAI LA BANDA (§B.3). `errMinus`/`errPlus` si scrivono accanto al
+// numero come scarti dell'ERRORE STORICO della fascia — «tipicamente −4/+9» —
+// e non come un intervallo «da X a Y», che il divieto di forma di §D9 esclude.
+// Il bias firmato chiude la frase perché è il modo tipico in cui la previsione
+// fa danno. La vista non può mostrare `P̂` senza i tre qualificatori: qui non
+// esiste un percorso che stampi il numero senza stamparli, perché arrivano
+// nello stesso membro dell'unione.
 //
 // IL GESTO È QUELLO DEL LISTONE, E LO È DAVVERO. La riga chiama
 // `selectListonePlayer()` — l'UNICA via che arma la CTA «Avvia» — con la
 // `ListonePlayer` che il candidato porta con sé. Non esiste una seconda via di
 // selezione: due strade per selezionare un giocatore sono due superfici da
-// sorvegliare, e la seconda diverge il giorno in cui la prima cambia. È
-// esattamente ciò che ./baitRow.ts fa già per l'altra metà del blocco.
+// sorvegliare, e la seconda diverge il giorno in cui la prima cambia.
 //
 // LA SELEZIONE SI VEDE SU DUE CANALI, mai solo col colore: la riga selezionata
 // porta un CONTORNO e la parola «✓ selezionato», oltre al fondo diverso.
@@ -48,9 +55,15 @@ import type {
   PerMeCandidate,
   PerMeEmptyReason,
   PerMeParameters,
+  PerMePlanReading,
   PerMeReading,
 } from "../perMeCandidates.js";
 import { perMeShownCandidates } from "../perMeCandidates.js";
+import type {
+  ExpectedPriceBiasDirection,
+  ExpectedPriceMissingReason,
+  RelativePriceBound,
+} from "../../packages/engine/src/index.js";
 import { MAX_BID_LABEL } from "./budgetLabels.js";
 import { formatSignedPercent } from "./liveFacts.js";
 import type { ListonePlayer } from "./listone.js";
@@ -65,15 +78,12 @@ export const PER_ME_TITLE_SHORT = "PER ME";
  * costruzione (il secondo è interpolato dal primo), e un test lo verifica: i
  * due non possono diventare due nomi diversi.
  */
-export const PER_ME_TITLE = `${PER_ME_TITLE_SHORT} — liberi nel tuo piano, che puoi pagare, per surplus e appetibilità`;
+export const PER_ME_TITLE = `${PER_ME_TITLE_SHORT} — liberi nel piano, che puoi pagare al prezzo atteso, per surplus e scarsità`;
 
 /**
  * Quale dei due va a schermo. Stessa regola — e stessa misura — di
  * `baitTitleFor`: la seconda metà dell'occhiello descrive CHE COSA SONO LE
- * RIGHE, e senza righe non c'è niente da descrivere. La frase del silenzio,
- * subito sotto, dice già per intero perché non ce ne sono; ripetere l'elenco
- * dei criteri sopra un «non lo so» aggiunge altezza e zero informazione, su una
- * schermata che è già oltre budget.
+ * RIGHE, e senza righe non c'è niente da descrivere.
  */
 export function perMeTitleFor(reading: PerMeReading): string {
   return reading.kind === "candidates" ? PER_ME_TITLE : PER_ME_TITLE_SHORT;
@@ -83,14 +93,30 @@ export function perMeTitleFor(reading: PerMeReading): string {
 export const PER_ME_SELECTED_MARK = "✓ selezionato";
 
 /**
- * QUANDO NON COMPARE, DICE QUALE SILENZIO È. Vocabolario CHIUSO di nove motivi,
- * sul modello di `baitEmptyText`: nove frasi diverse, perché sono nove cose
- * diverse, e appiattirle sarebbe già mezza bugia.
+ * IL MARCATORE DEL MOMENTO, e la ragione per cui non è una previsione.
+ *
+ * Compare quando `withinPlan(i) ∧ isCliff(i)`: due fatti già definiti altrove
+ * — l'appartenenza a `TARGET*` e il dislivello misurato sulla scala delle
+ * ancore — e nessuna soglia nuova inventata qui. Non dice «sparirà fra N
+ * chiamate» (quella stima è vietata) e non dice «prendilo»: dice che questo
+ * giocatore è nel piano E che sotto di lui il gradino è ripido.
+ */
+export const PER_ME_NOW_MARK = "⚑ adesso";
+
+/**
+ * QUANDO NON COMPARE, DICE QUALE SILENZIO È. Vocabolario CHIUSO di sette
+ * motivi, sul modello di `baitEmptyText`: sette frasi diverse, perché sono
+ * sette cose diverse, e appiattirle sarebbe già mezza bugia.
  *
  * NESSUNA DI QUESTE FRASI INVENTA UN NUMERO e nessuna dice «non c'è nessuno»
- * quando la verità è «non lo so»: le tre del piano indicano la dichiarazione che
- * manca, le due delle quotazioni indicano il dato che manca, e quella del
- * listino rifiutato porta il motivo del motore invece di nasconderlo.
+ * quando la verità è «non lo so». Le tre del piano dichiarato non ci sono più:
+ * il piano dinamico esiste sempre dove esistono `V` e `P̂`, e una dichiarazione
+ * rotta si dice nella nota mentre il dinamico lavora — mai un pannello vuoto.
+ *
+ * LE FRASI STANNO DENTRO LA LORO RIGA DEL MASTRO, e non è un vezzo: questo
+ * blocco ha un'allocazione verticale misurata (`giocatore-suggerito`,
+ * src/ui/callScreenBudget.ts) e una frase più lunga la sfonda —
+ * e2e/call-screen-budget.spec.ts lo ha già dimostrato una volta.
  */
 export function perMeEmptyText(reason: PerMeEmptyReason): string {
   switch (reason) {
@@ -100,24 +126,14 @@ export function perMeEmptyText(reason: PerMeEmptyReason): string {
       return "Nessuna riga del listone porta la Qt.A: senza quotazione non esiste un'ancora da misurare, e un'ancora inventata non è un'ancora.";
     case "anchors-refused":
       return "Le quotazioni caricate non passano la validazione del motore: da un listino rotto non si deriva nessuna ancora.";
-    case "plan-absent":
-      // LA FRASE STA DENTRO LA SUA RIGA DEL MASTRO, e non e un vezzo: questo
-      // blocco ha un'allocazione verticale misurata (`giocatore-suggerito`,
-      // src/ui/callScreenBudget.ts) e una frase piu lunga di cosi la sfonda —
-      // e2e/call-screen-budget.spec.ts lo ha gia dimostrato una volta. Dice
-      // percio due cose e si ferma: che cosa manca, e che il posto in cui si
-      // dichiarava non c'e piu.
-      return "Nessun piano rosa dichiarato: il primo criterio dell'ordine è «dentro il tuo piano», e senza piano quell'ordine non esiste. Quel pannello è stato rimosso.";
-    case "plan-incomplete":
-      return "Piano rosa dichiarato a metà: manca un target di ruolo o la versione del piano, e un piano incompleto non attraversa il confine verso il motore.";
-    case "plan-invalid":
-      return "Piano rosa rifiutato dal motore: finché la dichiarazione non è valida non se ne deriva nessun ordine.";
+    case "no-forecast":
+      return "Deposito assente o monco: senza le previsioni servite o senza storico d'asta non si formano né V né il prezzo atteso, e nessuno dei due si inventa.";
     case "no-open-role":
       return "Nessun reparto aperto con margine: un acquisto non sarebbe registrabile in nessun ruolo.";
     case "no-free-in-open-roles":
       return "Nessun libero con quotazione nei reparti che ti restano aperti.";
     case "no-affordable":
-      return "Ci sono liberi nei tuoi reparti aperti, ma il tuo max bid non copre l'ancora corrente di nessuno.";
+      return "Ci sono liberi con V nei tuoi reparti aperti, ma il tuo max bid non copre il prezzo atteso di nessuno.";
   }
 }
 
@@ -127,10 +143,9 @@ export function perMeEmptyText(reason: PerMeEmptyReason): string {
  *
  * Con le righe la nota c'è per intero. Nei due silenzi che nascono DOPO la
  * misura — `no-free-in-open-roles` e `no-affordable` — la nota resta perché lì
- * un parametro ha davvero deciso: l'ancora corrente contro cui `no-affordable`
- * si pronuncia è corretta (o non corretta) dal campione minimo dichiarato. Negli
- * altri sette esiti nessun numero è mai stato prodotto: recitare i parametri
- * sarebbe elencare soglie che non hanno governato niente.
+ * un parametro ha davvero deciso. Negli altri cinque esiti nessun numero è mai
+ * stato prodotto: recitare i parametri sarebbe elencare soglie che non hanno
+ * governato niente.
  */
 export function perMeNoteApplies(reading: PerMeReading): boolean {
   return (
@@ -146,59 +161,153 @@ export function perMeHeadText(candidate: PerMeCandidate): string {
 }
 
 /**
- * IL CRITERIO 2, DETTO A SCHERMO — il surplus, cioè la distanza fra il valore
- * che PICO HA DICHIARATO e l'ancora corrente misurata.
+ * LA TARGA DI `V`: da dove viene il numero, in una parentesi.
  *
- * SI SCRIVE COME UNA DISTANZA, NON COME UN VERDETTO. «12 cr sotto il tuo
- * valore dichiarato (48 cr)» è un fatto ispezionabile: c'è la distanza, c'è il
- * minuendo, e il sottraendo sta nella riga dell'ancora subito sotto — chi
- * legge può rifare la sottrazione a mano. Non c'è nessun «è un'occasione»,
- * nessun badge, nessun punteggio: quella promozione ha un gate, e il gate è
- * OFF.
- *
- * I TRE CASI IN CUI C'È QUALCOSA DA DIRE, e nessuno è un default dell'altro:
- *  - sotto il valore dichiarato → la distanza, con «sotto»;
- *  - sopra → la stessa distanza con «sopra», e la riga RESTA a schermo: qui il
- *    surplus ordina e non esclude (src/perMeCandidates.ts §4);
- *  - esattamente pari → si dice «esattamente», perché «0 cr sotto» si legge
- *    come un arrotondamento e questo è un pareggio.
- *
- * E IL QUARTO CASO — valore non dichiarato — RESTITUISCE `null`: niente riga.
- * Non è l'assenza taciuta, è l'assenza detta UNA VOLTA SOLA, nella nota, con
- * il suo contatore («N righe senza valore dichiarato, in fondo senza surplus
- * fabbricato»). La ragione è MISURATA, non stimata: oggi nessuna riga ha un
- * valore dichiarato — l'app non ha ancora una sorgente per quel listino —
- * quindi ripetere la stessa frase su ogni candidato porta il sottoblocco pieno
- * da 574px a 683px a 390x844, cioè sopra il tetto di regressione che
- * e2e/per-me-row.spec.ts sorveglia, per zero fatti in più: tre volte la stessa
- * riga dice quello che la nota dice una volta e meglio (perché le conta).
- * Quando invece un surplus c'è, la riga lo porta: è il criterio che l'ha messa
- * lì, e distingue una riga dall'altra.
- *
- * `null` E NON `""`: una stringa vuota è una riga di testo che il renderer
- * aggiunge lo stesso e che una guardia di deriva legge come «coperto». `null`
- * dice «qui non c'è niente da mostrare» e il chiamante deve gestirlo.
+ * Due sorgenti e due sole, come il vocabolario del motore (`CreditValueSource`,
+ * chiuso a «generatore» e «dichiarato»): mai una media fra le due, mai una
+ * terza parola. La versione della ricetta arriva DAL DATO e non da una
+ * costante di questo file — un payload che non la portasse non riceve una
+ * targa inventata, riceve la dichiarazione che la targa manca.
  */
-export function perMeSurplusText(candidate: PerMeCandidate): string | null {
-  const { declaredValue, surplus } = candidate;
-  if (declaredValue === null || surplus === null) return null;
-  if (surplus === 0) return `esattamente il tuo valore dichiarato (${declaredValue} cr)`;
-  const where = surplus > 0 ? "sotto" : "sopra";
-  return `${Math.abs(surplus)} cr ${where} il tuo valore dichiarato (${declaredValue} cr)`;
+export function perMeValueProvenance(candidate: PerMeCandidate): string {
+  if (candidate.valueSource === "dichiarato") return "dichiarato da te";
+  return candidate.valueRecipe === null
+    ? "generatore, ricetta non dichiarata"
+    : `generatore ${candidate.valueRecipe}`;
 }
 
 /**
- * IL CRITERIO 3, DETTO A SCHERMO. È una POSIZIONE in un ordine dichiarato, non
- * un punteggio: il numero dell'indice non compare, perché non è il numero che
- * ordina questa riga e mostrarlo lo farebbe leggere come un giudizio.
+ * `V` E `S` SULLA STESSA RIGA, perché il secondo è la sottrazione del primo.
  *
- * NON È SCOMPARSO CON IL RITORNO DEL SURPLUS: è sceso di un gradino e decide a
- * parità di surplus — e da solo, per le righe che un valore dichiarato non ce
- * l'hanno, che oggi sono tutte.
+ * «V 42 cr (generatore GEN-RECIPE@1.0.0) · S 4 cr (42 − 38)»: c'è il minuendo,
+ * c'è il sottraendo, c'è la differenza, e chi legge può rifare il conto a mano
+ * — la stessa postura con cui il surplus di ieri mostrava la propria distanza.
+ * Non c'è nessun «è un affare», nessun badge, nessun punteggio: quella
+ * promozione ha un gate, e il gate è OFF.
  *
- * L'assenza di verdetto ha la sua frase e non un numero di ripiego: una riga
- * senza posizione non è «l'ultima», è «senza verdetto», e l'ordine la tratta
- * come tale (`compareAppealPosition`, src/perMeCandidates.ts).
+ * QUANDO `S` NON ESISTE non c'è un ripiego: la riga porta il solo `V`, e la
+ * nota conta quante righe sono in quel caso. `null` non diventa 0 («vale
+ * esattamente quanto costa» sarebbe una dichiarazione che nessuno ha fatto).
+ */
+export function perMeValueText(candidate: PerMeCandidate): string {
+  const head = `V ${candidate.value} cr (${perMeValueProvenance(candidate)})`;
+  if (candidate.surplus === null || candidate.expectedPrice.kind !== "prezzo") return head;
+  const s = candidate.surplus;
+  const sign = s > 0 ? "+" : s < 0 ? "−" : "";
+  return `${head} · S ${sign}${Math.abs(s)} cr (${candidate.value} − ${candidate.expectedPrice.credits})`;
+}
+
+/** Il bias firmato, detto a parole chiuse invece che dedotto dal segno. */
+function biasText(direction: ExpectedPriceBiasDirection): string {
+  switch (direction) {
+    case "basso":
+      return "tende a sbagliare basso";
+    case "alto":
+      return "tende a sbagliare alto";
+    case "nessuno":
+      return "non tende a sbagliare da un lato";
+  }
+}
+
+/** Perché `P̂` non c'è. Vocabolario chiuso del motore, una frase per motivo. */
+function priceMissingText(reason: ExpectedPriceMissingReason): string {
+  switch (reason) {
+    case "curva-assente":
+      return "la curva storica non è formabile";
+    case "previsione-assente":
+      return "questa riga non porta le previsioni del deposito";
+    case "rango-ignoto":
+      return "il giocatore non è nel listone da cui il rango è stato costruito";
+    case "fascia-senza-osservazioni":
+      return "la sua fascia di rango non ha osservazioni storiche";
+    case "fascia-sotto-campione":
+      return "la sua fascia di rango è sotto il campione minimo";
+  }
+}
+
+/**
+ * IL PREZZO ATTESO, NELLA FORMA CHE RISPETTA I DUE DIVIETI (§B.3).
+ *
+ * Uno SCALARE centrale, mai una banda «da X a Y»; accanto, i tre qualificatori
+ * obbligatori: quante aste storiche compongono la fascia, quanto tipicamente
+ * la curva sbaglia in meno e in più, e da che parte tende a sbagliare. Il tipo
+ * li porta insieme al numero, quindi non esiste qui un ramo che stampi il
+ * numero senza di loro.
+ *
+ * QUANDO NON C'È, NON C'È UN NUMERO AL POSTO SUO: c'è il motivo, e la riga
+ * resta a schermo in coda. È il caso §D.7 — fascia di rango senza osservazioni
+ * o sotto campione — e il caso §A.3 di un giocatore dichiarato che il
+ * generatore non copre.
+ */
+export function perMePriceText(candidate: PerMeCandidate): string {
+  const p = candidate.expectedPrice;
+  if (p.kind === "assente") {
+    return `prezzo atteso non formabile: ${priceMissingText(p.reason)}`;
+  }
+  const u = p.uncertainty;
+  const aste = u.n === 1 ? "asta simile" : "aste simili";
+  return (
+    `atteso ${p.credits} cr · su ${u.n} ${aste} · ` +
+    `tipicamente −${u.errMinus}/+${u.errPlus} · ${biasText(u.biasDirection)}`
+  );
+}
+
+/** Quale dei tre vincoli ha fissato il costo per vincere adesso. */
+function boundText(bound: RelativePriceBound): string {
+  switch (bound) {
+    case "scala-dei-rivali":
+      return "scala dei rivali";
+    case "tetto-del-piu-ricco":
+      return "tetto del più ricco";
+    case "tetto-max-safe":
+      return `tetto ${MAX_BID_LABEL}`;
+  }
+}
+
+/**
+ * IL COSTO PER VINCERLO ADESSO — un altro fatto, accanto a `P̂` e mai fuso con
+ * lui: una media fra i due sarebbe un peso scelto dal sistema.
+ *
+ * `null` quando non esiste, e allora la riga non porta niente: i cinque motivi
+ * per cui il secondo max bid non è misurabile (nessun rivale, un rivale solo,
+ * ruolo pieno per me…) sono fatti dello STATO, uguali per tutte le righe di
+ * quel ruolo, e ripeterli su ogni candidato costerebbe una riga di testo a
+ * candidato per zero fatti in più.
+ */
+export function perMeWinNowText(candidate: PerMeCandidate): string | null {
+  const r = candidate.relativePrice;
+  if (r.kind === "assente") return null;
+  return `vincerlo adesso ${r.credits} cr (${boundText(r.chain.boundBy)})`;
+}
+
+/**
+ * IL CRITERIO 3 E IL SUO GEMELLO, i due fatti di scarsità MISURATA.
+ *
+ * «alternative a scendere» è il conteggio che ordina (`alternativesAtOrBelow`,
+ * packages/engine/src/cliff.ts): quanti altri del ruolo, ancora disponibili,
+ * stanno alla sua quota o sotto. «rivali eleggibili con slot» è il conteggio
+ * dall'altro lato del tavolo. Sono due CONTEGGI su fatti misurati, non due
+ * stime di quanto durerà sul mercato: quella stima resta vietata.
+ */
+export function perMeScarcityText(candidate: PerMeCandidate): string {
+  const alt = candidate.cliff.alternativesAtOrBelow;
+  const rivals = candidate.rivalsWithSlot;
+  return (
+    `${alt} ${alt === 1 ? "alternativa" : "alternative"} a scendere nel ruolo · ` +
+    `${rivals} ${rivals === 1 ? "rivale eleggibile" : "rivali eleggibili"} con slot`
+  );
+}
+
+/**
+ * LA POSIZIONE DI APPETIBILITÀ. È USCITA DALL'ORDINE (§B.1: `V` è la sua
+ * trasformazione in crediti, e tenerli entrambi sarebbe contare lo stesso fatto
+ * due volte) MA NON DALLA RIGA: è una decisione registrata di Pico, e un fatto
+ * mostrato non si toglie perché ha smesso di ordinare.
+ *
+ * È una POSIZIONE in un ordine dichiarato, non un punteggio: il numero
+ * dell'indice non compare, perché non è il numero che ordina questa riga e
+ * mostrarlo lo farebbe leggere come un giudizio. L'assenza di verdetto ha la
+ * sua frase e non un numero di ripiego.
  */
 export function perMeAppealText(candidate: PerMeCandidate): string {
   if (candidate.appealPosition === null || candidate.appealOrderSize === null) {
@@ -208,21 +317,19 @@ export function perMeAppealText(candidate: PerMeCandidate): string {
 }
 
 /**
- * L'ANCORA CORRENTE, MOSTRATA E POI SOTTRATTA — è il sottraendo del surplus
- * della riga sopra, e si mostra per intero proprio perché quella sottrazione
- * si possa rifare a mano. Porta sempre con sé i tre pezzi
- * che la rendono ispezionabile: la Qt.A nuda, l'inflazione applicata e il
- * campione su cui poggia. In cold start non c'è un numero al posto della misura
- * mancante: c'è la frase che dice che la misura manca.
+ * L'ANCORA CORRENTE — non più il sottraendo del surplus (quel posto è di `P̂`)
+ * ma la SCOMPOSIZIONE dell'inflazione misurata di stasera, che è l'unico punto
+ * in cui si legge quanto il tavolo si sta scaldando e su quanti acquisti.
+ * Porta sempre con sé i tre pezzi che la rendono ispezionabile: la Qt.A nuda,
+ * l'inflazione applicata e il campione su cui poggia. In cold start non c'è un
+ * numero al posto della misura mancante: c'è la frase che dice che manca.
  */
 export function perMeAnchorText(candidate: PerMeCandidate): string {
   const a = candidate.anchor;
   const head = `ancora ${a.correctedAnchor} cr (Qt.A ${a.baseAnchor}`;
   if (a.coldStart || a.inflationApplied === null) {
     // La SOGLIA del campione non si ripete qui: sta nella nota, accanto agli
-    // altri parametri, ed è la stessa per tutte le righe. Ripeterla su ognuna
-    // costerebbe una riga di testo per candidato su uno schermo da 390px senza
-    // aggiungere un fatto.
+    // altri parametri, ed è la stessa per tutte le righe.
     return `${head} · nessuna inflazione misurata)`;
   }
   const where = a.basis === "role-inflation" ? "del ruolo" : "del tavolo";
@@ -233,57 +340,76 @@ export function perMeAnchorText(candidate: PerMeCandidate): string {
 /**
  * IL CRITERIO 1 — IL FILTRO — DETTO A SCHERMO, più il tetto hard-safe accanto.
  *
- * «dentro/fuori dal piano» è un FATTO CONTABILE (`fitsPlan`), non un consiglio e
- * non un veto: un prezzo fuori piano resta comprabile se il budget lo consente,
- * semplicemente si sa che sfora. Il max bid porta il nome dichiarato in
- * ./budgetLabels.ts e non una formulazione propria: due nomi per due grandezze,
- * non cinque per due.
+ * «dentro/fuori dal piano» è un FATTO CONTABILE — l'appartenenza a `TARGET*`,
+ * oppure `fitsPlan` quando Pico ha dichiarato un piano — non un consiglio e non
+ * un veto: un prezzo fuori piano resta comprabile se il budget lo consente,
+ * semplicemente si sa che sfora. L'etichetta del piano viaggia con
+ * l'allocazione perché «210 cr sul ruolo» significa due cose diverse a seconda
+ * di chi le ha decise, e chi legge deve saperlo senza aprire un file.
+ *
+ * Il max bid porta il nome dichiarato in ./budgetLabels.ts e non una
+ * formulazione propria: due nomi per due grandezze, non cinque per due.
  */
-export function perMePlanText(candidate: PerMeCandidate): string {
-  const where = candidate.withinRolePlan ? "nel piano" : "fuori dal piano";
+export function perMePlanText(candidate: PerMeCandidate, planLabel: string): string {
+  const where = candidate.withinPlan ? "nel piano" : "fuori dal piano";
   // Il RUOLO si scrive con la lettera e non col nome esteso: il nome per esteso
   // costava una riga di testo in più a 390px, e la lettera è già quella che la
   // testa della riga porta due righe sopra.
-  // «slot» è invariabile in italiano: qui non c'è nessun plurale da scegliere,
-  // e un ternario con i due rami uguali sarebbe un ramo che non gira mai.
+  // «slot» è invariabile in italiano: qui non c'è nessun plurale da scegliere.
   return (
     `${where} ${candidate.role} (${candidate.planAllocation} cr / ` +
-    `${candidate.planSlotsRemaining} slot) · ${MAX_BID_LABEL} ${candidate.maxBid} cr`
+    `${candidate.planSlotsRemaining} slot · ${planLabel}) · ${MAX_BID_LABEL} ${candidate.maxBid} cr`
   );
 }
 
 /**
  * La nota del sottoblocco: la PROVENIENZA, l'ORDINE dichiarato criterio per
- * criterio, i parametri in vigore, la SCELTA NON RATIFICATA che resta e i DUE
- * contatori delle assenze — stesso modello di `baitNoteText` e di
- * `PrecedentsReading.thresholds`.
+ * criterio, i parametri in vigore, le DUE letture non ratificate e i TRE
+ * contatori delle assenze — stesso modello di `baitNoteText`.
  *
- * L'ordine si stampa per esteso di proposito: i suoi primi due criteri sono la
- * decisione di Pico del 2026-08-25, e un ordine che non si legge è un peso
- * nascosto scritto in un file.
+ * L'ordine si stampa per esteso di proposito: un ordine che non si legge è un
+ * peso nascosto scritto in un file.
  *
- * I DUE CONTATORI SONO DUE, e non uno solo: «non ha un valore dichiarato» e
- * «non ha un verdetto di appetibilità» sono due assenze diverse, di due
- * ingredienti diversi, e ognuna manda la riga in fondo per una ragione sua.
- * Compaiono solo quando c'è qualcosa da contare.
+ * I TRE CONTATORI SONO TRE, e non uno solo: «i liberi che il deposito non
+ * serve», «le righe senza prezzo atteso» e «le righe senza verdetto di
+ * appetibilità» sono tre assenze diverse, di tre ingredienti diversi, e ognuna
+ * pesa in un punto diverso. Compaiono solo quando c'è qualcosa da contare.
+ *
+ * UNA DICHIARAZIONE DI PIANO ROTTA SI DICE QUI, e il pannello resta pieno: il
+ * dinamico ha lavorato lo stesso, e nascondere il guasto sarebbe far sembrare
+ * dichiarato un piano che non lo è.
  */
 export function perMeNoteText(
   parameters: PerMeParameters,
-  planVersion: string | null,
+  plan: PerMePlanReading | null,
+  withoutValue: number,
+  withoutSurplus: number,
   withoutAppealPosition: number,
-  withoutDeclaredValue: number,
 ): string {
   const parts = [
-    "Qt.A del listone corretta dall'inflazione misurata" +
-      (planVersion === null ? "" : `, piano «${planVersion}»`),
-    "ordine: piano → surplus dichiarato → appetibilità del ruolo → ancora → chiave di listone",
-    `campione minimo ${parameters.minInflationSample}`,
+    "V dal generatore e prezzo atteso dalla curva storica" +
+      (plan === null ? "" : `, ${plan.label} «${plan.planVersion}»`),
+    "ordine: piano → surplus → alternative a scendere → V → chiave di listone",
+    `campione minimo ${parameters.minInflationSample} (inflazione) e ${parameters.minPriceBandSample} (fascia di prezzo)`,
+    `riserva ${parameters.costFloor} cr per ogni slot non ancora pianificato`,
     `${parameters.rowsMax} ${parameters.rowsMax === 1 ? "riga" : "righe"} al massimo (${parameters.rowsMaxStatus})`,
-    "NON RATIFICATA: a parità di surplus decide l'appetibilità del ruolo",
+    "NON RATIFICATE: il silenzio senza la scala delle Qt.A; il piano dichiarato provato sul prezzo atteso",
   ];
-  if (withoutDeclaredValue > 0) {
+  if (plan !== null && plan.kind === "dynamic" && plan.declaredIssue !== null) {
     parts.push(
-      `${withoutDeclaredValue} ${withoutDeclaredValue === 1 ? "riga" : "righe"} senza valore dichiarato, in fondo senza surplus fabbricato`,
+      plan.declaredIssue === "plan-incomplete"
+        ? "la tua dichiarazione di piano è a metà: comanda il piano ricalcolato"
+        : "la tua dichiarazione di piano è stata rifiutata dal motore: comanda il piano ricalcolato",
+    );
+  }
+  if (withoutValue > 0) {
+    parts.push(
+      `${withoutValue} ${withoutValue === 1 ? "libero" : "liberi"} senza V, fuori dalla popolazione`,
+    );
+  }
+  if (withoutSurplus > 0) {
+    parts.push(
+      `${withoutSurplus} ${withoutSurplus === 1 ? "riga" : "righe"} senza prezzo atteso, in fondo senza surplus fabbricato`,
     );
   }
   if (withoutAppealPosition > 0) {
@@ -297,40 +423,43 @@ export function perMeNoteText(
 /**
  * TUTTO il testo del sottoblocco, in una stringa. Esiste per essere passato
  * alla guardia di deriva: una regex su questa stringa copre titolo, motivi,
- * teste, ancore, piano, posizioni e nota insieme, invece di sette asserzioni
- * che si dimenticano l'ottava. Riproduce SOLO ciò che il sottoblocco RENDE
- * davvero — una guardia che leggesse testo non renderizzato sorveglierebbe
- * un'altra pagina.
+ * teste, valori, prezzi, scarsità, ancore, piano, posizioni e nota insieme,
+ * invece di dieci asserzioni che si dimenticano l'undicesima. Riproduce SOLO
+ * ciò che il sottoblocco RENDE davvero — una guardia che leggesse testo non
+ * renderizzato sorveglierebbe un'altra pagina.
  *
  * IL TITOLO RESTA IN QUESTA STRINGA anche da quando non si disegna più (Pico,
  * 2026-08-31): non è testo non renderizzato, è testo reso fuori dalla vista e
  * dentro l'albero di accessibilità — è il nome che chi naviga a voce sente
- * entrando nel sottoblocco. Toglierlo di qui vorrebbe dire smettere di
- * sorvegliare l'unica frase che una persona sente per prima.
+ * entrando nel sottoblocco.
  */
 export function perMeSectionText(reading: PerMeReading): string {
   const out: string[] = [perMeTitleFor(reading)];
   if (reading.kind === "empty") {
     out.push(perMeEmptyText(reading.reason));
     if (perMeNoteApplies(reading)) {
-      out.push(perMeNoteText(reading.parameters, null, 0, 0));
+      out.push(perMeNoteText(reading.parameters, null, 0, 0, 0));
     }
     return out.join("\n");
   }
   for (const candidate of perMeShownCandidates(reading)) {
     out.push(perMeHeadText(candidate));
-    const surplus = perMeSurplusText(candidate);
-    if (surplus !== null) out.push(surplus);
-    out.push(perMeAppealText(candidate));
+    if (candidate.flagNow) out.push(PER_ME_NOW_MARK);
+    out.push(perMeValueText(candidate));
+    const price = perMePriceText(candidate);
+    const winNow = perMeWinNowText(candidate);
+    out.push(winNow === null ? price : `${price} · ${winNow}`);
+    out.push(`${perMeScarcityText(candidate)} · ${perMeAppealText(candidate)}`);
     out.push(perMeAnchorText(candidate));
-    out.push(perMePlanText(candidate));
+    out.push(perMePlanText(candidate, reading.plan.label));
   }
   out.push(
     perMeNoteText(
       reading.parameters,
-      reading.planVersion,
+      reading.plan,
+      reading.withoutValue,
+      reading.withoutSurplus,
       reading.withoutAppealPosition,
-      reading.withoutDeclaredValue,
     ),
   );
   return out.join("\n");
@@ -385,14 +514,9 @@ export function renderPerMeSection(
   //
   // RESTA NEL DOM, FUORI DALLA VISTA, e non è un ripiego: `aria-labelledby`
   // punta qui, e un titolo tolto (o messo a `display: none`) lascerebbe
-  // `#per-me-block` SENZA NOME ACCESSIBILE. L'alternativa — puntare
-  // l'etichetta all'occhiello di sopra — legherebbe questo modulo a un id che
-  // vive in src/main.ts e farebbe dire a chi naviga a voce «CHI CHIAMARE ORA»
-  // due volte, perdendo l'unica cosa che il titolo di qui aggiunge ancora: la
-  // forma per esteso, che compare solo quando ci sono righe da descrivere
-  // (`perMeTitleFor`). L'idioma del non-disegnato è quello che il repository
-  // ha già — `.listone-axis-tag__sr`, `.scheda-icona__sr` — e la sua misura
-  // sta in src/styles/perMe.css.
+  // `#per-me-block` SENZA NOME ACCESSIBILE. L'idioma del non-disegnato è
+  // quello che il repository ha già — `.listone-axis-tag__sr`,
+  // `.scheda-icona__sr` — e la sua misura sta in src/styles/perMe.css.
   const title = renderSchedaCardTitle(perMeTitleFor(reading), { id: "per-me-title" });
   title.classList.add("per-me__title--sr");
   section.appendChild(title);
@@ -420,20 +544,35 @@ export function renderPerMeSection(
       const head = document.createElement("span");
       head.className = "per-me-row__head";
       head.appendChild(line("per-me-row__name", perMeHeadText(candidate)));
-      // I DUE CRITERI D'ORDINE che non sono il piano, nello stesso blocco che
-      // avvolge: il surplus (criterio 2) prima dell'appetibilità (criterio 3),
-      // nello stesso ordine in cui ordinano. A 390px vanno a capo da soli e non
-      // costano una riga fissa per candidato. Il surplus compare solo dove
-      // esiste: l'assenza la dice la nota, una volta e contata.
-      const surplusText = perMeSurplusText(candidate);
-      if (surplusText !== null) {
-        head.appendChild(line("per-me-row__surplus", surplusText));
-      }
-      head.appendChild(line("per-me-row__appeal", perMeAppealText(candidate)));
+      // IL MARCATORE STA NELLA TESTA, accanto al nome: è una proprietà di
+      // QUESTO giocatore adesso, non una riga di dettaglio, e nella testa non
+      // costa una riga fissa perché il flex avvolge.
+      if (candidate.flagNow) head.appendChild(line("per-me-row__now", PER_ME_NOW_MARK));
       row.appendChild(head);
 
+      // I DUE NUMERI DEL CRITERIO 2, nello stesso blocco: `V` col suo
+      // marchio e la sottrazione che ne discende.
+      row.appendChild(line("per-me-row__value", perMeValueText(candidate)));
+
+      // IL PREZZO ATTESO coi suoi tre qualificatori, e accanto — mai fuso — il
+      // costo per vincerlo adesso.
+      const price = document.createElement("span");
+      price.className = "per-me-row__price";
+      price.appendChild(line("per-me-row__forecast", perMePriceText(candidate)));
+      const winNow = perMeWinNowText(candidate);
+      if (winNow !== null) price.appendChild(line("per-me-row__winnow", winNow));
+      row.appendChild(price);
+
+      // I DUE CONTEGGI DI SCARSITÀ più la posizione di appetibilità, che resta
+      // un fatto mostrato anche da quando non ordina più.
+      const scarcity = document.createElement("span");
+      scarcity.className = "per-me-row__scarcity";
+      scarcity.appendChild(line("per-me-row__alternatives", perMeScarcityText(candidate)));
+      scarcity.appendChild(line("per-me-row__appeal", perMeAppealText(candidate)));
+      row.appendChild(scarcity);
+
       row.appendChild(line("per-me-row__anchor", perMeAnchorText(candidate)));
-      row.appendChild(line("per-me-row__plan", perMePlanText(candidate)));
+      row.appendChild(line("per-me-row__plan", perMePlanText(candidate, reading.plan.label)));
       if (selected) row.appendChild(line("per-me-row__selected", PER_ME_SELECTED_MARK));
 
       row.addEventListener("click", () => onSelect(candidate.player));
@@ -448,9 +587,10 @@ export function renderPerMeSection(
     note.className = "per-me__note";
     note.textContent = perMeNoteText(
       reading.parameters,
-      reading.kind === "candidates" ? reading.planVersion : null,
+      reading.kind === "candidates" ? reading.plan : null,
+      reading.kind === "candidates" ? reading.withoutValue : 0,
+      reading.kind === "candidates" ? reading.withoutSurplus : 0,
       reading.kind === "candidates" ? reading.withoutAppealPosition : 0,
-      reading.kind === "candidates" ? reading.withoutDeclaredValue : 0,
     );
     section.appendChild(note);
   }

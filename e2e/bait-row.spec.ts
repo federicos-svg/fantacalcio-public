@@ -117,19 +117,25 @@ test("il sottoblocco mostra i candidati attesi, in ordine, dentro GIOCATORE SUGG
   await expect(note).toContainText("provenienza: storico d'asta misurato");
   await expect(note).toContainText("apertura a 1 cr");
   await expect(note).toContainText("almeno 1 stagione misurata per fatto");
-  await expect(note).toContainText("al massimo 3 righe (provvisorio");
+  // Era «(provvisorio — in attesa di conferma di Pico)»: il DTI ha proposto
+  // `rowsMax` come parametro dichiarato e Pico l'ha ratificato il 2026-08-31.
+  // Il letterale è condiviso col sottoblocco PER ME, e un test di modulo
+  // verifica che i due non lo dicano in due modi diversi.
+  await expect(note).toContainText("al massimo 3 righe (ratificato da Pico il 2026-08-31)");
 
   // Il blocco ospita DUE sottoblocchi: il segnaposto della prima metà non è
   // stato toccato, e il listone resta sotto (e2e/call-screen-order.spec.ts).
   const suggested = page.locator("#suggested-player");
   await expect(suggested).toContainText("GIOCATORE SUGGERITO — CHI CHIAMARE ORA");
   // La PRIMA metà non è più un segnaposto: è il sottoblocco «PER ME», che in
-  // questa scena non ha un piano rosa dichiarato e quindi dice quale
-  // dichiarazione gli manca invece di ordinare su un piano che non esiste.
+  // questa scena non ha né le previsioni servite né lo storico d'asta e quindi
+  // dice QUALE deposito gli manca invece di ordinare su numeri che non esistono.
   // L'asserzione è la stessa domanda di prima — «la prima metà c'è e dice
-  // qualcosa di onesto» — aggiornata al contenuto che adesso c'è davvero.
+  // qualcosa di onesto» — aggiornata al contenuto che adesso c'è davvero: era
+  // `plan-absent` fino al piano dinamico del 2026-08-31, e quel motivo non
+  // esiste più perché il piano non è più una dichiarazione da attendere.
   await expect(suggested).toContainText(PER_ME_TITLE_SHORT);
-  await expect(page.locator("#per-me-empty")).toHaveAttribute("data-reason", "plan-absent");
+  await expect(page.locator("#per-me-empty")).toHaveAttribute("data-reason", "no-forecast");
   expect(await page.evaluate(() =>
     document.getElementById("suggested-player")!.contains(document.getElementById("bait-block")),
   )).toBe(true);

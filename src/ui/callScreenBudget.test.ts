@@ -256,6 +256,10 @@ describe("le scelte che restano tali", () => {
       // La barra fissa del 2026-08-29: il totale non contabilizza più i suoi
       // 152 px, che vivono adesso in un budget senza guardie.
       "BARRA_FISSA_FUORI_DAL_TOTALE",
+      // Il sottoblocco PER ME dal 2026-08-31: questo mastro lo misura MUTO
+      // (78 px) perché la fixture non porta il deposito, mentre pieno ne
+      // misura 1002. La differenza è dichiarata qui, non condonata.
+      "PER_ME_POPOLATO_FUORI_DALLA_MISURA",
       // Era PROVA_1_MARGINE_ESAURITO fino al 2026-08-29, e diceva il contrario:
       // il margine è risalito da 2 a 115 px, ma per un trasloco e non per una
       // riparazione. Un identificativo che dice «esaurito» su un margine di 115

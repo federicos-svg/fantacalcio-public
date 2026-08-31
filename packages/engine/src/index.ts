@@ -67,6 +67,11 @@ export * from "./expectedPrice.js";
 // posto della targa del generatore — mai una media fra i due. Vedi
 // packages/engine/src/creditValue.ts.
 export * from "./creditValue.js";
+// `PLAN*` — IL PIANO DINAMICO (NOM-PROTOCOL-A §A.4): il completamento ottimo
+// del mio roster, funzione pura dello stato e ricalcolata a ogni evento —
+// nessun input manuale, nessun peso, nessuna finestra da indovinare. Vedi
+// packages/engine/src/dynamicPlan.ts.
+export * from "./dynamicPlan.js";
 // `E_o`, `drain`, `D` e `S_base` — LA SPESA ATTESA DEGLI ALTRI E IL DIVARIO
 // DELL'ESCA (NOM-PROTOCOL-A §A.5/§A.6): il tetto contabile di ciascun esposto
 // incrociato col prezzo di mercato e col sovrapprezzo INIETTATO dei suoi

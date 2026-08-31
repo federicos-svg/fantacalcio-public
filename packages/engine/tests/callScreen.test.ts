@@ -425,8 +425,8 @@ describe("callScreen — scelte del motore non ratificate, dichiarate nel dato",
    * per uno invece di contarli.
    */
   const CARRIED_OUTSIDE_THE_ENGINE: readonly UnratifiedChoiceId[] = [
-    "PER_ME_ORDER_APPEAL_BREAKS_SURPLUS_TIES",
-    "PER_ME_REQUIRES_COMPLETE_ROLE_PLAN",
+    "PER_ME_DECLARED_PLAN_FITS_ON_EXPECTED_PRICE",
+    "PER_ME_REQUIRES_ANCHOR_SCALE",
   ];
 
   it("ogni scelta aperta ha un motivo scritto, non solo un identificatore", () => {

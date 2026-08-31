@@ -1835,31 +1835,35 @@ function baitSectionProps(aState: AuctionState): BaitSectionProps {
  * successivo» — il piano rosa FILTRA, il surplus ORDINA chi ha passato il
  * filtro. La lettura è tutta in src/perMeCandidates.ts.
  *
- * `values: null`, E PERCHÉ NON È UNA DIMENTICANZA. Il surplus ha per primo
- * ingrediente il listino dei valori DICHIARATI da Pico (`DeclaredValueBook`,
- * packages/engine/src/declaredValues.js), e quel listino **non ha ancora una
- * sorgente in `src/`** — è la stessa mancanza per cui `valueBoxProps` passa
- * `call: null` e lo slot 4 del riquadro del valore dice `n/d`. Fabbricarne uno
- * qui (un valore dedotto dalla Qt.A, una media di ruolo) sarebbe inventare
- * l'ingrediente 2 di §D9, cioè far dire all'app che Pico ha dichiarato
- * qualcosa che non ha dichiarato. Il campo è OBBLIGATORIO nel contratto proprio
- * perché questa scelta sia scritta a ogni chiamata invece che dimenticata: con
- * `null` nessuna riga ha un surplus, il sottoblocco lo DICE riga per riga
- * («valore non dichiarato») e le conta nella nota, e l'ordine cade sui criteri
- * che restano. Il giorno in cui quel listino entra nell'app, questa riga passa
- * un libro vero e il criterio 2 si accende senza toccare né la lettura né la
- * vista.
+ * `values: null`, E PERCHÉ NON È PIÙ UN PANNELLO MUTO. Quel campo è
+ * l'OVERRIDE di `V` — il listino dei valori DICHIARATI da Pico
+ * (`DeclaredValueBook`, packages/engine/src/declaredValues.js) — e non ha
+ * ancora una sorgente in `src/`, come `valueBoxProps` non ha una `call`.
+ * Fabbricarne uno qui (un valore dedotto dalla Qt.A, una media di ruolo)
+ * sarebbe far dire all'app che Pico ha dichiarato qualcosa che non ha
+ * dichiarato. Il campo resta OBBLIGATORIO nel contratto proprio perché la
+ * scelta sia scritta a ogni chiamata invece che dimenticata — ma con `null`
+ * oggi NON si perde niente: `V` viene tutto dal generatore (§A.1), che basta,
+ * e il giorno in cui quel listino entra nell'app l'override comanda senza che
+ * né la lettura né la vista cambino.
  *
- * Le due memorie che legge sono quelle che l'app ha già: le righe del listone
- * (con la loro Qt.A e il loro indice di appetibilità) e il log d'asta (da cui
- * l'inflazione misurata). Nessuna sorgente nuova, nessun dato inventato.
+ * `planDraft: null` NON è un ripiego ed è il caso NORMALE: il pannello PIANO
+ * ROSA è stato rimosso e con lui la sola sorgente di una dichiarazione. Non è
+ * più un silenzio, perché il piano non è più una dichiarazione a monte: è
+ * `PLAN*`, il piano dinamico (§A.4), che si ricalcola dallo stato a ogni
+ * evento. Il giorno in cui una dichiarazione tornerà a esistere, comanderà lei.
  *
- * `planDraft: null` NON è un ripiego: il pannello PIANO ROSA è stato rimosso e
- * con lui la sola sorgente di una dichiarazione, quindi oggi non ne esiste
- * nessuna da passare. `perMeCandidates` conosce già questo esito e lo DICE
- * («nessun piano rosa dichiarato», src/perMeCandidates.ts): il primo criterio
- * dell'ordine resta spento e l'ordine cade su quelli che restano, invece di
- * essere calcolato su un piano indovinato.
+ * LE MEMORIE CHE LEGGE SONO QUELLE CHE L'APP HA GIÀ, e nessuna è nuova: le
+ * righe del listone (Qt.A, indice di appetibilità e previsioni servite dal
+ * deposito), il log d'asta (da cui l'inflazione misurata e `lastSeq`), lo
+ * storico d'asta runtime-local (da cui la curva rango→prezzo) e le riconferme
+ * dichiarate. Nessuna rete, nessuna sorgente nuova, nessun dato inventato.
+ *
+ * LA SOMMA DEI RINNOVI SI PASSA SOLO SE QUALCUNO L'HA DICHIARATA. Con zero
+ * riconferme in memoria non si passa uno `0`: si OMETTE il campo, e il motore
+ * usa il proprio ripiego dichiarato (489, §E) dicendo che è un ripiego. Uno
+ * zero direbbe «la lega ha speso zero in rinnovi», che è un'affermazione che
+ * nessuno ha fatto.
  */
 function perMeSectionProps(aState: AuctionState): PerMeSectionProps {
   const selected = state.call.selectedPlayer;
@@ -1869,6 +1873,11 @@ function perMeSectionProps(aState: AuctionState): PerMeSectionProps {
       source: state.poolSource,
       state: aState,
       log: state.log,
+      history: state.auctionHistory,
+      renewalsCount: state.confirmations.length,
+      ...(state.confirmations.length === 0
+        ? {}
+        : { renewalsSpend: state.confirmations.reduce((sum, c) => sum + c.price, 0) }),
       selfId: SELF_ID,
       planDraft: null,
       values: null,
