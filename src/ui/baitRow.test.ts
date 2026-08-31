@@ -27,11 +27,9 @@ import {
   BAIT_SELECTED_MARK,
   BAIT_TITLE,
   BAIT_TITLE_SHORT,
-  baitNoteApplies,
   baitTitleFor,
   baitEmptyText,
   baitHeadText,
-  baitNoteText,
   baitSectionText,
   baitShownCandidates,
 } from "./baitRow.js";
@@ -258,36 +256,55 @@ describe("la riga è UN giocatore: nome, ruolo, squadra — e nient'altro", () =
   });
 });
 
-// ─── I parametri, ispezionabili accanto ai numeri ────────────────────────────
+// ─── I parametri, ispezionabili NEL DATO e non più a schermo ─────────────────
 
-describe("la nota resta la targa della provenienza e i tre parametri, e basta", () => {
-  it("dichiara lo storico d'asta, l'apertura, la soglia di campione e il tetto righe", () => {
-    const note = baitNoteText(BAIT_PARAMETERS, SEASONS);
-    expect(note).toContain("provenienza: storico d'asta misurato");
-    expect(note).toContain("3 stagioni (2021/22 → 2023/24)");
-    expect(note).toContain("apertura a 1 cr");
-    expect(note).toContain("almeno 1 stagione misurata per fatto");
-    expect(note).toContain("al massimo 1 riga (ratificato da Pico il 2026-08-31)");
-    // Il singolare non è un vezzo: «1 righe» sarebbe la spia che il tetto è
-    // cambiato e la frase no.
-    expect(note).not.toContain("1 righe");
+describe("la nota non esiste più: i parametri restano nel dato", () => {
+  // «VIA DEL TUTTO» — Pico, 2026-08-31, messo davanti alla misura della nota
+  // gemella: 92 px di annotazione per 34 px di riga annotata. Qui costava anche
+  // di più — `#bait-block` popolato è sceso da 178,7 a 91 px a 390×844 — e Pico
+  // ha scelto di togliere la nota invece di asciugarla ancora. Questi test sono il ROVESCIO di quelli di ieri: al
+  // posto di «la nota dice X» c'è «nessun esito stampa X», voce per voce, così
+  // che il giorno in cui una tornasse a schermo il test lo dica col suo nome.
+  const PAROLE_DELLA_NOTA = [
+    "provenienza",
+    "storico d'asta misurato",
+    // «apertura a 1 cr» e non «apertura a»: la frase del silenzio
+    // `no-affordable-opening` dice legittimamente «apertura al prezzo base», ed
+    // è un motivo, non una nota. La voce vietata è il LETTERALE della nota.
+    "apertura a 1 cr",
+    "stagione misurata",
+    "stagioni misurate",
+    "al massimo",
+    "ratificato da Pico",
+    "provvisorio",
+  ];
+
+  it("nessun esito del sottoblocco stampa una parola della nota", () => {
+    const esiti = [
+      reading(),
+      reading({ candidates: [candidate({ alsoTopTier: true })], withoutAppealIndex: 1 }),
+      ...EMPTY_REASONS.map(emptyReading),
+    ];
+    for (const esito of esiti) {
+      const text = baitSectionText(esito);
+      for (const parola of PAROLE_DELLA_NOTA) {
+        expect(text, `«${parola}» in un esito «${esito.kind}»`).not.toContain(parola);
+      }
+    }
   });
 
-  it("il tetto delle righe DICHIARA la propria ratifica, e non è più provvisorio", () => {
-    // Era «provvisorio — in attesa di conferma di Pico»; ratificato da Pico il
-    // 2026-08-31, prima a 3 e poi — nella stessa giornata, decisione che
-    // supera la precedente — a 1.
-    expect(baitNoteText(BAIT_PARAMETERS, SEASONS)).toContain("ratificato da Pico");
-    expect(baitNoteText(BAIT_PARAMETERS, SEASONS)).not.toContain("provvisorio");
-  });
-
-  it("LA LETTURA È USCITA DALLA NOTA: niente contatore delle righe senza indice", () => {
-    // Era lettura, e questo pannello ha smesso di essere una lettura. Il fatto
-    // resta ispezionabile nel dato — `BaitReading.withoutAppealIndex` — e i
-    // test di src/baitCandidates.test.ts lo pinnano lì.
-    const note = baitNoteText(BAIT_PARAMETERS, SEASONS);
-    expect(note).not.toContain("senza indice");
-    expect(note).not.toContain("senza numero fabbricato");
+  it("i parametri restano NEL DATO, in ogni esito, e nessuno è stato tolto", () => {
+    // È la differenza fra «la vista mostra meno» e «il motore sa meno»: la
+    // seconda non è successa. `BaitReading.parameters` li porta anche nei
+    // silenzi, e `BAIT_PARAMETERS` resta esportato per chi voglia ispezionarli.
+    expect(BAIT_PARAMETERS.openingPrice).toBe(1);
+    expect(BAIT_PARAMETERS.minSeasonsMeasured).toBe(1);
+    expect(BAIT_PARAMETERS.rowsMax).toBe(1);
+    expect(BAIT_PARAMETERS.rowsMaxStatus).toContain("ratificato da Pico il 2026-08-31");
+    for (const reason of EMPTY_REASONS) {
+      expect(emptyReading(reason).parameters, reason).toEqual(BAIT_PARAMETERS);
+    }
+    expect(reading().parameters).toEqual(BAIT_PARAMETERS);
     expect(reading({ withoutAppealIndex: 2 })).toMatchObject({ withoutAppealIndex: 2 });
   });
 });
@@ -304,34 +321,25 @@ describe("il tetto di righe è quello dichiarato nell'esito", () => {
   });
 });
 
-describe("il blocco vuoto non recita parametri che non hanno governato niente", () => {
-  it("senza popolazione (no-pool, no-history) la nota non compare", () => {
-    for (const reason of ["no-pool", "no-history"] as const) {
-      expect(baitNoteApplies(emptyReading(reason)), reason).toBe(false);
-      expect(baitSectionText(emptyReading(reason))).not.toContain("apertura a");
+describe("il blocco vuoto dice il MOTIVO del silenzio, e nient'altro", () => {
+  it("in tutti e sei i silenzi il testo è il nome più la frase, due righe e basta", () => {
+    // La nota se n'è andata; il MOTIVO no, ed è il punto che la decisione di
+    // Pico non tocca: un pannello senza consiglio deve continuare a dire
+    // PERCHÉ, o «non lo so» diventa «non c'è nessuno».
+    for (const reason of EMPTY_REASONS) {
+      expect(baitSectionText(emptyReading(reason)).split("\n"), reason).toEqual([
+        BAIT_TITLE_SHORT,
+        baitEmptyText(reason),
+      ]);
     }
   });
 
-  it("negli altri quattro silenzi la nota resta per intero", () => {
-    for (const reason of ["no-open-role", "no-affordable-opening", "no-exposed", "below-sample"] as const) {
-      expect(baitNoteApplies(emptyReading(reason)), reason).toBe(true);
-      expect(baitSectionText(emptyReading(reason)), reason).toContain("apertura a 1 cr");
-      expect(baitSectionText(emptyReading(reason)), reason).toContain(
-        "ratificato da Pico il 2026-08-31",
-      );
-    }
-  });
-
-  it("con le righe la nota c'è sempre", () => {
-    expect(baitNoteApplies(reading())).toBe(true);
-    expect(baitSectionText(reading())).toContain("al massimo 1 riga");
-  });
-
-  it("i parametri restano nel DATO anche dove la vista non li stampa", () => {
-    // La regola è «la soglia ispezionabile accanto al numero che lascia
-    // passare»: senza numero la vista tace, ma `BaitReading.parameters` li
-    // porta comunque — chi legge l'esito non perde niente.
-    expect(emptyReading("no-history").parameters).toEqual(BAIT_PARAMETERS);
+  it("con le righe il testo è il nome esteso più la riga, e nient'altro", () => {
+    const shown = candidate();
+    expect(baitSectionText(reading({ candidates: [shown] })).split("\n")).toEqual([
+      BAIT_TITLE,
+      baitHeadText(shown),
+    ]);
   });
 });
 

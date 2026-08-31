@@ -35,13 +35,6 @@
   gap: 6px;
 }
 
-.bait__note {
-  font-size: 11px;
-  line-height: 1.45;
-  color: var(--text-sec);
-  margin-top: 8px;
-}
-
 .bait-row {
   display: flex;
   flex-direction: column;

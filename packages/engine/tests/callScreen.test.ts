@@ -455,6 +455,12 @@ describe("callScreen — scelte del motore non ratificate, dichiarate nel dato",
       // la lista che quella lettura porta è la stessa su ogni ramo, valore o
       // assenza che sia — e il suo contenuto è pinnato in
       // packages/engine/tests/creditValue.test.ts.
+      //
+      // DAL 2026-08-31 QUESTA LISTA È VUOTA, e lo spread resta apposta: le sue
+      // quattro letture sono state chiuse da `docs/DECISIONS.md` §«Cinque
+      // letture del motore dei pannelli di chiamata, chiuse in blocco», e i
+      // quattro id sono usciti anche dal vocabolario — se ne fosse rimasto uno,
+      // il confronto qui sotto lo dichiarerebbe orfano.
       ...CREDIT_VALUE_UNRATIFIED_CHOICES,
     ];
     for (const id of used)

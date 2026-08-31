@@ -78,6 +78,16 @@ export const RENEWAL_ACQUISITION = "riconferma";
  *
  * È iniettabile (`PriceCurveOptions.minBandSample`) perché resti un ingresso
  * ispezionabile e non una costante nascosta nel calcolo.
+ *
+ * RATIFICATO A 5 IL 2026-08-31 — `docs/DECISIONS.md` §«Cinque letture del
+ * motore dei pannelli di chiamata, chiuse in blocco», punto 5, che è l'unico
+ * dei cinque a essere un PARAMETRO di §E e non una regola di implementazione:
+ * lo status passa da «da ratificare» a chiuso, con provenienza `vice` e non
+ * `pico`. La ragione registrata è la stessa che questo commento portava — «la
+ * casa deve avere una sola risposta alla domanda quando un campione è
+ * abbastanza grande per parlare» — e il costo di sbagliare resta il più basso
+ * possibile: il valore non sposta un numero, cambia solo quante fasce restano
+ * mute, e ogni fascia muta si vede e si conta.
  */
 export const MIN_PRICE_BAND_SAMPLE = 5;
 

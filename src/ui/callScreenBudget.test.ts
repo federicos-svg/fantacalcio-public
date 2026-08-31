@@ -256,13 +256,14 @@ describe("le scelte che restano tali", () => {
       // La barra fissa del 2026-08-29: il totale non contabilizza più i suoi
       // 152 px, che vivono adesso in un budget senza guardie.
       "BARRA_FISSA_FUORI_DAL_TOTALE",
-      // Il sottoblocco PER ME dal 2026-08-31: questo mastro lo misura MUTO
-      // (78 px) perché la fixture non porta il deposito, mentre pieno ne
-      // misura 133,5 — erano 1002 finché la riga portava i nove fatti del DTI,
-      // e la riduzione a «un giocatore soltanto» (Pico) ha portato il divario
-      // da 924 a 55,5 px. La voce NON si chiude: la scena piena resta fuori
-      // dalla misura, e la differenza è dichiarata qui, non condonata.
-      "PER_ME_POPOLATO_FUORI_DALLA_MISURA",
+      // `PER_ME_POPOLATO_FUORI_DALLA_MISURA` NON È PIÙ IN QUESTO ELENCO, ed è
+      // la prima voce che si chiude invece di essere riscritta. Diceva che il
+      // mastro misura il sottoblocco PER ME MUTO (78 px) mentre la scena piena
+      // gli resta fuori: 924 px di divario, poi 55,5 dopo «un giocatore
+      // soltanto» (Pico). Tolte le due note il 2026-08-31 sera, la scena piena
+      // costa 34,5 px: il divario ha cambiato SEGNO e la misura CONTIENE il
+      // caso che dichiarava di non vedere. Se qualcuno la rimettesse senza
+      // rimettere anche il testo, questo confronto lo direbbe.
       // Era PROVA_1_MARGINE_ESAURITO fino al 2026-08-29, e diceva il contrario:
       // il margine è risalito da 2 a 115 px, ma per un trasloco e non per una
       // riparazione. Un identificativo che dice «esaurito» su un margine di 115

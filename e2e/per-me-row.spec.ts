@@ -14,14 +14,22 @@ import { PER_ME_TITLE_SHORT } from "../src/ui/perMeRow.js";
  * DOM vivo. Non è una soglia scelta: è la misura arrotondata per eccesso al
  * pixel, come fa il mastro del budget con le proprie allocazioni.
  *
- * ERA 1002 px, ED È 134 DAL 2026-08-31. Non è una compressione: è la riga
- * ridotta a nome, ruolo e squadra e il tetto delle righe portato a UNA — «un
- * giocatore soltanto», decisione di Pico. Dei 134 px che restano, 92 sono la
- * NOTA: la targa della provenienza e i parametri dichiarati costano oggi tre
- * volte e mezzo il consiglio che annotano, ed è un fatto misurato che vale la
- * pena guardare in faccia invece di lasciarlo implicito in un numero solo.
+ * 1002 -> 134 -> 35. Il primo salto è la riga ridotta a nome, ruolo e squadra
+ * col tetto delle righe portato a UNA («un giocatore soltanto», Pico,
+ * 2026-08-31). IL SECONDO È LA NOTA, TOLTA DEL TUTTO la sera dello stesso
+ * giorno: dei 134 px, 92 erano la nota e ~34 la riga — l'annotazione costava
+ * quasi il triplo del consiglio che annotava, e messo davanti alla misura Pico
+ * ha scelto «via del tutto». Misurato dopo: 34,22 px, cioè la riga e nient'altro.
+ *
+ * 35 E NON 34: il tetto arrotonda per ECCESSO al pixel, come il mastro, o
+ * starebbe sotto la misura che deve contenere.
+ *
+ * IL SOTTOBLOCCO PIENO COSTA ADESSO MENO DI QUELLO MUTO — 34,2 contro 78 px,
+ * perché la frase del silenzio è più lunga di una riga di consiglio — e questo
+ * chiude `PER_ME_POPOLATO_FUORI_DALLA_MISURA` in src/ui/callScreenBudget.ts:
+ * il mastro misura lo stato muto, e da oggi quello stato è il PEGGIORE dei due.
  */
-const PER_ME_FULL_HEIGHT_CEILING_PX = 134;
+const PER_ME_FULL_HEIGHT_CEILING_PX = 35;
 
 // «PER ME» — I DUE ESITI VERI DEL SOTTOBLOCCO, SUL DOM VIVO.
 //
@@ -101,20 +109,19 @@ test("con deposito e storico il pannello CONSIGLIA: un giocatore, con nome ruolo
   expect(riga).not.toContain("⚑"); // il marcatore del momento
   await expect(page.locator("#per-me-rows .per-me-row__now")).toHaveCount(0);
 
-  // LA NOTA RESTA, ASCIUGATA: la targa della provenienza e i parametri
-  // dichiarati. È ciò che rende il consiglio ispezionabile invece che oracolare
-  // — con UNA riga sola è l'unica cosa che permette di non fidarsi.
-  const note = page.locator("#per-me-note");
-  await expect(note).toContainText("V dal generatore e prezzo atteso dalla curva storica");
-  await expect(note).toContainText("piano ricalcolato adesso «NOM-DYN@-1»");
-  await expect(note).toContainText("campione minimo 5 (inflazione) e 5 (fascia di prezzo)");
-  await expect(note).toContainText("riserva 1 cr per ogni slot non ancora pianificato");
-  await expect(note).toContainText("1 riga al massimo (ratificato da Pico il 2026-08-31)");
-  await expect(note).not.toContainText("provvisorio");
-  // …e la LETTURA ne è uscita: niente ordine per esteso, niente contatori,
-  // niente elenco delle scelte non ratificate. Restano nel dato.
-  await expect(note).not.toContainText("ordine:");
-  await expect(note).not.toContainText("NON RATIFICATE");
+  // LA NOTA NON C'È PIÙ, DEL TUTTO — «via del tutto» (Pico, 2026-08-31), messo
+  // davanti alla misura: pesava 92 px contro i 34 della riga che annotava.
+  // L'elemento non esiste in nessuno dei due esiti, e le sue parole non
+  // ricompaiono altrove nel sottoblocco.
+  await expect(page.locator("#per-me-note")).toHaveCount(0);
+  const blocco = (await page.locator("#per-me-block").textContent()) ?? "";
+  expect(blocco).not.toContain("V dal generatore");
+  expect(blocco).not.toContain("curva storica");
+  expect(blocco).not.toContain("campione minimo");
+  expect(blocco).not.toContain("riserva 1 cr");
+  expect(blocco).not.toContain("al massimo");
+  expect(blocco).not.toContain("ratificato da Pico");
+  expect(blocco).not.toContain("NOM-DYN@");
 
   // NESSUN VERBO DI PREVISIONE O DI DESIDERIO nel testo reso: la guardia di
   // deriva vive in src/ui/perMeRow.test.ts, qui si verifica che ciò che arriva
@@ -195,7 +202,6 @@ test("il piano dinamico si RICALCOLA: comprato il primo, la lista cambia da sé"
   await bootServed(page);
 
   const primaNomi = await page.locator("#per-me-rows .per-me-row__name").allTextContents();
-  await expect(page.locator("#per-me-note")).toContainText("«NOM-DYN@-1»");
 
   // Il gesto vero: si porta il primo in asta e lo si assegna. Nessuna
   // previsione di durata è stata fatta — è il RICALCOLO a spostare la lista.
@@ -207,9 +213,14 @@ test("il piano dinamico si RICALCOLA: comprato il primo, la lista cambia da sé"
 
   const dopoNomi = await page.locator("#per-me-rows .per-me-row__name").allTextContents();
   expect(dopoNomi).not.toEqual(primaNomi);
-  // La versione del piano è la posizione nel log, e si è mossa con l'evento.
-  await expect(page.locator("#per-me-note")).not.toContainText("«NOM-DYN@-1»");
-  await expect(page.locator("#per-me-note")).toContainText("«NOM-DYN@");
+  // LA VERSIONE DEL PIANO NON SI LEGGE PIÙ A SCHERMO — la nota che la portava
+  // è stata tolta il 2026-08-31 («via del tutto», Pico) — e questa spec non la
+  // sostituisce con un'asserzione su un elemento che non c'è. Il fatto che il
+  // piano si sia riscritto è provato da CIÒ CHE SI VEDE: la riga consigliata è
+  // cambiata da sé, senza nessun gesto sul pannello. `planVersion` resta nel
+  // modello e pinnato da packages/engine/tests/dynamicPlan.test.ts e da
+  // src/perMeCandidates.test.ts.
+  await expect(page.locator("#per-me-note")).toHaveCount(0);
 
   expect(externalRequests).toEqual([]);
 });
@@ -234,8 +245,10 @@ test("senza le previsioni servite il sottoblocco dice QUALE deposito manca", asy
   // tacere per una dichiarazione che manca.
   await expect(empty).not.toContainText("piano rosa");
 
-  // SENZA POPOLAZIONE ORDINATA, IL BLOCCO NON RECITA PARAMETRI CHE NON HANNO
-  // GOVERNATO NIENTE: niente nota, e l'occhiello è il solo nome.
+  // IL MOTIVO DEL SILENZIO C'È, LA NOTA NO. Sono due elementi diversi con due
+  // compiti diversi, e solo il secondo se n'è andato: `#per-me-empty` qui sopra
+  // dice PERCHÉ il pannello tace — «non lo so» non deve diventare «non c'è
+  // nessuno» — mentre `#per-me-note` non esiste più in nessuno stato.
   await expect(page.locator("#per-me-note")).toHaveCount(0);
   await expect(page.locator("#per-me-title")).toHaveText(PER_ME_TITLE_SHORT);
 
@@ -290,27 +303,30 @@ test("il sottoblocco PIENO ha un tetto di regressione, misurato a 390×844", asy
     .locator("#per-me-block")
     .evaluate((el) => el.getBoundingClientRect().height);
 
-  // ⚠️ QUESTO NUMERO È UNA MISURA, NON UNA SCELTA. Era 1002 px quando la riga
-  // portava i nove fatti del DTI; è 133,5 da quando ne porta tre — nome, ruolo
-  // e squadra — e il tetto delle righe è UNO (Pico, 2026-08-31).
+  // ⚠️ QUESTO NUMERO È UNA MISURA, NON UNA SCELTA. 1002 px quando la riga
+  // portava i nove fatti del DTI; 133,5 da quando ne porta tre — nome, ruolo e
+  // squadra, tetto delle righe UNO (Pico, 2026-08-31); 34,2 da quando la nota
+  // non c'è più (Pico, la sera dello stesso giorno: «via del tutto»).
   //
-  // DOVE VANNO I 133,5 px, ed è il fatto che questa misura mette in luce: 92
-  // sono la NOTA e ~28 la riga. La targa della provenienza e i parametri
-  // dichiarati costano oggi più del triplo del consiglio che annotano. È voluto
-  // — senza di loro il consiglio sarebbe un oracolo — ma è un numero che
-  // qualcuno deve poter guardare, e per questo sta scritto qui e non solo in un
-  // totale.
+  // DOVE ERANO ANDATI I 133,5 px, ed è la misura che ha deciso: 92 la NOTA e
+  // ~34 la riga. Messo davanti al fatto che l'annotazione costava quasi il
+  // triplo del consiglio che annotava, Pico ha tolto la nota invece di
+  // asciugarla ancora. Quello che resta è la riga, e il blocco misura la riga.
   //
-  // IL MASTRO DEL BUDGET NON VEDE ANCORA QUESTA SCENA, e la lacuna resta
-  // dichiarata invece che nascosta: la fixture di
-  // e2e/call-screen-budget.spec.ts non porta il deposito, quindi là il
-  // sottoblocco è MUTO (78px) e l'allocazione di `giocatore-suggerito` è
-  // misurata su quello stato — vedi PER_ME_POPOLATO_FUORI_DALLA_MISURA in
-  // src/ui/callScreenBudget.ts, dove il divario è sceso da 924 a 55,5 px.
+  // IL MASTRO DEL BUDGET ADESSO CONTIENE QUESTA SCENA, e la lacuna che lo
+  // diceva si è chiusa: la fixture di e2e/call-screen-budget.spec.ts non porta
+  // il deposito, quindi là il sottoblocco è MUTO e misura 78 px — cioè PIÙ dei
+  // 34,2 che misura pieno, perché la frase del silenzio è più lunga di una riga
+  // di consiglio. L'allocazione di `giocatore-suggerito` è misurata sullo stato
+  // muto, che da oggi è il peggiore dei due: vedi il `why` di
+  // `giocatore-suggerito` in src/ui/callScreenBudget.ts.
   expect(
     Math.round(fullHeight),
     `il sottoblocco pieno costa ${Math.round(fullHeight)}px a 390×844 (78 da muto)`,
   ).toBeLessThanOrEqual(PER_ME_FULL_HEIGHT_CEILING_PX);
+  // …E NON È VUOTO. Un tetto così basso passerebbe anche su un blocco sparito:
+  // la riga c'è, e il pavimento lo dice.
+  expect(Math.round(fullHeight), "il sottoblocco pieno non è sparito").toBeGreaterThan(20);
 
   expect(externalRequests).toEqual([]);
 });

@@ -83,12 +83,31 @@ export type UnratifiedChoiceId =
   | "RELATIVE_TIES_BY_DECLARED_ORDER" // «superiore a lui» letto sull'ordine dichiarato, pareggi compresi
   | "RELATIVE_TAKEN_INCLUDES_CONFIRMED" // riconfermato = non prendibile, come per l'occupazione delle fasce
   | "RELATIVE_ORDER_INCLUDES_FONDO" // anche chi è oltre l'ultima fascia entra nel conto
-  | "RELATIVE_OWNERSHIP_BESIDE_THE_NUMBER" // «quanti ne ho presi io» resta accanto, non dentro
-  // ── Le quattro letture del valore in crediti (creditValue.ts) ─────────────
-  | "CREDIT_VALUE_REMAINDER_TIES_BY_VORP" // chi prende l'unità di resto a parità di resto
-  | "CREDIT_VALUE_BAND_CAP_IS_FLOORED_P90" // il tetto in interi è `floor(P90)`, mai sotto il pavimento
-  | "CREDIT_VALUE_CAP_DOES_NOT_REDISTRIBUTE" // i crediti che il tetto libera non tornano agli altri
-  | "CREDIT_VALUE_DECLARED_NOT_ROUNDED"; // il valore dichiarato si riporta com'è, non si arrotonda
+  | "RELATIVE_OWNERSHIP_BESIDE_THE_NUMBER"; // «quanti ne ho presi io» resta accanto, non dentro
+
+// ─── Le quattro letture del valore in crediti, CHIUSE ────────────────────────
+//
+// `CREDIT_VALUE_REMAINDER_TIES_BY_VORP`, `CREDIT_VALUE_BAND_CAP_IS_FLOORED_P90`,
+// `CREDIT_VALUE_CAP_DOES_NOT_REDISTRIBUTE` e `CREDIT_VALUE_DECLARED_NOT_ROUNDED`
+// SONO USCITE DA QUESTO VOCABOLARIO IL 2026-08-31, e non perché il codice sia
+// cambiato: perché un documento canonico le ha firmate. `docs/DECISIONS.md`
+// §«Cinque letture del motore dei pannelli di chiamata, chiuse in blocco»
+// (vice di Pico, su delega esplicita) le decide una per una — i pareggi sui
+// resti per `VORP_γ` decrescente poi chiave di listone; il tetto `floor(P90)`
+// mai sotto il pavimento; il tetto che NON ridistribuisce; il valore dichiarato
+// che non si arrotonda — e dichiara fra i propri atti «la chiusura delle
+// quattro letture aperte dichiarate nel motore, con questo record come
+// copertura».
+//
+// PERCHÉ ESCONO INVECE DI RESTARE CON UN'ANNOTAZIONE. Questo vocabolario è
+// MACCHINA-LEGGIBILE e ha un guardiano che non ammette orfani
+// (packages/engine/tests/callScreen.test.ts §«ogni scelta aperta ha un motivo
+// scritto»): un id che nessuna superficie porta più è morto, e un id che una
+// superficie porta è per definizione APERTO. Tenerle qui con la nota «però
+// sono chiuse» sarebbe la contraddizione che il record chiede di rimuovere,
+// scritta in prosa sopra un dato che dice il contrario. Il ricordo di che cosa
+// furono non si perde: sta nel record, che è la casa canonica, e in
+// ./creditValue.ts accanto alle righe che le implementano.
 
 /** Perché ciascuna scelta è aperta. Testo macchina-leggibile, non prosa libera. */
 export const UNRATIFIED_CHOICES: Readonly<Record<UnratifiedChoiceId, string>> =
@@ -137,28 +156,49 @@ export const UNRATIFIED_CHOICES: Readonly<Record<UnratifiedChoiceId, string>> =
       "chi sta oltre l'ultima fascia entra comunque nel conto dei liberi sopra di lui, al contrario di quanto fa la base del valore assoluto: la differenza è una lettura, non il dato",
     RELATIVE_OWNERSHIP_BESIDE_THE_NUMBER:
       "«quanti ne ho presi io e quanti gli avversari» restano fatti misurati ACCANTO al punteggio: farli entrare nel numero richiederebbe un coefficiente che nessuno ha dichiarato",
-    CREDIT_VALUE_REMAINDER_TIES_BY_VORP:
-      "il metodo dei resti maggiori è prescritto (GEN §D.11), ma chi prende l'unità di resto quando due resti sono uguali non lo dice nessun documento: qui decide il VORP più alto e poi la chiave di listone, che è un ordine totale e deterministico ma resta una scelta del motore",
-    CREDIT_VALUE_BAND_CAP_IS_FLOORED_P90:
-      "il tetto della fascia è una P90 misurata, cioè un numero con i decimali, e i crediti sono interi: si taglia a `floor(P90)` perché un tetto che arrotonda per eccesso lascia passare numeri sopra la P90, e mai sotto COST_FLOOR perché un credito è il minimo che il regolamento fa pagare. Nessuno ha firmato nessuna delle due letture",
-    CREDIT_VALUE_CAP_DOES_NOT_REDISTRIBUTE:
-      "quando il tetto della fascia abbassa un valore, i crediti che libera NON vengono ridistribuiti agli altri: la somma ripartita scende sotto B_res e lo si dichiara. Ridistribuirli sarebbe un secondo giro di ripartizione che il DTI non descrive",
-    CREDIT_VALUE_DECLARED_NOT_ROUNDED:
-      "il DTI parla di crediti interi e il valore dichiarato di Pico può non esserlo: qui si riporta com'è, perché arrotondare una dichiarazione significa modificarla. Nessuno ha scelto fra le due",
   };
 
 /**
- * Lo stato di ratifica che accompagna un giudizio costruito su almeno una
- * scelta aperta. `ratified` è il **letterale** `false`, non `boolean`: finché
- * la lista non è vuota nessun consumatore può ricevere un `true`, e il giorno
- * in cui Owner ratifica il cambio di tipo è un atto deliberato che passa da una
- * review — non un flag che qualcuno gira.
+ * Lo stato di ratifica che accompagna un giudizio del motore.
+ *
+ * ERA UN'INTERFACCIA CON `ratified: false` LETTERALE, e la ragione scritta era
+ * «finché la lista non è vuota nessun consumatore può ricevere un `true`, e il
+ * giorno in cui Owner ratifica il cambio di tipo è un atto deliberato che passa
+ * da una review — non un flag che qualcuno gira». QUEL GIORNO È ARRIVATO, per
+ * una sola superficie: `docs/DECISIONS.md` §«Cinque letture del motore dei
+ * pannelli di chiamata, chiuse in blocco» (vice di Pico, 2026-08-31, su delega
+ * esplicita) chiede fra i propri atti «la chiusura delle quattro letture aperte
+ * dichiarate nel motore, con questo record come copertura», e quelle quattro
+ * sono tutte e sole quelle di ./creditValue.ts.
+ *
+ * IL TIPO NUOVO NON ALLENTA LA GARANZIA, LA STRINGE. Un `boolean` nudo avrebbe
+ * permesso a chiunque di scrivere `ratified: true` continuando a elencare
+ * scelte aperte, che è esattamente la bugia che il letterale `false` esisteva
+ * per impedire. Qui l'unione LEGA le due cose: `true` si può scrivere SOLO
+ * insieme a una lista vuota, e una lista non vuota obbliga a `false`. Quello
+ * che prima era un divieto («nessuno può dire true») adesso è un'implicazione
+ * verificata dal compilatore su ogni chiamante: se dici `true`, non ti resta
+ * niente di aperto da elencare. Il verso opposto NON è chiuso dal tipo — una
+ * lista vuota con `false` è scrivibile — e non deve esserlo: «non ho scelte
+ * aperte» e «qualcuno ha firmato» restano due affermazioni diverse, e la
+ * seconda la fa un documento, non un `length === 0`.
+ *
+ * TUTTE LE ALTRE SUPERFICI NON SI MUOVONO. absoluteValue, relativeIndex,
+ * callScreen, opportunities e src/perMeCandidates.ts continuano a scrivere
+ * `ratified: false` con le proprie liste: il record chiude quattro letture, non
+ * il vocabolario, e nessuna delle loro è toccata.
  */
-export interface RatificationStatus {
-  readonly ratified: false;
-  /** Le scelte aperte su cui poggia QUESTO giudizio, in ordine dichiarato. */
-  readonly unratifiedChoices: readonly UnratifiedChoiceId[];
-}
+export type RatificationStatus =
+  | {
+      readonly ratified: false;
+      /** Le scelte aperte su cui poggia QUESTO giudizio, in ordine dichiarato. */
+      readonly unratifiedChoices: readonly UnratifiedChoiceId[];
+    }
+  | {
+      readonly ratified: true;
+      /** Vuota per costruzione: non c'è nessuna scelta aperta da dichiarare. */
+      readonly unratifiedChoices: readonly never[];
+    };
 
 /**
  * Il valore che Owner dichiara per un giocatore, in crediti.

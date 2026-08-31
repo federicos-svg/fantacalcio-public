@@ -63,13 +63,83 @@ describe("il passo 2 — l'ordine è quello di S, e i pareggi lo rendono totale"
     expect(compareDynamicPlanCandidates(basso, basso)).toBe(0);
   });
 
-  it("mescolare i candidati non cambia il piano", () => {
+  it("mescolare i candidati non cambia il piano — CON PAREGGI VERI", () => {
+    // PERCHÉ I PAREGGI SONO IL PUNTO, e non un ornamento della fixture. Con
+    // quattro candidati dai surplus tutti distinti questo test era verde
+    // qualunque cosa facesse il terzo criterio: `Array.prototype.sort` è
+    // stabile in V8, quindi con un confronto che non torna mai 0 l'ordine
+    // d'inserimento non può influire E IL RAMO DEL PAREGGIO NON VIENE MAI
+    // ESERCITATO. Dimostrava che `.sort()` funziona, non che l'ordine è
+    // TOTALE. Il caso che rompe l'invariante è esattamente l'altro: due
+    // candidati che il confronto NON riesce a separare finirebbero nel piano
+    // nell'ordine in cui sono arrivati, e la stessa popolazione mescolata
+    // darebbe due piani diversi.
+    //
+    // Qui tre attaccanti sono in PAREGGIO PIENO — stesso `S` e stesso `V` — e
+    // solo la chiave li separa; gli slot in A sono DUE, quindi il tie-break non
+    // decide un ordine cosmetico ma CHI ENTRA NEL PIANO e chi resta fuori.
+    const A_PARI_C = candidate("pl-a-pari-c", "A", 60, 40);
+    const A_PARI_A = candidate("pl-a-pari-a", "A", 60, 40);
+    const A_PARI_B = candidate("pl-a-pari-b", "A", 60, 40);
+
+    // IL PAREGGIO C'È DAVVERO, ed è asserito prima di usarlo: se un domani la
+    // fixture si sbilanciasse, questo test tornerebbe a provare `.sort()` in
+    // silenzio invece di provare il tie-break.
+    for (const [x, y] of [
+      [A_PARI_A, A_PARI_B],
+      [A_PARI_B, A_PARI_C],
+    ] as const) {
+      expect(x.surplus).toBe(y.surplus);
+      expect(x.value).toBe(y.value);
+      // I due criteri di sopra sono muti: è la CHIAVE a decidere, e decide.
+      expect(y.surplus - x.surplus || y.value - x.value).toBe(0);
+      expect(compareDynamicPlanCandidates(x, y)).toBeLessThan(0);
+    }
+
     const slots = { ...NO_SLOTS, A: 2, D: 1 };
-    const uno = dynamicPlan({ budget: 200, slotsRemaining: slots, candidates: [A_TOP, A_MID, A_LOW, D_ONE], lastSeq: 3 });
-    const due = dynamicPlan({ budget: 200, slotsRemaining: slots, candidates: [D_ONE, A_LOW, A_MID, A_TOP], lastSeq: 3 });
-    expect(due.targets).toEqual(uno.targets);
-    expect(due.perRole).toEqual(uno.perRole);
-    expect(due.planVersion).toBe(uno.planVersion);
+    const tutti = [D_ONE, A_PARI_C, A_PARI_A, A_PARI_B];
+    const piano = (candidates: readonly DynamicPlanCandidate[]) =>
+      dynamicPlan({ budget: 200, slotsRemaining: slots, candidates, lastSeq: 3 });
+
+    // Il piano di riferimento: la chiave sceglie `pari-a` e `pari-b`, e
+    // `pari-c` resta fuori per ruolo pieno. È il tie-break, osservabile.
+    const atteso = piano(tutti);
+    expect(atteso.targets.map((t) => t.playerId)).toEqual([
+      "pl-d-uno",
+      "pl-a-pari-a",
+      "pl-a-pari-b",
+    ]);
+    // `pari-c` non entra, e il piano non lo conta nemmeno fra gli scartati per
+    // ruolo pieno: chiuso il terzo slot il ciclo si ferma e lui non viene mai
+    // esaminato. Ciò che conta qui è che sia FUORI, e che a deciderlo sia stata
+    // la chiave e non l'ordine d'arrivo.
+    expect(withinDynamicPlan(atteso, "pl-a-pari-a")).toBe(true);
+    expect(withinDynamicPlan(atteso, "pl-a-pari-b")).toBe(true);
+    expect(withinDynamicPlan(atteso, "pl-a-pari-c")).toBe(false);
+
+    // TUTTE E 24 LE PERMUTAZIONI, non due: con un pareggio a tre l'ordine
+    // d'inserimento ha 24 modi di essere sbagliato e sceglierne due sarebbe
+    // scegliere quali buchi guardare.
+    const permutazioni = <T,>(items: readonly T[]): readonly (readonly T[])[] =>
+      items.length <= 1
+        ? [items]
+        : items.flatMap((item, i) =>
+            permutazioni([...items.slice(0, i), ...items.slice(i + 1)]).map((rest) => [
+              item,
+              ...rest,
+            ]),
+          );
+
+    const ordini = permutazioni(tutti);
+    expect(ordini).toHaveLength(24);
+    for (const ordine of ordini) {
+      const etichetta = ordine.map((c) => c.playerId).join(",");
+      const p = piano(ordine);
+      expect(p.targets, etichetta).toEqual(atteso.targets);
+      expect(p.perRole, etichetta).toEqual(atteso.perRole);
+      expect(p.planVersion, etichetta).toBe(atteso.planVersion);
+      expect(p.targetIds, etichetta).toEqual(atteso.targetIds);
+    }
   });
 });
 

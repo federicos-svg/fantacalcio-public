@@ -50,6 +50,7 @@ import {
   perMeShownCandidates,
   resetPerMeAnchorCache,
   type PerMeCandidate,
+  type PerMeInput,
   type PerMeReading,
 } from "./perMeCandidates.js";
 import type { RolePlanDraft } from "./rolePlan.js";
@@ -620,12 +621,47 @@ describe("le degradazioni §D, un gradino per test", () => {
     }
   });
 
-  it("D.6 — i profili confermati non entrano qui: nessun effetto", () => {
-    // Stesso esito con e senza qualunque cosa riguardi i profili: questo layer
-    // non ne conosce l'esistenza, e due letture identiche lo mostrano.
-    expect(candidatesOf(read()).map((c) => c.playerId)).toEqual(
-      candidatesOf(read()).map((c) => c.playerId),
+  it("D.6 — i profili confermati non entrano qui: nessun canale, PER COSTRUZIONE DEL TIPO", () => {
+    // CHE COSA PROVAVA QUESTO TEST FINO AL 2026-08-31, e non era il gradino:
+    // confrontava `read()` con `read()`, cioè una lettura con se stessa, senza
+    // variare niente. Verde o rosso, diceva solo che `read()` è deterministica
+    // — cosa vera e coperta altrove — mentre il gradino D.6 è un'altra cosa:
+    // «nessun effetto PER COSTRUZIONE DEL TIPO», perché un canale `profiles`
+    // in ingresso NON ESISTE. Un test che varia un ingresso inesistente non si
+    // può scrivere; quello che si può scrivere è la prova che l'ingresso non
+    // c'è, ed è più forte — non dipende da nessuna fixture.
+    //
+    // COME REGGE. L'oggetto qui sotto è tipato `Record<keyof Required<PerMeInput>, true>`:
+    // `tsc --noEmit` (npm run typecheck) rifiuta una chiave mancante E una
+    // chiave di troppo, quindi l'elenco È il tipo, letto a runtime. Il giorno
+    // in cui qualcuno aprisse un canale `profiles` in `PerMeInput`, il
+    // typecheck lo costringerebbe ad aggiungerlo qui e l'asserzione
+    // diventerebbe rossa col nome della chiave nuova, invece di restare verde
+    // per inerzia.
+    const CANALI_DI_INGRESSO: Readonly<Record<keyof Required<PerMeInput>, true>> = {
+      pool: true,
+      source: true,
+      state: true,
+      log: true,
+      history: true,
+      renewalsCount: true,
+      renewalsSpend: true,
+      values: true,
+      selfId: true,
+      planDraft: true,
+    };
+    const chiavi = Object.keys(CANALI_DI_INGRESSO);
+    // La contro-prova: l'elenco è popolato davvero, e la regex morde.
+    expect(chiavi.length).toBeGreaterThan(5);
+    expect(["profiles", "opponentProfiles", "profili"].filter((k) => /profil/i.test(k))).toHaveLength(
+      3,
     );
+    expect(chiavi.filter((k) => /profil/i.test(k))).toEqual([]);
+
+    // E nulla di ciò che il motore produce porta un fatto di profilo: il
+    // candidato non ha un canale d'uscita che il gradino potrebbe aggirare.
+    const uscite = Object.keys(candidatesOf(read())[0]!);
+    expect(uscite.filter((k) => /profil/i.test(k))).toEqual([]);
   });
 
   it("D.7 — fascia di rango senza osservazioni: niente prezzo atteso, riga in coda, contata", () => {

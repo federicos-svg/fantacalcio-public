@@ -390,9 +390,20 @@ describe("Fase 2 external append-only registry", () => {
 });
 
 describe("Fase 2 isolation invariants", () => {
-  it("is not imported by the live UI or hard-safe src path", () => {
-    const repoRoot = resolve(import.meta.dirname, "../../..");
-    const liveRoot = join(repoRoot, "src");
+  // IL PERIMETRO SORVEGLIATO È QUELLO DICHIARATO: `src/` E IL MOTORE.
+  //
+  // Fino al 2026-08-31 questo blocco camminava SOLO su `src/`, mentre il
+  // divieto è sempre stato dichiarato «da `src/` e dal motore». Il buco non era
+  // teorico: `packages/engine/src/priceHistory.ts`, `expectedPrice.ts`,
+  // `creditValue.ts`, `dynamicPlan.ts`, `baitDrain.ts` e
+  // `packages/opponent-profiles/src/expectedSpend.ts` — circa 2.500 righe
+  // arrivate in pochi giorni — non venivano mai letti da nessuna guardia. Non
+  // c'era violazione (verificata a mano), ma la garanzia automatica non
+  // copriva più il punto dove il rischio si era spostato.
+  const ISOLATED_ROOTS = ["src", "packages/engine/src", "packages/opponent-profiles/src"];
+
+  /** I file sorvegliati di una radice: `.ts`/`.tsx`, esclusi i test. */
+  const sourceFiles = (root: string): readonly string[] => {
     const files: string[] = [];
     const walk = (directory: string): void => {
       for (const entry of readdirSync(directory)) {
@@ -401,10 +412,99 @@ describe("Fase 2 isolation invariants", () => {
         else if (/\.(ts|tsx)$/.test(entry) && !entry.endsWith(".test.ts")) files.push(path);
       }
     };
-    walk(liveRoot);
-    const imports = files.map((path) => readFileSync(path, "utf8")).join("\n");
+    walk(root);
+    return files;
+  };
+
+  /**
+   * GLI SPECIFICATORI DI IMPORT, non il testo intero, ed è una necessità del
+   * perimetro nuovo: il motore NOMINA legittimamente questo pacchetto nei
+   * propri commenti — `packages/engine/src/tiers.ts` dichiara da dove viene
+   * l'ordine di appetibilità, `identityName.ts` dichiara di quale
+   * normalizzazione è gemello — e una guardia su testo grezzo le leggerebbe
+   * come violazioni, costringendo a riscrivere la documentazione per far
+   * passare il test. Quello che il divieto vieta è DIPENDERE, cioè importare;
+   * si estrae quindi la stringa di ogni `from`, `import(...)`, `require(...)`
+   * e `import "…"` e si guarda solo quella.
+   */
+  const importSpecifiers = (source: string): readonly string[] => {
+    const found: string[] = [];
+    const patterns = [
+      /\bfrom\s*["']([^"']+)["']/g,
+      /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
+      /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g,
+      /\bimport\s+["']([^"']+)["']/g,
+    ];
+    for (const pattern of patterns) {
+      for (const match of source.matchAll(pattern)) found.push(match[1]!);
+    }
+    return found;
+  };
+
+  it("is not imported by the live UI or hard-safe src path", () => {
+    const repoRoot = resolve(import.meta.dirname, "../../..");
+    const liveRoot = join(repoRoot, "src");
+    const imports = sourceFiles(liveRoot)
+      .map((path) => readFileSync(path, "utf8"))
+      .join("\n");
     expect(imports).not.toContain("packages/appeal-index");
     expect(imports).not.toContain("@fantacalcio/appeal-index");
+  });
+
+  it("is not imported by the engine or the opponent-profiles package either", () => {
+    // LA CONTRO-PROVA È NEL CONTEGGIO, e non è cerimoniale: una guardia che
+    // camminasse su una radice vuota (rinominata, spostata) sarebbe verde
+    // senza aver letto niente. Qui si pretende che i file letti ci siano e che
+    // i moduli arrivati di recente siano fra quelli.
+    const repoRoot = resolve(import.meta.dirname, "../../..");
+    const watched = ISOLATED_ROOTS.flatMap((root) => sourceFiles(join(repoRoot, root)));
+    expect(watched.length).toBeGreaterThan(60);
+    for (const recent of [
+      "packages/engine/src/priceHistory.ts",
+      "packages/engine/src/expectedPrice.ts",
+      "packages/engine/src/creditValue.ts",
+      "packages/engine/src/dynamicPlan.ts",
+      "packages/engine/src/baitDrain.ts",
+      "packages/opponent-profiles/src/expectedSpend.ts",
+      "src/perMeCandidates.ts",
+      "src/baitCandidates.ts",
+    ]) {
+      expect(watched, recent).toContain(join(repoRoot, recent));
+    }
+
+    for (const path of watched) {
+      for (const specifier of importSpecifiers(readFileSync(path, "utf8"))) {
+        expect(specifier, `${path} importa «${specifier}»`).not.toMatch(/appeal-index/);
+      }
+    }
+  });
+
+  it("the guard bites: an import of appeal-index is refused wherever it appears", () => {
+    // CONTRO-PROVA DELL'ESTRATTORE. Una regex negata su un insieme che potrebbe
+    // essere vuoto è verde e non prova niente: prima di negare, si prova che le
+    // quattro forme di import vengono davvero viste — comprese quelle che un
+    // modulo del motore userebbe per raggiungere questo pacchetto.
+    const vietati = [
+      'import { composeAppealIndexComponents } from "../../appeal-index/src/appealIndex.js";',
+      'import type { FeatureRow } from "@fantacalcio/appeal-index";',
+      'const m = await import("../../appeal-index/src/report.js");',
+      'const m = require("packages/appeal-index/src/dataset.js");',
+      'import "../../appeal-index/src/types.js";',
+    ];
+    for (const riga of vietati) {
+      const specifiers = importSpecifiers(riga);
+      expect(specifiers.length, riga).toBeGreaterThan(0);
+      expect(specifiers.some((s) => /appeal-index/.test(s)), riga).toBe(true);
+    }
+    // …e NON morde su ciò che il motore usa davvero, né sui commenti che
+    // nominano il pacchetto: se lo facesse, il test qui sopra sarebbe verde
+    // per la ragione sbagliata e la documentazione andrebbe riscritta.
+    expect(importSpecifiers('import { hardReserve } from "./auction.js";')).toEqual([
+      "./auction.js",
+    ]);
+    expect(
+      importSpecifiers("// packages/appeal-index/src/nameNormalization.ts's normalizePlayerName()"),
+    ).toEqual([]);
   });
 
   it("has no receipt, gate or authority fields in passive output", () => {

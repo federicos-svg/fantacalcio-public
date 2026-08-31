@@ -31,17 +31,21 @@
 // scelta conta più di prima, non meno: è cambiato solo che cosa la vista
 // disegna di ciò che il motore ha già deciso.
 //
+// LA NOTA NON C'È PIÙ, DEL TUTTO — Pico, 2026-08-31. Era già asciugata a due
+// cose (targa della provenienza e parametri dichiarati) e pesava comunque 92 px
+// contro i 34 della riga che annotava: messo davanti alla misura, Pico ha
+// scelto «via del tutto». `perMeNoteText` e `#per-me-note` non esistono più.
+// I DATI CHE LA NOTA LEGGEVA NON SE NE VANNO CON LEI: `PerMeReading.
+// ratification`, `PER_ME_UNRATIFIED_CHOICES`, `withoutValue`, `withoutSurplus`,
+// `withoutAppealPosition`, `parameters` e l'etichetta del piano restano nel
+// modello e pinnati dai test del motore e di src/perMeCandidates.test.ts.
+// Sparisce la vista, non il dato.
+//
 // QUELLO CHE RESTA, E NON PER INERZIA:
-//  - I MOTIVI DEL SILENZIO. Sette frasi chiuse: un pannello che non ha un
-//    consiglio da dare deve dire PERCHÉ, altrimenti «non lo so» e «non c'è
-//    nessuno» diventano la stessa cosa a schermo.
-//  - LA NOTA, ASCIUGATA. Restano la targa della provenienza e i parametri
-//    dichiarati (compreso il tetto delle righe col suo stato di ratifica): è
-//    ciò che rende il consiglio ISPEZIONABILE e lo distingue da un oracolo.
-//    Sono usciti l'ordine per esteso, le letture non ratificate e i tre
-//    contatori delle assenze — vivono nel dato (`PerMeReading.ratification`,
-//    `withoutValue`, `withoutSurplus`, `withoutAppealPosition`) e nei test del
-//    motore, non più a schermo.
+//  - I MOTIVI DEL SILENZIO. Sette frasi chiuse, e NON sono la nota: `#per-me-empty`
+//    coi suoi sette `data-reason` è un altro elemento con un altro compito. Un
+//    pannello che non ha un consiglio da dare deve dire PERCHÉ, altrimenti «non
+//    lo so» e «non c'è nessuno» diventano la stessa cosa a schermo.
 //  - IL NOME ACCESSIBILE. Il titolo resta nel DOM fuori dalla vista: è lui a
 //    dare il nome a `#per-me-block` via `aria-labelledby`.
 //
@@ -51,8 +55,6 @@
 import type {
   PerMeCandidate,
   PerMeEmptyReason,
-  PerMeParameters,
-  PerMePlanReading,
   PerMeReading,
 } from "../perMeCandidates.js";
 import { perMeShownCandidates } from "../perMeCandidates.js";
@@ -116,90 +118,21 @@ export function perMeEmptyText(reason: PerMeEmptyReason): string {
   }
 }
 
-/**
- * LA NOTA COMPARE SOLO DOVE UN PARAMETRO HA GOVERNATO QUALCOSA — stessa regola,
- * e stessa ragione di altezza, di `baitNoteApplies`.
- *
- * Con le righe la nota c'è per intero. Nei due silenzi che nascono DOPO la
- * misura — `no-free-in-open-roles` e `no-affordable` — la nota resta perché lì
- * un parametro ha davvero deciso. Negli altri cinque esiti nessun numero è mai
- * stato prodotto: recitare i parametri sarebbe elencare soglie che non hanno
- * governato niente.
- */
-export function perMeNoteApplies(reading: PerMeReading): boolean {
-  return (
-    reading.kind === "candidates" ||
-    reading.reason === "no-free-in-open-roles" ||
-    reading.reason === "no-affordable"
-  );
-}
-
 /** «Nome (A · Inter)» — chi è, in una riga. */
 export function perMeHeadText(candidate: PerMeCandidate): string {
   return `${candidate.player.name} (${candidate.role} · ${candidate.player.club})`;
 }
 
 /**
- * LA NOTA, ASCIUGATA AL MINIMO CHE TIENE IN PIEDI L'ISPEZIONE — decisione di
- * Pico del 2026-08-31, la stessa che ha ridotto la riga a nome, ruolo e
- * squadra.
- *
- * DUE COSE, E DUE SOLE, PERCHÉ SONO LE DUE CHE DISTINGUONO UN CONSIGLIO DA UN
- * ORACOLO:
- *
- *  1. LA TARGA DELLA PROVENIENZA — da dove vengono i numeri che HANNO SCELTO
- *     questo giocatore («V dal generatore e prezzo atteso dalla curva
- *     storica»), e quale piano ha filtrato, con la sua etichetta e la sua
- *     versione. Con una riga sola la scelta pesa più di prima: sapere chi l'ha
- *     fatta è l'unica cosa che permette di non fidarsi.
- *  2. I PARAMETRI DICHIARATI — i due campioni minimi, la riserva dura per slot
- *     e il tetto delle righe COL SUO STATO DI RATIFICA. Sono le soglie che
- *     hanno lasciato passare quella riga e non un'altra.
- *
- * UNA DICHIARAZIONE DI PIANO ROTTA RESTA DETTA QUI, ed è ancora provenienza:
- * l'etichetta dice «piano ricalcolato adesso» proprio perché la dichiarazione
- * di Pico non ha retto, e tacerlo farebbe sembrare dichiarato un piano che non
- * lo è.
- *
- * CHE COSA NE È USCITO, e dove vive adesso. L'ordine per esteso, le due letture
- * non ratificate e i tre contatori delle assenze non si stampano più: erano
- * lettura, e questo pannello ha smesso di essere una lettura. Restano
- * ISPEZIONABILI NEL DATO — `PerMeReading.ratification`,
- * `PER_ME_UNRATIFIED_CHOICES`, `withoutValue`, `withoutSurplus`,
- * `withoutAppealPosition` — e pinnati dai test del motore e di
- * src/perMeCandidates.test.ts, che nessuno di questi cambiamenti tocca.
- */
-export function perMeNoteText(
-  parameters: PerMeParameters,
-  plan: PerMePlanReading | null,
-): string {
-  const parts = [
-    "V dal generatore e prezzo atteso dalla curva storica" +
-      (plan === null ? "" : `, ${plan.label} «${plan.planVersion}»`),
-    `campione minimo ${parameters.minInflationSample} (inflazione) e ${parameters.minPriceBandSample} (fascia di prezzo)`,
-    `riserva ${parameters.costFloor} cr per ogni slot non ancora pianificato`,
-    `${parameters.rowsMax} ${parameters.rowsMax === 1 ? "riga" : "righe"} al massimo (${parameters.rowsMaxStatus})`,
-  ];
-  if (plan !== null && plan.kind === "dynamic" && plan.declaredIssue !== null) {
-    parts.push(
-      plan.declaredIssue === "plan-incomplete"
-        ? "la tua dichiarazione di piano è a metà: comanda il piano ricalcolato"
-        : "la tua dichiarazione di piano è stata rifiutata dal motore: comanda il piano ricalcolato",
-    );
-  }
-  return parts.join(" · ");
-}
-
-/**
  * TUTTO il testo del sottoblocco, in una stringa. Esiste per essere passato
- * alla guardia di deriva: una regex su questa stringa copre titolo, motivi,
- * teste e nota insieme, invece di quattro asserzioni che si dimenticano la
- * quinta. Riproduce SOLO ciò che il sottoblocco RENDE davvero — una guardia
- * che leggesse testo non renderizzato sorveglierebbe un'altra pagina.
+ * alla guardia di deriva: una regex su questa stringa copre titolo, motivi e
+ * teste insieme, invece di tre asserzioni che si dimenticano la quarta.
+ * Riproduce SOLO ciò che il sottoblocco RENDE davvero — una guardia che
+ * leggesse testo non renderizzato sorveglierebbe un'altra pagina.
  *
  * È PIÙ CORTO DI IERI PERCHÉ LA PAGINA LO È, non perché la guardia guardi
- * meno: la riga porta nome, ruolo e squadra, e non c'è altro testo reso da
- * sorvegliare.
+ * meno: la riga porta nome, ruolo e squadra, la nota non si stampa più (Pico,
+ * 2026-08-31), e non c'è altro testo reso da sorvegliare.
  *
  * IL TITOLO RESTA IN QUESTA STRINGA anche da quando non si disegna più (Pico,
  * 2026-08-31): non è testo non renderizzato, è testo reso fuori dalla vista e
@@ -210,15 +143,11 @@ export function perMeSectionText(reading: PerMeReading): string {
   const out: string[] = [perMeTitleFor(reading)];
   if (reading.kind === "empty") {
     out.push(perMeEmptyText(reading.reason));
-    if (perMeNoteApplies(reading)) {
-      out.push(perMeNoteText(reading.parameters, null));
-    }
     return out.join("\n");
   }
   for (const candidate of perMeShownCandidates(reading)) {
     out.push(perMeHeadText(candidate));
   }
-  out.push(perMeNoteText(reading.parameters, reading.plan));
   return out.join("\n");
 }
 
@@ -312,16 +241,9 @@ export function renderPerMeSection(
     section.appendChild(rows);
   }
 
-  if (perMeNoteApplies(reading)) {
-    const note = document.createElement("p");
-    note.id = "per-me-note";
-    note.className = "per-me__note";
-    note.textContent = perMeNoteText(
-      reading.parameters,
-      reading.kind === "candidates" ? reading.plan : null,
-    );
-    section.appendChild(note);
-  }
+  // NESSUNA NOTA. `#per-me-note` non esiste più in nessuno dei due esiti — «via
+  // del tutto» (Pico, 2026-08-31). `#per-me-empty` qui sopra, invece, resta: è
+  // il MOTIVO DEL SILENZIO, un altro elemento con un altro compito.
 
   return section;
 }

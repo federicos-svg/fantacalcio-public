@@ -31,9 +31,21 @@
 // qualcuno abboccherà, e dirlo sarebbe una previsione di comportamento, cioè
 // la cosa che l'intero pacchetto avversari vieta.
 //
-// LA NOTA RESTA, ASCIUGATA: la targa della provenienza e i tre parametri
-// dichiarati. È ciò che rende il consiglio ISPEZIONABILE e lo distingue da un
-// oracolo.
+// LA NOTA NON C'È PIÙ, DEL TUTTO — Pico, 2026-08-31. Messo davanti alla
+// misura della gemella `#per-me-note` — 92 px di annotazione per 34 px di
+// riga annotata, quasi il triplo del consiglio che annotava — Pico ha scelto
+// «via del tutto» per entrambi i pannelli. Qui la nota costava anche di più:
+// `#bait-block` popolato è passato da 178,7 a 91 px, cioè 87,7 px di sola
+// annotazione (misurato a 390×844). La targa della provenienza, i tre
+// parametri e il tetto delle righe non si stampano più da nessuna parte di
+// questo sottoblocco. Restano ISPEZIONABILI NEL DATO,
+// dove erano già: `BaitReading.parameters` li porta in ogni esito,
+// `BAIT_PARAMETERS` è esportato, e src/baitCandidates.test.ts li pinna lì.
+// Sparisce la vista, non il dato.
+//
+// I MOTIVI DEL SILENZIO NON SONO LA NOTA E NON SE NE VANNO CON LEI. `#bait-empty`
+// coi suoi sei `data-reason` resta intero: un pannello senza consiglio deve
+// continuare a dire PERCHÉ, o «non lo so» diventa «non c'è nessuno».
 //
 // IL GESTO È QUELLO DEL LISTONE, E LO È DAVVERO. La riga chiama
 // `selectListonePlayer()` — l'UNICA via che arma la CTA «Avvia» — con la
@@ -48,10 +60,8 @@
 import type {
   BaitCandidate,
   BaitEmptyReason,
-  BaitParameters,
   BaitReading,
 } from "../baitCandidates.js";
-import { seasonsSpan } from "./liveFacts.js";
 import type { ListonePlayer } from "./listone.js";
 import { renderSchedaCardTitle } from "./schedaCard.js";
 
@@ -117,66 +127,9 @@ export function baitEmptyText(reason: BaitEmptyReason): string {
   }
 }
 
-/**
- * LA NOTA DEI PARAMETRI COMPARE SOLO DOVE UN PARAMETRO HA GOVERNATO QUALCOSA.
- *
- * La regola dichiarata è «la soglia in vigore ispezionabile ACCANTO AL NUMERO
- * CHE LASCIA PASSARE». Con `no-pool` e `no-history` non c'è nessun numero: la
- * popolazione non è mai esistita, nessun cancello ha girato, nessuna soglia ha
- * morso. Recitare lì «apertura a 1 cr · almeno 1 stagione misurata · al massimo
- * 3 righe» non è ispezionare una soglia accanto a un numero, è elencare
- * parametri che non hanno governato niente — e costava 64px su 844 in uno stato
- * in cui il blocco non ha nulla da dire (misurato a 390px).
- *
- * Negli altri quattro esiti la nota RESTA per intero, e sono esattamente quelli
- * in cui un parametro ha deciso il silenzio: `no-affordable-opening` è il prezzo
- * di apertura, `below-sample` è la soglia di stagioni, `no-open-role` e
- * `no-exposed` hanno avuto una popolazione vera su cui le soglie erano in
- * vigore.
- *
- * I PARAMETRI RESTANO ISPEZIONABILI NEL DATO in ogni caso: `BaitReading.
- * parameters` li porta anche negli esiti vuoti, e `BAIT_PARAMETERS` è
- * esportato. Qui cambia solo se la VISTA li stampa.
- */
-export function baitNoteApplies(reading: BaitReading): boolean {
-  return reading.kind === "candidates" || (reading.reason !== "no-pool" && reading.reason !== "no-history");
-}
-
 /** «Nome (A · Inter)» — chi è, in una riga. */
 export function baitHeadText(candidate: BaitCandidate): string {
   return `${candidate.player.name} (${candidate.role} · ${candidate.player.club})`;
-}
-
-/**
- * LA NOTA, ASCIUGATA AL MINIMO CHE TIENE IN PIEDI L'ISPEZIONE — decisione di
- * Pico del 2026-08-31, la stessa che ha ridotto la riga a nome, ruolo e
- * squadra.
- *
- * DUE COSE, E DUE SOLE. La TARGA DELLA PROVENIENZA — «storico d'asta
- * misurato», con l'arco di stagioni su cui poggia — e i TRE PARAMETRI in
- * vigore, ciascuno accanto al numero che governa: il prezzo di apertura che
- * apre il cancello, la soglia di stagioni sotto cui un fatto non conta, e il
- * tetto delle righe col suo stato di ratifica. Sono le soglie che hanno
- * lasciato passare QUESTA riga e non un'altra: con una riga sola sono l'unica
- * cosa che permette di non fidarsi a scatola chiusa.
- *
- * CHE COSA NE È USCITO: il contatore delle righe senza indice di appetibilità.
- * Era lettura, e questo pannello ha smesso di essere una lettura. Resta
- * ispezionabile nel dato (`BaitReading.withoutAppealIndex`) e pinnato dai test
- * di src/baitCandidates.test.ts, che questo diff non tocca.
- */
-export function baitNoteText(
-  parameters: BaitParameters,
-  seasons: readonly string[],
-): string {
-  return [
-    `provenienza: storico d'asta misurato, ${seasonsSpan(seasons)}`,
-    `apertura a ${parameters.openingPrice} cr`,
-    `almeno ${parameters.minSeasonsMeasured} ${
-      parameters.minSeasonsMeasured === 1 ? "stagione misurata" : "stagioni misurate"
-    } per fatto`,
-    `al massimo ${parameters.rowsMax} ${parameters.rowsMax === 1 ? "riga" : "righe"} (${parameters.rowsMaxStatus})`,
-  ].join(" · ");
 }
 
 /** Le righe davvero mostrate: l'ordine è già quello dichiarato, qui si tronca. */
@@ -188,27 +141,25 @@ export function baitShownCandidates(reading: BaitReading): readonly BaitCandidat
 
 /**
  * TUTTO il testo del sottoblocco, in una stringa. Esiste per essere passato
- * alla guardia di deriva: una regex su questa stringa copre titolo, motivi,
- * teste e nota insieme, invece di quattro asserzioni che si dimenticano la
- * quinta. Riproduce SOLO ciò che il sottoblocco RENDE davvero — una guardia
- * che leggesse testo non renderizzato sorveglierebbe un'altra pagina.
+ * alla guardia di deriva: una regex su questa stringa copre titolo, motivi e
+ * teste insieme, invece di tre asserzioni che si dimenticano la quarta.
+ * Riproduce SOLO ciò che il sottoblocco RENDE davvero — una guardia che
+ * leggesse testo non renderizzato sorveglierebbe un'altra pagina.
  *
  * È PIÙ CORTO DI IERI PERCHÉ LA PAGINA LO È, non perché la guardia guardi
- * meno.
+ * meno: la nota dei parametri non si stampa più (Pico, 2026-08-31), quindi non
+ * c'è più un quarto pezzo da sorvegliare. Le due parti che restano sono il
+ * NOME e, in alternativa, la RIGA o il MOTIVO DEL SILENZIO.
  */
 export function baitSectionText(reading: BaitReading): string {
   const out: string[] = [baitTitleFor(reading)];
   if (reading.kind === "empty") {
     out.push(baitEmptyText(reading.reason));
-    if (baitNoteApplies(reading)) {
-      out.push(baitNoteText(reading.parameters, reading.seasons));
-    }
     return out.join("\n");
   }
   for (const candidate of baitShownCandidates(reading)) {
     out.push(baitHeadText(candidate));
   }
-  out.push(baitNoteText(reading.parameters, reading.seasons));
   return out.join("\n");
 }
 
@@ -286,13 +237,9 @@ export function renderBaitSection(
     section.appendChild(rows);
   }
 
-  if (baitNoteApplies(reading)) {
-    const note = document.createElement("p");
-    note.id = "bait-note";
-    note.className = "bait__note";
-    note.textContent = baitNoteText(reading.parameters, reading.seasons);
-    section.appendChild(note);
-  }
+  // NESSUNA NOTA. `#bait-note` non esiste più in nessuno dei due esiti — «via
+  // del tutto» (Pico, 2026-08-31). `#bait-empty` qui sopra, invece, resta: è il
+  // MOTIVO DEL SILENZIO, un altro elemento con un altro compito.
 
   return section;
 }

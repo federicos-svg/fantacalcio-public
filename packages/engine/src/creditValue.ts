@@ -192,30 +192,62 @@ export type CreditValueGamma = (typeof CREDIT_VALUE_GAMMAS)[number];
  */
 export const DEFAULT_CREDIT_VALUE_GAMMA: CreditValueGamma = 0;
 
-// ─── Le letture aperte ───────────────────────────────────────────────────────
+// ─── Le letture, CHIUSE ──────────────────────────────────────────────────────
 
 /**
- * Le scelte che il MOTORE ha dovuto fare qui e che nessun documento canonico
- * chiude. Dichiarate in blocco, come `ABSOLUTE_VALUE_UNRATIFIED_CHOICES`
- * (./absoluteValue.ts) e `RELATIVE_INDEX_UNRATIFIED_CHOICES`
- * (./relativeIndex.ts): sono le letture che danno forma alla ripartizione, non
- * condizioni che si accendono su un caso.
+ * LE QUATTRO LETTURE DI QUESTO MODULO SONO CHIUSE, E LA LISTA È VUOTA PER
+ * QUESTO — non perché nessuno le abbia mai fatte.
  *
- * Nessuna di loro sposta un numero di un credito quando le due correzioni sono
- * spente — il tetto non è acceso e i resti si distribuiscono comunque — ma
- * tutte diventano visibili il giorno in cui i test di §C.2 accendono qualcosa,
- * ed è il giorno sbagliato per scoprirle.
+ * FINO AL 2026-08-31 questa lista portava
+ * `CREDIT_VALUE_REMAINDER_TIES_BY_VORP`, `CREDIT_VALUE_BAND_CAP_IS_FLOORED_P90`,
+ * `CREDIT_VALUE_CAP_DOES_NOT_REDISTRIBUTE` e
+ * `CREDIT_VALUE_DECLARED_NOT_ROUNDED`, e i commenti accanto alle righe che le
+ * implementano dicevano «nessun documento la fissa» e «nessuno ha firmato
+ * nessuna delle due letture». NON È PIÙ VERO: `docs/DECISIONS.md` §«Cinque
+ * letture del motore dei pannelli di chiamata, chiuse in blocco» (vice di
+ * Pico, su delega esplicita, 2026-08-31) le decide una per una e dichiara fra i
+ * propri atti «la chiusura delle quattro letture aperte dichiarate nel motore,
+ * con questo record come copertura».
+ *
+ * CHE COSA HA DECISO, PUNTO PER PUNTO, e la riga di codice che lo esegue:
+ *  - i pareggi sui resti si sciolgono per `VORP_γ` decrescente e poi per chiave
+ *    di listone, «per prolungare il gradiente» invece di introdurne un altro —
+ *    `largestRemainder()`, l'ordinamento a tre criteri;
+ *  - il tetto di fascia è `floor(P90)` e mai sotto il pavimento, perché «un
+ *    tetto che arrotonda per eccesso lascia passare valori sopra la P90
+ *    misurata, e un tetto che lascia passare non è un tetto» — `bandCapAt()`;
+ *  - il tetto NON ridistribuisce, perché rigirare quei crediti «trasformerebbe
+ *    una correzione prudenziale in una pompa» e cambierebbe la configurazione
+ *    che T-V misura — `generatorReading()`, dove il taglio abbassa `credits` e
+ *    nessun secondo giro riparte;
+ *  - il valore dichiarato non si arrotonda: «fra l'interezza dei crediti e
+ *    l'intangibilità del dichiarato, cede l'interezza» — l'override, che scrive
+ *    `credits: declaredValue` verbatim.
+ *
+ * IL CONFINE CHE IL RECORD SCRIVE, e che questo modulo NON deve superare da
+ * solo: «il giorno in cui un `V` decimale dovesse entrare in un consumatore che
+ * esige interi, l'esecutore si ferma e chiede — non arrotonda».
+ *
+ * LA LISTA RESTA ESPORTATA, VUOTA. Non è un residuo: `packages/engine/tests/
+ * callScreen.test.ts` la somma alle altre superfici per provare che il
+ * vocabolario non ha orfani, e una superficie che dichiara «io non poggio su
+ * niente di aperto» è un'affermazione, non un'assenza.
  */
-export const CREDIT_VALUE_UNRATIFIED_CHOICES: readonly UnratifiedChoiceId[] = [
-  "CREDIT_VALUE_REMAINDER_TIES_BY_VORP",
-  "CREDIT_VALUE_BAND_CAP_IS_FLOORED_P90",
-  "CREDIT_VALUE_CAP_DOES_NOT_REDISTRIBUTE",
-  "CREDIT_VALUE_DECLARED_NOT_ROUNDED",
-];
+export const CREDIT_VALUE_UNRATIFIED_CHOICES: readonly UnratifiedChoiceId[] = [];
 
+/**
+ * LO STATO CHE VIAGGIA COL NUMERO, ed è `true` per la prima volta nel motore.
+ *
+ * Non è un flag girato a mano: il tipo `RatificationStatus`
+ * (./declaredValues.ts) ammette `true` SOLO insieme a una lista vuota, quindi
+ * la lista scritta qui è vuota nel tipo e non solo nei fatti: nessun cast, e
+ * chi provasse a elencare una scelta aperta accanto a `true` non compilerebbe.
+ * La coerenza fra questa lista e quella esportata è pinnata da
+ * packages/engine/tests/creditValue.test.ts, che le confronta.
+ */
 const RATIFICATION: RatificationStatus = {
-  ratified: false,
-  unratifiedChoices: CREDIT_VALUE_UNRATIFIED_CHOICES,
+  ratified: true,
+  unratifiedChoices: [],
 };
 
 // ─── L'esito ─────────────────────────────────────────────────────────────────
@@ -328,9 +360,14 @@ export interface CreditValueFromGenerator {
  *
  * IL NUMERO NON SI ARROTONDA. Arrotondare la dichiarazione di Pico sarebbe
  * modificarla, e questo modulo non modifica le dichiarazioni: se ha scritto
- * 37,5 la riga porta 37,5. La lettura è dichiarata aperta
- * (`CREDIT_VALUE_DECLARED_NOT_ROUNDED`) perché il DTI parla di crediti interi e
- * nessuno ha scelto fra le due.
+ * 37,5 la riga porta 37,5. ERA LA LETTURA APERTA
+ * `CREDIT_VALUE_DECLARED_NOT_ROUNDED`, perché il DTI parla di crediti interi e
+ * nessuno aveva scelto fra le due; È CHIUSA dal 2026-08-31 —
+ * `docs/DECISIONS.md` §«Cinque letture del motore dei pannelli di chiamata,
+ * chiuse in blocco», punto 4: «fra l'interezza dei crediti e l'intangibilità
+ * del dichiarato, cede l'interezza». Lo stesso record scrive il confine da non
+ * superare in silenzio: se un `V` decimale dovesse entrare in un consumatore
+ * che esige interi, l'esecutore si ferma e chiede — non arrotonda.
  */
 export interface CreditValueDeclared {
   readonly kind: "valore";
@@ -512,8 +549,13 @@ interface ShareRow {
  *
  * PAREGGI SUI RESTI: resto decrescente, poi `VORP_γ` decrescente, poi
  * `playerId` crescente. L'ordine è totale e deterministico (stesse righe →
- * stessa ripartizione, sempre), ma QUALE debba essere non lo dice nessun
- * documento: è la lettura aperta `CREDIT_VALUE_REMAINDER_TIES_BY_VORP`.
+ * stessa ripartizione, sempre). ERA LA LETTURA APERTA
+ * `CREDIT_VALUE_REMAINDER_TIES_BY_VORP` — quale dovesse essere il tie-break non
+ * lo diceva nessun documento — ed è CHIUSA dal 2026-08-31:
+ * `docs/DECISIONS.md` §«Cinque letture del motore dei pannelli di chiamata,
+ * chiuse in blocco», punto 2, che sceglie il VORP «perché prolunga il
+ * gradiente» che la ripartizione segue per tutta la sua lunghezza, invece di
+ * introdurne un altro, e la chiave in coda per l'ordine totale.
  *
  * Restituisce, per `playerId`, la quota intera già ripartita e se ha ricevuto
  * l'unità di resto.
@@ -556,13 +598,14 @@ function largestRemainder(
 /**
  * IL TETTO DELLA FASCIA in crediti interi: `floor(P90)`, mai sotto il pavimento.
  *
- * Due letture, entrambe dichiarate aperte. `floor` e non `round`, perché un
- * tetto che arrotonda per eccesso lascia passare numeri sopra la P90 misurata,
- * e un tetto che lascia passare non è un tetto
- * (`CREDIT_VALUE_BAND_CAP_IS_FLOORED_P90`). E mai sotto `COST_FLOOR`, perché un
- * credito è il minimo che il regolamento fa pagare: un tetto a zero
- * dichiarerebbe un giocatore impagabile, che è un verdetto che la curva non ha
- * emesso.
+ * Due letture, ERANO ENTRAMBE APERTE e sono chiuse dal 2026-08-31 —
+ * `docs/DECISIONS.md` §«Cinque letture del motore dei pannelli di chiamata,
+ * chiuse in blocco», punto 3. `floor` e non `round`, perché «un tetto che
+ * arrotonda per eccesso lascia passare valori sopra la P90 misurata, e un tetto
+ * che lascia passare non è un tetto» (`CREDIT_VALUE_BAND_CAP_IS_FLOORED_P90`).
+ * E mai sotto `COST_FLOOR`, perché un credito è il minimo che il regolamento fa
+ * pagare: un tetto a zero dichiarerebbe un giocatore impagabile, che è un
+ * verdetto che la curva non ha emesso.
  *
  * `null` quando la fascia non è leggibile (nessuna osservazione, o campione
  * sotto il minimo): il tetto non si forma e non si sostituisce con la fascia

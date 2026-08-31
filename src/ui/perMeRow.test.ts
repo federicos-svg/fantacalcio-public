@@ -41,8 +41,6 @@ import {
   PER_ME_TITLE_SHORT,
   perMeEmptyText,
   perMeHeadText,
-  perMeNoteApplies,
-  perMeNoteText,
   perMeSectionText,
 } from "./perMeRow.js";
 import { perMeTitleFor } from "./perMeRow.js";
@@ -264,13 +262,17 @@ describe("i sette silenzi hanno sette frasi diverse", () => {
     expect(perMeEmptyText("no-quotation")).not.toMatch(/\b0\b/);
   });
 
-  it("la nota compare solo dove un parametro ha governato qualcosa", () => {
-    expect(perMeNoteApplies(withCandidates([candidate()]))).toBe(true);
-    expect(perMeNoteApplies(emptyReading("no-affordable"))).toBe(true);
-    expect(perMeNoteApplies(emptyReading("no-free-in-open-roles"))).toBe(true);
+  it("IL MOTIVO SI VEDE SEMPRE, in tutti e sette i silenzi", () => {
+    // La nota se n'è andata il 2026-08-31 («via del tutto», Pico); il MOTIVO
+    // no, e non è la stessa cosa. Quando il pannello tace deve continuare a
+    // dire PERCHÉ tace, in ognuno dei sette esiti — anche in quelli dove la
+    // nota, quand'era viva, non compariva. Il testo reso è esattamente due
+    // righe: il nome del sottoblocco e la frase del silenzio.
     for (const reason of ALL_REASONS) {
-      if (reason === "no-affordable" || reason === "no-free-in-open-roles") continue;
-      expect(perMeNoteApplies(emptyReading(reason))).toBe(false);
+      expect(perMeSectionText(emptyReading(reason)).split("\n"), reason).toEqual([
+        PER_ME_TITLE_SHORT,
+        perMeEmptyText(reason),
+      ]);
     }
   });
 });
@@ -346,67 +348,74 @@ describe("la riga è UN giocatore: nome, ruolo, squadra — e nient'altro", () =
   });
 });
 
-describe("la nota resta la targa della provenienza e i parametri, e basta", () => {
-  const note = (): string => perMeNoteText(PER_ME_PARAMETERS, DYNAMIC_PLAN);
+describe("la nota non esiste più: quello che diceva resta NEL DATO", () => {
+  // «VIA DEL TUTTO» — Pico, 2026-08-31, messo davanti alla misura: la nota
+  // pesava 92 px contro i 34 della riga che annotava. Questi test sono il
+  // ROVESCIO di quelli di ieri — al posto di «la nota dice X» c'è «nessun
+  // esito stampa X», voce per voce, così che il giorno in cui una tornasse a
+  // schermo il test lo dica col suo nome.
+  const PAROLE_DELLA_NOTA = [
+    "V dal generatore",
+    "curva storica",
+    "campione minimo",
+    "riserva 1 cr",
+    "al massimo",
+    "ratificato da Pico",
+    "provvisorio",
+    "piano ricalcolato adesso",
+    "piano dichiarato da te",
+    "è a metà",
+    "rifiutata dal motore",
+  ];
 
-  it("la PROVENIENZA c'è: da dove vengono i numeri che hanno scelto la riga", () => {
-    expect(note()).toContain("V dal generatore e prezzo atteso dalla curva storica");
-  });
+  const ESITI = (): readonly PerMeReading[] => [
+    withCandidates([candidate()]),
+    withCandidates([candidate()], { ...DYNAMIC_PLAN, declaredIssue: "plan-incomplete" }),
+    withCandidates([candidate()], { ...DYNAMIC_PLAN, declaredIssue: "plan-invalid" }),
+    ...ALL_REASONS.map(emptyReading),
+  ];
 
-  it("i parametri sono ispezionabili accanto al numero che governano", () => {
-    expect(note()).toContain("campione minimo 5 (inflazione) e 5 (fascia di prezzo)");
-    expect(note()).toContain("riserva 1 cr per ogni slot non ancora pianificato");
-    expect(note()).toContain("1 riga al massimo (ratificato da Pico il 2026-08-31)");
-    expect(note()).not.toContain("provvisorio");
-    // Il singolare non è un vezzo: «1 righe al massimo» sarebbe la spia che il
-    // tetto è cambiato e la frase no.
-    expect(note()).not.toContain("1 righe");
-  });
-
-  it("l'etichetta e la versione del piano viaggiano con la nota", () => {
-    expect(note()).toContain("piano ricalcolato adesso «NOM-DYN@12»");
-    const dichiarato: PerMePlanReading = {
-      kind: "declared",
-      planVersion: "pre-asta 1",
-      label: "piano dichiarato da te",
-      live: {} as never,
-    };
-    expect(perMeNoteText(PER_ME_PARAMETERS, dichiarato)).toContain(
-      "piano dichiarato da te «pre-asta 1»",
-    );
-    expect(perMeNoteText(PER_ME_PARAMETERS, null)).not.toContain("«");
-  });
-
-  it("una dichiarazione di piano rotta si dice, e si dice che comanda il dinamico", () => {
-    // RESTA, ed è ancora provenienza: l'etichetta dice «piano ricalcolato
-    // adesso» PROPRIO PERCHÉ la dichiarazione di Pico non ha retto, e tacerlo
-    // farebbe sembrare dichiarato un piano che non lo è.
-    const monco: PerMePlanReading = { ...DYNAMIC_PLAN, declaredIssue: "plan-incomplete" };
-    const rifiutato: PerMePlanReading = { ...DYNAMIC_PLAN, declaredIssue: "plan-invalid" };
-    expect(perMeNoteText(PER_ME_PARAMETERS, monco)).toContain("è a metà");
-    expect(perMeNoteText(PER_ME_PARAMETERS, rifiutato)).toContain("rifiutata dal motore");
-    for (const plan of [monco, rifiutato]) {
-      expect(perMeNoteText(PER_ME_PARAMETERS, plan)).toContain("comanda il piano ricalcolato");
+  it("nessun esito del sottoblocco stampa una parola della nota", () => {
+    for (const reading of ESITI()) {
+      const text = perMeSectionText(reading);
+      for (const parola of PAROLE_DELLA_NOTA) {
+        expect(text, `«${parola}» in un esito «${reading.kind}»`).not.toContain(parola);
+      }
     }
-    expect(note()).not.toContain("comanda il piano ricalcolato");
   });
 
-  it("LA LETTURA È USCITA DALLA NOTA: niente ordine per esteso, niente contatori", () => {
-    // Quello che non c'è più è scritto una voce alla volta, perché il giorno
-    // in cui qualcuno lo rimettesse questo test lo dicesse col suo nome.
-    const n = note();
-    expect(n).not.toContain("ordine:");
-    expect(n).not.toContain("chiave di listone");
-    expect(n).not.toContain("NON RATIFICATE");
-    expect(n).not.toContain("senza V");
-    expect(n).not.toContain("senza prezzo atteso");
-    expect(n).not.toContain("senza verdetto di appetibilità");
+  it("nemmeno l'etichetta o la versione del piano arrivano a schermo", () => {
+    // Erano la targa della provenienza: se ne sono andate con la nota, e la
+    // prova non è una parola ma la VERSIONE, che è un letterale univoco.
+    for (const reading of ESITI()) {
+      expect(perMeSectionText(reading)).not.toContain("NOM-DYN@12");
+      expect(perMeSectionText(reading)).not.toContain("«");
+    }
   });
 
-  it("…ma quelle letture aperte restano NEL DATO, non sono state chiuse da nessuno", () => {
-    // Sparire dalla nota non è essere ratificate: la lettura le porta ancora,
-    // e il vocabolario del motore le nomina. Questa è la prova che la
-    // semplificazione della vista non ha promosso niente di nascosto.
+  it("i parametri e la ratifica restano NEL DATO, e nessuno è stato tolto", () => {
+    // È la differenza fra «la vista mostra meno» e «il motore sa meno»: la
+    // seconda non è successa. Chi legge l'esito non perde niente.
+    const reading = withCandidates([candidate()]);
+    expect(reading.parameters).toEqual(PER_ME_PARAMETERS);
+    expect(PER_ME_PARAMETERS.rowsMax).toBe(1);
+    expect(PER_ME_PARAMETERS.rowsMaxStatus).toContain("ratificato da Pico il 2026-08-31");
+    expect(PER_ME_PARAMETERS.minInflationSample).toBe(5);
+    expect(PER_ME_PARAMETERS.minPriceBandSample).toBe(5);
+    expect(PER_ME_PARAMETERS.costFloor).toBe(1);
+    for (const reason of ALL_REASONS) {
+      expect(emptyReading(reason).parameters, reason).toEqual(PER_ME_PARAMETERS);
+    }
+    // …e la lettura del piano c'è ancora, con etichetta e versione: è la vista
+    // che ha smesso di stamparle, non il motore che ha smesso di produrle.
+    if (reading.kind !== "candidates") throw new Error("attesi candidati");
+    expect(reading.plan.label).toBe("piano ricalcolato adesso");
+    expect(reading.plan.planVersion).toBe("NOM-DYN@12");
+  });
+
+  it("…e le letture aperte restano aperte: sparire dalla nota non è essere ratificate", () => {
+    // Questa è la prova che la semplificazione della vista non ha promosso
+    // niente di nascosto: `ratification` continua a dire di no.
     const reading = withCandidates([candidate()]);
     expect(reading.ratification.ratified).toBe(false);
     expect(reading.ratification.unratifiedChoices.length).toBeGreaterThan(0);
@@ -466,20 +475,18 @@ describe("guardia di deriva — il vocabolario che questo blocco non può usare"
   });
 
   it("il testo del sottoblocco copre DAVVERO tutte le sue parti", () => {
-    // Sono tre, e sono tutte: il nome accessibile, la riga, la nota. Una
-    // guardia che leggesse più di così sorveglierebbe una pagina che non c'è.
+    // Sono DUE da quando la nota non c'è più: il nome accessibile e la riga.
+    // Una guardia che leggesse più di così sorveglierebbe una pagina che non
+    // c'è, e una che ne leggesse meno lascerebbe un pezzo fuori.
     const shown = candidate();
     const text = perMeSectionText(withCandidates([shown]));
-    expect(text.split("\n")).toEqual([
-      PER_ME_TITLE,
-      perMeHeadText(shown),
-      perMeNoteText(PER_ME_PARAMETERS, DYNAMIC_PLAN),
-    ]);
+    expect(text.split("\n")).toEqual([PER_ME_TITLE, perMeHeadText(shown)]);
   });
 
-  it("un esito vuoto senza nota non stampa parametri che non hanno governato niente", () => {
+  it("un esito vuoto dice il proprio motivo, e non stampa nessun parametro", () => {
     const text = perMeSectionText(emptyReading("no-pool"));
     expect(text).toContain(perMeEmptyText("no-pool"));
     expect(text).not.toContain("riga al massimo");
+    expect(text).not.toContain("al massimo");
   });
 });

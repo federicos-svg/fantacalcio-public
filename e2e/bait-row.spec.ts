@@ -123,21 +123,20 @@ test("il sottoblocco mostra IL candidato atteso, dentro GIOCATORE SUGGERITO", as
   // Con le righe, l'occhiello è quello per esteso: dice CHE COSA sono.
   await expect(page.locator("#bait-title")).toHaveText(BAIT_TITLE);
 
-  // LA NOTA RESTA, ASCIUGATA: la targa della provenienza e i tre parametri,
-  // ispezionabili accanto ai numeri che governano. Con UNA riga sola sono
-  // l'unica cosa che distingue un consiglio da un oracolo.
-  const note = page.locator("#bait-note");
-  await expect(note).toContainText("provenienza: storico d'asta misurato");
-  await expect(note).toContainText("apertura a 1 cr");
-  await expect(note).toContainText("almeno 1 stagione misurata per fatto");
-  // Era «(provvisorio — in attesa di conferma di Pico)», poi «al massimo 3
-  // righe (ratificato…)»: il tetto è UNO dal 2026-08-31. Il letterale dello
-  // stato è condiviso col sottoblocco PER ME, e un test di modulo verifica che
-  // i due non lo dicano in due modi diversi.
-  await expect(note).toContainText("al massimo 1 riga (ratificato da Pico il 2026-08-31)");
-  // …e la LETTURA ne è uscita: il contatore delle righe senza indice resta nel
-  // dato, non a schermo.
-  await expect(note).not.toContainText("senza indice");
+  // LA NOTA NON C'È PIÙ, DEL TUTTO — «via del tutto» (Pico, 2026-08-31), messo
+  // davanti alla misura della gemella `#per-me-note`: 92 px di annotazione per
+  // 34 px di riga annotata. Qui la nota costava anche di più — `#bait-block`
+  // popolato è sceso da 178,7 a 91 px a 390×844, cioè 87,7 px di sola
+  // annotazione. L'elemento non esiste in nessuno dei due esiti, e
+  // le sue parole non ricompaiono altrove nel sottoblocco.
+  await expect(page.locator("#bait-note")).toHaveCount(0);
+  const blocco = (await page.locator("#bait-block").textContent()) ?? "";
+  expect(blocco).not.toContain("provenienza");
+  expect(blocco).not.toContain("storico d'asta misurato");
+  expect(blocco).not.toContain("apertura a 1 cr");
+  expect(blocco).not.toContain("stagione misurata");
+  expect(blocco).not.toContain("al massimo");
+  expect(blocco).not.toContain("ratificato da Pico");
 
   // Il blocco ospita DUE sottoblocchi: la prima metà non è stata toccata, e il
   // listone resta sotto (e2e/call-screen-order.spec.ts).
@@ -328,10 +327,13 @@ test("senza storico il sottoblocco dice «non lo so», e non «nessuno»", async
   await expect(empty).toContainText("«non lo so» non è «nessuno»");
   await expect(page.locator("#bait-rows")).toHaveCount(0);
 
-  // SENZA POPOLAZIONE, IL BLOCCO NON RECITA PARAMETRI CHE NON HANNO GOVERNATO
-  // NIENTE: niente nota, e l'occhiello è il solo nome. Un blocco che non ha
-  // nulla da dire non si prende un quarto di schermata — vedi
-  // e2e/call-screen-order.spec.ts, che tiene la paginazione entro due schermate.
+  // IL MOTIVO DEL SILENZIO C'È, LA NOTA NO. Sono due elementi diversi con due
+  // compiti diversi, e solo il secondo se n'è andato: `#bait-empty` qui sopra
+  // dice PERCHÉ il pannello tace — e per `no-history` dice proprio «non lo so»,
+  // che è l'opposto di «nessuno» — mentre `#bait-note` non esiste più in
+  // nessuno stato. Un blocco che non ha nulla da dire non si prende un quarto
+  // di schermata: vedi e2e/call-screen-order.spec.ts, che tiene la paginazione
+  // entro due schermate.
   await expect(page.locator("#bait-note")).toHaveCount(0);
   await expect(page.locator("#bait-title")).toHaveText(BAIT_TITLE_SHORT);
   const emptyHeight = await page

@@ -294,8 +294,12 @@ describe("il tetto P90 della fascia — spento di default, e quando morde lo dic
   it("i crediti che il tetto libera NON tornano agli altri, e la somma lo dice", () => {
     const book = bookOf({ priceCap: { curves: CHEAP } });
     // (5−1)×3 + (11−1) = 22, sotto i 42 di `B_res`. Si dichiara invece di
-    // rimettere in circolo venti crediti con un secondo giro che nessuno ha
-    // descritto (`CREDIT_VALUE_CAP_DOES_NOT_REDISTRIBUTE`).
+    // rimettere in circolo venti crediti con un secondo giro. Era la lettura
+    // aperta `CREDIT_VALUE_CAP_DOES_NOT_REDISTRIBUTE`; l'ha chiusa
+    // `docs/DECISIONS.md` §«Cinque letture del motore dei pannelli di chiamata,
+    // chiuse in blocco» (2026-08-31), punto 3: ridistribuire gonfierebbe le
+    // altre righe verso i LORO tetti, «trasformando una correzione prudenziale
+    // in una pompa», e cambierebbe la configurazione che T-V misura.
     expect(book.distributedCredits).toBe(22);
     expect(book.residualBudget).toBe(42);
   });
@@ -595,24 +599,55 @@ describe("selezione avversa — la guardia: `S` premia il sottoprezzato, non l'e
 
 // ─── Le letture aperte ───────────────────────────────────────────────────────
 
-describe("le letture aperte viaggiano col numero, e nessuna è muta", () => {
+describe("la ratifica viaggia col numero, e adesso dice di sì", () => {
   it("ogni lettura porta la propria ratifica, valore o assenza che sia", () => {
     const book = bookOf();
-    expect(book.ratification.ratified).toBe(false);
     expect(book.ratification.unratifiedChoices).toEqual(CREDIT_VALUE_UNRATIFIED_CHOICES);
     expect(creditValueOf("P:001", book).ratification).toEqual(book.ratification);
     expect(creditValueOf("mai-visto", book).ratification).toEqual(book.ratification);
   });
 
-  it("le quattro scelte aperte sono dichiarate e ognuna ha il proprio perché", () => {
-    expect([...CREDIT_VALUE_UNRATIFIED_CHOICES]).toEqual([
+  it("le quattro letture sono CHIUSE: la lista è vuota, e il numero è ratificato", () => {
+    // ERANO QUATTRO SCELTE APERTE FINO AL 2026-08-31. Le ha chiuse
+    // `docs/DECISIONS.md` §«Cinque letture del motore dei pannelli di chiamata,
+    // chiuse in blocco» (vice di Pico, su delega esplicita), che fra i propri
+    // atti dichiara «la chiusura delle quattro letture aperte dichiarate nel
+    // motore, con questo record come copertura». Il codice non è cambiato: è
+    // cambiato chi ha firmato quello che il codice già faceva.
+    //
+    // LE DUE ASSERZIONI STANNO INSIEME, e non è ridondanza: `ratified: true`
+    // con una lista non vuota sarebbe la bugia esatta che il tipo esiste per
+    // impedire, e provarle separatamente lascerebbe passare la coppia storta.
+    expect([...CREDIT_VALUE_UNRATIFIED_CHOICES]).toEqual([]);
+    expect(bookOf().ratification.ratified).toBe(true);
+    expect(bookOf().ratification.unratifiedChoices).toEqual([]);
+  });
+
+  it("nessuna delle quattro è rimasta orfana nel vocabolario del motore", () => {
+    // Uscire dalla lista di questa superficie e restare nel vocabolario
+    // sarebbe lasciare in giro quattro id che nessuno porta più: il guardiano
+    // degli orfani (packages/engine/tests/callScreen.test.ts) lo direbbe, e qui
+    // lo si dice col nome di ciascuna.
+    for (const id of [
       "CREDIT_VALUE_REMAINDER_TIES_BY_VORP",
       "CREDIT_VALUE_BAND_CAP_IS_FLOORED_P90",
       "CREDIT_VALUE_CAP_DOES_NOT_REDISTRIBUTE",
       "CREDIT_VALUE_DECLARED_NOT_ROUNDED",
-    ]);
-    for (const id of CREDIT_VALUE_UNRATIFIED_CHOICES) {
-      expect(UNRATIFIED_CHOICES[id].length, id).toBeGreaterThan(0);
+    ]) {
+      expect(Object.keys(UNRATIFIED_CHOICES), id).not.toContain(id);
     }
+  });
+
+  it("la logica che il record firma è ancora quella implementata", () => {
+    // IL RECORD CHIUDE CIÒ CHE IL CODICE FA, non qualcosa d'altro: se la
+    // logica derivasse dal record, la copertura smetterebbe di coprire. Le
+    // quattro voci sono provate una per una nei blocchi sopra — resti, tetto,
+    // non-ridistribuzione, dichiarato non arrotondato — e qui si pinna la
+    // quarta, che è l'unica osservabile senza accendere una correzione.
+    const book = bookOf({ values: declaredValueBook([{ playerId: "P:001", declaredValue: 37.5 }]) });
+    const reading = creditValueOf("P:001", book);
+    if (reading.kind !== "valore") throw new Error("atteso un valore");
+    expect(reading.source).toBe("dichiarato");
+    expect(reading.credits).toBe(37.5);
   });
 });
