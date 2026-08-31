@@ -258,6 +258,16 @@ test("un vocabolario solo: i riquadri di INSIGHT GIOCATORE hanno la forma delle 
   // 1. LA SCHERMATA DI CHIAMATA. I tre titoli del blocco suggerito —
   //    «GIOCATORE SUGGERITO — CHI CHIAMARE ORA», «PER ME», «PER FAR SPENDERE
   //    GLI ALTRI» — portano tutti la classe condivisa.
+  //
+  //    TRE, E NON DUE, ANCHE SE A SCHERMO SE NE VEDONO DUE: dal 2026-08-31
+  //    «PER ME» non si disegna («Nascondi #per-me-title», Pico) perché
+  //    l'occhiello di sopra nominava già la stessa cosa. Resta però nel DOM —
+  //    è lui a dare il nome accessibile a `#per-me-block` — e resta LO STESSO
+  //    titolo: il modificatore `.per-me__title--sr` (src/styles/perMe.css)
+  //    tocca solo dove sta, non le cinque proprietà che questa prova
+  //    confronta. Se qualcuno lo togliesse dal DOM, questo conteggio
+  //    diventerebbe rosso: è la sentinella che il nome accessibile non sparisca
+  //    in silenzio.
   const chiamataTitles = page.locator("#suggested-player .scheda-card__title");
   await expect(chiamataTitles).toHaveCount(3);
   await expect(chiamataTitles.nth(0)).toContainText("GIOCATORE SUGGERITO — CHI CHIAMARE ORA");

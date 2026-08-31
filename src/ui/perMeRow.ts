@@ -298,8 +298,15 @@ export function perMeNoteText(
  * TUTTO il testo del sottoblocco, in una stringa. Esiste per essere passato
  * alla guardia di deriva: una regex su questa stringa copre titolo, motivi,
  * teste, ancore, piano, posizioni e nota insieme, invece di sette asserzioni
- * che si dimenticano l'ottava. Riproduce SOLO ciò che la vista mostra davvero —
- * una guardia che leggesse testo non renderizzato sorveglierebbe un'altra pagina.
+ * che si dimenticano l'ottava. Riproduce SOLO ciò che il sottoblocco RENDE
+ * davvero — una guardia che leggesse testo non renderizzato sorveglierebbe
+ * un'altra pagina.
+ *
+ * IL TITOLO RESTA IN QUESTA STRINGA anche da quando non si disegna più (Pico,
+ * 2026-08-31): non è testo non renderizzato, è testo reso fuori dalla vista e
+ * dentro l'albero di accessibilità — è il nome che chi naviga a voce sente
+ * entrando nel sottoblocco. Toglierlo di qui vorrebbe dire smettere di
+ * sorvegliare l'unica frase che una persona sente per prima.
  */
 export function perMeSectionText(reading: PerMeReading): string {
   const out: string[] = [perMeTitleFor(reading)];
@@ -367,7 +374,28 @@ export function renderPerMeSection(
   // Il titolo è quello CONDIVISO (src/ui/schedaCard.ts): `.per-me__title` era
   // una copia byte per byte di `.bait__title`, e due copie della stessa forma
   // divergono al primo ritocco.
-  section.appendChild(renderSchedaCardTitle(perMeTitleFor(reading), { id: "per-me-title" }));
+  //
+  // NON SI DISEGNA PIÙ — «Nascondi #per-me-title» (Pico, 2026-08-31), e la
+  // ragione è di struttura, non di gusto: l'occhiello che sta sopra
+  // (`#suggested-player-mine-title`, src/main.ts) intitola
+  // `<section id="suggested-player-mine">`, che contiene SOLO questo
+  // sottoblocco — il pannello esca è una sezione sorella, appesa a
+  // `#suggested-player`. «CHI CHIAMARE ORA» e «PER ME» nominavano quindi la
+  // stessa cosa, impilati uno sotto l'altro.
+  //
+  // RESTA NEL DOM, FUORI DALLA VISTA, e non è un ripiego: `aria-labelledby`
+  // punta qui, e un titolo tolto (o messo a `display: none`) lascerebbe
+  // `#per-me-block` SENZA NOME ACCESSIBILE. L'alternativa — puntare
+  // l'etichetta all'occhiello di sopra — legherebbe questo modulo a un id che
+  // vive in src/main.ts e farebbe dire a chi naviga a voce «CHI CHIAMARE ORA»
+  // due volte, perdendo l'unica cosa che il titolo di qui aggiunge ancora: la
+  // forma per esteso, che compare solo quando ci sono righe da descrivere
+  // (`perMeTitleFor`). L'idioma del non-disegnato è quello che il repository
+  // ha già — `.listone-axis-tag__sr`, `.scheda-icona__sr` — e la sua misura
+  // sta in src/styles/perMe.css.
+  const title = renderSchedaCardTitle(perMeTitleFor(reading), { id: "per-me-title" });
+  title.classList.add("per-me__title--sr");
+  section.appendChild(title);
 
   if (reading.kind === "empty") {
     const empty = document.createElement("p");

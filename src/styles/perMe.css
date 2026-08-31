@@ -25,6 +25,35 @@
    vocabolario condiviso di src/styles/schedaCard.css. Era identico a
    `.bait__title`, riga per riga. */
 
+/* …E NON SI DISEGNA — «Nascondi #per-me-title» (Pico, 2026-08-31). L'occhiello
+   di sopra («GIOCATORE SUGGERITO — CHI CHIAMARE ORA») intitola una sezione che
+   contiene solo questo sottoblocco: due titoli impilati nominavano la stessa
+   cosa. La ragione per cui il nodo resta invece di sparire sta in
+   src/ui/perMeRow.ts — `aria-labelledby` punta qui, e un titolo non reso non
+   produce nome accessibile.
+
+   STESSO IDIOMA (e stesse dichiarazioni) di `.listone-axis-tag__sr` in
+   listone.css e `.scheda-icona__sr` in asta.css: uno solo di questi tre modi
+   di non disegnare un testo è quello che il repository ha già misurato, ed è
+   questo. `position: absolute` SENZA offset — l'elemento resta alla propria
+   posizione statica, non spinge la pagina e non apre uno scorrimento
+   orizzontale a 390px.
+
+   MODIFICATORE, NON UNA SECONDA IDENTITÀ: si applica ACCANTO a
+   `.scheda-card__title` e non tocca nessuna delle cinque proprietà che ne
+   fanno l'identità visiva (corpo, peso, spaziatura, colore, margine sotto) —
+   quelle che e2e/player-insight.spec.ts confronta fra i tre titoli del blocco
+   suggerito. Il titolo resta esattamente lo stesso titolo: cambia dove sta,
+   non com'è fatto. */
+.per-me__title--sr {
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
 .per-me__empty {
   font-size: 13px;
   line-height: 1.5;

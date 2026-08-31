@@ -42,12 +42,42 @@ test("senza piano dichiarato il sottoblocco dice QUALE dichiarazione manca", asy
   // GOVERNATO NIENTE: niente nota, e l'occhiello è il solo nome.
   await expect(page.locator("#per-me-note")).toHaveCount(0);
   await expect(page.locator("#per-me-title")).toHaveText(PER_ME_TITLE_SHORT);
+
+  // IL TITOLO C'È E NON SI DISEGNA — «Nascondi #per-me-title» (Pico,
+  // 2026-08-31). Le due metà di questa pretesa non si possono separare, ed è
+  // il motivo per cui stanno in un test solo:
+  //
+  //   a. NON OCCUPA LA VISTA. Il rettangolo è quello dell'idioma
+  //      visually-hidden del repository (1×1 px, `clip-path: inset(50%)`), non
+  //      una riga di testo alta 16 px. Un `display: none` passerebbe anche qui
+  //      — ed è proprio quello che la lettera b vieta.
+  //   b. DÀ ANCORA IL NOME AL BLOCCO. `aria-labelledby` punta a lui: se
+  //      sparisse dal rendering, `#per-me-block` resterebbe SENZA nome
+  //      accessibile, e nessuno se ne accorgerebbe guardando la pagina.
+  const titleBox = await page
+    .locator("#per-me-title")
+    .evaluate((el) => el.getBoundingClientRect());
+  expect(titleBox.height, "il titolo non occupa una riga a schermo").toBeLessThanOrEqual(1);
+  expect(titleBox.width, "il titolo non occupa larghezza a schermo").toBeLessThanOrEqual(1);
+
+  const accessibleName = await page.locator("#per-me-block").evaluate((el) => {
+    const by = el.getAttribute("aria-labelledby") ?? "";
+    return document.getElementById(by)?.textContent ?? null;
+  });
+  expect(accessibleName, "il sottoblocco ha ancora un nome accessibile").toBe(PER_ME_TITLE_SHORT);
+
+  // E IL NOME CHE SI VEDE È QUELLO DI SOPRA, uno solo: l'occhiello che
+  // intitola la sezione in cui questo sottoblocco vive è la ragione per cui il
+  // titolo di qui era un doppione.
+  await expect(page.locator("#suggested-player-mine-title")).toBeVisible();
+
   const emptyHeight = await page
     .locator("#per-me-block")
     .evaluate((el) => el.getBoundingClientRect().height);
   expect(
     emptyHeight,
-    `il sottoblocco muto costa ${Math.round(emptyHeight)}px: era 120 quando è stato misurato`,
+    `il sottoblocco muto costa ${Math.round(emptyHeight)}px: era 120 quando è stato misurato, ` +
+      `39 dal 2026-08-31 — 22,5 px in meno, la riga di titolo che non si disegna più`,
   ).toBeLessThan(150);
 
   expect(externalRequests).toEqual([]);
