@@ -1192,14 +1192,23 @@
 
    SOTTO I 900px TORNANO IMPILATI, alla stessa soglia a cui il resto di questa
    schermata smette di affiancare (`.scheda-cards`, `.moment-blocks-grid`, la
-   barra del gesto): la schermata cambia forma in un punto solo. */
-.suggested-player {
+   barra del gesto): la schermata cambia forma in un punto solo.
+
+   LA GRIGLIA STA SUL CONTENITORE DELLE DUE METÀ, NON SUL BLOCCO — dal
+   2026-08-31, quando l'occhiello «GIOCATORE SUGGERITO — CHI CHIAMARE ORA» è
+   salito a intestarle entrambe (Pico). Non è una preferenza di annidamento, è
+   una MISURA: figlio della griglia, l'occhiello sarebbe una riga in più, e a
+   390px — dove la griglia è a una colonna — avrebbe pagato il `row-gap` di 14
+   px per separarsi dalle metà, sul blocco che il mastro del budget tiene più
+   vicino alla propria allocazione. Nel contenitore il gap resta dove ha un
+   compito: FRA le due metà. */
+.suggested-player__halves {
   display: grid;
   gap: 14px;
   grid-template-columns: minmax(0, 1fr);
 }
 @media (min-width: 900px) {
-  .suggested-player {
+  .suggested-player__halves {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

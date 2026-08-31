@@ -21,6 +21,7 @@ import { describe, expect, it } from "vitest";
 import {
   SCHEDA_CARDS_CLASS,
   SCHEDA_CARD_CLASS,
+  SCHEDA_CARD_SUBTITLE_CLASS,
   SCHEDA_CARD_TITLE_CLASS,
   schedaCardHtml,
   schedaCardTitleHtml,
@@ -89,10 +90,21 @@ describe("il riquadro", () => {
 // stessa classe. È la prova che conta — «il vocabolario è uno» è un fatto sulla
 // pagina, non sulla stringa.
 
-describe("i nomi delle classi sono quelli, e non tre stringhe scritte a mano", () => {
-  it("le tre costanti hanno i nomi che il CSS dichiara", () => {
+describe("i nomi delle classi sono quelli, e non quattro stringhe scritte a mano", () => {
+  it("le quattro costanti hanno i nomi che il CSS dichiara", () => {
     expect(SCHEDA_CARD_TITLE_CLASS).toBe("scheda-card__title");
     expect(SCHEDA_CARD_CLASS).toBe("scheda-card");
     expect(SCHEDA_CARDS_CLASS).toBe("scheda-cards");
+    expect(SCHEDA_CARD_SUBTITLE_CLASS).toBe("scheda-card__title--sub");
+  });
+
+  // IL SECONDO RANGO È UN MODIFICATORE, E IL NOME LO DICE. Il `--sub` è
+  // attaccato al nome del titolo, non un nome a sé: chi lo legge sa che si
+  // applica ACCANTO alla classe condivisa e non al posto suo, che è
+  // esattamente ciò che `renderSchedaCardTitle({ subtitle: true })` fa e che
+  // e2e/player-insight.spec.ts verifica a schermo (spaziatura, colore e
+  // margine restano quelli del titolo; cambiano corpo e peso).
+  it("il sottotitolo è un modificatore del titolo, non una seconda identità", () => {
+    expect(SCHEDA_CARD_SUBTITLE_CLASS.startsWith(`${SCHEDA_CARD_TITLE_CLASS}--`)).toBe(true);
   });
 });

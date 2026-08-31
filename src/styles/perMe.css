@@ -17,8 +17,15 @@
  * schermata di chiamata è già oltre budget, quindi qui non ci sono margini
  * decorativi e i corpi sono gli stessi di .bait-row, non più grandi. */
 
+/* NESSUN MARGINE IN CIMA — dal 2026-08-31. Gli 8 px servivano a staccare il
+   sottoblocco dall'occhiello, quando l'occhiello stava dentro la stessa
+   sezione. Adesso l'occhiello intesta le DUE metà e sta fuori, con il proprio
+   `margin-bottom`; questa metà è una cella di `.suggested-player__halves`, e
+   un margine qui si sommerebbe a quello dell'occhiello sopra e al `gap` della
+   griglia sotto — spazio che nessuno ha chiesto, su una schermata che lo
+   conta. */
 .per-me {
-  margin-top: 8px;
+  margin-top: 0;
 }
 
 /* Il titolo del sottoblocco NON è più qui: è `.scheda-card__title`, il

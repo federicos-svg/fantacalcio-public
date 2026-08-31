@@ -253,8 +253,11 @@ test("senza le previsioni servite il sottoblocco dice QUALE deposito manca", asy
   await expect(page.locator("#per-me-title")).toHaveText(PER_ME_TITLE_SHORT);
 
   // IL TITOLO C'È E NON SI DISEGNA — «Nascondi #per-me-title» (Pico,
-  // 2026-08-31). Le due metà di questa pretesa non si possono separare, ed è
-  // il motivo per cui stanno in un test solo:
+  // 2026-08-31). Il gemello dell'esca invece SI VEDE, e la differenza non è
+  // una svista: qui l'occhiello dice già la stessa cosa, là c'è la seconda
+  // domanda, che nessun altro elemento porta (e2e/bait-row.spec.ts la prova).
+  // Le due metà di questa pretesa non si possono separare, ed è il motivo per
+  // cui stanno in un test solo:
   //
   //   a. NON OCCUPA LA VISTA. Il rettangolo è quello dell'idioma
   //      visually-hidden del repository (1×1 px, `clip-path: inset(50%)`), non
@@ -275,8 +278,43 @@ test("senza le previsioni servite il sottoblocco dice QUALE deposito manca", asy
   });
   expect(accessibleName, "il sottoblocco ha ancora un nome accessibile").toBe(PER_ME_TITLE_SHORT);
 
-  // E IL NOME CHE SI VEDE È QUELLO DI SOPRA, uno solo.
-  await expect(page.locator("#suggested-player-mine-title")).toBeVisible();
+  // E IL NOME CHE SI VEDE PER QUESTA METÀ È QUELLO DI SOPRA — l'occhiello, che
+  // dal 2026-08-31 intesta DAVVERO le due metà e non più la sola prima
+  // («L'occhiello sale a intestare le due metà», Pico). Non basta che esista:
+  // deve INTESTARE, e qui si prova che lo fa in tutti e tre i modi in cui una
+  // pagina può dirlo.
+  //
+  //   a. È VISIBILE, e sta nel blocco;
+  //   b. DÀ IL NOME al blocco intero via `aria-labelledby`, come i due titoli
+  //      delle metà lo danno alle loro sezioni;
+  //   c. STA SOPRA LE DUE METÀ NELL'ALBERO, non dentro una di loro: è figlio
+  //      di `#suggested-player`, ed è la pretesa che diventa rossa il giorno
+  //      in cui qualcuno lo rimettesse dentro la prima metà — che è com'era
+  //      fino a stamane.
+  const occhiello = page.locator("#suggested-player-title");
+  await expect(occhiello).toBeVisible();
+  await expect(occhiello).toHaveText("GIOCATORE SUGGERITO — CHI CHIAMARE ORA");
+  await expect(page.locator("#suggested-player")).toHaveAttribute(
+    "aria-labelledby",
+    "suggested-player-title",
+  );
+  expect(
+    await page.evaluate(
+      () =>
+        document.getElementById("suggested-player-title")?.parentElement?.id ?? null,
+    ),
+    "l'occhiello è figlio del blocco, non di una delle due metà",
+  ).toBe("suggested-player");
+  // E LE DUE METÀ GLI STANNO SOTTO PARI: stesso genitore, nessuna delle due
+  // annidata dentro l'altra. `#suggested-player-mine` non esiste più — dopo la
+  // salita dell'occhiello avvolgeva un'unica sezione e non nominava più niente.
+  expect(
+    await page.evaluate(() => [
+      document.getElementById("per-me-block")?.parentElement?.id ?? null,
+      document.getElementById("bait-block")?.parentElement?.id ?? null,
+    ]),
+    "le due metà sono sorelle dentro lo stesso contenitore",
+  ).toEqual(["suggested-player-halves", "suggested-player-halves"]);
 
   const emptyHeight = await page
     .locator("#per-me-block")

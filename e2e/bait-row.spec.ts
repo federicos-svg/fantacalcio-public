@@ -120,8 +120,55 @@ test("il sottoblocco mostra IL candidato atteso, dentro GIOCATORE SUGGERITO", as
   await expect(page.locator("#bait-rows .bait-row__mark")).toHaveCount(0);
   await expect(page.locator("#bait-rows .bait-row__evidence")).toHaveCount(0);
 
-  // Con le righe, l'occhiello è quello per esteso: dice CHE COSA sono.
+  // Con le righe, il nome è quello per esteso: dice CHE COSA sono.
   await expect(page.locator("#bait-title")).toHaveText(BAIT_TITLE);
+
+  // IL NOME DELLA SECONDA METÀ NON SI NASCONDE, E STA IN SECONDO RANGO — Pico,
+  // 2026-08-31. Il gemello `#per-me-title` è uscito dalla vista perché
+  // l'occhiello diceva già la stessa cosa; questo NO, perché porta la SECONDA
+  // DOMANDA — «per far spendere gli altri» — e nessun altro elemento della
+  // pagina la porta. Le due pretese stanno insieme perché una senza l'altra è
+  // metà della decisione: si vede, E si legge come subordinato all'occhiello.
+  const baitTitle = page.locator("#bait-title");
+  await expect(baitTitle).toBeVisible();
+  const titleBox = await baitTitle.evaluate((el) => el.getBoundingClientRect());
+  expect(titleBox.height, "il nome della seconda metà occupa una riga vera").toBeGreaterThan(1);
+  // IL NOME ACCESSIBILE RESTA QUELLO, e non per abitudine: `aria-labelledby`
+  // punta qui, quindi un titolo tolto dal rendering lascerebbe `#bait-block`
+  // senza nome per chi legge con uno screen reader — la stessa ragione per cui
+  // il gemello nascosto è rimasto nel DOM.
+  await expect(page.locator("#bait-block")).toHaveAttribute("aria-labelledby", "bait-title");
+  expect(
+    await page.locator("#bait-block").evaluate((el) => {
+      const by = el.getAttribute("aria-labelledby") ?? "";
+      return document.getElementById(by)?.textContent ?? null;
+    }),
+    "la seconda metà ha ancora il proprio nome accessibile",
+  ).toBe(BAIT_TITLE);
+  // IL RANGO, MISURATO E NON DICHIARATO: corpo e peso stanno SOTTO quelli
+  // dell'occhiello che intesta entrambe le metà. È la forma che dice chi
+  // intesta chi, e senza questa misura «sottotitolo» sarebbe una parola nei
+  // commenti.
+  const [head, sub] = await page.evaluate(() =>
+    ["suggested-player-title", "bait-title"].map((id) => {
+      const cs = getComputedStyle(document.getElementById(id)!);
+      return { fontSize: parseFloat(cs.fontSize), fontWeight: parseInt(cs.fontWeight, 10) };
+    }),
+  );
+  expect(sub!.fontSize, "il nome della metà è più piccolo dell'occhiello").toBeLessThan(
+    head!.fontSize,
+  );
+  expect(sub!.fontWeight, "…e più leggero").toBeLessThan(head!.fontWeight);
+  // I DUE LIVELLI DI INTESTAZIONE, perché chi naviga per titoli senta la
+  // stessa gerarchia che si vede: l'occhiello un livello sopra i nomi delle
+  // due metà, non allo stesso.
+  expect(
+    await page.evaluate(() =>
+      ["suggested-player-title", "per-me-title", "bait-title"].map(
+        (id) => document.getElementById(id)?.tagName ?? null,
+      ),
+    ),
+  ).toEqual(["H2", "H3", "H3"]);
 
   // LA NOTA NON C'È PIÙ, DEL TUTTO — «via del tutto» (Pico, 2026-08-31), messo
   // davanti alla misura della gemella `#per-me-note`: 92 px di annotazione per
@@ -150,9 +197,30 @@ test("il sottoblocco mostra IL candidato atteso, dentro GIOCATORE SUGGERITO", as
   expect(await page.evaluate(() =>
     document.getElementById("suggested-player")!.contains(document.getElementById("bait-block")),
   )).toBe(true);
-  expect(await documentTop(page, "#bait-block")).toBeGreaterThan(
-    await documentTop(page, "#suggested-player-mine"),
-  );
+  // LA SECONDA METÀ VIENE DOPO LA PRIMA, e da qui in poi si dice nell'ordine
+  // del DOCUMENTO e non in pixel verticali. Il confronto in pixel era col
+  // contenitore `#suggested-player-mine`, che partiva dall'occhiello e quindi
+  // stava più in alto di entrambe; dal 2026-08-31 quel contenitore non esiste
+  // — l'occhiello è salito a intestare le due metà — e le due metà sono
+  // sorelle in una griglia che a QUESTA larghezza (1280, il default della
+  // suite) le mette AFFIANCATE: stesso bordo superiore, 199,5 px tutte e due,
+  // misurato. Un «più in basso» sarebbe rosso per la larghezza della finestra,
+  // non per l'ordine — che è la cosa che questa riga vuole difendere.
+  expect(
+    await page.evaluate(() => {
+      const halves = document.getElementById("suggested-player-halves");
+      const perMe = document.getElementById("per-me-block");
+      const bait = document.getElementById("bait-block");
+      if (halves === null || perMe === null || bait === null) return null;
+      return Array.from(halves.children).map((el) => el.id);
+    }),
+    "prima la metà PER ME, poi l'esca, sorelle nello stesso contenitore",
+  ).toEqual(["per-me-block", "bait-block"]);
+  // ED ENTRAMBE STANNO SOTTO L'OCCHIELLO, che le intesta: questo sì è un fatto
+  // verticale, e vale a ogni larghezza.
+  const occhielloTop = await documentTop(page, "#suggested-player-title");
+  expect(await documentTop(page, "#per-me-block")).toBeGreaterThan(occhielloTop);
+  expect(await documentTop(page, "#bait-block")).toBeGreaterThan(occhielloTop);
   expect(await documentTop(page, "#listone-block")).toBeGreaterThan(
     await documentTop(page, "#bait-block"),
   );

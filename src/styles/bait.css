@@ -13,10 +13,33 @@
  * la parola «✓ selezionato» dentro la riga. Chi non distingue i colori ha
  * comunque due segnali. */
 
+/* IL MARGINE IN CIMA SE N'È ANDATO, IL FILO NO — 2026-08-31. I 10 px
+   duplicavano il `gap` di 14 px con cui `.suggested-player__halves` separa già
+   le due metà: due spaziature per lo stesso stacco, e una sola l'aveva chiesta
+   qualcuno. Il filo sopra resta, ed è l'unica cosa che DA IMPILATE — dove il
+   nome della prima metà non si disegna — dice dove finisce la prima e comincia
+   la seconda. */
 .bait {
-  margin-top: 10px;
   padding-top: 9px;
   border-top: 1px solid var(--border);
+}
+
+/* …E DA AFFIANCATE IL FILO NON C'È, alla stessa soglia di 900px a cui tutto il
+   resto di questa schermata cambia forma.
+
+   PERCHÉ. Un bordo superiore su UNA delle due colonne non separa più niente —
+   le due metà non sono più una sopra l'altra — e fa due danni: disegna un
+   trattino orizzontale lungo mezza riga, e spinge la seconda metà 10 px più in
+   basso della prima. Dal 2026-08-31 le due metà sono PARI sotto un occhiello
+   che le intesta entrambe (Pico), e due colonne pari che partono da due
+   altezze diverse si leggono come una principale e una nota a margine.
+   L'offset c'era anche prima (19 px, col margine); adesso che c'è un capo
+   sopra di loro si vede per quello che è. */
+@media (min-width: 900px) {
+  .bait {
+    border-top: 0 none;
+    padding-top: 0;
+  }
 }
 
 /* Il titolo del sottoblocco NON è più qui: è `.scheda-card__title`, il

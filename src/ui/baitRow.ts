@@ -201,7 +201,22 @@ export function renderBaitSection(
 
   // Il titolo è quello CONDIVISO (src/ui/schedaCard.ts) — vedi la nota gemella
   // in renderPerMeSection.
-  section.appendChild(renderSchedaCardTitle(baitTitleFor(reading), { id: "bait-title" }));
+  //
+  // SI VEDE, E IN SECONDO RANGO — Pico, 2026-08-31. Dal 2026-08-31 l'occhiello
+  // «GIOCATORE SUGGERITO — CHI CHIAMARE ORA» intesta DAVVERO le due metà, e
+  // questo titolo nomina la seconda. Non segue il gemello `#per-me-title`
+  // fuori dalla vista, e la differenza non è di simmetria ma di contenuto: là
+  // l'occhiello ripeteva la stessa domanda, qui c'è la SECONDA domanda — «per
+  // far spendere gli altri» — che nessun altro elemento della pagina porta.
+  // Nasconderla lascerebbe due nomi di giocatore impilati senza modo di sapere
+  // quale risponde a quale domanda: una perdita di senso, non una pulizia.
+  //
+  // Quello che cambia è il RANGO: `subtitle: true` gli dà la forma subordinata
+  // all'occhiello (`SCHEDA_CARD_SUBTITLE_CLASS`), così i due si leggono come
+  // capo e metà invece che come due titoli pari.
+  section.appendChild(
+    renderSchedaCardTitle(baitTitleFor(reading), { id: "bait-title", subtitle: true }),
+  );
 
   if (reading.kind === "empty") {
     const empty = document.createElement("p");

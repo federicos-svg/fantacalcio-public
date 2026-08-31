@@ -52,7 +52,10 @@ const block = (domId: string, consumptionPx: number): MeasuredCallScreenBlock =>
  * Lo stato `ricerca` come è misurato oggi su main: tutto dentro le allocazioni.
  * Misura del 2026-08-29 su `519d694` — vedi CALL_SCREEN_BUDGET_MEASURED_ON —
  * rimisurata sul vivo il 2026-08-31, quando il titolo del sottoblocco PER ME
- * ha smesso di disegnarsi: span e `suggested-player` scendono di 22,5 px.
+ * ha smesso di disegnarsi (span e `suggested-player` scendono di 22,5 px) e
+ * ancora la sera dello stesso giorno, quando l'occhiello è salito a intestare
+ * le due metà e due spaziature senza più un compito sono cadute con lui:
+ * altri −13,5 px sugli stessi due numeri.
  *
  * DUE VALORI QUI DENTRO SONO LA FIRMA DELLA BARRA FISSA, e vanno letti insieme:
  * `call-search-row` consuma 0 perché è `position: fixed` e non occupa altezza
@@ -61,16 +64,18 @@ const block = (domId: string, consumptionPx: number): MeasuredCallScreenBlock =>
  */
 const healthySweep = (over: Partial<CallScreenSweep> = {}): CallScreenSweep => ({
   state: "ricerca",
-  spanPx: 1447.5,
+  spanPx: 1434,
   blocks: [
     block("call-screen-eyebrow", 18),
     block("call-search-row", 0),
     // 14 e non 65,75: senza selezione questo nodo è VUOTO, e i 14 px sono il
     // margine del vicino di sotto, che la piastrellatura attribuisce a lui.
     block("call-search-hint", 14),
-    // 244,5 e non 300,5: il sottoblocco PER ME mostra la sua frase di
-    // silenzio, e dal 2026-08-31 il suo titolo non si disegna più.
-    block("suggested-player", 244.5),
+    // 231 e non 300,5: il sottoblocco PER ME mostra la sua frase di silenzio,
+    // dal 2026-08-31 il suo titolo non si disegna più, e dalla sera dello
+    // stesso giorno l'occhiello intesta le due metà da fuori — senza il
+    // margine che serviva a staccarlo da dentro.
+    block("suggested-player", 231),
     block("listone-block", 1171),
   ],
   listone: { rowCount: LISTONE_PAGE_SIZE, rowHeightPx: 92.5, headPx: 233, tailPx: 13 },
@@ -100,7 +105,7 @@ describe("l'identità aritmetica del mastro", () => {
   it("la somma è quella delle righe dichiarate, non un numero scritto a mano", () => {
     const sum = CALL_SCREEN_BUDGET_LEDGER.reduce((t, r) => t + r.allocationPx, 0);
     expect(CALL_SCREEN_ALLOCATED_PX).toBe(sum);
-    expect(sum).toBe(2598);
+    expect(sum).toBe(2584);
   });
 
   // Il numero che il mastro esiste per far vedere. Pinnato: se qualcuno alza
@@ -113,8 +118,10 @@ describe("l'identità aritmetica del mastro", () => {
   // per cui non è un miglioramento sta in BARRA_FISSA_FUORI_DAL_TOTALE.
   // I 22 px del 2026-08-31 (−932 -> −910) sono invece spazio davvero
   // restituito: una riga di titolo che nominava due volte la stessa cosa.
+  // E i 14 della sera (−910 -> −896) pure: l'occhiello salito a intestare le
+  // due metà si è portato via due spaziature che non avevano più un compito.
   it("la riserva è oggi NEGATIVA: il totale è già sfondato dai blocchi che ci sono", () => {
-    expect(CALL_SCREEN_BUDGET_RESERVE_PX).toBe(-910);
+    expect(CALL_SCREEN_BUDGET_RESERVE_PX).toBe(-896);
     expect(CALL_SCREEN_BUDGET_RESERVE_PX).toBeLessThan(0);
   });
 
@@ -122,8 +129,8 @@ describe("l'identità aritmetica del mastro", () => {
     // «chi chiamare per me» — la prima metà di GIOCATORE SUGGERITO, già in
     // lavorazione — non arriva in uno spazio vuoto: arriva dovendo restituire
     // la propria altezza PIÙ il rosso della riserva.
-    expect(callScreenNewBlockCostPx(0)).toBe(910);
-    expect(callScreenNewBlockCostPx(120)).toBe(1030);
+    expect(callScreenNewBlockCostPx(0)).toBe(896);
+    expect(callScreenNewBlockCostPx(120)).toBe(1016);
   });
 });
 
@@ -210,13 +217,15 @@ describe("gli stati che oggi sfondano il totale, pinnati e non approvati", () =>
     // due pagamenti — e −103 il 2026-08-30, che invece è denaro vero: il
     // contatore delle interazioni di chiamata e l'istruzione sempre a schermo
     // sulla ricerca hanno smesso di esistere — e −22 il 2026-08-31, il titolo
-    // del sottoblocco PER ME che ripeteva l'occhiello di sopra. Il debito resta
-    // grande: 856 px.
+    // del sottoblocco PER ME che ripeteva l'occhiello di sopra, e −14 la sera
+    // dello stesso giorno, quando l'occhiello è salito a intestare le due metà
+    // e due spaziature senza più un compito sono cadute con lui. Il debito
+    // resta grande: 842 px.
     const worst = CALL_SCREEN_OVER_BUDGET_STATES.find(
       (s) => s.state === "contesto-aperto-ricerca-vuota",
     );
-    expect(worst?.spanPx).toBe(2544);
-    expect(worst?.overBudgetPx).toBe(856);
+    expect(worst?.spanPx).toBe(2530);
+    expect(worst?.overBudgetPx).toBe(842);
     // LA SOMMA DELLE ALLOCAZIONI STA SOPRA QUELLO STATO, E DA OGGI DI PIÙ DEL
     // SOLO ARROTONDAMENTO. Fino al 2026-08-29 lo scarto era ≤ 1 px per riga:
     // lo stato peggiore portava OGNI blocco alla sua altezza massima, quindi
@@ -289,13 +298,20 @@ describe("le scelte che restano tali", () => {
       );
     }
     // E il margine che resta è SOTTILE, non comodo: il pin più stretto sta
-    // dentro per meno del 3% del totale (40 px su 1688, il 2,4%; era l'1%
-    // prima del titolo nascosto del 2026-08-31). Se qualcuno lo allargasse per
+    // dentro per meno del 4% del totale (54 px su 1688, il 3,2%; era il 2,4%
+    // prima dell'occhiello salito a intestare le due metà, e l'1% prima del
+    // titolo nascosto — entrambi il 2026-08-31). Se qualcuno lo allargasse per
     // distrazione questa riga non se ne accorgerebbe; se qualcuno lo
     // consumasse, sì.
+    //
+    // LA SOGLIA È PASSATA DAL 3% AL 4% PER UNA RIMISURA, NON PER FARE POSTO A
+    // QUALCOSA: il margine è cresciuto perché la schermata si è ACCORCIATA di
+    // 14 px, cioè per la ragione opposta a quella per cui una soglia si
+    // allenta. Il numero esatto resta pinnato alla lettera dal ciclo qui
+    // sopra; questa riga sorveglia soltanto che «sottile» resti sottile.
     const worst = Math.max(...CALL_SCREEN_NAME_LENGTH_PINS.map((p) => p.deltaFromBudgetPx));
     expect(worst).toBeLessThan(0);
-    expect(Math.abs(worst) / CALL_SCREEN_VERTICAL_BUDGET_PX).toBeLessThan(0.03);
+    expect(Math.abs(worst) / CALL_SCREEN_VERTICAL_BUDGET_PX).toBeLessThan(0.04);
   });
 });
 
@@ -310,9 +326,9 @@ describe("la spazzata che attribuisce", () => {
   it("una riga di testo in più a un blocco esistente lo nomina, e nomina solo lui", () => {
     const findings = callScreenBudgetFindings(
       healthySweep({
-        spanPx: 1447.5 + 17.25,
+        spanPx: 1434 + 17.25,
         blocks: healthySweep().blocks.map((b) =>
-          b.domId === "suggested-player" ? block(b.domId, 259 + 17.25) : b,
+          b.domId === "suggested-player" ? block(b.domId, 245 + 17.25) : b,
         ),
       }),
     );
@@ -320,8 +336,8 @@ describe("la spazzata che attribuisce", () => {
     expect(findings[0]).toMatchObject({
       kind: "oltre-allocazione",
       id: "giocatore-suggerito",
-      consumptionPx: 276,
-      allocationPx: 259,
+      consumptionPx: 262,
+      allocationPx: 245,
       overflowPx: 17,
     });
     expect(describeCallScreenBudgetFinding(findings[0]!)).toContain("giocatore-suggerito");
@@ -347,7 +363,7 @@ describe("la spazzata che attribuisce", () => {
     const line = describeCallScreenBudgetFinding(findings[0]!);
     expect(line).toContain("blocco-finto");
     expect(line).toContain("40px");
-    expect(line).toContain("-910px");
+    expect(line).toContain("-896px");
   });
 
   it("un blocco senza id non scappa: viene nominato per forma", () => {
@@ -432,7 +448,7 @@ describe("la spazzata che attribuisce", () => {
     // dieci righe qui sarebbe falsa, e una guardia falsa la disattiva qualcuno.
     const sweep: CallScreenSweep = {
       state: "riga-selezionata",
-      spanPx: 874.25,
+      spanPx: 860.75,
       blocks: [
         block("call-screen-eyebrow", 18),
         block("call-search-row", 0),
@@ -441,7 +457,7 @@ describe("la spazzata che attribuisce", () => {
         // Il riquadro INSIGHT GIOCATORE è obbligatorio in ogni stato con una
         // riga selezionata dal 2026-08-26: senza di lui la spazzata sarebbe
         // rossa per «riga-senza-blocco», ed è la guardia che lo pretende.
-        block("suggested-player", 258.5),
+        block("suggested-player", 245),
         block("listone-block", 338.5),
       ],
       listone: { rowCount: 1, rowHeightPx: 92.5, headPx: 233, tailPx: 13 },
@@ -452,13 +468,13 @@ describe("la spazzata che attribuisce", () => {
   it("il contesto aperto sta esattamente sulla propria allocazione: un pixel in più è rosso", () => {
     const open = (consumption: number): CallScreenSweep => ({
       state: "contesto-aperto",
-      spanPx: 1760,
+      spanPx: 1746,
       blocks: [
         block("call-screen-eyebrow", 18),
         block("call-search-row", 0),
         block("call-search-hint", 48.5),
         block("nomination-context", consumption),
-        block("suggested-player", 258.5),
+        block("suggested-player", 245),
         block("listone-block", 338.5),
       ],
       listone: { rowCount: 1, rowHeightPx: 92.5, headPx: 233, tailPx: 13 },
@@ -485,12 +501,12 @@ describe("il messaggio che oggi manca alla guardia totale", () => {
     );
     expect(msg).toContain("lo span è 1700px su 1688px");
     expect(msg).toContain("giocatore-suggerito");
-    expect(msg).toContain("+61px");
+    expect(msg).toContain("+75px");
   });
 
   it("quando nessun blocco sfora lo dice, invece di tacere", () => {
     const msg = callScreenBudgetAttribution(healthySweep(), CALL_SCREEN_BUDGET_VIEWPORT.height);
-    expect(msg).toContain("lo span è 1448px su 1688px");
+    expect(msg).toContain("lo span è 1434px su 1688px");
     expect(msg).toContain("nessun blocco è oltre la propria allocazione");
   });
 
@@ -507,9 +523,9 @@ describe("il messaggio che oggi manca alla guardia totale", () => {
       }),
       CALL_SCREEN_BUDGET_VIEWPORT.height,
     );
-    // +141px contro +51px: il messaggio nomina UNO, e nomina il peggiore.
+    // +155px contro +51px: il messaggio nomina UNO, e nomina il peggiore.
     expect(msg).toContain("giocatore-suggerito");
-    expect(msg).toContain("+141px");
+    expect(msg).toContain("+155px");
     expect(msg).not.toContain("esito-ricerca");
   });
 });

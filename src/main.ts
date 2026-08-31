@@ -5924,14 +5924,65 @@ function renderMomentoChiamata(
   // predizione. Non è una raccomandazione.
   // I DUE BLOCCHI DEL SUGGERITO STANNO AFFIANCATI — «Metti
   // #suggested-player-mine e #bait-block uno affianco all'altro», Pico,
-  // 2026-08-29. Le due colonne sono una regola di stile (`.suggested-player`
-  // in asta.css) e non uno `style.cssText` a mano: le misure e la soglia a cui
-  // si reimpilano vivono col resto della schermata, non in mezzo alla
-  // costruzione del DOM.
-  const suggested = document.createElement("div");
+  // 2026-08-29. Le due colonne sono una regola di stile
+  // (`.suggested-player__halves` in asta.css — stava su `.suggested-player`
+  // finché le due metà erano figlie dirette del blocco) e non uno
+  // `style.cssText` a mano: le misure e la soglia a cui si reimpilano vivono
+  // col resto della schermata, non in mezzo alla costruzione del DOM.
+  //
+  // L'OCCHIELLO INTESTA LE DUE METÀ, E ADESSO LO FA DAVVERO — Pico,
+  // 2026-08-31. Fino a stamane «GIOCATORE SUGGERITO — CHI CHIAMARE ORA» stava
+  // DENTRO `<section id="suggested-player-mine">`, cioè intestava la sola metà
+  // PER ME, mentre l'esca era una sezione sorella col proprio titolo visibile:
+  // il titolo del PER ME era stato nascosto perché ridondante con l'occhiello,
+  // quello dell'esca no, e l'asimmetria diceva il falso sulla struttura.
+  // Adesso l'occhiello è figlio di `#suggested-player` e le due metà gli
+  // stanno sotto pari, ciascuna col proprio nome in SECONDO RANGO
+  // (`SCHEDA_CARD_SUBTITLE_CLASS`, src/ui/schedaCard.ts).
+  //
+  // È UNA `<section>` E NON PIÙ UN `<div>`: l'occhiello le dà il nome
+  // accessibile via `aria-labelledby`, come già fanno le due metà coi propri
+  // titoli. Un contenitore che intesta due sezioni nominate e non ha un nome
+  // suo lascerebbe chi naviga con uno screen reader davanti a due nomi senza
+  // la domanda che li accomuna.
+  const suggested = document.createElement("section");
   suggested.id = "suggested-player";
   suggested.className = "suggested-player";
+  suggested.setAttribute("aria-labelledby", "suggested-player-title");
   suggested.style.cssText = `background:${C.panelInner};border:1px solid ${C.border};border-radius:8px;padding:12px 16px;margin-top:18px;`;
+  // L'occhiello porta il titolo CONDIVISO (src/ui/schedaCard.ts) e non uno
+  // `style.cssText` a mano: era la terza copia della stessa forma, ed era già
+  // divergente dalle altre due (0.06em di spaziatura invece di 0.04em).
+  //
+  // `<h2>` E NON PIÙ `<div>`: intesta due `<h3>` — i nomi delle due metà —
+  // quindi un livello sopra, e la gerarchia dell'albero del documento dice la
+  // stessa cosa che dice la forma. `<h2>` è il livello che questa applicazione
+  // usa già per i blocchi di una schermata (src/ui/views.ts), sotto l'`<h1>`
+  // della schermata stessa.
+  suggested.appendChild(
+    renderSchedaCardTitle("GIOCATORE SUGGERITO — CHI CHIAMARE ORA", {
+      id: "suggested-player-title",
+      tag: "h2",
+    }),
+  );
+  // LE DUE METÀ, IN UN CONTENITORE LORO. La griglia a due colonne («Metti
+  // #suggested-player-mine e #bait-block uno affianco all'altro», Pico,
+  // 2026-08-29) è scesa da `#suggested-player` a questo contenitore, e non è
+  // un guscio di comodo: la MISURA. Lasciando la griglia sul blocco,
+  // l'occhiello ne sarebbe diventato una riga e a 390px — dove la griglia è a
+  // una colonna — avrebbe pagato il `row-gap` di 14 px per separarsi dalle
+  // metà, su una schermata il cui blocco è a 14 px dalla propria allocazione.
+  // Con le due metà in una griglia loro, il gap resta dove serve — FRA le due
+  // metà — e l'occhiello si separa col proprio `margin-bottom`, quello del
+  // titolo condiviso, che non deve divergere dagli altri titoli della schermata
+  // (e2e/player-insight.spec.ts lo confronta).
+  //
+  // IL NODO NON È UNO IN PIÙ: prende il posto di `#suggested-player-mine`, che
+  // dopo la salita dell'occhiello avvolgeva un'unica sezione e non nominava più
+  // niente. Questo nomina ciò che contiene.
+  const suggestedHalves = document.createElement("div");
+  suggestedHalves.id = "suggested-player-halves";
+  suggestedHalves.className = "suggested-player__halves";
   // PRIMA METÀ — «chi chiamare per me». Il segnaposto onesto che stava qui non
   // c'è più: al suo posto c'è il sottoblocco vero, e il segnaposto diceva «il
   // motore richiede dati reali, non ancora abilitati» di una cosa che adesso i
@@ -5949,35 +6000,24 @@ function renderMomentoChiamata(
   //
   // `onSelect` è `selectListonePlayer`, come per la seconda metà: L'UNICA via
   // che arma la CTA «Avvia», riusata e non duplicata.
-  const suggestedFirst = document.createElement("section");
-  suggestedFirst.id = "suggested-player-mine";
-  // L'occhiello porta il titolo CONDIVISO (src/ui/schedaCard.ts) e non più uno
-  // `style.cssText` a mano: era la terza copia della stessa forma, ed era già
-  // divergente dalle altre due (0.06em di spaziatura invece di 0.04em).
-  //
-  // LA MISURA, perché una riga in più qui la pagherebbe il mastro del budget:
-  // rimisurato a 390×844 dopo il cambio, lo span della schermata di chiamata è
-  // IDENTICO — 1654px allo stato `ricerca`, gli stessi pin di
-  // e2e/call-screen-budget.spec.ts, nessun numero del mastro toccato.
-  // L'occhiello sta sulle stesse righe con entrambe le spaziature, e i 2px di
-  // margine in più si perdono nel collasso col `margin-top` di `.per-me`.
-  suggestedFirst.appendChild(
-    renderSchedaCardTitle("GIOCATORE SUGGERITO — CHI CHIAMARE ORA", {
-      id: "suggested-player-mine-title",
-      tag: "div",
-    }),
-  );
-  suggestedFirst.appendChild(
+  suggestedHalves.appendChild(
     renderPerMeSection(perMeSectionProps(aState), selectListonePlayer),
   );
-  suggested.appendChild(suggestedFirst);
   // SECONDA METÀ — «chi chiamare per far spendere gli altri». `onSelect` è
   // `selectListonePlayer`, cioè L'UNICA via che arma la CTA «Avvia»: il
   // candidato È una riga di listone, quindi la stessa funzione si applica senza
   // adattatori e non nasce una seconda superficie di selezione.
-  suggested.appendChild(
+  //
+  // IL SUO TITOLO NON SI NASCONDE, e la differenza col gemello è di sostanza.
+  // «PER ME» spariva dalla vista perché l'occhiello diceva già la stessa cosa;
+  // «PER FAR SPENDERE GLI ALTRI» è la SECONDA DOMANDA, diversa dalla prima, e
+  // nessun altro elemento la porta: nasconderlo lascerebbe due nomi impilati
+  // senza modo di sapere quale risponde a quale domanda. Cambia rango, non
+  // sparisce.
+  suggestedHalves.appendChild(
     renderBaitSection(baitSectionProps(aState), selectListonePlayer),
   );
+  suggested.appendChild(suggestedHalves);
   wrap.appendChild(suggested);
 
   // Il listone sta SOTTO il blocco del giocatore suggerito (richiesta di Pico,

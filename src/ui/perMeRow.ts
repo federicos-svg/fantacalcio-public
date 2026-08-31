@@ -192,18 +192,34 @@ export function renderPerMeSection(
   //
   // NON SI DISEGNA PIÙ — «Nascondi #per-me-title» (Pico, 2026-08-31), e la
   // ragione è di struttura, non di gusto: l'occhiello che sta sopra
-  // (`#suggested-player-mine-title`, src/main.ts) intitola
-  // `<section id="suggested-player-mine">`, che contiene SOLO questo
-  // sottoblocco — il pannello esca è una sezione sorella, appesa a
-  // `#suggested-player`. «CHI CHIAMARE ORA» e «PER ME» nominavano quindi la
-  // stessa cosa, impilati uno sotto l'altro.
+  // (`#suggested-player-title`, src/main.ts) diceva già la stessa cosa che
+  // dice questo titolo. «CHI CHIAMARE ORA» e «PER ME» sono la stessa domanda,
+  // e la stessa domanda scritta due volte non è una gerarchia.
+  //
+  // PERCHÉ IL GEMELLO DELL'ESCA INVECE RESTA A SCHERMO. Dal 2026-08-31
+  // l'occhiello intesta DAVVERO le due metà, e la seconda si chiama «PER FAR
+  // SPENDERE GLI ALTRI»: una domanda DIVERSA dalla prima, che nessun altro
+  // elemento porta. Nasconderla lascerebbe due nomi impilati senza modo di
+  // sapere quale risponde a quale domanda. Qui non si perde niente perché
+  // l'occhiello ripete la domanda; là si perderebbe la seconda domanda.
   //
   // RESTA NEL DOM, FUORI DALLA VISTA, e non è un ripiego: `aria-labelledby`
   // punta qui, e un titolo tolto (o messo a `display: none`) lascerebbe
   // `#per-me-block` SENZA NOME ACCESSIBILE. L'idioma del non-disegnato è
   // quello che il repository ha già — `.listone-axis-tag__sr`,
   // `.scheda-icona__sr` — e la sua misura sta in src/styles/perMe.css.
-  const title = renderSchedaCardTitle(perMeTitleFor(reading), { id: "per-me-title" });
+  //
+  // `subtitle: true` ANCHE SE NON SI VEDE, e non è una contraddizione: le due
+  // metà sono pari, quindi i loro due nomi portano la stessa forma — quella
+  // subordinata all'occhiello. Il modificatore del non-disegnato si applica
+  // SOPRA, e tocca dove sta il titolo, non com'è fatto: è per questo che
+  // e2e/player-insight.spec.ts può confrontare i tre titoli e trovarne due
+  // identità, una per l'occhiello e una per le due metà, anche se a schermo di
+  // metà se ne legge una sola.
+  const title = renderSchedaCardTitle(perMeTitleFor(reading), {
+    id: "per-me-title",
+    subtitle: true,
+  });
   title.classList.add("per-me__title--sr");
   section.appendChild(title);
 
