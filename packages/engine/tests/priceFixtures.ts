@@ -89,3 +89,53 @@ export function rankRow(
 export function rowWithoutForecast(playerId: string, role: Role, sold = false): RankRow {
   return { playerId, role, forecast: null, sold };
 }
+
+// ─── Scale di listone e di prezzo — per `V`, dove i ranghi devono arrivare a r* ──
+//
+// I ranghi di rimpiazzo del valore in crediti sono 25/73/73/57: una popolazione
+// scritta a mano riga per riga non ci arriva, e una scritta a mano che ci
+// arrivasse sarebbe illeggibile. Queste due scale la DERIVANO da una regola
+// dichiarata — `T1̂` al rango, prezzo al rango — così la fixture dice la propria
+// forma in una riga e resta vera al primo ritocco.
+
+export interface RankLadderSpec {
+  readonly role: Role;
+  /** Quante righe di quel ruolo. */
+  readonly count: number;
+  /** `T1̂` al rango `r` (1-based, decrescente per costruzione della scala). */
+  readonly totalAt: (rank: number) => number;
+  /** `N̂` al rango `r`. Omesso: stagione piena (38). */
+  readonly appearancesAt?: (rank: number) => number;
+  /** Prefisso della chiave di listone. Omesso: il ruolo. */
+  readonly prefix?: string;
+}
+
+/**
+ * Le righe di listone di un ruolo, dal rango 1 al rango `count`.
+ *
+ * La chiave è numerata con lo zero-padding perché l'ordine alfabetico coincida
+ * con l'ordine dei ranghi: l'ultimo pareggio di `roleRankBook` è `playerId`
+ * crescente, e una fixture in cui `A:10` precede `A:2` renderebbe i pareggi
+ * illeggibili invece che deterministici.
+ */
+export function rankLadder(spec: RankLadderSpec): RankRow[] {
+  const prefix = spec.prefix ?? spec.role;
+  return Array.from({ length: spec.count }, (_unused, i) => {
+    const rank = i + 1;
+    return rankRow(
+      `${prefix}:${String(rank).padStart(3, "0")}`,
+      spec.role,
+      spec.totalAt(rank),
+      spec.appearancesAt === undefined ? 38 : spec.appearancesAt(rank),
+    );
+  });
+}
+
+/**
+ * I prezzi d'asta di una stagione, dal rango di prezzo 1 al rango `count`.
+ * L'ordine in cui escono non conta (la curva ricalcola il rango dal prezzo):
+ * conta che siano `count` prezzi generati dalla stessa regola dichiarata.
+ */
+export function priceLadder(count: number, priceAt: (rank: number) => number): number[] {
+  return Array.from({ length: count }, (_unused, i) => priceAt(i + 1));
+}

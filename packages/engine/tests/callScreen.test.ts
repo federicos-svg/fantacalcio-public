@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   ABSOLUTE_VALUE_UNRATIFIED_CHOICES,
+  CREDIT_VALUE_UNRATIFIED_CHOICES,
   RELATIVE_INDEX_UNRATIFIED_CHOICES,
   ALPHA_BY_PROFILE,
   COST_FLOOR,
@@ -449,6 +450,12 @@ describe("callScreen — scelte del motore non ratificate, dichiarate nel dato",
       // contenuto è a sua volta pinnato in
       // packages/engine/tests/relativeIndex.test.ts.
       ...RELATIVE_INDEX_UNRATIFIED_CHOICES,
+      // LA QUARTA SUPERFICIE: il valore in crediti (../src/creditValue.ts).
+      // Entra per elenco dichiarato e per la stessa ragione delle due sopra —
+      // la lista che quella lettura porta è la stessa su ogni ramo, valore o
+      // assenza che sia — e il suo contenuto è pinnato in
+      // packages/engine/tests/creditValue.test.ts.
+      ...CREDIT_VALUE_UNRATIFIED_CHOICES,
     ];
     for (const id of used)
       expect(UNRATIFIED_CHOICES[id].length).toBeGreaterThan(0);

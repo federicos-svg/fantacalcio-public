@@ -214,6 +214,19 @@ describe("12. scope guard — solo i simboli di valore autorizzati da §D9", () 
    *    previsto, nessun peso scelto dal sistema: i tre `delta` delle gambe sono
    *    numeri di Pico e valgono 0 finché non li dichiara.
    *
+   *  - `creditValue.ts` — `V(i)`, il VALORE IN CREDITI del passo 2 del nucleo
+   *    P0 (NOM-PROTOCOL-A §A.1). Sta nella famiglia autorizzata per lo stesso
+   *    motivo dell'assoluto, e la differenza è di nuovo verificabile riga per
+   *    riga: gli ingredienti sono il DEPOSITO SERVITO (`T1̂`/`N̂`, letto e mai
+   *    prodotto qui), il POOL e gli SLOT DEL REGOLAMENTO
+   *    (`INITIAL_BUDGET × NUM_FANTA_TEAMS`, `ROSTER_REQUIREMENTS ×
+   *    NUM_FANTA_TEAMS`), i VALORI DICHIARATI di Pico come override che
+   *    comanda, e un'ARITMETICA DICHIARATA su di essi (VORP sul rango di
+   *    rimpiazzo, ripartizione col metodo dei resti maggiori). Nessun modello,
+   *    nessun peso scelto dal sistema: le due sole correzioni previste hanno il
+   *    default che non aggiunge nulla (`γ = 0`, tetto spento) e si accendono
+   *    solo per esito dei test preregistrati.
+   *
    * Il nome nudo `value` resta fuori, qui come altrove.
    */
   const DECLARED_VALUE_ALLOWLIST: Readonly<Record<string, string>> = {
@@ -226,6 +239,12 @@ describe("12. scope guard — solo i simboli di valore autorizzati da §D9", () 
     ABSOLUTE_VALUE_LEGS: "absoluteValue.js",
     ABSOLUTE_VALUE_UNRATIFIED_CHOICES: "absoluteValue.js",
     absoluteValueReading: "absoluteValue.js",
+    CREDIT_VALUE_GAMMAS: "creditValue.js",
+    CREDIT_VALUE_UNRATIFIED_CHOICES: "creditValue.js",
+    DEFAULT_CREDIT_VALUE_GAMMA: "creditValue.js",
+    creditValueBook: "creditValue.js",
+    creditValueCredits: "creditValue.js",
+    creditValueOf: "creditValue.js",
   };
   const ALLOWED_VALUE_NAMES = Object.keys(DECLARED_VALUE_ALLOWLIST);
 
@@ -280,6 +299,7 @@ describe("12. scope guard — solo i simboli di valore autorizzati da §D9", () 
     const owners = new Map<string, Record<string, unknown>>([
       ["declaredValues.js", (await import("../src/declaredValues.js")) as Record<string, unknown>],
       ["absoluteValue.js", (await import("../src/absoluteValue.js")) as Record<string, unknown>],
+      ["creditValue.js", (await import("../src/creditValue.js")) as Record<string, unknown>],
     ]);
     for (const [allowed, owner] of Object.entries(DECLARED_VALUE_ALLOWLIST)) {
       const source = owners.get(owner)!;
@@ -323,6 +343,26 @@ describe("12. scope guard — solo i simboli di valore autorizzati da §D9", () 
     // strutturali 0/1 dei confronti di validazione.
     const ALLOWED_NUMERIC_LITERALS = new Set(["0", "1", "0.85", "1.0", "1.15"]);
     const code = stripCommentsAndStrings(sourceOf("declaredValues.ts"));
+    const literals = [...code.matchAll(/(?<![\w.$])\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi)].map(
+      (m) => m[0],
+    );
+    const unexpected = [...new Set(literals)].filter((n) => !ALLOWED_NUMERIC_LITERALS.has(n));
+    expect(unexpected).toEqual([]);
+  });
+
+  it("creditValue.ts non cabla nessun peso: solo i γ dichiarati e il calendario", () => {
+    // La stessa sonda sul terzo modulo autorizzato. I soli letterali ammessi
+    // sono `0`/`1` (i confronti, il pavimento di un credito, l'unità di resto,
+    // il `+1` che porta dal numero di slot al primo rango non riempito), `38`
+    // (le giornate di una stagione: il calendario, lo stesso 1..38 che parser e
+    // validatori già impongono) e i due γ diversi da zero dell'inventario del
+    // DTI (§E: `{0, 0.25, 0.5}`). Il pool, gli slot del tavolo e i quattro
+    // ranghi di rimpiazzo NON compaiono qui come numeri: sono derivati dal
+    // regolamento, ed è questa sonda a garantire che restino tali — il giorno
+    // in cui qualcuno scrivesse `4000`, `224` o `57` a mano, questo test lo
+    // direbbe.
+    const ALLOWED_NUMERIC_LITERALS = new Set(["0", "1", "38", "0.25", "0.5"]);
+    const code = stripCommentsAndStrings(sourceOf("creditValue.ts"));
     const literals = [...code.matchAll(/(?<![\w.$])\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi)].map(
       (m) => m[0],
     );

@@ -60,3 +60,10 @@ export * from "./relativeIndex.js";
 // packages/engine/src/expectedPrice.ts.
 export * from "./priceHistory.js";
 export * from "./expectedPrice.js";
+// `V` — IL VALORE IN CREDITI (NOM-PROTOCOL-A §A.1) e `S` — IL SURPLUS ATTESO
+// (§A.3): il VORP sul rango di rimpiazzo derivato dal regolamento, il residuo
+// del tavolo ripartito col metodo dei resti maggiori, le due correzioni
+// dichiarate entrambe spente di default, e l'override di Pico che comanda al
+// posto della targa del generatore — mai una media fra i due. Vedi
+// packages/engine/src/creditValue.ts.
+export * from "./creditValue.js";

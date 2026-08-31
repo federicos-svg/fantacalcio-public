@@ -83,7 +83,12 @@ export type UnratifiedChoiceId =
   | "RELATIVE_TIES_BY_DECLARED_ORDER" // «superiore a lui» letto sull'ordine dichiarato, pareggi compresi
   | "RELATIVE_TAKEN_INCLUDES_CONFIRMED" // riconfermato = non prendibile, come per l'occupazione delle fasce
   | "RELATIVE_ORDER_INCLUDES_FONDO" // anche chi è oltre l'ultima fascia entra nel conto
-  | "RELATIVE_OWNERSHIP_BESIDE_THE_NUMBER"; // «quanti ne ho presi io» resta accanto, non dentro
+  | "RELATIVE_OWNERSHIP_BESIDE_THE_NUMBER" // «quanti ne ho presi io» resta accanto, non dentro
+  // ── Le quattro letture del valore in crediti (creditValue.ts) ─────────────
+  | "CREDIT_VALUE_REMAINDER_TIES_BY_VORP" // chi prende l'unità di resto a parità di resto
+  | "CREDIT_VALUE_BAND_CAP_IS_FLOORED_P90" // il tetto in interi è `floor(P90)`, mai sotto il pavimento
+  | "CREDIT_VALUE_CAP_DOES_NOT_REDISTRIBUTE" // i crediti che il tetto libera non tornano agli altri
+  | "CREDIT_VALUE_DECLARED_NOT_ROUNDED"; // il valore dichiarato si riporta com'è, non si arrotonda
 
 /** Perché ciascuna scelta è aperta. Testo macchina-leggibile, non prosa libera. */
 export const UNRATIFIED_CHOICES: Readonly<Record<UnratifiedChoiceId, string>> =
@@ -132,6 +137,14 @@ export const UNRATIFIED_CHOICES: Readonly<Record<UnratifiedChoiceId, string>> =
       "chi sta oltre l'ultima fascia entra comunque nel conto dei liberi sopra di lui, al contrario di quanto fa la base del valore assoluto: la differenza è una lettura, non il dato",
     RELATIVE_OWNERSHIP_BESIDE_THE_NUMBER:
       "«quanti ne ho presi io e quanti gli avversari» restano fatti misurati ACCANTO al punteggio: farli entrare nel numero richiederebbe un coefficiente che nessuno ha dichiarato",
+    CREDIT_VALUE_REMAINDER_TIES_BY_VORP:
+      "il metodo dei resti maggiori è prescritto (GEN §D.11), ma chi prende l'unità di resto quando due resti sono uguali non lo dice nessun documento: qui decide il VORP più alto e poi la chiave di listone, che è un ordine totale e deterministico ma resta una scelta del motore",
+    CREDIT_VALUE_BAND_CAP_IS_FLOORED_P90:
+      "il tetto della fascia è una P90 misurata, cioè un numero con i decimali, e i crediti sono interi: si taglia a `floor(P90)` perché un tetto che arrotonda per eccesso lascia passare numeri sopra la P90, e mai sotto COST_FLOOR perché un credito è il minimo che il regolamento fa pagare. Nessuno ha firmato nessuna delle due letture",
+    CREDIT_VALUE_CAP_DOES_NOT_REDISTRIBUTE:
+      "quando il tetto della fascia abbassa un valore, i crediti che libera NON vengono ridistribuiti agli altri: la somma ripartita scende sotto B_res e lo si dichiara. Ridistribuirli sarebbe un secondo giro di ripartizione che il DTI non descrive",
+    CREDIT_VALUE_DECLARED_NOT_ROUNDED:
+      "il DTI parla di crediti interi e il valore dichiarato di Pico può non esserlo: qui si riporta com'è, perché arrotondare una dichiarazione significa modificarla. Nessuno ha scelto fra le due",
   };
 
 /**
