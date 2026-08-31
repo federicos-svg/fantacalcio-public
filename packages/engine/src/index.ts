@@ -52,3 +52,11 @@ export * from "./absoluteValue.js";
 // già dichiarato: nessuna curva da scegliere, nessun coefficiente nuovo.
 // Vedi packages/engine/src/relativeIndex.ts §"La forma: una quota di conteggi".
 export * from "./relativeIndex.js";
+// `P̂` — IL PREZZO ATTESO DI STASERA (NOM-PROTOCOL-A §A.2): la curva storica
+// rango→prezzo per fasce dichiarate, col suo pool medio misurato, e la catena
+// che la legge al rango di listone con pool ratio, inflazione di ruolo e tetto
+// del più ricco rivale eleggibile. Uno scalare che non esiste senza il proprio
+// blocco d'incertezza. Vedi packages/engine/src/priceHistory.ts e
+// packages/engine/src/expectedPrice.ts.
+export * from "./priceHistory.js";
+export * from "./expectedPrice.js";
