@@ -26,7 +26,10 @@ const config: PassiveHarnessConfig = {
   protocolVersion: "VAL-PROTOCOL-A@1.0.0",
   targets: ["fantamediaNext", "presenzeNext"],
   pipelines: [
-    { id: "missing_indicator_train_median", featureNames: ["form", "volatility"] },
+    {
+      id: "missing_indicator_train_median",
+      featureNames: ["form", "volatility"],
+    },
     { id: "complete_case", featureNames: ["form", "volatility"] },
     {
       id: "cold_start_role_fallback",
@@ -89,10 +92,9 @@ function fixtureRows(): PassiveRow[] {
 }
 
 function componentRow(volatility: number): FeatureRow {
-  const features = Object.fromEntries(FEATURE_NAMES.map((name) => [name, 0])) as Record<
-    (typeof FEATURE_NAMES)[number],
-    number
-  >;
+  const features = Object.fromEntries(
+    FEATURE_NAMES.map((name) => [name, 0]),
+  ) as Record<(typeof FEATURE_NAMES)[number], number>;
   features.volatilitaVotoLastObserved = volatility;
   features.roleD = 1;
   return {
@@ -146,7 +148,11 @@ describe("Fase 2 missing-data hardening", () => {
       predictedPresenzeNext: 20,
       roleCohortFantamediaNext: [6],
     });
-    expect(Object.values(components).every((component) => component.validated === false)).toBe(true);
+    expect(
+      Object.values(components).every(
+        (component) => component.validated === false,
+      ),
+    ).toBe(true);
   });
 });
 
@@ -155,7 +161,8 @@ describe("Fase 2 passive harness", () => {
     const result = runPassiveHarness(fixtureRows(), config);
     const presenze = result.coverage.find(
       (entry) =>
-        entry.pipelineId === "cold_start_role_fallback" && entry.target === "presenzeNext",
+        entry.pipelineId === "cold_start_role_fallback" &&
+        entry.target === "presenzeNext",
     )!;
     const fantamedia = result.oof.filter((item) => item.rowId === "cold-start");
     const presenzeOof = result.oof.filter(
@@ -164,7 +171,9 @@ describe("Fase 2 passive harness", () => {
     expect(presenze.value.cohortDenominator).toBeGreaterThan(0);
     expect(presenze.value.byRole.P.cohortDenominator).toBe(1);
     expect(presenzeOof.every((item) => item.actual === 0)).toBe(true);
-    expect(fantamedia.some((item) => item.target === "fantamediaNext")).toBe(false);
+    expect(fantamedia.some((item) => item.target === "fantamediaNext")).toBe(
+      false,
+    );
   });
 
   it("counts an unobservable cold-start target in the explicit cohort denominator", () => {
@@ -183,11 +192,13 @@ describe("Fase 2 passive harness", () => {
   it("complete-case reports exclusions and lower coverage", () => {
     const result = runPassiveHarness(fixtureRows(), config);
     const complete = result.coverage.find(
-      (entry) => entry.pipelineId === "complete_case" && entry.target === "presenzeNext",
+      (entry) =>
+        entry.pipelineId === "complete_case" && entry.target === "presenzeNext",
     )!;
     const fallback = result.coverage.find(
       (entry) =>
-        entry.pipelineId === "cold_start_role_fallback" && entry.target === "presenzeNext",
+        entry.pipelineId === "cold_start_role_fallback" &&
+        entry.target === "presenzeNext",
     )!;
     expect(complete.value.excluded).toBeGreaterThan(0);
     expect(complete.value.ratio).toBeLessThan(fallback.value.ratio);
@@ -196,11 +207,17 @@ describe("Fase 2 passive harness", () => {
   it("fits imputation only on train even when validation is poisoned", () => {
     const train = [
       row("train-1", "2022_23", "D", { features: { form: 4, volatility: 1 } }),
-      row("train-2", "2022_23", "A", { features: { form: 8, volatility: null } }),
+      row("train-2", "2022_23", "A", {
+        features: { form: 8, volatility: null },
+      }),
     ];
-    const normal = [row("test", "2023_24", "D", { features: { form: null, volatility: 2 } })];
+    const normal = [
+      row("test", "2023_24", "D", { features: { form: null, volatility: 2 } }),
+    ];
     const poisoned = [
-      row("test", "2023_24", "D", { features: { form: 999999, volatility: 999999 } }),
+      row("test", "2023_24", "D", {
+        features: { form: 999999, volatility: 999999 },
+      }),
     ];
     const pipeline = config.pipelines[0]!;
     expect(preparePassiveFold(pipeline, train, normal).trainImputation).toEqual(
@@ -211,8 +228,12 @@ describe("Fase 2 passive harness", () => {
   it("fails closed when a feature has no observed train value", () => {
     const pipeline = config.pipelines[0]!;
     const train = [
-      row("missing-1", "2022_23", "D", { features: { form: 4, volatility: null } }),
-      row("missing-2", "2023_24", "D", { features: { form: 5, volatility: null } }),
+      row("missing-1", "2022_23", "D", {
+        features: { form: 4, volatility: null },
+      }),
+      row("missing-2", "2023_24", "D", {
+        features: { form: 5, volatility: null },
+      }),
     ];
     const test = [
       row("missing-test", "2024_25", "D", {
@@ -222,15 +243,21 @@ describe("Fase 2 passive harness", () => {
     const prepared = preparePassiveFold(pipeline, train, test);
     expect(prepared.trainImputation.volatility).toBeNull();
     expect(prepared.test).toEqual([]);
-    expect(prepared.excludedTest[0]?.reason).toBe("missing_feature_no_train_stat");
+    expect(prepared.excludedTest[0]?.reason).toBe(
+      "missing_feature_no_train_stat",
+    );
 
     const result = runPassiveHarness([...train, ...test], {
       ...config,
       targets: ["fantamediaNext"],
       pipelines: [pipeline],
     });
-    expect(result.oof.some((prediction) => prediction.rowId === "missing-test")).toBe(false);
-    expect(result.coverage[0]!.value.exclusionReasons.missing_feature_no_train_stat).toBe(1);
+    expect(
+      result.oof.some((prediction) => prediction.rowId === "missing-test"),
+    ).toBe(false);
+    expect(
+      result.coverage[0]!.value.exclusionReasons.missing_feature_no_train_stat,
+    ).toBe(1);
   });
 
   it("applies train-role fallback to cold starts and accounts for unavailable roles", () => {
@@ -263,7 +290,9 @@ describe("Fase 2 passive harness", () => {
           item.targets.fantamediaNext !== null,
       )
       .map((item) => item.targets.fantamediaNext!);
-    const expected = trainRoleValues.reduce((sum, value) => sum + value, 0) / trainRoleValues.length;
+    const expected =
+      trainRoleValues.reduce((sum, value) => sum + value, 0) /
+      trainRoleValues.length;
     expect(predictions).toHaveLength(config.candidates.length);
     expect(predictions.every((item) => item.predicted === expected)).toBe(true);
     expect(
@@ -278,14 +307,20 @@ describe("Fase 2 passive harness", () => {
     expect(coverage.fallback.used).toBe(1);
     expect(coverage.fallback.unavailable).toBe(1);
     expect(
-      result.oof.some((item) => item.rowId === "cold-c" && item.target === "fantamediaNext"),
+      result.oof.some(
+        (item) => item.rowId === "cold-c" && item.target === "fantamediaNext",
+      ),
     ).toBe(false);
   });
 
   it("rejects NaN and Infinity before serialization can coerce them to null", () => {
     expect(() =>
       runPassiveHarness(
-        [row("nan", "2024_25", "D", { features: { form: Number.NaN, volatility: 1 } })],
+        [
+          row("nan", "2024_25", "D", {
+            features: { form: Number.NaN, volatility: 1 },
+          }),
+        ],
         config,
       ),
     ).toThrow(/Non-finite value/);
@@ -293,7 +328,10 @@ describe("Fase 2 passive harness", () => {
       runPassiveHarness(
         [
           row("infinity", "2024_25", "D", {
-            targets: { fantamediaNext: Number.POSITIVE_INFINITY, presenzeNext: 1 },
+            targets: {
+              fantamediaNext: Number.POSITIVE_INFINITY,
+              presenzeNext: 1,
+            },
           }),
         ],
         config,
@@ -313,7 +351,9 @@ describe("Fase 2 passive harness", () => {
       ),
     ).toThrow(/Future season leaked/);
     const result = runPassiveHarness(fixtureRows(), config);
-    expect(result.oof.some((item) => item.season === BURNED_HOLDOUT_SEASON)).toBe(false);
+    expect(
+      result.oof.some((item) => item.season === BURNED_HOLDOUT_SEASON),
+    ).toBe(false);
     expect(result.holdoutAccesses).toEqual([]);
   });
 
@@ -328,7 +368,9 @@ describe("Fase 2 passive harness", () => {
     expect(result.holdoutAccesses).toEqual([
       { season: BURNED_HOLDOUT_SEASON, purpose: "descriptive_advisory" },
     ]);
-    expect(result.oof.some((item) => item.season === BURNED_HOLDOUT_SEASON)).toBe(false);
+    expect(
+      result.oof.some((item) => item.season === BURNED_HOLDOUT_SEASON),
+    ).toBe(false);
   });
 
   it("produces aligned OOF, role-season metrics and season-block uncertainty", () => {
@@ -336,7 +378,11 @@ describe("Fase 2 passive harness", () => {
     expect(result.oof.length).toBeGreaterThan(0);
     expect(result.paired.every((item) => item.alignedRows > 0)).toBe(true);
     expect(result.metrics.byRoleSeason.length).toBeGreaterThan(0);
-    expect(result.metrics.foldDispersion.every((item) => item.seasonalMae.length > 0)).toBe(true);
+    expect(
+      result.metrics.foldDispersion.every(
+        (item) => item.seasonalMae.length > 0,
+      ),
+    ).toBe(true);
     expect(result.status).toBe("no_verdict");
     expect("champion" in result).toBe(false);
   });
@@ -379,14 +425,16 @@ describe("Fase 2 external append-only registry", () => {
     };
     const registry = join(external, "registry.jsonl");
     appendRegistryEntry(repoRoot, registry, entry);
-    expect(() => appendRegistryEntry(repoRoot, registry, entry)).toThrow(/duplicate\/overwrite/);
+    expect(() => appendRegistryEntry(repoRoot, registry, entry)).toThrow(
+      /duplicate\/overwrite/,
+    );
   });
 
   it("refuses output anywhere inside the repository", () => {
     const repoRoot = resolve(import.meta.dirname, "../../..");
-    expect(() => assertOutputOutsideRepository(repoRoot, join(repoRoot, "oof.json"))).toThrow(
-      /inside repository/,
-    );
+    expect(() =>
+      assertOutputOutsideRepository(repoRoot, join(repoRoot, "oof.json")),
+    ).toThrow(/inside repository/);
   });
 });
 
@@ -401,7 +449,11 @@ describe("Fase 2 isolation invariants", () => {
   // arrivate in pochi giorni — non venivano mai letti da nessuna guardia. Non
   // c'era violazione (verificata a mano), ma la garanzia automatica non
   // copriva più il punto dove il rischio si era spostato.
-  const ISOLATED_ROOTS = ["src", "packages/engine/src", "packages/opponent-profiles/src"];
+  const ISOLATED_ROOTS = [
+    "src",
+    "packages/engine/src",
+    "packages/opponent-profiles/src",
+  ];
 
   /**
    * I file sorvegliati di una radice, esclusi i test. Le radici oggi
@@ -417,7 +469,10 @@ describe("Fase 2 isolation invariants", () => {
       for (const entry of readdirSync(directory)) {
         const path = join(directory, entry);
         if (statSync(path).isDirectory()) walk(path);
-        else if (WATCHED_EXTENSIONS.test(entry) && !/\.test\.(ts|tsx|js|jsx|mjs|cjs)$/.test(entry))
+        else if (
+          WATCHED_EXTENSIONS.test(entry) &&
+          !/\.test\.(ts|tsx|js|jsx|mjs|cjs)$/.test(entry)
+        )
           files.push(path);
       }
     };
@@ -426,50 +481,78 @@ describe("Fase 2 isolation invariants", () => {
   };
 
   /**
-   * GLI SPECIFICATORI DI MODULO, non il testo intero, ed è una necessità del
-   * perimetro nuovo: il motore NOMINA legittimamente questo pacchetto nei
-   * propri commenti — `packages/engine/src/tiers.ts` dichiara da dove viene
-   * l'ordine di appetibilità, `identityName.ts` dichiara di quale
-   * normalizzazione è gemello — e una guardia su testo grezzo le leggerebbe
-   * come violazioni, costringendo a riscrivere la documentazione per far
-   * passare il test. Quello che il divieto vieta è DIPENDERE, cioè importare.
+   * NON IL TESTO GREZZO, ed è una necessità del perimetro: il motore NOMINA
+   * legittimamente questo pacchetto nei propri commenti —
+   * `packages/engine/src/tiers.ts` dichiara da dove viene l'ordine di
+   * appetibilità, `identityName.ts` dichiara di quale normalizzazione è
+   * gemello — e una guardia su testo grezzo le leggerebbe come violazioni,
+   * costringendo a riscrivere la documentazione per far passare il test.
+   * Quello che il divieto vieta è DIPENDERE, non nominare.
    *
-   * FINO AL 2026-08-31 L'ESTRAZIONE ERA UNA REGEX su quattro forme e vedeva
-   * SOLO le stringhe fra virgolette. Due file da tre righe messi in
-   * `packages/engine/src/` — uno che raggiungeva `appealIndex.js` con un
-   * import dinamico il cui specificatore era scritto fra backtick, l'altro con
-   * quello stesso specificatore passato per una costante — lasciavano
-   * la suite VERDE. Il commento dichiarava però una copertura completa e la
-   * contro-prova qui sotto provava solo le forme fra virgolette: il buco non
-   * era sfuggito per caso, non era mai stato messo alla prova.
+   * TRE GIRI, TRE BUCHI DELLA STESSA SPECIE. Fino al 2026-08-31 questa guardia
+   * si chiudeva PER ENUMERAZIONE: elencava le forme da catturare, e a ogni
+   * giro se ne trovava una che l'elenco non prevedeva. Prima i template
+   * literal — una regex su quattro forme vedeva solo le virgolette; poi
+   * `export … from` e i file `.js`; infine `import.meta.resolve("…")`, che tre
+   * righe in `packages/engine/src` attraversavano lasciando la suite VERDE,
+   * perché la `expression` della chiamata è un accesso a proprietà su un
+   * `MetaProperty` e non su un `Identifier`, e il nodo non veniva nemmeno
+   * visitato. Lo specificatore non finiva né fra i letti né fra i non
+   * leggibili: spariva. Una guardia che si chiude per elenco non si chiude
+   * mai — dimostra solo che chi cerca è stato più bravo dell'elenco.
    *
-   * Ora l'estrazione non è più tessuto ma STRUTTURA: si parsa il file col
-   * compilatore TypeScript e si leggono i nodi. I commenti restano fuori per
-   * costruzione — compresi quelli che citano `packages/appeal-index/` fra
-   * backtick, che a una regex sono indistinguibili da un template literal.
+   * PERCIÒ IL VERSO È CAMBIATO. La domanda non è più «questa chiamata è un
+   * import?», che obbliga a conoscere in anticipo ogni forma di caricamento,
+   * ma questa:
    *
-   * CHE COSA CATTURA — ogni posizione in cui il linguaggio ammette uno
-   * specificatore di modulo:
-   *   `import … from "x"`, `import "x"`, `export … from "x"`, `export * from "x"`,
-   *   `import x = require("x")`, il tipo `import("x").T`, e le chiamate
-   *   `import("x")`, `require("x")`, `require.resolve("x")` — con l'argomento
-   *   scritto fra virgolette OPPURE come template literal senza sostituzioni.
-   * `require.resolve` è dentro per scelta: non crea una dipendenza a runtime,
-   * ma nomina il pacchetto, e un buco sintattico in una guardia fail-closed
-   * non si lascia aperto solo perché il danno sarebbe minore.
+   *   REGOLA A — esiste, in questo file, un LETTERALE che ha la forma di un
+   *   percorso di modulo verso il pacchetto? Si cammina l'intero AST e si
+   *   guarda OGNI token letterale di stringa, in QUALUNQUE posizione
+   *   sintattica: uno specificatore di import, l'argomento di un `resolve`, il
+   *   parametro di una funzione qualsiasi, una costante, il valore di una
+   *   proprietà, l'etichetta di un `case`, il default di un parametro, un
+   *   elemento di array. Il criterio è sul VALORE, mai sulla posizione. Un
+   *   file del motore non ha alcuna ragione legittima di contenere una stringa
+   *   che nomina `appeal-index` come segmento di percorso, ovunque si trovi.
    *
-   * CHE COSA NON LEGGE, ed è il motivo della seconda regola: uno specificatore
-   * che non è staticamente decidibile — `import(modPath)`, `import(base + name)`,
-   * e un template literal con sostituzioni. Di questi non si può PROVARE che
-   * non raggiungano il pacchetto, quindi non si finge di saperlo:
-   * `unreadable` li raccoglie e il test li rifiuta in blocco. Fra le due regole
-   * la copertura è chiusa: o lo specificatore si legge e si controlla, o la
-   * chiamata è vietata; oggi le radici sorvegliate non ne contengono nessuna.
+   *   REGOLA B — un caricamento il cui specificatore NON è staticamente
+   *   leggibile (`import(modPath)`, `import(base + name)`, un template con
+   *   sostituzioni) resta rifiutato in blocco: di questi non si può PROVARE
+   *   che non raggiungano il pacchetto, quindi non si finge di saperlo.
    *
-   * Restano fuori dal perimetro, dichiarati e non dimenticati: il caricamento
-   * che non passa da import/require (`eval`, `new Function`, `createRequire`)
-   * e qualunque file fuori dalle radici sorvegliate.
+   * Le due regole non si sostituiscono, si dividono il piano: la A copre il
+   * decidibile OVUNQUE si trovi, la B l'indecidibile. La A è chiusa per
+   * costruzione, e non è un elenco più lungo, perché non enumera nulla di ciò
+   * che cambia: non le posizioni — le visita tutte — e non le funzioni di
+   * caricamento — non le guarda affatto. Poggia su una proprietà del problema:
+   * un caricamento che raggiunge il pacchetto DEVE nominarlo. O lo nomina con
+   * un letterale, e allora la A lo vede da qualunque posizione e attraverso
+   * qualunque funzione, presente o futura, conosciuta o no; oppure non lo
+   * nomina staticamente, e allora il suo specificatore è dinamico e cade nella
+   * B. L'unico elenco rimasto è quello dei token che portano testo letterale,
+   * che è fissato dalla grammatica e non cresce con l'inventiva di chi cerca.
+   *
+   * ANCHE LA B È PIÙ LARGA DI PRIMA, per la stessa ragione: non riconosce più
+   * tre nomi (`import`, `require`, `require.resolve`) ma una FORMA — un
+   * qualunque segmento del nome del chiamato è `import` o `require`. Così
+   * `import.meta.resolve`, `module.require`, `require.main.require` entrano
+   * senza essere stati previsti uno per uno.
+   *
+   * `specifiers` resta, e resta controllato: è la lettura POSIZIONALE
+   * (`import … from "x"`, `import "x"`, `export … from "x"`, `export * from
+   * "x"`, `import x = require("x")`, il tipo `import("x").T`, e le chiamate di
+   * caricamento) e serve a dire QUALE modulo un file importa davvero, non solo
+   * che nomina un percorso.
+   *
+   * RESTA FUORI, DICHIARATO E NON SOTTINTESO — una sola classe: un caricamento
+   * il cui specificatore è INSIEME (a) non statico e (b) eseguito da un
+   * chiamato che non nomina il sistema dei moduli — `eval`, `new Function`,
+   * `createRequire(url)` invocato tramite un alias, `const load = require;
+   * load(x)`. Se lo specificatore fosse statico la A lo prenderebbe comunque,
+   * alias o no: serve che sia dinamico anche quello. Fuori perimetro restano
+   * inoltre, per definizione, i file fuori dalle radici sorvegliate.
    */
+
   const scriptKind = (path: string): ts.ScriptKind => {
     if (path.endsWith(".tsx")) return ts.ScriptKind.TSX;
     if (path.endsWith(".jsx")) return ts.ScriptKind.JSX;
@@ -478,33 +561,103 @@ describe("Fase 2 isolation invariants", () => {
   };
 
   const parseSource = (source: string, path = "guard.ts"): ts.SourceFile =>
-    ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, scriptKind(path));
+    ts.createSourceFile(
+      path,
+      source,
+      ts.ScriptTarget.Latest,
+      true,
+      scriptKind(path),
+    );
 
   /** Il testo di un letterale staticamente decidibile; `undefined` altrimenti. */
   const staticText = (node: ts.Node): string | undefined =>
-    ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) ? node.text : undefined;
+    ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)
+      ? node.text
+      : undefined;
 
-  /** `require` / `require.resolve` / la parola chiave `import`. */
+  /**
+   * I token che PORTANO testo letterale di stringa. Non è un elenco di
+   * posizioni ammesse — è l'insieme completo, fissato dalla grammatica, dei
+   * token in cui una stringa può materializzarsi, compresi i tre pezzi fissi
+   * di un template con sostituzioni. I commenti non sono nodi e restano fuori
+   * per costruzione, backtick compresi.
+   */
+  const LITERAL_TEXT_KINDS: ReadonlySet<ts.SyntaxKind> = new Set([
+    ts.SyntaxKind.StringLiteral,
+    ts.SyntaxKind.NoSubstitutionTemplateLiteral,
+    ts.SyntaxKind.TemplateHead,
+    ts.SyntaxKind.TemplateMiddle,
+    ts.SyntaxKind.TemplateTail,
+  ]);
+
+  const literalText = (node: ts.Node): string | undefined =>
+    LITERAL_TEXT_KINDS.has(node.kind)
+      ? (node as ts.LiteralLikeNode).text
+      : undefined;
+
+  /** Il pacchetto vietato, come segmento di percorso. */
+  const FORBIDDEN_PACKAGE_SEGMENT = "appeal-index";
+
+  /**
+   * REGOLA A. Un testo ha la FORMA di un percorso di modulo verso il pacchetto
+   * quando, spezzato sui separatori di percorso, uno dei suoi segmenti È il
+   * nome del pacchetto: `../../appeal-index/src/appealIndex.js`,
+   * `packages/appeal-index/src/dataset.js`, `@fantacalcio/appeal-index`.
+   * NON lo è un identificatore che contiene quel nome senza essere un percorso
+   * — `inconsistent-appeal-index`, `listone-appeal-index-note` — ed è
+   * esattamente il confine fra NOMINARE e DIPENDERE, che va tenuto.
+   */
+  const namesForbiddenModulePath = (text: string): boolean =>
+    text.split(/[\\/]/).includes(FORBIDDEN_PACKAGE_SEGMENT);
+
+  /**
+   * Il nome del chiamato come catena di identificatori — `require`,
+   * `require.resolve`, `import`, `import.meta.resolve`, `module.require` —
+   * oppure `undefined` se il chiamato non è una catena di nomi.
+   */
+  const calleeName = (node: ts.Expression): string | undefined => {
+    if (node.kind === ts.SyntaxKind.ImportKeyword) return "import";
+    if (ts.isIdentifier(node)) return node.text;
+    if (ts.isParenthesizedExpression(node)) return calleeName(node.expression);
+    if (ts.isMetaProperty(node))
+      return `${node.keywordToken === ts.SyntaxKind.ImportKeyword ? "import" : "new"}.${
+        node.name.text
+      }`;
+    if (ts.isPropertyAccessExpression(node)) {
+      const base = calleeName(node.expression);
+      return base === undefined ? undefined : `${base}.${node.name.text}`;
+    }
+    return undefined;
+  };
+
+  /**
+   * REGOLA B, lato riconoscimento: una chiamata carica un modulo quando il suo
+   * chiamato NOMINA il sistema dei moduli, cioè un qualunque segmento del suo
+   * nome è `import` o `require`. È una forma, non tre nomi.
+   */
   const isModuleCall = (node: ts.CallExpression): boolean => {
-    if (node.expression.kind === ts.SyntaxKind.ImportKeyword) return true;
-    if (ts.isIdentifier(node.expression)) return node.expression.text === "require";
+    const name = calleeName(node.expression);
     return (
-      ts.isPropertyAccessExpression(node.expression) &&
-      ts.isIdentifier(node.expression.expression) &&
-      node.expression.expression.text === "require" &&
-      node.expression.name.text === "resolve"
+      name !== undefined &&
+      name.split(".").some((part) => part === "import" || part === "require")
     );
   };
 
   type ModuleReferences = {
-    /** Specificatori letti per intero. */
+    /** Specificatori letti per intero, nelle posizioni in cui il linguaggio li ammette. */
     readonly specifiers: readonly string[];
-    /** Argomenti di caricamento che non si leggono staticamente. */
+    /** REGOLA A: letterali con la forma di un percorso verso il pacchetto, ovunque si trovino. */
+    readonly forbidden: readonly string[];
+    /** REGOLA B: argomenti di caricamento che non si leggono staticamente. */
     readonly unreadable: readonly string[];
   };
 
-  const moduleReferences = (source: string, path?: string): ModuleReferences => {
+  const moduleReferences = (
+    source: string,
+    path?: string,
+  ): ModuleReferences => {
     const specifiers: string[] = [];
+    const forbidden: string[] = [];
     const unreadable: string[] = [];
     const read = (node: ts.Node | undefined): void => {
       if (node === undefined) return;
@@ -513,23 +666,36 @@ describe("Fase 2 isolation invariants", () => {
       else specifiers.push(text);
     };
     const visit = (node: ts.Node): void => {
-      if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) read(node.moduleSpecifier);
+      const literal = literalText(node);
+      if (literal !== undefined && namesForbiddenModulePath(literal))
+        forbidden.push(literal);
+      if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
+        read(node.moduleSpecifier);
       else if (
         ts.isImportEqualsDeclaration(node) &&
         ts.isExternalModuleReference(node.moduleReference)
       )
         read(node.moduleReference.expression);
       else if (ts.isImportTypeNode(node))
-        read(ts.isLiteralTypeNode(node.argument) ? node.argument.literal : node.argument);
-      else if (ts.isCallExpression(node) && isModuleCall(node)) read(node.arguments[0]);
+        read(
+          ts.isLiteralTypeNode(node.argument)
+            ? node.argument.literal
+            : node.argument,
+        );
+      else if (ts.isCallExpression(node) && isModuleCall(node))
+        read(node.arguments[0]);
       ts.forEachChild(node, visit);
     };
     visit(parseSource(source, path));
-    return { specifiers, unreadable };
+    return { specifiers, forbidden, unreadable };
   };
 
   const importSpecifiers = (source: string): readonly string[] =>
     moduleReferences(source).specifiers;
+
+  /** REGOLA A isolata: i letterali che nominano il pacchetto come percorso di modulo. */
+  const forbiddenLiterals = (source: string): readonly string[] =>
+    moduleReferences(source).forbidden;
 
   it("is not imported by the live UI or hard-safe src path", () => {
     const repoRoot = resolve(import.meta.dirname, "../../..");
@@ -547,7 +713,9 @@ describe("Fase 2 isolation invariants", () => {
     // senza aver letto niente. Qui si pretende che i file letti ci siano e che
     // i moduli arrivati di recente siano fra quelli.
     const repoRoot = resolve(import.meta.dirname, "../../..");
-    const watched = ISOLATED_ROOTS.flatMap((root) => sourceFiles(join(repoRoot, root)));
+    const watched = ISOLATED_ROOTS.flatMap((root) =>
+      sourceFiles(join(repoRoot, root)),
+    );
     expect(watched.length).toBeGreaterThan(60);
     for (const recent of [
       "packages/engine/src/priceHistory.ts",
@@ -563,14 +731,32 @@ describe("Fase 2 isolation invariants", () => {
     }
 
     for (const path of watched) {
-      const { specifiers, unreadable } = moduleReferences(readFileSync(path, "utf8"), path);
+      const { specifiers, forbidden, unreadable } = moduleReferences(
+        readFileSync(path, "utf8"),
+        path,
+      );
       for (const specifier of specifiers) {
-        expect(specifier, `${path} importa «${specifier}»`).not.toMatch(/appeal-index/);
+        expect(specifier, `${path} importa «${specifier}»`).not.toMatch(
+          /appeal-index/,
+        );
       }
-      // FAIL-CLOSED: uno specificatore che non si legge non si assolve. Qui
-      // dentro non ce ne sono, e se ne comparisse uno andrebbe reso statico —
-      // oppure discusso, non lasciato passare in silenzio.
-      expect(unreadable, `${path} carica un modulo da uno specificatore non leggibile`).toEqual([]);
+      // REGOLA A: un letterale con la forma di un percorso verso il pacchetto
+      // non ha ragione di stare qui, in nessuna posizione sintattica — che sia
+      // un import, l'argomento di un `resolve`, una costante o il valore di
+      // una proprietà. Se ne comparisse uno, o è una dipendenza travestita o è
+      // documentazione scritta come stringa invece che come commento: in
+      // entrambi i casi si discute, non si assolve in silenzio.
+      expect(
+        forbidden,
+        `${path} nomina il pacchetto come percorso di modulo in un letterale`,
+      ).toEqual([]);
+      // REGOLA B, FAIL-CLOSED: uno specificatore che non si legge non si
+      // assolve. Qui dentro non ce ne sono, e se ne comparisse uno andrebbe
+      // reso statico — oppure discusso, non lasciato passare in silenzio.
+      expect(
+        unreadable,
+        `${path} carica un modulo da uno specificatore non leggibile`,
+      ).toEqual([]);
     }
   });
 
@@ -596,6 +782,12 @@ describe("Fase 2 isolation invariants", () => {
       "const m = await import(`../../appeal-index/src/appealIndex.js`);",
       "const m = require(`packages/appeal-index/src/dataset.js`);",
       "const p = require.resolve(`../../appeal-index/src/types.js`);",
+      // …e le forme che nominano il sistema dei moduli senza chiamarsi
+      // `import` o `require` e basta: il riconoscitore guarda la catena di
+      // nomi del chiamato, non tre nomi previsti a mano.
+      'const p = import.meta.resolve("../../appeal-index/src/appealIndex.js");',
+      'const m = module.require("../../appeal-index/src/report.js");',
+      'const m = require.main.require("@fantacalcio/appeal-index");',
     ];
     for (const riga of vietati) {
       const specifiers = importSpecifiers(riga);
@@ -606,6 +798,45 @@ describe("Fase 2 isolation invariants", () => {
       ).toBe(true);
     }
 
+    // REGOLA A — È QUI CHE SI VEDE SE LA GUARDIA SI CHIUDE PER COSTRUZIONE
+    // O PER ELENCO. Nessuna delle righe qui sotto è stata aggiunta a un elenco
+    // di posizioni o di funzioni riconosciute: la regola guarda OGNI letterale
+    // e giudica il VALORE, quindi le vede tutte allo stesso modo. Le prime tre
+    // sono i probe dei tre giri; le altre sono forme che nessun giro aveva mai
+    // esercitato, e passano senza che sia stato scritto niente per loro.
+    for (const riga of [
+      // Il probe del terzo giro: `import.meta.resolve`, che il 2026-08-31
+      // spariva — né letto né dichiarato illeggibile.
+      'export function resolveAppealIndex() {\n  return import.meta.resolve("../../appeal-index/src/appealIndex.js");\n}',
+      // I due del secondo giro, che la Regola A ora prende anche da sola.
+      "export async function loadAppealIndex() {\n  return import(`../../appeal-index/src/appealIndex.js`);\n}",
+      "const modPath = `../../appeal-index/src/appealIndex.js`;",
+      // FORME INEDITE — nessun `import`, nessun `require`, nessuna parola
+      // chiave del sistema dei moduli in vista; solo un letterale che nomina
+      // il pacchetto come percorso, in una posizione sintattica qualunque.
+      'class Loader { static readonly path = "../../appeal-index/src/appealIndex.js"; }',
+      'switch (kind) { case "@fantacalcio/appeal-index": break; }',
+      'function load(p = "../../appeal-index/src/report.js") { return loader(p); }',
+      'const registry = { appeal: "packages/appeal-index/src/dataset.js" };',
+      'export const PATHS = ["../../appeal-index/src/types.js"] as const;',
+      'enum Mod { Appeal = "@fantacalcio/appeal-index" }',
+      'type Mod = "../../appeal-index/src/appealIndex.js";',
+      '@loads("../../appeal-index/src/report.js")\nclass Loader {}',
+      // Un caricamento reale che NON passa da `import`/`require` visibili: il
+      // chiamato è un alias, quindi la Regola B è cieca — e la A morde lo
+      // stesso, perché il percorso è lì.
+      'const req = createRequire(import.meta.url);\nconst m = req("../../appeal-index/src/types.js");',
+      // Percorso spezzato in due letterali: il secondo pezzo è già un percorso
+      // che nomina il pacchetto.
+      'const m = await load("@fantacalcio" + "/appeal-index");',
+      // Il pezzo fisso di un template CON sostituzioni: la parte statica basta.
+      "const m = await loadModule(`../../appeal-index/src/${name}.js`);",
+      // Separatore di percorso alla maniera di Windows.
+      'const m = await load("..\\\\appeal-index\\\\src\\\\report.js");',
+    ]) {
+      expect(forbiddenLiterals(riga), riga).not.toEqual([]);
+    }
+
     // I DUE FILE DI LABORATORIO, alla lettera: messi in `packages/engine/src/`
     // lasciavano la suite verde. Il primo ora si legge; il secondo non si legge
     // affatto — e proprio per questo viene rifiutato invece che ignorato.
@@ -614,7 +845,9 @@ describe("Fase 2 isolation invariants", () => {
       "  return import(`../../appeal-index/src/appealIndex.js`);",
       "}",
     ].join("\n");
-    expect(importSpecifiers(provaTemplate)).toContain("../../appeal-index/src/appealIndex.js");
+    expect(importSpecifiers(provaTemplate)).toContain(
+      "../../appeal-index/src/appealIndex.js",
+    );
 
     const provaCostante = [
       "const modPath = `../../appeal-index/src/appealIndex.js`;",
@@ -631,32 +864,94 @@ describe("Fase 2 isolation invariants", () => {
       "const m = require(paths[0]);",
       'const p = require.resolve(prefix + "/appealIndex.js");',
     ]) {
-      expect(moduleReferences(opaco).unreadable.length, opaco).toBeGreaterThan(0);
+      expect(moduleReferences(opaco).unreadable.length, opaco).toBeGreaterThan(
+        0,
+      );
       expect(moduleReferences(opaco).specifiers, opaco).toEqual([]);
     }
 
     // …e NON morde su ciò che il motore usa davvero, né sui commenti che
     // nominano il pacchetto: se lo facesse, il test qui sopra sarebbe verde
     // per la ragione sbagliata e la documentazione andrebbe riscritta.
-    expect(importSpecifiers('import { hardReserve } from "./auction.js";')).toEqual([
-      "./auction.js",
-    ]);
     expect(
-      importSpecifiers("// packages/appeal-index/src/nameNormalization.ts's normalizePlayerName()"),
+      importSpecifiers('import { hardReserve } from "./auction.js";'),
+    ).toEqual(["./auction.js"]);
+    expect(
+      importSpecifiers(
+        "// packages/appeal-index/src/nameNormalization.ts's normalizePlayerName()",
+      ),
     ).toEqual([]);
     // Il caso che una regex non può distinguere da un template literal: un
     // commento che cita il percorso del pacchetto fra backtick, come fa
     // `packages/engine/src/tiers.ts`.
-    expect(importSpecifiers("// l'indice di appetibilità (`packages/appeal-index/`)")).toEqual([]);
-    expect(importSpecifiers("/* vedi packages/appeal-index/src/report.ts */")).toEqual([]);
+    expect(
+      importSpecifiers(
+        "// l'indice di appetibilità (`packages/appeal-index/`)",
+      ),
+    ).toEqual([]);
+    expect(
+      importSpecifiers("/* vedi packages/appeal-index/src/report.ts */"),
+    ).toEqual([]);
     // Una stringa che nomina il pacchetto senza importarlo non è un import.
-    expect(importSpecifiers('const reason = "inconsistent-appeal-index";')).toEqual([]);
+    expect(
+      importSpecifiers('const reason = "inconsistent-appeal-index";'),
+    ).toEqual([]);
     // E dove non si carica nessun modulo non si inventa un «non leggibile».
-    expect(moduleReferences('const label = ids[0] + "-x";').unreadable).toEqual([]);
+    expect(moduleReferences('const label = ids[0] + "-x";').unreadable).toEqual(
+      [],
+    );
+
+    // I FALSI POSITIVI DELLA REGOLA A, che è la parte delicata: allargare lo
+    // sguardo a ogni letterale è utile solo se il confine fra NOMINARE e
+    // DIPENDERE regge. Un identificatore che contiene il nome del pacchetto
+    // non è un percorso di modulo e deve continuare a passare — è il caso che
+    // tiene onesta la regola, e senza il quale il motivo `inconsistent-…` e
+    // l'id del nodo del listone andrebbero riscritti per far passare un test.
+    expect(
+      forbiddenLiterals('const reason = "inconsistent-appeal-index";'),
+    ).toEqual([]);
+    expect(
+      forbiddenLiterals('indexNote.id = "listone-appeal-index-note";'),
+    ).toEqual([]);
+    expect(
+      forbiddenLiterals('const source = "appeal-index-serving-deposit";'),
+    ).toEqual([]);
+    // I commenti restano fuori per costruzione, backtick compresi: non sono
+    // nodi, quindi nessuna camminata sull'AST li incontra.
+    expect(
+      forbiddenLiterals(
+        "// packages/appeal-index/src/nameNormalization.ts's normalizePlayerName()",
+      ),
+    ).toEqual([]);
+    expect(
+      forbiddenLiterals(
+        "// l'indice di appetibilità (`packages/appeal-index/`)",
+      ),
+    ).toEqual([]);
+    expect(
+      forbiddenLiterals("/* vedi packages/appeal-index/src/report.ts */"),
+    ).toEqual([]);
+    expect(
+      forbiddenLiterals(
+        [
+          "/**",
+          " * ordine da `packages/appeal-index/`",
+          " */",
+          'import { x } from "./auction.js";',
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+    // E un import legittimo del motore non diventa una violazione.
+    expect(
+      forbiddenLiterals('import { hardReserve } from "./auction.js";'),
+    ).toEqual([]);
   });
 
   it("has no receipt, gate or authority fields in passive output", () => {
-    const output = runPassiveHarness(fixtureRows(), config) as unknown as Record<string, unknown>;
+    const output = runPassiveHarness(
+      fixtureRows(),
+      config,
+    ) as unknown as Record<string, unknown>;
     expect(output.status).toBe("no_verdict");
     expect(output).not.toHaveProperty("champion");
     expect(output).not.toHaveProperty("receipt");
