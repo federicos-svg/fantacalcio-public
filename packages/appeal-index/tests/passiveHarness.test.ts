@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { composeAppealIndexComponents } from "../src/appealIndex.js";
 import {
@@ -402,14 +403,22 @@ describe("Fase 2 isolation invariants", () => {
   // copriva più il punto dove il rischio si era spostato.
   const ISOLATED_ROOTS = ["src", "packages/engine/src", "packages/opponent-profiles/src"];
 
-  /** I file sorvegliati di una radice: `.ts`/`.tsx`, esclusi i test. */
+  /**
+   * I file sorvegliati di una radice, esclusi i test. Le radici oggi
+   * contengono solo `.ts` (e fogli di stile, che non importano moduli), ma il
+   * filtro accetta anche JavaScript: un `loader.js` messo qui importerebbe il
+   * pacchetto esattamente come un `.ts`, e una guardia fail-closed non si fa
+   * aggirare cambiando estensione.
+   */
+  const WATCHED_EXTENSIONS = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
   const sourceFiles = (root: string): readonly string[] => {
     const files: string[] = [];
     const walk = (directory: string): void => {
       for (const entry of readdirSync(directory)) {
         const path = join(directory, entry);
         if (statSync(path).isDirectory()) walk(path);
-        else if (/\.(ts|tsx)$/.test(entry) && !entry.endsWith(".test.ts")) files.push(path);
+        else if (WATCHED_EXTENSIONS.test(entry) && !/\.test\.(ts|tsx|js|jsx|mjs|cjs)$/.test(entry))
+          files.push(path);
       }
     };
     walk(root);
@@ -417,29 +426,110 @@ describe("Fase 2 isolation invariants", () => {
   };
 
   /**
-   * GLI SPECIFICATORI DI IMPORT, non il testo intero, ed è una necessità del
+   * GLI SPECIFICATORI DI MODULO, non il testo intero, ed è una necessità del
    * perimetro nuovo: il motore NOMINA legittimamente questo pacchetto nei
    * propri commenti — `packages/engine/src/tiers.ts` dichiara da dove viene
    * l'ordine di appetibilità, `identityName.ts` dichiara di quale
    * normalizzazione è gemello — e una guardia su testo grezzo le leggerebbe
    * come violazioni, costringendo a riscrivere la documentazione per far
-   * passare il test. Quello che il divieto vieta è DIPENDERE, cioè importare;
-   * si estrae quindi la stringa di ogni `from`, `import(...)`, `require(...)`
-   * e `import "…"` e si guarda solo quella.
+   * passare il test. Quello che il divieto vieta è DIPENDERE, cioè importare.
+   *
+   * FINO AL 2026-08-31 L'ESTRAZIONE ERA UNA REGEX su quattro forme e vedeva
+   * SOLO le stringhe fra virgolette. Due file da tre righe messi in
+   * `packages/engine/src/` — uno che raggiungeva `appealIndex.js` con un
+   * import dinamico il cui specificatore era scritto fra backtick, l'altro con
+   * quello stesso specificatore passato per una costante — lasciavano
+   * la suite VERDE. Il commento dichiarava però una copertura completa e la
+   * contro-prova qui sotto provava solo le forme fra virgolette: il buco non
+   * era sfuggito per caso, non era mai stato messo alla prova.
+   *
+   * Ora l'estrazione non è più tessuto ma STRUTTURA: si parsa il file col
+   * compilatore TypeScript e si leggono i nodi. I commenti restano fuori per
+   * costruzione — compresi quelli che citano `packages/appeal-index/` fra
+   * backtick, che a una regex sono indistinguibili da un template literal.
+   *
+   * CHE COSA CATTURA — ogni posizione in cui il linguaggio ammette uno
+   * specificatore di modulo:
+   *   `import … from "x"`, `import "x"`, `export … from "x"`, `export * from "x"`,
+   *   `import x = require("x")`, il tipo `import("x").T`, e le chiamate
+   *   `import("x")`, `require("x")`, `require.resolve("x")` — con l'argomento
+   *   scritto fra virgolette OPPURE come template literal senza sostituzioni.
+   * `require.resolve` è dentro per scelta: non crea una dipendenza a runtime,
+   * ma nomina il pacchetto, e un buco sintattico in una guardia fail-closed
+   * non si lascia aperto solo perché il danno sarebbe minore.
+   *
+   * CHE COSA NON LEGGE, ed è il motivo della seconda regola: uno specificatore
+   * che non è staticamente decidibile — `import(modPath)`, `import(base + name)`,
+   * e un template literal con sostituzioni. Di questi non si può PROVARE che
+   * non raggiungano il pacchetto, quindi non si finge di saperlo:
+   * `unreadable` li raccoglie e il test li rifiuta in blocco. Fra le due regole
+   * la copertura è chiusa: o lo specificatore si legge e si controlla, o la
+   * chiamata è vietata; oggi le radici sorvegliate non ne contengono nessuna.
+   *
+   * Restano fuori dal perimetro, dichiarati e non dimenticati: il caricamento
+   * che non passa da import/require (`eval`, `new Function`, `createRequire`)
+   * e qualunque file fuori dalle radici sorvegliate.
    */
-  const importSpecifiers = (source: string): readonly string[] => {
-    const found: string[] = [];
-    const patterns = [
-      /\bfrom\s*["']([^"']+)["']/g,
-      /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
-      /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g,
-      /\bimport\s+["']([^"']+)["']/g,
-    ];
-    for (const pattern of patterns) {
-      for (const match of source.matchAll(pattern)) found.push(match[1]!);
-    }
-    return found;
+  const scriptKind = (path: string): ts.ScriptKind => {
+    if (path.endsWith(".tsx")) return ts.ScriptKind.TSX;
+    if (path.endsWith(".jsx")) return ts.ScriptKind.JSX;
+    if (/\.(js|mjs|cjs)$/.test(path)) return ts.ScriptKind.JS;
+    return ts.ScriptKind.TS;
   };
+
+  const parseSource = (source: string, path = "guard.ts"): ts.SourceFile =>
+    ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, scriptKind(path));
+
+  /** Il testo di un letterale staticamente decidibile; `undefined` altrimenti. */
+  const staticText = (node: ts.Node): string | undefined =>
+    ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) ? node.text : undefined;
+
+  /** `require` / `require.resolve` / la parola chiave `import`. */
+  const isModuleCall = (node: ts.CallExpression): boolean => {
+    if (node.expression.kind === ts.SyntaxKind.ImportKeyword) return true;
+    if (ts.isIdentifier(node.expression)) return node.expression.text === "require";
+    return (
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === "require" &&
+      node.expression.name.text === "resolve"
+    );
+  };
+
+  type ModuleReferences = {
+    /** Specificatori letti per intero. */
+    readonly specifiers: readonly string[];
+    /** Argomenti di caricamento che non si leggono staticamente. */
+    readonly unreadable: readonly string[];
+  };
+
+  const moduleReferences = (source: string, path?: string): ModuleReferences => {
+    const specifiers: string[] = [];
+    const unreadable: string[] = [];
+    const read = (node: ts.Node | undefined): void => {
+      if (node === undefined) return;
+      const text = staticText(node);
+      if (text === undefined) unreadable.push(node.getText());
+      else specifiers.push(text);
+    };
+    const visit = (node: ts.Node): void => {
+      if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) read(node.moduleSpecifier);
+      else if (
+        ts.isImportEqualsDeclaration(node) &&
+        ts.isExternalModuleReference(node.moduleReference)
+      )
+        read(node.moduleReference.expression);
+      else if (ts.isImportTypeNode(node))
+        read(ts.isLiteralTypeNode(node.argument) ? node.argument.literal : node.argument);
+      else if (ts.isCallExpression(node) && isModuleCall(node)) read(node.arguments[0]);
+      ts.forEachChild(node, visit);
+    };
+    visit(parseSource(source, path));
+    return { specifiers, unreadable };
+  };
+
+  const importSpecifiers = (source: string): readonly string[] =>
+    moduleReferences(source).specifiers;
 
   it("is not imported by the live UI or hard-safe src path", () => {
     const repoRoot = resolve(import.meta.dirname, "../../..");
@@ -473,29 +563,78 @@ describe("Fase 2 isolation invariants", () => {
     }
 
     for (const path of watched) {
-      for (const specifier of importSpecifiers(readFileSync(path, "utf8"))) {
+      const { specifiers, unreadable } = moduleReferences(readFileSync(path, "utf8"), path);
+      for (const specifier of specifiers) {
         expect(specifier, `${path} importa «${specifier}»`).not.toMatch(/appeal-index/);
       }
+      // FAIL-CLOSED: uno specificatore che non si legge non si assolve. Qui
+      // dentro non ce ne sono, e se ne comparisse uno andrebbe reso statico —
+      // oppure discusso, non lasciato passare in silenzio.
+      expect(unreadable, `${path} carica un modulo da uno specificatore non leggibile`).toEqual([]);
     }
   });
 
   it("the guard bites: an import of appeal-index is refused wherever it appears", () => {
-    // CONTRO-PROVA DELL'ESTRATTORE. Una regex negata su un insieme che potrebbe
-    // essere vuoto è verde e non prova niente: prima di negare, si prova che le
-    // quattro forme di import vengono davvero viste — comprese quelle che un
-    // modulo del motore userebbe per raggiungere questo pacchetto.
+    // CONTRO-PROVA DELL'ESTRATTORE, e conta più dell'estrattore stesso: una
+    // regex negata su un insieme che potrebbe essere vuoto è verde e non prova
+    // niente. Fino al 2026-08-31 questa lista provava SOLO le forme fra
+    // virgolette — cioè proprio non i casi in cui la guardia non mordeva. Ora
+    // prova OGNI forma che il commento dell'estrattore dichiara di catturare.
     const vietati = [
       'import { composeAppealIndexComponents } from "../../appeal-index/src/appealIndex.js";',
       'import type { FeatureRow } from "@fantacalcio/appeal-index";',
+      'import "../../appeal-index/src/types.js";',
+      'export { composeAppealIndexComponents } from "../../appeal-index/src/appealIndex.js";',
+      'export * from "@fantacalcio/appeal-index";',
+      'import ai = require("../../appeal-index/src/appealIndex.js");',
+      'type Row = import("../../appeal-index/src/types.js").FeatureRow;',
       'const m = await import("../../appeal-index/src/report.js");',
       'const m = require("packages/appeal-index/src/dataset.js");',
-      'import "../../appeal-index/src/types.js";',
+      'const p = require.resolve("../../appeal-index/src/types.js");',
+      // …e le stesse chiamate con l'argomento fra backtick: è la forma che il
+      // 2026-08-31 attraversava la guardia senza essere vista.
+      "const m = await import(`../../appeal-index/src/appealIndex.js`);",
+      "const m = require(`packages/appeal-index/src/dataset.js`);",
+      "const p = require.resolve(`../../appeal-index/src/types.js`);",
     ];
     for (const riga of vietati) {
       const specifiers = importSpecifiers(riga);
       expect(specifiers.length, riga).toBeGreaterThan(0);
-      expect(specifiers.some((s) => /appeal-index/.test(s)), riga).toBe(true);
+      expect(
+        specifiers.some((s) => /appeal-index/.test(s)),
+        riga,
+      ).toBe(true);
     }
+
+    // I DUE FILE DI LABORATORIO, alla lettera: messi in `packages/engine/src/`
+    // lasciavano la suite verde. Il primo ora si legge; il secondo non si legge
+    // affatto — e proprio per questo viene rifiutato invece che ignorato.
+    const provaTemplate = [
+      "export async function loadAppealIndex() {",
+      "  return import(`../../appeal-index/src/appealIndex.js`);",
+      "}",
+    ].join("\n");
+    expect(importSpecifiers(provaTemplate)).toContain("../../appeal-index/src/appealIndex.js");
+
+    const provaCostante = [
+      "const modPath = `../../appeal-index/src/appealIndex.js`;",
+      "export async function loadAppealIndex() { return import(modPath); }",
+    ].join("\n");
+    expect(moduleReferences(provaCostante).specifiers).toEqual([]);
+    expect(moduleReferences(provaCostante).unreadable).toEqual(["modPath"]);
+
+    // La regola fail-closed sugli specificatori non decidibili, in tutte le
+    // forme che la producono.
+    for (const opaco of [
+      "const m = await import(base + name);",
+      "const m = await import(`../../${pkg}/src/appealIndex.js`);",
+      "const m = require(paths[0]);",
+      'const p = require.resolve(prefix + "/appealIndex.js");',
+    ]) {
+      expect(moduleReferences(opaco).unreadable.length, opaco).toBeGreaterThan(0);
+      expect(moduleReferences(opaco).specifiers, opaco).toEqual([]);
+    }
+
     // …e NON morde su ciò che il motore usa davvero, né sui commenti che
     // nominano il pacchetto: se lo facesse, il test qui sopra sarebbe verde
     // per la ragione sbagliata e la documentazione andrebbe riscritta.
@@ -505,6 +644,15 @@ describe("Fase 2 isolation invariants", () => {
     expect(
       importSpecifiers("// packages/appeal-index/src/nameNormalization.ts's normalizePlayerName()"),
     ).toEqual([]);
+    // Il caso che una regex non può distinguere da un template literal: un
+    // commento che cita il percorso del pacchetto fra backtick, come fa
+    // `packages/engine/src/tiers.ts`.
+    expect(importSpecifiers("// l'indice di appetibilità (`packages/appeal-index/`)")).toEqual([]);
+    expect(importSpecifiers("/* vedi packages/appeal-index/src/report.ts */")).toEqual([]);
+    // Una stringa che nomina il pacchetto senza importarlo non è un import.
+    expect(importSpecifiers('const reason = "inconsistent-appeal-index";')).toEqual([]);
+    // E dove non si carica nessun modulo non si inventa un «non leggibile».
+    expect(moduleReferences('const label = ids[0] + "-x";').unreadable).toEqual([]);
   });
 
   it("has no receipt, gate or authority fields in passive output", () => {
