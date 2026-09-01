@@ -516,9 +516,10 @@ describe("Fase 2 isolation invariants", () => {
    *   che nomina `appeal-index` come segmento di percorso, ovunque si trovi.
    *
    *   REGOLA B — un caricamento il cui specificatore NON è staticamente
-   *   leggibile (`import(modPath)`, `import(base + name)`, un template con
-   *   sostituzioni) resta rifiutato in blocco: di questi non si può PROVARE
-   *   che non raggiungano il pacchetto, quindi non si finge di saperlo.
+   *   DECIDIBILE (`import(modPath)`, `import(base + name)`, un template con
+   *   sostituzioni, e un PATTERN — `import.meta.glob` di una wildcard) resta
+   *   rifiutato in blocco: di questi non si può PROVARE che non raggiungano
+   *   il pacchetto, quindi non si finge di saperlo.
    *
    * Le due regole non si sostituiscono, si dividono il piano: la A copre il
    * decidibile OVUNQUE si trovi, la B l'indecidibile. La A è chiusa per
@@ -538,19 +539,71 @@ describe("Fase 2 isolation invariants", () => {
    * `import.meta.resolve`, `module.require`, `require.main.require` entrano
    * senza essere stati previsti uno per uno.
    *
+   * QUARTO GIRO, E LA REGOLA NON CAMBIA: CAMBIA CHE COSA CONTAVA COME
+   * «LEGGIBILE». Il 2026-09-01 due righe attraversavano tutto:
+   *
+   *   import.meta.glob("../../packages/appeal*" + "/src/*.ts")
+   *   import.meta.glob("../../packages/*" + "/src/*.ts")
+   *
+   * (spezzate in due pezzi solo per scriverle qui: `*` seguito da `/`
+   * chiuderebbe questo commento. Nel test, sotto, sono intere.)
+   *
+   * Raggiungono `packages/appeal-index/src/` SENZA NOMINARLO, per
+   * corrispondenza di wildcard contro il filesystem: la A non vede il segmento
+   * esatto, e la B non scattava perché il letterale ERA leggibile. Peggio:
+   * `isModuleCall` riconosce già `import.meta.glob` (la catena del chiamato
+   * contiene `import`), quindi l'argomento finiva fra gli `specifiers`,
+   * registrato come «letto con successo» — un falso senso di sicurezza, che è
+   * peggio di un buco dichiarato.
+   *
+   * LA CORREZIONE NON È AGGIUNGERE IL GLOB A UN ELENCO: sarebbe il quinto giro
+   * dello stesso errore. È che UN PATTERN NON È UNO SPECIFICATORE. Leggibile e
+   * decidibile non sono la stessa cosa, e l'implementazione le confondeva
+   * usando «il letterale si legge» come surrogato di «si sa a quale modulo
+   * risolve». Un pattern con wildcard si legge benissimo e non denota un
+   * modulo: denota un INSIEME di moduli, scelto dal filesystem al momento del
+   * build. È esattamente la definizione di ciò che la B rifiuta da sempre —
+   * non un caso nuovo, ma un caso che le apparteneva già e che veniva mandato
+   * dalla parte sbagliata. Perciò un letterale in posizione di caricamento che
+   * contenga caratteri di pattern va in `unreadable`, non in `specifiers`.
+   *
+   * Così cade la CLASSE e non l'istanza: `import.meta.glob`, la sua forma
+   * `eager`, e qualunque altro caricamento per pattern comparisse domani sono
+   * rifiutati senza essere stati nominati.
+   *
    * `specifiers` resta, e resta controllato: è la lettura POSIZIONALE
    * (`import … from "x"`, `import "x"`, `export … from "x"`, `export * from
    * "x"`, `import x = require("x")`, il tipo `import("x").T`, e le chiamate di
    * caricamento) e serve a dire QUALE modulo un file importa davvero, non solo
    * che nomina un percorso.
    *
-   * RESTA FUORI, DICHIARATO E NON SOTTINTESO — una sola classe: un caricamento
-   * il cui specificatore è INSIEME (a) non statico e (b) eseguito da un
-   * chiamato che non nomina il sistema dei moduli — `eval`, `new Function`,
-   * `createRequire(url)` invocato tramite un alias, `const load = require;
-   * load(x)`. Se lo specificatore fosse statico la A lo prenderebbe comunque,
-   * alias o no: serve che sia dinamico anche quello. Fuori perimetro restano
-   * inoltre, per definizione, i file fuori dalle radici sorvegliate.
+   * CHE COSA QUESTA GUARDIA DICHIARA DI NON COPRIRE. Quattro giri, quattro
+   * rilievi, ogni volta su una forma che l'elenco precedente non prevedeva:
+   * la lezione non è che ora l'elenco è completo, è che una guardia che
+   * dichiara i propri limiti vale più di una che promette una chiusura che non
+   * ha. Il buco successivo si cerca dove è scritto che c'è.
+   *
+   *   1. IL CARICAMENTO CHE NON PASSA DA `import`/`require`, quando ANCHE lo
+   *      specificatore è dinamico: `eval("require('" + p + "')")`,
+   *      `new Function(...)`, `createRequire(import.meta.url)` invocato
+   *      tramite un alias, `const load = require; load(x)`. Servono veri
+   *      INSIEME i due pezzi — chiamato che non nomina il sistema dei moduli E
+   *      specificatore non statico: se lo specificatore fosse statico la A lo
+   *      prenderebbe comunque, alias o no.
+   *   2. I FILE FUORI DALLE RADICI SORVEGLIATE (`ISOLATED_ROOTS`), e i file di
+   *      test, che il filtro esclude di proposito perché il divieto riguarda
+   *      il codice che gira. La guardia legge solo ciò che le si dà da
+   *      leggere: allargare il perimetro è un atto deliberato, mai un effetto.
+   *   3. QUALUNQUE RISOLUZIONE CHE AVVENGA FUORI DAL SORGENTE. Il testo dello
+   *      specificatore può essere innocuo e il modulo risolto un altro: alias
+   *      di bundler (`resolve.alias`), `paths`/`baseUrl` di TypeScript,
+   *      `imports` del package.json, link di workspace. Qui la guardia è cieca
+   *      per costruzione — legge il sorgente, non la configurazione. Oggi
+   *      (2026-09-01) questo repo non ne ha, ed è una verifica, non una
+   *      speranza: nessun `vite.config.*`; il solo `vitest.config.ts`, senza
+   *      `resolve.alias`; un unico `tsconfig.json`, senza `paths` né
+   *      `baseUrl` (`moduleResolution: "Bundler"`). Se un giorno ne comparisse
+   *      uno, questa guardia NON basterebbe più e andrebbe estesa lì.
    */
 
   const scriptKind = (path: string): ts.ScriptKind => {
@@ -574,6 +627,21 @@ describe("Fase 2 isolation invariants", () => {
     ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)
       ? node.text
       : undefined;
+
+  /**
+   * I METACARATTERI DI PATTERN, cioè quelli che tolgono a un letterale la
+   * qualità di specificatore: `*` e `?` (wildcard), `{`/`}` (brace expansion),
+   * `[`/`]` (classi di caratteri). Non è un elenco di FORME di caricamento —
+   * quello sarebbe di nuovo un elenco, e di nuovo lo si aggirerebbe — ma
+   * l'insieme dei caratteri che il matcher di QUESTO toolchain interpreta
+   * invece di prendere alla lettera, e che perciò fanno risolvere il letterale
+   * a un insieme di moduli anziché a uno. Verificato, non assunto: vite 5.4.x
+   * globba con fast-glob/micromatch e ne bundla `braces`
+   * (`node_modules/vite/dist/node/chunks/`), quindi anche graffe e classi sono
+   * vive qui. Nessuno di questi caratteri ha un uso legittimo dentro uno
+   * specificatore di modulo.
+   */
+  const PATTERN_CHARACTERS = /[*?[\]{}]/;
 
   /**
    * I token che PORTANO testo letterale di stringa. Non è un elenco di
@@ -662,7 +730,17 @@ describe("Fase 2 isolation invariants", () => {
     const read = (node: ts.Node | undefined): void => {
       if (node === undefined) return;
       const text = staticText(node);
-      if (text === undefined) unreadable.push(node.getText());
+      // REGOLA B. Due modi di non essere decidibile, non uno: il letterale non
+      // si legge (`import(modPath)`), OPPURE si legge ma è un pattern — e
+      // allora non dice quale modulo si carica, dice quali file il build
+      // andrà a cercare. In entrambi i casi non si può PROVARE che il
+      // pacchetto non venga raggiunto, quindi non si finge di saperlo.
+      // La distinzione è POSIZIONALE e sta tutta qui: in questa funzione si
+      // arriva SOLO da una posizione di caricamento di modulo, quindi una
+      // regex, un formato o una query che contengano un asterisco non ci
+      // passano nemmeno e non vengono toccati.
+      if (text === undefined || PATTERN_CHARACTERS.test(text))
+        unreadable.push(node.getText());
       else specifiers.push(text);
     };
     const visit = (node: ts.Node): void => {
@@ -869,6 +947,55 @@ describe("Fase 2 isolation invariants", () => {
       );
       expect(moduleReferences(opaco).specifiers, opaco).toEqual([]);
     }
+
+    // IL CASO DEL QUARTO GIRO: IL CARICAMENTO PER PATTERN. Queste righe,
+    // messe in `packages/engine/src/`, lasciavano la suite VERDE il
+    // 2026-09-01: il pattern raggiunge `packages/appeal-index/src/` senza
+    // nominarlo, e il letterale si leggeva, quindi finiva fra gli
+    // `specifiers` come se fosse stato risolto. Ora è rosso, e per la via
+    // giusta — vedi l'asserzione sotto: `forbidden` resta VUOTO, perché
+    // nessuno di questi testi contiene il segmento `appeal-index`. Se la
+    // guardia mordesse qui per un match di nome sarebbe verde per la ragione
+    // sbagliata e il secondo pattern, che non nomina niente, continuerebbe a
+    // passare.
+    for (const pattern of [
+      'export const mods = import.meta.glob("../../packages/appeal*/src/*.ts");',
+      'export const mods = import.meta.glob("../../packages/*/src/*.ts");',
+      'export const mods = import.meta.glob("../../packages/appeal*/src/*.ts", { eager: true });',
+      "export const mods = import.meta.glob(`../../packages/*/src/*.ts`);",
+      // Le altre due vie del matcher di questo toolchain, che non sono `*`:
+      // brace expansion e classe di caratteri. Nessuna è stata aggiunta a un
+      // elenco di forme di caricamento — cadono per i metacaratteri.
+      'const m = await import("../../packages/appeal-{index,serving}/src/x.js");',
+      'const p = require.resolve("../../packages/appeal-inde?/src/types.js");',
+    ]) {
+      const { specifiers, forbidden, unreadable } = moduleReferences(pattern);
+      expect(specifiers, pattern).toEqual([]);
+      expect(unreadable.length, pattern).toBeGreaterThan(0);
+      expect(forbidden, pattern).toEqual([]);
+    }
+
+    // …E LA REGOLA PIÙ LARGA NON ESCE DALLA POSIZIONE DI SPECIFICATORE, che è
+    // la parte che può fare danni: un asterisco in una regex, in un formato,
+    // in una query o in una costante di documentazione non è un caricamento e
+    // non deve produrre né un `unreadable` né altro.
+    for (const innocuo of [
+      "export const RE = /^appeal\\*index$/;",
+      'export const FMT = "**grassetto**";',
+      'export const q = "select * from giocatori";',
+      'const globDoc = "packages/*/src/*.ts";',
+      'const fmt = { pattern: "?" };',
+      "// documentazione: packages/*/src/*.ts",
+    ]) {
+      const { specifiers, forbidden, unreadable } = moduleReferences(innocuo);
+      expect(unreadable, innocuo).toEqual([]);
+      expect(forbidden, innocuo).toEqual([]);
+      expect(specifiers, innocuo).toEqual([]);
+    }
+    // E uno specificatore vero, senza metacaratteri, continua a leggersi.
+    expect(importSpecifiers('import { x } from "./auction.js";')).toEqual([
+      "./auction.js",
+    ]);
 
     // …e NON morde su ciò che il motore usa davvero, né sui commenti che
     // nominano il pacchetto: se lo facesse, il test qui sopra sarebbe verde
