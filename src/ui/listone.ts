@@ -1950,9 +1950,16 @@ export function expertVoteAxisMarker(
  * IL TESTO DI UNA CASELLA, cioè dove `undefined` smette di essere una cosa
  * sola e torna a essere quello che è per quella colonna.
  *
- *  - le sette colonne di segnale e l'indice dicono `n/d`: il dato ESISTE come
- *    domanda e nessuno ha ancora scritto la risposta. Mai `0`, mai una media,
- *    mai un trattino che si legge come «zero bonus»;
+ *  - i cinque voti del Gruppo Esperti e l'indice dicono `n/d`: il dato ESISTE
+ *    come domanda e nessuno ha ancora scritto la risposta. Mai `0`, mai una
+ *    media, mai un trattino che si legge come «zero bonus»;
+ *  - le TRE colonne dei piazzati non dicono niente: lì l'assenza non è un
+ *    difetto ma la norma — una squadra ha uno o due rigoristi, e per gli altri
+ *    venti la fonte tace perché non c'era niente da dire. Ripetuta su
+ *    quattrocento righe, la dichiarazione smetteva di informare e cominciava a
+ *    confondere. Le sette colonne di segnale erano una regola sola e ora sono
+ *    due gruppi con due regole: è la distinzione che questo elenco esiste per
+ *    tenere leggibile;
  *  - la colonna del quarto asse dice `n.a.` in UN caso solo, e non è lo stesso
  *    `n/d`: la scheda porta il voto dell'ALTRO ruolo. `resolvePagella` non lo
  *    usa (`asseIncoerente`), e la cella lo dichiara invece di far sparire il

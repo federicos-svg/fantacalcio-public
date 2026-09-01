@@ -70,7 +70,7 @@ const DEFAULT_HEADERS = [
 
 /** Il giocatore su cui la scheda sintetica dichiara rigori e piazzati. */
 const WITH_SCHEDA = SYNTHETIC_LISTONE_POOL.find((p) => p.name === SCHEDA_PLAYER)!;
-/** Un giocatore senza scheda: le stesse due colonne devono dire `n/d`. */
+/** Un giocatore senza scheda: le stesse colonne dei piazzati devono tacere. */
 const WITHOUT_SCHEDA = SYNTHETIC_LISTONE_POOL.find((p) => p.name === OTHER_PLAYER)!;
 
 /** Serve il deposito delle schede come farebbe l'endpoint privato. Registrata
