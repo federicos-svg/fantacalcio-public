@@ -258,14 +258,75 @@ test("un vocabolario solo: i riquadri di INSIGHT GIOCATORE hanno la forma delle 
   // 1. LA SCHERMATA DI CHIAMATA. I tre titoli del blocco suggerito —
   //    «GIOCATORE SUGGERITO — CHI CHIAMARE ORA», «PER ME», «PER FAR SPENDERE
   //    GLI ALTRI» — portano tutti la classe condivisa.
+  //
+  //    TRE, E NON DUE, ANCHE SE A SCHERMO SE NE VEDONO DUE: dal 2026-08-31
+  //    «PER ME» non si disegna («Nascondi #per-me-title», Pico) perché
+  //    l'occhiello di sopra nominava già la stessa cosa. Resta però nel DOM —
+  //    è lui a dare il nome accessibile a `#per-me-block` — e il modificatore
+  //    `.per-me__title--sr` (src/styles/perMe.css) tocca solo dove sta, non le
+  //    cinque proprietà che questa prova confronta. Se qualcuno lo togliesse
+  //    dal DOM, questo conteggio diventerebbe rosso: è la sentinella che il
+  //    nome accessibile non sparisca in silenzio.
   const chiamataTitles = page.locator("#suggested-player .scheda-card__title");
   await expect(chiamataTitles).toHaveCount(3);
   await expect(chiamataTitles.nth(0)).toContainText("GIOCATORE SUGGERITO — CHI CHIAMARE ORA");
   await expect(chiamataTitles.nth(1)).toContainText("PER ME");
   await expect(chiamataTitles.nth(2)).toContainText("PER FAR SPENDERE GLI ALTRI");
   const chiamataStyles = await titleStyles("#suggested-player .scheda-card__title");
-  // Tre titoli, UNA identità visiva: è ciò che «una copia sola» vuol dire.
-  expect(new Set(chiamataStyles).size, `tre titoli, ${chiamataStyles.length} stili`).toBe(1);
+
+  // ── DUE IDENTITÀ, NON UNA, E NON TRE — dalla sera del 2026-08-31 ──────────
+  //
+  // COSA PRETENDEVA QUESTA PROVA FINO A IERI, E PERCHÉ NON DESCRIVE PIÙ IL
+  // PRODOTTO. Pretendeva UNA identità per tutti e tre: era vero finché i tre
+  // titoli erano pari — l'occhiello intestava la sola metà PER ME e la metà
+  // esca gli stava accanto col proprio titolo. «L'occhiello sale a intestare
+  // le due metà» (Pico) ha reso quella pretesa FALSA sul prodotto: adesso uno
+  // dei tre intesta gli altri due, e tre forme identiche direbbero che sono
+  // tre titoli pari.
+  //
+  // NON È UN ALLENTAMENTO, È UNA PRETESA PIÙ FORTE. Prima si chiedeva «tutti
+  // uguali» (una sola condizione). Adesso se ne chiedono tre insieme:
+  //   a. l'occhiello ha UNA identità, ed è quella del vocabolario condiviso —
+  //      la stessa dei riquadri di INSIGHT GIOCATORE, verificata al punto 2;
+  //   b. le due metà hanno UNA identità FRA LORO: sono pari, e due metà pari
+  //      con due forme diverse sarebbero la divergenza che questo modulo esiste
+  //      per impedire — «PER ME» non si vede, quindi senza questa riga la sua
+  //      forma potrebbe derivare per mesi senza che nessuno se ne accorga;
+  //   c. la seconda identità è SUBORDINATA alla prima, e lo è per misura: il
+  //      corpo e il peso sono minori. Il rango non è una parola nei commenti.
+  const [headStyle, ...halfStyles] = chiamataStyles;
+  expect(new Set(halfStyles).size, `due metà, ${halfStyles.length} stili`).toBe(1);
+  expect(halfStyles[0], "le due metà non hanno la forma del loro occhiello").not.toBe(headStyle);
+  const rank = await page.evaluate(() =>
+    ["suggested-player-title", "bait-title"].map((id) => {
+      const cs = getComputedStyle(document.getElementById(id)!);
+      return {
+        fontSize: parseFloat(cs.fontSize),
+        fontWeight: parseInt(cs.fontWeight, 10),
+        letterSpacing: cs.letterSpacing,
+        color: cs.color,
+        marginBottom: cs.marginBottom,
+      };
+    }),
+  );
+  const [headRank, subRank] = rank;
+  expect(subRank!.fontSize, "il sottotitolo ha un corpo minore").toBeLessThan(headRank!.fontSize);
+  expect(subRank!.fontWeight, "…e un peso minore").toBeLessThan(headRank!.fontWeight);
+  // …E SOLO QUELLE DUE PROPRIETÀ. Il colore non cambia — abbassare il rango
+  // col colore vorrebbe dire pagare la gerarchia in contrasto, e la rampa di
+  // base.css dichiara `--text-sec` come il livello ≥ 4,5:1 — e non cambiano né
+  // la spaziatura né il margine sotto: il sottotitolo resta lo STESSO titolo,
+  // in secondo rango, non un secondo vocabolario.
+  expect(subRank!.color, "il rango non si paga in contrasto").toBe(headRank!.color);
+  expect(subRank!.marginBottom).toBe(headRank!.marginBottom);
+  // LA SPAZIATURA SI CONFRONTA IN FRAZIONE DEL CORPO, E NON IN PIXEL, perché è
+  // dichiarata in `em` (0.04em, src/styles/schedaCard.css): a 10px il browser
+  // ne calcola 0,4 e a 11px 0,44. Confrontare i due valori calcolati direbbe
+  // «la spaziatura è cambiata» di una regola che nessuno ha toccato — è il
+  // CORPO a essere cambiato, ed è la riga sopra a dirlo.
+  const em = (r: { letterSpacing: string; fontSize: number }): number =>
+    Math.round((parseFloat(r.letterSpacing) / r.fontSize) * 1000) / 1000;
+  expect(em(subRank!), "la spaziatura è la stessa frazione del corpo").toBe(em(headRank!));
 
   // 2. I DUE RIQUADRI DELLA SCHEDA, nel momento d'asta: ciascuno col proprio
   //    titolo, e il titolo è LO STESSO di quelli della chiamata.
@@ -287,7 +348,7 @@ test("un vocabolario solo: i riquadri di INSIGHT GIOCATORE hanno la forma delle 
   const insightStyles = await titleStyles(".call-identity-row .scheda-card__title");
   expect(insightStyles).toHaveLength(2);
   expect(
-    new Set([...chiamataStyles, ...insightStyles]).size,
+    new Set([headStyle, ...insightStyles]).size,
     `i due posti sono divergiti: chiamata ${chiamataStyles[0]}, insight ${insightStyles[0]}`,
   ).toBe(1);
 

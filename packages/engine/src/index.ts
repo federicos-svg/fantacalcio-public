@@ -52,3 +52,30 @@ export * from "./absoluteValue.js";
 // già dichiarato: nessuna curva da scegliere, nessun coefficiente nuovo.
 // Vedi packages/engine/src/relativeIndex.ts §"La forma: una quota di conteggi".
 export * from "./relativeIndex.js";
+// `P̂` — IL PREZZO ATTESO DI STASERA (NOM-PROTOCOL-A §A.2): la curva storica
+// rango→prezzo per fasce dichiarate, col suo pool medio misurato, e la catena
+// che la legge al rango di listone con pool ratio, inflazione di ruolo e tetto
+// del più ricco rivale eleggibile. Uno scalare che non esiste senza il proprio
+// blocco d'incertezza. Vedi packages/engine/src/priceHistory.ts e
+// packages/engine/src/expectedPrice.ts.
+export * from "./priceHistory.js";
+export * from "./expectedPrice.js";
+// `V` — IL VALORE IN CREDITI (NOM-PROTOCOL-A §A.1) e `S` — IL SURPLUS ATTESO
+// (§A.3): il VORP sul rango di rimpiazzo derivato dal regolamento, il residuo
+// del tavolo ripartito col metodo dei resti maggiori, le due correzioni
+// dichiarate entrambe spente di default, e l'override di Pico che comanda al
+// posto della targa del generatore — mai una media fra i due. Vedi
+// packages/engine/src/creditValue.ts.
+export * from "./creditValue.js";
+// `PLAN*` — IL PIANO DINAMICO (NOM-PROTOCOL-A §A.4): il completamento ottimo
+// del mio roster, funzione pura dello stato e ricalcolata a ogni evento —
+// nessun input manuale, nessun peso, nessuna finestra da indovinare. Vedi
+// packages/engine/src/dynamicPlan.ts.
+export * from "./dynamicPlan.js";
+// `E_o`, `drain`, `D` e `S_base` — LA SPESA ATTESA DEGLI ALTRI E IL DIVARIO
+// DELL'ESCA (NOM-PROTOCOL-A §A.5/§A.6): il tetto contabile di ciascun esposto
+// incrociato col prezzo di mercato e col sovrapprezzo INIETTATO dei suoi
+// precedenti (interruttore spento di default), poi la scala degli esposti —
+// secondo più uno, col tetto al massimo — e le due sottrazioni che ne
+// discendono. Vedi packages/engine/src/baitDrain.ts.
+export * from "./baitDrain.js";

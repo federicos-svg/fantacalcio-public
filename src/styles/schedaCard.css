@@ -37,6 +37,42 @@
   margin-bottom: 6px;
 }
 
+/* IL SECONDO RANGO — il modificatore dichiarato in src/ui/schedaCard.ts.
+ *
+ * PERCHÉ (Pico, 2026-08-31). L'occhiello «GIOCATORE SUGGERITO — CHI CHIAMARE
+ * ORA» intesta adesso DAVVERO le due metà del blocco suggerito, e «PER ME» e
+ * «PER FAR SPENDERE GLI ALTRI» nominano una metà ciascuno. Con la stessa forma
+ * i tre si sarebbero letti come tre titoli pari, e il primo sarebbe diventato
+ * uno dei tre invece del loro capo.
+ *
+ * DUE PROPRIETÀ, E NON UNA. Il corpo scende da 11 a 10 px e il peso da 700 a
+ * 600: la dimensione è il segnale di rango che si legge da lontano, il peso
+ * quello che si legge sulla riga. Una sola delle due, su un maiuscoletto già
+ * piccolo, è una differenza che si nota solo mettendo i due titoli a
+ * confronto — e a confronto non ci stanno mai, stanno uno sotto l'altro.
+ *
+ * IL COLORE NON SI TOCCA, ed è una scelta con una misura dietro: `--text-sec`
+ * è il livello che la rampa di base.css dichiara ≥ 4,5:1 sul fondo peggiore
+ * dell'app e che e2e/text-contrast-aa.spec.ts rimisura a ogni run. Abbassare
+ * il rango col colore avrebbe voluto dire scendere sotto quel livello, cioè
+ * pagare la gerarchia in contrasto. `--text-mid`, l'altro livello a portata di
+ * mano, va nella direzione OPPOSTA (8,36:1 contro 6,33): renderebbe il
+ * sottotitolo più acceso del suo occhiello.
+ *
+ * 10px NON È UN CORPO NUOVO: è quello che questa interfaccia usa già in una
+ * dozzina di punti (asta.css), quindi il sottotitolo non introduce una scala
+ * tipografica in più.
+ *
+ * MODIFICATORE, NON UNA SECONDA IDENTITÀ: la spaziatura, il colore e il
+ * margine sotto restano quelli del titolo condiviso, e
+ * e2e/player-insight.spec.ts confronta le cinque proprietà dei tre titoli
+ * pretendendo DUE identità — una per l'occhiello, una sola per le due metà —
+ * e che la seconda sia misurabilmente subordinata alla prima. */
+.scheda-card__title--sub {
+  font-size: 10px;
+  font-weight: 600;
+}
+
 .scheda-cards {
   display: grid;
   gap: 9px 18px;

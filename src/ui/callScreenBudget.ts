@@ -575,7 +575,7 @@ export const CALL_SCREEN_BUDGET_LEDGER: readonly CallScreenBlockAllocation[] = [
     id: "giocatore-suggerito",
     label: "GIOCATORE SUGGERITO (chi chiamare ora + esca)",
     domId: "suggested-player",
-    allocationPx: 281,
+    allocationPx: 245,
     measuredInState: "ricerca",
     measuredAtCommit: CALL_SCREEN_BUDGET_MEASURED_AT,
     requiredIn: ALL_STATES,
@@ -594,7 +594,63 @@ export const CALL_SCREEN_BUDGET_LEDGER: readonly CallScreenBlockAllocation[] = [
       "rosa (il pannello che la raccoglieva è stato rimosso) e mostra la sua frase di " +
       "silenzio, che è più corta dell'elenco che mostrava prima. La frase È vincolata da " +
       "questa riga: allungarla di due righe rimette il blocco fuori allocazione, ed è già " +
-      "successo una volta il giorno stesso — vedi perMeEmptyText in src/ui/perMeRow.ts.",
+      "successo una volta il giorno stesso — vedi perMeEmptyText in src/ui/perMeRow.ts. " +
+      "281 -> 259 IL 2026-08-31, ed è UNA RIGA DI TITOLO IN MENO A SCHERMO: «Nascondi " +
+      "#per-me-title» (Pico). L'occhiello di questo blocco intitola una sezione che contiene " +
+      "solo il sottoblocco PER ME, quindi «CHI CHIAMARE ORA» e «PER ME» nominavano la stessa " +
+      "cosa impilati; il secondo titolo resta nel DOM fuori dalla vista (regge " +
+      "`aria-labelledby`) e non occupa più altezza. Rimisurato a 390×844: `#per-me-block` " +
+      "passa da 100,5 a 78 px e il consumo massimo del blocco da 281 a 258,5 — lo stesso " +
+      "-22,5 px in tutti e quattro gli stati. L'allocazione è 259 e non 258,5 perché il " +
+      "mastro alloca pixel interi: si arrotonda PER ECCESSO, mai per difetto, o " +
+      "l'allocazione starebbe sotto la misura. " +
+      "RIMISURATO IL 2026-08-31 DOPO IL PIANO DINAMICO, e il numero NON si è mosso: 258,5 px, " +
+      "gli stessi. Il sottoblocco PER ME ha cambiato il proprio silenzio — da «nessun piano " +
+      "rosa dichiarato» a «deposito assente o monco» — e in questa fixture, che non porta le " +
+      "previsioni servite, `#per-me-block` misura 78 px con l'una e con l'altra frase. " +
+      "RIMISURATO ANCORA IL 2026-08-31 DOPO «UN GIOCATORE SOLTANTO» (Pico), e ancora NON si è " +
+      "mosso: 258,5 px. In questa scena i due sottoblocchi sono entrambi MUTI — PER ME dice " +
+      "`no-forecast`, l'esca non ha righe — e la decisione di Pico tocca solo ciò che una " +
+      "RIGA disegna, quindi qui non c'è niente da rimisurare. " +
+      "RIMISURATO UNA TERZA VOLTA IL 2026-08-31, DOPO CHE LE DUE NOTE SONO STATE TOLTE «DEL " +
+      "TUTTO» (Pico, messo davanti alla misura: 92 px di annotazione per 34 px di riga " +
+      "annotata), e il numero NON si è mosso di nuovo: 258,5 px, gli stessi, in tutti e " +
+      "quattro gli stati (244,5 allo stato `ricerca`). LA RAGIONE È STRUTTURALE E VA DETTA, " +
+      "o la terza rimisura invariata sembra una svista: la nota, quand'era viva, NON compariva " +
+      "in questa scena — `perMeNoteApplies`/`baitNoteApplies` la tacevano proprio sui due " +
+      "silenzi che la fixture produce (`no-forecast`, `no-history`), perché lì nessun parametro " +
+      "aveva governato niente. Il mastro misurava già una schermata senza note. " +
+      "DOVE LA DIFFERENZA SI VEDE È NELLA SCENA PIENA, e da oggi si vede al contrario: " +
+      "`#per-me-block` popolato è passato da 133,5 a 34,5 px (51,7 con la riga selezionata) e " +
+      "`#bait-block` da 178,7 a 91. Il sottoblocco PIENO costa adesso MENO di quello MUTO che " +
+      "questo mastro misura — 34,5 contro 78 px — e l'intero `#suggested-player` con entrambe " +
+      "le metà popolate e una riga selezionata misura 233,7 px contro i 240,5 della scena muta. " +
+      "La lacuna PER_ME_POPOLATO_FUORI_DALLA_MISURA si chiude qui: non è più che la scena " +
+      "piena stia fuori dalla misura, è che la misura la CONTIENE, con 25 px di margine " +
+      "sull'allocazione. Vedi il tetto di regressione in e2e/per-me-row.spec.ts. " +
+      "259 -> 245 IL 2026-08-31, ED È LA PRIMA VOLTA CHE QUESTA RIGA SCENDE PER UNA COSA " +
+      "SPOSTATA E NON TOLTA. «L'occhiello sale a intestare le due metà» (Pico): " +
+      "«GIOCATORE SUGGERITO — CHI CHIAMARE ORA» era dentro `#suggested-player-mine` e " +
+      "intestava la sola metà PER ME; adesso è figlio di `#suggested-player` e le due metà " +
+      "gli stanno sotto pari, dentro `#suggested-player-halves`. I 13,5 px hanno tre nomi e " +
+      "nessuno dei tre è un condono. −8: `.per-me` non ha più `margin-top`, che serviva a " +
+      "staccarlo dall'occhiello quando l'occhiello era nella sua stessa sezione. −10: `.bait` " +
+      "non ha più `margin-top`, che duplicava il `row-gap` di 14 px con cui la griglia separa " +
+      "già le due metà (il filo sopra resta: a 390px è l'unica cosa che dice dove comincia la " +
+      "seconda metà). −1,5: il nome della seconda metà è passato al SECONDO RANGO (10px " +
+      "invece di 11, `.scheda-card__title--sub`), perché sotto un occhiello che intesta " +
+      "entrambe non può avere la stessa forma di chi le intesta. +6: l'occhiello si separa " +
+      "adesso col proprio `margin-bottom` invece che col margine collassato di `.per-me`. " +
+      "LA GRIGLIA NON È SALITA CON LUI, ed è una misura e non un gusto: lasciandola su " +
+      "`#suggested-player` l'occhiello ne sarebbe stato una riga e avrebbe pagato 14 px di " +
+      "`row-gap` a 390px, cioè il blocco sarebbe rimasto a 259 invece di scendere a 245. " +
+      "Rimisurato a 390×844: `#suggested-player` passa da 240,5 a 227 px di altezza propria e " +
+      "il consumo massimo da 258,5 a 245 — lo stesso −13,5 in tutti e quattro gli stati " +
+      "(231 allo stato `ricerca`, era 244,5). L'allocazione È 245 e non 246: la misura è un " +
+      "intero esatto, e il mastro arrotonda per eccesso solo quando c'è una frazione da " +
+      "coprire. Nella scena PIENA il blocco misura 220,2 px di altezza propria con una riga " +
+      "selezionata (era 233,7) contro i 227 della scena muta che questo mastro misura: la " +
+      "scena piena resta la più leggera delle due, e l'allocazione continua a contenerla.",
   },
   {
     id: "listone",
@@ -651,10 +707,30 @@ export const CALL_SCREEN_ALLOCATED_PX = CALL_SCREEN_BUDGET_LEDGER.reduce(
  * 2026-08-26 (il riquadro INSIGHT GIOCATORE, 151 px, entra nella schermata di
  * chiamata), −1100 il 2026-08-29 (lo stesso riquadro se ne va nel momento
  * d'asta e i quattro interruttori di ruolo prendono 32 px), −986 il 2026-08-29,
- * −932 oggi. Ogni volta la riga che si muove ha un nome, un'altezza misurata e
- * un motivo, e i px escono da qui e non dal vicino di banco.
+ * −932 il 2026-08-30, −910 e poi −896 il 2026-08-31. Ogni volta la riga che si
+ * muove ha un nome, un'altezza misurata e un motivo, e i px escono da qui e non
+ * dal vicino di banco.
  *
- * OGGI LA RISERVA RISALE DI 54 px, ed è la prima volta che succede per righe
+ * GLI ULTIMI 14 px SONO DI UN TRASLOCO CHE NON HA PARCHEGGIATO NIENTE ALTROVE.
+ * «L'occhiello sale a intestare le due metà» (Pico, 2026-08-31): il titolo del
+ * blocco suggerito è uscito dalla metà PER ME ed è salito a intestarle
+ * entrambe, e con lui sono cadute due spaziature che non avevano più un
+ * compito — il margine con cui PER ME si staccava dall'occhiello e quello con
+ * cui l'esca duplicava il `gap` della griglia. `giocatore-suggerito` scende da
+ * 259 a 245 px misurati, e i px non sono finiti in un altro budget: la
+ * schermata è più corta di 13,5 px in tutti gli stati.
+ *
+ * OGGI RISALE DI ALTRI 22 px, e la riga che li restituisce è una sola:
+ * `giocatore-suggerito` scende da 281 a 259 perché il titolo del sottoblocco
+ * PER ME non si disegna più — «Nascondi #per-me-title» (Pico, 2026-08-31).
+ * Era un secondo nome per la stessa cosa: l'occhiello di sopra intitola una
+ * sezione che contiene solo quel sottoblocco. Il titolo resta nel DOM fuori
+ * dalla vista, perché è lui a dare il nome accessibile al blocco, e i 22,5 px
+ * misurati (100,5 -> 78 px di `#per-me-block`, −22,5 di consumo in tutti e
+ * quattro gli stati) escono davvero dal totale: nessun trasloco, niente
+ * parcheggiato in un altro budget.
+ *
+ * IL 2026-08-30 LA RISERVA ERA RISALITA DI 54 px, ed era la prima volta per righe
  * TOLTE O RIMPICCIOLITE invece che per una entrata. Tre movimenti, tutti
  * rimisurati sul vivo il 2026-08-30:
  *
@@ -667,24 +743,26 @@ export const CALL_SCREEN_ALLOCATED_PX = CALL_SCREEN_BUDGET_LEDGER.reduce(
  *        piano rosa il sottoblocco PER ME mostra la sua frase di silenzio, che
  *        è più corta dell'elenco.
  *
- * È l'unico caso in cui questo numero è una buona notizia, e va scritto per
- * non farlo sembrare un trasloco come i tre che l'hanno preceduto.
+ * Sono i due soli casi in cui questo numero è una buona notizia, e vanno
+ * scritti per non farli sembrare un trasloco come i tre che li hanno preceduti.
  *
  * Il prossimo blocco non arriva in uno spazio vuoto: arriva dovendo restituire
- * la propria altezza PIÙ 1219 px presi da righe con un nome
+ * la propria altezza PIÙ 910 px presi da righe con un nome
  * (`callScreenNewBlockCostPx`). Una riserva che scende, in un file tracciato,
  * è l'allarme che prima non c'era da nessuna parte.
  *
  * DA NON CONFONDERE COL MARGINE RESIDUO DI UNO STATO. La riserva confronta il
  * totale con la somma delle allocazioni, cioè col peggio che la schermata
  * raggiunge. Allo stato di boot `ricerca`, dove CONTESTO CHIAMATA non è nel
- * DOM, lo span misura 1573 px e il margine sul totale è 115 px — era 2 il
- * 2026-08-29 mattina, 34 prima dei quattro interruttori di ruolo, 60,5 su
- * `ac8814c`. Anche questa risalita è il trasloco della barra e non una
+ * DOM, lo span misura 1434 px e il margine sul totale è 254 px — era 240 fino
+ * all'occhiello salito a intestare le due metà (2026-08-31), 218 fino al
+ * titolo nascosto dello stesso giorno, 115 il 2026-08-30, 2 il 2026-08-29
+ * mattina, 34 prima dei quattro interruttori di ruolo, 60,5 su `ac8814c`. Il
+ * salto più grosso di quella serie è il trasloco della barra e non una
  * riparazione: vedi PROVA_1_MARGINE_RIAPERTO_SENZA_RIPAGARE e PROVA 1 in
  * e2e/call-screen-budget.spec.ts.
  */
-export const CALL_SCREEN_BUDGET_RESERVE_PX = -932;
+export const CALL_SCREEN_BUDGET_RESERVE_PX = -896;
 
 /**
  * Che cosa costa, oggi, far entrare un blocco nuovo alto `heightPx`: quanti px
@@ -723,8 +801,8 @@ export interface CallScreenOverBudgetState {
 export const CALL_SCREEN_OVER_BUDGET_STATES: readonly CallScreenOverBudgetState[] = [
   {
     state: "contesto-aperto",
-    spanPx: 1782,
-    overBudgetPx: 94,
+    spanPx: 1746,
+    overBudgetPx: 58,
     why:
       "il corpo di CONTESTO CHIAMATA aperto porta il blocco da 151,5 a 1096,25 px; il listone " +
       "è filtrato a una riga sola e lo span sfonda lo stesso. Erano 1874 px su ac8814c, 1901 " +
@@ -735,14 +813,19 @@ export const CALL_SCREEN_OVER_BUDGET_STATES: readonly CallScreenOverBudgetState[
       "BARRA_FISSA_FUORI_DAL_TOTALE). 1782 dal 2026-08-30, e QUESTI 37 px SONO una " +
       "riparazione: due blocchi hanno smesso di esistere — il contatore delle interazioni di " +
       "chiamata (17 px) e l'istruzione sempre a schermo su come si usa la ricerca, che ha " +
-      "lasciato al suo posto un nodo muto. Lo stato resta oltre il totale di 94 px con la " +
-      "tabella filtrata a UNA riga: il debito è più piccolo, e per la prima volta è più " +
-      "piccolo perché qualcosa è stato tolto.",
+      "lasciato al suo posto un nodo muto. 1760 DAL 2026-08-31, e i 22 px sono la seconda " +
+      "volta di seguito che il debito cala per una riga tolta: il titolo del sottoblocco PER " +
+      "ME non si disegna più («Nascondi #per-me-title», Pico) perché l'occhiello di sopra " +
+      "nominava già la stessa cosa. 1746 DAL 2026-08-31 (sera): l'occhiello è salito a " +
+      "intestare le due metà e con lui sono cadute due spaziature senza compito (vedi " +
+      "`giocatore-suggerito`), −13,5 px. Lo stato resta oltre il totale di 58 px con la " +
+      "tabella filtrata a UNA riga: il debito è più piccolo, e per la terza volta di seguito " +
+      "è più piccolo perché qualcosa è stato tolto o spostato, non perché sia stato traslocato.",
   },
   {
     state: "contesto-aperto-ricerca-vuota",
-    spanPx: 2566,
-    overBudgetPx: 878,
+    spanPx: 2530,
+    overBudgetPx: 842,
     why:
       "contesto aperto E listone di nuovo a pagina piena: 2669 px contro 1688, il 158% del " +
       "totale dichiarato (erano 2724 — il 161% — su ac8814c, 2901 il 2026-08-26 col riquadro " +
@@ -750,7 +833,11 @@ export const CALL_SCREEN_OVER_BUDGET_STATES: readonly CallScreenOverBudgetState[
       "due gesti, ed è la somma delle allocazioni del mastro a meno dell'arrotondamento al " +
       "pixel dell'altezza di riga del listone. La discesa a 2669 era il trasloco della barra " +
       "fissa, non un blocco che occupava meno; quella a 2566 (2026-08-30) sì: sono i due " +
-      "blocchi tolti alla colonna della chiamata.",
+      "blocchi tolti alla colonna della chiamata. E così quella a 2544 (2026-08-31): il " +
+      "titolo del sottoblocco PER ME, che ripeteva l'occhiello di sopra, non si disegna più. " +
+      "E quella a 2530, la sera dello stesso giorno: l'occhiello è salito a intestare le due " +
+      "metà e due spaziature senza più un compito sono cadute con lui (−13,5 px, vedi " +
+      "`giocatore-suggerito`).",
   },
 ];
 
@@ -773,6 +860,15 @@ export type CallScreenBudgetUnratifiedId =
   | "SCHEDA_ESPERTO_CON_DEPOSITO_NON_DICHIARATA"
   | "MISURE_LEGATE_AL_RENDERING_PINNATO"
   | "BARRA_FISSA_FUORI_DAL_TOTALE"
+  // `PER_ME_POPOLATO_FUORI_DALLA_MISURA` È USCITA DA QUI IL 2026-08-31 SERA, ed
+  // è la prima voce di questo elenco che si chiude invece di essere riscritta.
+  // Diceva che il mastro misura il sottoblocco PER ME MUTO mentre la scena
+  // piena resta fuori: valeva 924 px, poi 55,5 dopo «un giocatore soltanto».
+  // Tolte le due note, la scena piena costa 34,5 px contro i 78 della muta —
+  // il divario ha cambiato SEGNO, e una misura che contiene il caso peggiore
+  // non è più una lacuna da dichiarare. Il numero e la sua provenienza restano
+  // scritti nel `why` di `giocatore-suggerito` e pinnati da
+  // e2e/per-me-row.spec.ts: si chiude una voce, non si cancella una misura.
   | "PROVA_1_MARGINE_RIAPERTO_SENZA_RIPAGARE";
 
 export const CALL_SCREEN_BUDGET_UNRATIFIED: Readonly<
@@ -867,7 +963,9 @@ export interface CallScreenNameLengthPin {
  * comparso un solo blocco nuovo: 1470 px con i 13 caratteri della fixture di
  * oggi, 1650 con 18, 1670 con 22. Cioè: il margine su cui si è trattato per
  * tre merge è in buona parte un artefatto della lunghezza dei nomi finti, e
- * questo resta vero.
+ * questo resta vero. (Rimisurati il 2026-08-31 col titolo del sottoblocco PER
+ * ME non più disegnato: 1448, 1628 e 1648 — tutti e tre 22 px più bassi, la
+ * distanza fra loro identica.)
  *
  * QUELLO CHE NON È PIÙ VERO, ed è la ragione per cui questo commento è stato
  * riscritto il 2026-08-30: fino a ieri quei 200 px BASTAVANO a sfondare il
@@ -875,20 +973,29 @@ export interface CallScreenNameLengthPin {
  * perché la riga del listone sia dimagrita — è identica — ma perché la colonna
  * della chiamata ha perso due blocchi: il contatore delle interazioni (17 px)
  * e l'istruzione sempre a schermo su come si usa la ricerca. 103 px tolti a
- * monte, e i due pin scendono sotto il totale di 38 e 18 px.
+ * monte, e i due pin scendono sotto il totale di 38 e 18 px — 60 e 40 dal
+ * 2026-08-31 per la riga di titolo tolta a GIOCATORE SUGGERITO, 74 e 54 la
+ * sera dello stesso giorno per l'occhiello salito a intestare le due metà.
  *
- * IL MARGINE È SOTTILE E VA DETTO: 18 px su 1688 sono l'1%. Il fatto non è
- * «risolto», è «non più fuori»: due righe di testo in un blocco qualunque lo
- * rimandano fuori. Per questo i pin restano pinnati alla lettera — documentare
- * senza approvare — invece di essere cancellati come un problema passato.
+ * IL MARGINE È SOTTILE E VA DETTO: 54 px su 1688 sono il 3,2% — erano 18 px,
+ * l'1%, fino al 2026-08-31, quando il titolo del sottoblocco PER ME ha smesso
+ * di disegnarsi e i due span sono scesi di 22 px (1650 -> 1628, 1670 -> 1648),
+ * e altri 14 la sera dello stesso giorno, quando l'occhiello è salito a
+ * intestare le due metà e due spaziature senza più un compito sono cadute con
+ * lui (1628 -> 1614, 1648 -> 1634). La lunghezza dei nomi non c'entra con
+ * nessuno di quei px, e infatti la DISTANZA fra i due pin resta 20 px come
+ * sempre. Il fatto non è «risolto», è «non più fuori»: quattro righe di testo
+ * in un blocco qualunque lo rimandano fuori. Per questo i pin restano pinnati
+ * alla lettera — documentare senza approvare — invece di essere cancellati
+ * come un problema passato.
  *
  * Non si sceglie qui una lunghezza «giusta»: nessuno l'ha dichiarata. Il
  * giorno in cui Owner dichiara la lunghezza vera si cambia una costante e il
  * mastro dice da solo quanto manca.
  */
 export const CALL_SCREEN_NAME_LENGTH_PINS: readonly CallScreenNameLengthPin[] = [
-  { chars: 18, spanPx: 1650, deltaFromBudgetPx: -38 },
-  { chars: 22, spanPx: 1670, deltaFromBudgetPx: -18 },
+  { chars: 18, spanPx: 1614, deltaFromBudgetPx: -74 },
+  { chars: 22, spanPx: 1634, deltaFromBudgetPx: -54 },
 ];
 
 /* ────────────────────────────────────────────────────────────────────────────

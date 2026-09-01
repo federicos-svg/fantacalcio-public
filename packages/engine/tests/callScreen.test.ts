@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   ABSOLUTE_VALUE_UNRATIFIED_CHOICES,
+  CREDIT_VALUE_UNRATIFIED_CHOICES,
   RELATIVE_INDEX_UNRATIFIED_CHOICES,
   ALPHA_BY_PROFILE,
   COST_FLOOR,
@@ -424,8 +425,8 @@ describe("callScreen — scelte del motore non ratificate, dichiarate nel dato",
    * per uno invece di contarli.
    */
   const CARRIED_OUTSIDE_THE_ENGINE: readonly UnratifiedChoiceId[] = [
-    "PER_ME_ORDER_APPEAL_BREAKS_SURPLUS_TIES",
-    "PER_ME_REQUIRES_COMPLETE_ROLE_PLAN",
+    "PER_ME_DECLARED_PLAN_FITS_ON_EXPECTED_PRICE",
+    "PER_ME_REQUIRES_ANCHOR_SCALE",
   ];
 
   it("ogni scelta aperta ha un motivo scritto, non solo un identificatore", () => {
@@ -449,6 +450,18 @@ describe("callScreen — scelte del motore non ratificate, dichiarate nel dato",
       // contenuto è a sua volta pinnato in
       // packages/engine/tests/relativeIndex.test.ts.
       ...RELATIVE_INDEX_UNRATIFIED_CHOICES,
+      // LA QUARTA SUPERFICIE: il valore in crediti (../src/creditValue.ts).
+      // Entra per elenco dichiarato e per la stessa ragione delle due sopra —
+      // la lista che quella lettura porta è la stessa su ogni ramo, valore o
+      // assenza che sia — e il suo contenuto è pinnato in
+      // packages/engine/tests/creditValue.test.ts.
+      //
+      // DAL 2026-08-31 QUESTA LISTA È VUOTA, e lo spread resta apposta: le sue
+      // quattro letture sono state chiuse da `docs/DECISIONS.md` §«Cinque
+      // letture del motore dei pannelli di chiamata, chiuse in blocco», e i
+      // quattro id sono usciti anche dal vocabolario — se ne fosse rimasto uno,
+      // il confronto qui sotto lo dichiarerebbe orfano.
+      ...CREDIT_VALUE_UNRATIFIED_CHOICES,
     ];
     for (const id of used)
       expect(UNRATIFIED_CHOICES[id].length).toBeGreaterThan(0);

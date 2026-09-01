@@ -5,24 +5,47 @@
 // stringa nasce da una funzione pura ed è coperta da test, così anche la COPIA
 // è falsificabile e non solo i numeri.
 //
+// ─────────────────────────────────────────────────────────────────────────────
+// LA RIGA È UN CONSIGLIO, NON UNA LETTURA — Pico, 2026-08-31
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// «Quello che voglio nelle due feature è un giocatore soltanto con Nome, ruolo
+// e squadra. Non devo usarle per leggere ma come consiglio.» La riga porta
+// quindi TRE COSE E NIENT'ALTRO. Sono spariti da qui il conteggio degli
+// avversari esposti, le righe di evidenza dei precedenti, la proiezione «se
+// resta a te» e il marcatore di prima fascia.
+//
+// I FATTI NON SONO SPARITI DAL PRODOTTO, SONO SPARITI DA QUI. Il pannello
+// AVVERSARI: I PRECEDENTI continua a mostrare i gesti misurati con la loro
+// prova, e la schermata di chiamata — quella che si arma cliccando la riga —
+// continua a mostrare che cosa costa. Sono a un clic di distanza.
+//
+// IL MOTORE NON È STATO TOCCATO: src/baitCandidates.ts calcola la stessa
+// popolazione, gli stessi cancelli, lo stesso ordine e gli stessi sei motivi
+// di silenzio. Con UNA riga sola (`rowsMax` 1, ratificato da Pico il
+// 2026-08-31) quella scelta conta più di prima.
+//
 // IL TITOLO NOMINA CIÒ CHE IL BLOCCO CONTIENE, NON UN'INTENZIONE. È la regola
 // con cui src/ui/liveFacts.ts ha corretto «INTERESSE SUL GIOCATORE» in «I
-// PRECEDENTI»: il titolo visibile deve dire cosa c'è dentro — gesti passati
-// misurati, uno slot, dei crediti — e non affermare uno stato d'animo che
-// nessun calcolo dietro di lui produce. Per questo NON si chiama «CHI ABBOCCA»:
-// nessuno qui sa se qualcuno abboccherà, e dirlo sarebbe una previsione di
-// comportamento, cioè la cosa che l'intero pacchetto avversari vieta.
+// PRECEDENTI»: per questo NON si chiama «CHI ABBOCCA» — nessuno qui sa se
+// qualcuno abboccherà, e dirlo sarebbe una previsione di comportamento, cioè
+// la cosa che l'intero pacchetto avversari vieta.
 //
-// LA PROVA VIAGGIA COL FATTO, e non viene riscritta: `precedentMotive()` e
-// `precedentEvidence()` sono quelle di src/ui/liveFacts.ts, importate. Il
-// pannello AVVERSARI: I PRECEDENTI e questa riga non possono quindi dire due
-// cose diverse dello stesso fatto.
+// LA NOTA NON C'È PIÙ, DEL TUTTO — Pico, 2026-08-31. Messo davanti alla
+// misura della gemella `#per-me-note` — 92 px di annotazione per 34 px di
+// riga annotata, quasi il triplo del consiglio che annotava — Pico ha scelto
+// «via del tutto» per entrambi i pannelli. Qui la nota costava anche di più:
+// `#bait-block` popolato è passato da 178,7 a 91 px, cioè 87,7 px di sola
+// annotazione (misurato a 390×844). La targa della provenienza, i tre
+// parametri e il tetto delle righe non si stampano più da nessuna parte di
+// questo sottoblocco. Restano ISPEZIONABILI NEL DATO,
+// dove erano già: `BaitReading.parameters` li porta in ogni esito,
+// `BAIT_PARAMETERS` è esportato, e src/baitCandidates.test.ts li pinna lì.
+// Sparisce la vista, non il dato.
 //
-// IL COSTO DEL PIANO B È CONTENUTO OBBLIGATO, non un di più: se nessuno
-// rilancia, l'esca la paghi tu, quindi la seconda riga mostra sempre cosa
-// succede se resta a te — e la producono `projectAfterPurchase()` e
-// `projectionValueText`/`projectionAlarmText` di src/postPurchaseProjection.ts,
-// già scritti, già testati, già in uso altrove. Qui non se ne riscrive nessuno.
+// I MOTIVI DEL SILENZIO NON SONO LA NOTA E NON SE NE VANNO CON LEI. `#bait-empty`
+// coi suoi sei `data-reason` resta intero: un pannello senza consiglio deve
+// continuare a dire PERCHÉ, o «non lo so» diventa «non c'è nessuno».
 //
 // IL GESTO È QUELLO DEL LISTONE, E LO È DAVVERO. La riga chiama
 // `selectListonePlayer()` — l'UNICA via che arma la CTA «Avvia» — con la
@@ -37,16 +60,8 @@
 import type {
   BaitCandidate,
   BaitEmptyReason,
-  BaitExposure,
-  BaitParameters,
   BaitReading,
 } from "../baitCandidates.js";
-import {
-  projectionAlarmText,
-  projectionValueText,
-} from "../postPurchaseProjection.js";
-import type { PrecedentFact } from "../../packages/opponent-profiles/src/types.js";
-import { precedentEvidence, precedentMotive, seasonsSpan } from "./liveFacts.js";
 import type { ListonePlayer } from "./listone.js";
 import { renderSchedaCardTitle } from "./schedaCard.js";
 
@@ -80,15 +95,6 @@ export function baitTitleFor(reading: BaitReading): string {
   return reading.kind === "candidates" ? BAIT_TITLE : BAIT_TITLE_SHORT;
 }
 
-/**
- * Il marcatore della prima fascia. Il fatto SI ACCOSTA, NON PESA: il candidato
- * non viene rimosso (sarebbe il sistema a decidere al posto di Pico) e non
- * viene promosso (resta dove l'ordine lo mette). Compare accanto alla riga e
- * non la sposta di una posizione.
- */
-export const BAIT_TOP_TIER_MARKER =
-  "⚠ è anche fra i primi liberi del suo ruolo: se resta a te non è un ripiego";
-
 /** Il secondo canale della selezione, oltre al contorno: una parola. */
 export const BAIT_SELECTED_MARK = "✓ selezionato";
 
@@ -121,96 +127,9 @@ export function baitEmptyText(reason: BaitEmptyReason): string {
   }
 }
 
-/**
- * LA NOTA DEI PARAMETRI COMPARE SOLO DOVE UN PARAMETRO HA GOVERNATO QUALCOSA.
- *
- * La regola dichiarata è «la soglia in vigore ispezionabile ACCANTO AL NUMERO
- * CHE LASCIA PASSARE». Con `no-pool` e `no-history` non c'è nessun numero: la
- * popolazione non è mai esistita, nessun cancello ha girato, nessuna soglia ha
- * morso. Recitare lì «apertura a 1 cr · almeno 1 stagione misurata · al massimo
- * 3 righe» non è ispezionare una soglia accanto a un numero, è elencare
- * parametri che non hanno governato niente — e costava 64px su 844 in uno stato
- * in cui il blocco non ha nulla da dire (misurato a 390px).
- *
- * Negli altri quattro esiti la nota RESTA per intero, e sono esattamente quelli
- * in cui un parametro ha deciso il silenzio: `no-affordable-opening` è il prezzo
- * di apertura, `below-sample` è la soglia di stagioni, `no-open-role` e
- * `no-exposed` hanno avuto una popolazione vera su cui le soglie erano in
- * vigore.
- *
- * I PARAMETRI RESTANO ISPEZIONABILI NEL DATO in ogni caso: `BaitReading.
- * parameters` li porta anche negli esiti vuoti, e `BAIT_PARAMETERS` è
- * esportato. Qui cambia solo se la VISTA li stampa.
- */
-export function baitNoteApplies(reading: BaitReading): boolean {
-  return reading.kind === "candidates" || (reading.reason !== "no-pool" && reading.reason !== "no-history");
-}
-
 /** «Nome (A · Inter)» — chi è, in una riga. */
 export function baitHeadText(candidate: BaitCandidate): string {
   return `${candidate.player.name} (${candidate.role} · ${candidate.player.club})`;
-}
-
-/**
- * Il CENSIMENTO, non una misura: quanti avversari, e di che cosa ne è fatta
- * l'esposizione. La frase intera è sempre la stessa e dice le tre condizioni
- * insieme, perché una sola delle tre non è esposizione.
- */
-export function baitCountText(exposedCount: number): string {
-  const who = exposedCount === 1 ? "1 avversario" : `${exposedCount} avversari`;
-  return `${who} con un precedente, lo slot e i crediti`;
-}
-
-/**
- * «Se resta a te»: il costo del piano B, mostrato INSIEME alla mossa.
- * I numeri sono di `projectAfterPurchase()`; gli slot del reparto sono
- * l'unica sottrazione locale, ed è quella che DEFINISCE l'acquisto (uno slot
- * esce dagli slot), la stessa che `reduce()` esegue quando diventa evento.
- */
-export function baitProjectionText(candidate: BaitCandidate): string {
-  const head =
-    `se resta a te a ${candidate.openingPrice} cr: ` +
-    `slot ${candidate.role} ${candidate.roleSlotsBefore}→${candidate.roleSlotsBefore - 1}`;
-  const alarm = projectionAlarmText(candidate.projection);
-  const value = `${head} · ${projectionValueText(candidate.projection)}`;
-  return alarm === "" ? value : `${value} · ${alarm}`;
-}
-
-/** Una riga di prova per ogni fatto: chi, che gesto, con quali numeri. */
-export function baitEvidenceLines(
-  exposure: BaitExposure,
-  teamLabel: string,
-): readonly string[] {
-  return exposure.facts.map(
-    (fact: PrecedentFact) => `${teamLabel} ${precedentMotive(fact)} — ${precedentEvidence(fact)}`,
-  );
-}
-
-/**
- * La nota del blocco: la PROVENIENZA e i TRE PARAMETRI in vigore, accanto ai
- * numeri che governano — stesso modello di `PrecedentsReading.thresholds`. Il
- * parametro non confermato dichiara di esserlo.
- */
-export function baitNoteText(
-  parameters: BaitParameters,
-  seasons: readonly string[],
-  withoutAppealIndex: number,
-): string {
-  const parts = [
-    `provenienza: storico d'asta misurato, ${seasonsSpan(seasons)}`,
-    `apertura a ${parameters.openingPrice} cr`,
-    `almeno ${parameters.minSeasonsMeasured} ${
-      parameters.minSeasonsMeasured === 1 ? "stagione misurata" : "stagioni misurate"
-    } per fatto`,
-    `al massimo ${parameters.rowsMax} ${parameters.rowsMax === 1 ? "riga" : "righe"} (${parameters.rowsMaxStatus})`,
-  ];
-  if (withoutAppealIndex > 0) {
-    parts.push(
-      `${withoutAppealIndex} ${withoutAppealIndex === 1 ? "riga" : "righe"} senza indice di appetibilità: ` +
-        "a parità di avversari restano in fondo, senza numero fabbricato",
-    );
-  }
-  return parts.join(" · ");
 }
 
 /** Le righe davvero mostrate: l'ordine è già quello dichiarato, qui si tronca. */
@@ -222,34 +141,25 @@ export function baitShownCandidates(reading: BaitReading): readonly BaitCandidat
 
 /**
  * TUTTO il testo del sottoblocco, in una stringa. Esiste per essere passato
- * alla guardia di deriva: una regex su questa stringa copre titolo, motivi,
- * conteggi, proiezioni, prove, marcatori e nota insieme, invece di sette
- * asserzioni che si dimenticano l'ottava.
+ * alla guardia di deriva: una regex su questa stringa copre titolo, motivi e
+ * teste insieme, invece di tre asserzioni che si dimenticano la quarta.
+ * Riproduce SOLO ciò che il sottoblocco RENDE davvero — una guardia che
+ * leggesse testo non renderizzato sorveglierebbe un'altra pagina.
+ *
+ * È PIÙ CORTO DI IERI PERCHÉ LA PAGINA LO È, non perché la guardia guardi
+ * meno: la nota dei parametri non si stampa più (Pico, 2026-08-31), quindi non
+ * c'è più un quarto pezzo da sorvegliare. Le due parti che restano sono il
+ * NOME e, in alternativa, la RIGA o il MOTIVO DEL SILENZIO.
  */
-export function baitSectionText(
-  reading: BaitReading,
-  teamLabels: Readonly<Record<string, string>>,
-): string {
+export function baitSectionText(reading: BaitReading): string {
   const out: string[] = [baitTitleFor(reading)];
   if (reading.kind === "empty") {
     out.push(baitEmptyText(reading.reason));
-    // Solo ciò che la vista mostra DAVVERO: una guardia di deriva che leggesse
-    // testo non renderizzato sorveglierebbe un'altra pagina.
-    if (baitNoteApplies(reading)) {
-      out.push(baitNoteText(reading.parameters, reading.seasons, 0));
-    }
     return out.join("\n");
   }
   for (const candidate of baitShownCandidates(reading)) {
     out.push(baitHeadText(candidate));
-    out.push(baitCountText(candidate.exposedCount));
-    out.push(baitProjectionText(candidate));
-    if (candidate.alsoTopTier) out.push(BAIT_TOP_TIER_MARKER);
-    for (const exposure of candidate.exposed) {
-      out.push(...baitEvidenceLines(exposure, teamLabels[exposure.fantaTeamId] ?? exposure.fantaTeamId));
-    }
   }
-  out.push(baitNoteText(reading.parameters, reading.seasons, reading.withoutAppealIndex));
   return out.join("\n");
 }
 
@@ -257,8 +167,6 @@ export function baitSectionText(
 
 export interface BaitSectionProps {
   readonly reading: BaitReading;
-  /** posto → nome mostrato. La riga scrive il POSTO, mai la persona. */
-  readonly teamLabels: Readonly<Record<string, string>>;
   /** `listonePlayerKey` del giocatore attualmente selezionato, o `null`. */
   readonly selectedKey: string | null;
 }
@@ -285,7 +193,7 @@ export function renderBaitSection(
   props: BaitSectionProps,
   onSelect: (player: ListonePlayer) => void,
 ): HTMLElement {
-  const { reading, teamLabels, selectedKey } = props;
+  const { reading, selectedKey } = props;
   const section = document.createElement("section");
   section.id = "bait-block";
   section.className = "bait";
@@ -293,7 +201,22 @@ export function renderBaitSection(
 
   // Il titolo è quello CONDIVISO (src/ui/schedaCard.ts) — vedi la nota gemella
   // in renderPerMeSection.
-  section.appendChild(renderSchedaCardTitle(baitTitleFor(reading), { id: "bait-title" }));
+  //
+  // SI VEDE, E IN SECONDO RANGO — Pico, 2026-08-31. Dal 2026-08-31 l'occhiello
+  // «GIOCATORE SUGGERITO — CHI CHIAMARE ORA» intesta DAVVERO le due metà, e
+  // questo titolo nomina la seconda. Non segue il gemello `#per-me-title`
+  // fuori dalla vista, e la differenza non è di simmetria ma di contenuto: là
+  // l'occhiello ripeteva la stessa domanda, qui c'è la SECONDA domanda — «per
+  // far spendere gli altri» — che nessun altro elemento della pagina porta.
+  // Nasconderla lascerebbe due nomi di giocatore impilati senza modo di sapere
+  // quale risponde a quale domanda: una perdita di senso, non una pulizia.
+  //
+  // Quello che cambia è il RANGO: `subtitle: true` gli dà la forma subordinata
+  // all'occhiello (`SCHEDA_CARD_SUBTITLE_CLASS`), così i due si leggono come
+  // capo e metà invece che come due titoli pari.
+  section.appendChild(
+    renderSchedaCardTitle(baitTitleFor(reading), { id: "bait-title", subtitle: true }),
+  );
 
   if (reading.kind === "empty") {
     const empty = document.createElement("p");
@@ -315,22 +238,12 @@ export function renderBaitSection(
       row.setAttribute("aria-pressed", selected ? "true" : "false");
       row.title = "Clic per selezionare questo giocatore nella ricerca";
 
+      // LA RIGA È TRE COSE: nome, ruolo, squadra. Il resto è a un clic —
+      // «Non devo usarle per leggere ma come consiglio» (Pico, 2026-08-31).
       const head = document.createElement("span");
       head.className = "bait-row__head";
       head.appendChild(line("bait-row__name", baitHeadText(candidate)));
-      head.appendChild(line("bait-row__count", baitCountText(candidate.exposedCount)));
       row.appendChild(head);
-
-      row.appendChild(line("bait-row__projection", baitProjectionText(candidate)));
-      if (candidate.alsoTopTier) {
-        row.appendChild(line("bait-row__mark", BAIT_TOP_TIER_MARKER));
-      }
-      for (const exposure of candidate.exposed) {
-        const label = teamLabels[exposure.fantaTeamId] ?? exposure.fantaTeamId;
-        for (const text of baitEvidenceLines(exposure, label)) {
-          row.appendChild(line("bait-row__evidence", text));
-        }
-      }
       if (selected) row.appendChild(line("bait-row__selected", BAIT_SELECTED_MARK));
 
       row.addEventListener("click", () => onSelect(candidate.player));
@@ -339,17 +252,9 @@ export function renderBaitSection(
     section.appendChild(rows);
   }
 
-  if (baitNoteApplies(reading)) {
-    const note = document.createElement("p");
-    note.id = "bait-note";
-    note.className = "bait__note";
-    note.textContent = baitNoteText(
-      reading.parameters,
-      reading.seasons,
-      reading.kind === "candidates" ? reading.withoutAppealIndex : 0,
-    );
-    section.appendChild(note);
-  }
+  // NESSUNA NOTA. `#bait-note` non esiste più in nessuno dei due esiti — «via
+  // del tutto» (Pico, 2026-08-31). `#bait-empty` qui sopra, invece, resta: è il
+  // MOTIVO DEL SILENZIO, un altro elemento con un altro compito.
 
   return section;
 }

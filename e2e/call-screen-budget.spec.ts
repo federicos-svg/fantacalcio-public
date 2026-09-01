@@ -289,7 +289,7 @@ test("il contesto della chiamata aperto sfonda il totale dichiarato, e nessuna g
    3. IL FATTO CHE RIMETTE IN DISCUSSIONE TUTTI I NUMERI: LA LUNGHEZZA DEI NOMI
    ──────────────────────────────────────────────────────────────────────────── */
 
-test("i nomi lunghi muovono lo span di 200px da soli, e per 18px non lo sfondano più", async ({
+test("i nomi lunghi muovono lo span di 200px da soli, e per 40px non lo sfondano più", async ({
   page,
   context,
 }) => {
@@ -312,9 +312,13 @@ test("i nomi lunghi muovono lo span di 200px da soli, e per 18px non lo sfondano
   // veri — lo span si muove di 200 px. Fino al 2026-08-29 quei 200 px BASTAVANO
   // a portarlo fuori dal totale; dal 2026-08-30 non bastano più, perché la
   // colonna della chiamata ha perso 103 px (il contatore delle interazioni e
-  // l'istruzione sempre a schermo sulla ricerca). Il pin resta ALLA LETTERA in
-  // entrambi i sensi: documentare senza approvare vale anche quando la misura
-  // rientra, perché 18 px su 1688 sono l'1% e due righe di testo li rimangiano.
+  // l'istruzione sempre a schermo sulla ricerca), altri 22 il 2026-08-31 (il
+  // titolo del sottoblocco PER ME, che ripeteva l'occhiello di sopra) e altri
+  // 14 la sera dello stesso giorno (l'occhiello salito a intestare le due
+  // metà, e con lui due spaziature senza più un compito). Il pin resta ALLA
+  // LETTERA in entrambi i sensi: documentare senza approvare vale anche quando
+  // la misura rientra, perché 54 px su 1688 sono il 3,2% e quattro righe di
+  // testo li rimangiano.
   for (const pin of CALL_SCREEN_NAME_LENGTH_PINS) {
     const externalRequests: string[] = [];
     await installSyntheticNetworkGuard(context, syntheticPool(POOL_ROWS, pin.chars), externalRequests);
@@ -328,15 +332,28 @@ test("i nomi lunghi muovono lo span di 200px da soli, e per 18px non lo sfondano
       Math.round(sweep.spanPx) - CALL_SCREEN_VERTICAL_BUDGET_PX,
       `nomi da ${pin.chars} caratteri: scarto dal totale`,
     ).toBe(pin.deltaFromBudgetPx);
-    // IL MARGINE È SOTTILE E VA DETTO COSÌ COM'È: dentro, ma per pochissimo.
+    // IL MARGINE È SOTTILE E VA DETTO COSÌ COM'È: dentro, ma per poco. 74 px
+    // col pin da 18 caratteri e 54 con quello da 22 — il 4,4% e il 3,2% del
+    // totale. Erano 38 e 18 (l'1%) fino al 2026-08-31, poi 60 e 40 col titolo
+    // del sottoblocco PER ME che ha smesso di disegnarsi, e questi da quando
+    // l'occhiello è salito a intestare le due metà: −14 px ciascuno.
+    //
+    // LA SOGLIA È PASSATA DAL 4% AL 5%, ED È UNA RIMISURA, NON UN
+    // ALLENTAMENTO: il margine del pin largo ha superato il 4% (4,4%) perché
+    // la schermata si è ACCORCIATA, cioè per la ragione opposta a quella per
+    // cui una soglia si allenta. Il numero esatto non è affidato a questa
+    // percentuale — lo pinna `deltaFromBudgetPx` due asserzioni più su, alla
+    // lettera — e questa riga dice soltanto che il margine resta un margine
+    // sottile: quattro righe di testo in un blocco qualunque rimandano fuori
+    // il pin stretto.
     expect(
       Math.round(sweep.spanPx),
       `nomi da ${pin.chars} caratteri: lo span sta dentro il totale, e di quanto`,
     ).toBeLessThan(CALL_SCREEN_VERTICAL_BUDGET_PX);
     expect(
       CALL_SCREEN_VERTICAL_BUDGET_PX - Math.round(sweep.spanPx),
-      `nomi da ${pin.chars} caratteri: il margine che resta è meno del 3% del totale`,
-    ).toBeLessThan(CALL_SCREEN_VERTICAL_BUDGET_PX * 0.03);
+      `nomi da ${pin.chars} caratteri: il margine che resta è meno del 5% del totale`,
+    ).toBeLessThan(CALL_SCREEN_VERTICAL_BUDGET_PX * 0.05);
 
     // E il mastro NOMINA IL LISTONE, non l'ultimo blocco arrivato: la riga si
     // è alzata, quindi l'uguaglianza derivata dalla sua forma non torna più.
@@ -369,9 +386,9 @@ test("PROVA 1 — una riga di testo in più a un blocco esistente: rosso il mast
   await boot(page);
 
   // QUANTO ALTA DEV'ESSERE L'AGGIUNTA, E PERCHÉ È SCRITTA COSÌ. Allo stato
-  // `ricerca` lo span misura 1470 px su 1688 dichiarati: il margine residuo
-  // sul TOTALE è 218 px. L'aggiunta di questa prova è alta 20 px: sfonda
-  // l'allocazione del blocco (281 px) e resta dentro il totale, che è
+  // `ricerca` lo span misura 1448 px su 1688 dichiarati: il margine residuo
+  // sul TOTALE è 240 px. L'aggiunta di questa prova è alta 20 px: sfonda
+  // l'allocazione del blocco (259 px) e resta dentro il totale, che è
   // esattamente la scena da dimostrare.
   //
   // ── LA PROVA È STATA ROVESCIATA IL 2026-08-29 (sera), E NON PERCHÉ IL
@@ -397,12 +414,21 @@ test("PROVA 1 — una riga di testo in più a un blocco esistente: rosso il mast
   // src/ui/callScreenBudget.ts.
   const EXTRA_PX = 20;
 
-  // IL GAP DELLA GRIGLIA, NOMINATO E NON ASSORBITO. `#suggested-player` è una
-  // griglia dal 2026-08-29 («Metti #suggested-player-mine e #bait-block uno
-  // affianco all'altro», Pico) e a 390px sta su UNA colonna: le due metà si
-  // impilano e fra loro c'è un `gap` di 14 px. Un `div` in più dentro il blocco
-  // è quindi una terza riga della griglia, e costa la propria altezza PIÙ il
-  // gap — misurato: aggiunta da 1 px -> +15, da 20 -> +34, da 100 -> +114.
+  // IL GAP DELLA GRIGLIA, NOMINATO E NON ASSORBITO. Le due metà del blocco
+  // suggerito stanno in una griglia dal 2026-08-29 («Metti
+  // #suggested-player-mine e #bait-block uno affianco all'altro», Pico) e a
+  // 390px la griglia sta su UNA colonna: le due metà si impilano e fra loro
+  // c'è un `gap` di 14 px. Un `div` in più DENTRO quella griglia è quindi una
+  // terza riga, e costa la propria altezza PIÙ il gap — misurato: aggiunta da
+  // 1 px -> +15, da 20 -> +34, da 100 -> +114.
+  //
+  // DOVE SI INIETTA È CAMBIATO IL 2026-08-31, E LA SCENA NO. La griglia è
+  // scesa da `#suggested-player` a `#suggested-player-halves` quando
+  // l'occhiello è salito a intestare le due metà (Pico): iniettare nel blocco
+  // costerebbe adesso i soli 20 px dell'aggiunta, e questa prova smetterebbe
+  // di dimostrare che un'aggiunta in una griglia si paga due volte. Il
+  // bersaglio segue la griglia, così la lezione resta la stessa e il numero
+  // atteso non si muove.
   //
   // Il numero sta scritto qui e non ingoiato dentro l'atteso perché uno
   // sforamento di «+34 px» per un'aggiunta da 20 non si sa più leggere: o si
@@ -412,18 +438,25 @@ test("PROVA 1 — una riga di testo in più a un blocco esistente: rosso il mast
 
   // IL CUSCINO CHE SI È APERTO IL 2026-08-30, e va nominato o questa prova
   // diventa illeggibile. L'allocazione di un blocco è il massimo che RAGGIUNGE
-  // su tutti gli stati, e per `giocatore-suggerito` quel massimo è 281 px —
-  // misurato con una riga selezionata. Allo stato `ricerca`, dove questa prova
-  // gira, il blocco ne consuma 267: il sottoblocco PER ME mostra la sua frase
-  // di silenzio, che è più corta di quando c'è una riga scelta.
+  // su tutti gli stati, e per `giocatore-suggerito` quel massimo è 258,5 px —
+  // misurato con una riga selezionata, e allocato a 259 perché il mastro
+  // alloca pixel interi. Allo stato `ricerca`, dove questa prova gira, il
+  // blocco ne consuma 244,5: il sottoblocco PER ME mostra la sua frase di
+  // silenzio, che è più corta di quando c'è una riga scelta.
   //
-  // Fino a ieri i due numeri coincidevano (300,5 contro 301) e lo sforamento
-  // era esattamente l'aggiunta più il gap. Adesso i 14 px di differenza vanno
-  // sottratti, e sono la stessa quantità del gap solo per coincidenza.
+  // Fino al 2026-08-29 i due numeri coincidevano (300,5 contro 301) e lo
+  // sforamento era esattamente l'aggiunta più il gap. Adesso la differenza va
+  // sottratta: erano 14 tondi finché l'allocazione era 281, poi 14,5 col
+  // titolo di PER ME che ha smesso di disegnarsi (281 -> 258,5 misurati, 259
+  // allocati) il 2026-08-31, e sono tornati 14 tondi la sera dello stesso
+  // giorno, quando l'occhiello è salito a intestare le due metà: il consumo
+  // massimo è sceso a 245 px esatti, senza frazione da arrotondare, e
+  // l'allocazione è 245.
   const PER_ME_SILENT_CUSHION_PX = 14;
   await page.evaluate((extraPx) => {
-    const host = document.getElementById("suggested-player");
-    if (host === null) throw new Error("prova 1: #suggested-player non è a schermo");
+    const host = document.getElementById("suggested-player-halves");
+    if (host === null)
+      throw new Error("prova 1: #suggested-player-halves non è a schermo");
     const extra = document.createElement("div");
     extra.style.cssText = `font-size:13px;line-height:1.5;height:${extraPx}px;overflow:hidden;`;
     extra.textContent = "una riga di testo in più che nessuno ha dichiarato";
@@ -439,7 +472,7 @@ test("PROVA 1 — una riga di testo in più a un blocco esistente: rosso il mast
   expect(findings[0]).toMatchObject({
     kind: "oltre-allocazione",
     id: "giocatore-suggerito",
-    overflowPx: EXTRA_PX + SUGGESTED_GRID_GAP_PX - PER_ME_SILENT_CUSHION_PX,
+    overflowPx: Math.round(EXTRA_PX + SUGGESTED_GRID_GAP_PX - PER_ME_SILENT_CUSHION_PX),
   });
   expect(describeCallScreenBudgetFinding(findings[0]!)).toContain("giocatore-suggerito");
 
@@ -455,8 +488,9 @@ test("PROVA 1 — una riga di testo in più a un blocco esistente: rosso il mast
   // …e di quanto è ancora verde: il margine residuo, misurato, è ciò che
   // resta prima che una scena come questa smetta di esistere.
   //
-  // ERA 14 PX, POI UNO, POI 81, E ADESSO 184. La riga che lo porta esiste
-  // apposta perché quel numero arrivi a qualcuno invece di scivolare via.
+  // ERA 14 PX, POI UNO, POI 81, POI 184, POI 206, E ADESSO 220. La riga che lo
+  // porta esiste apposta perché quel numero arrivi a qualcuno invece di
+  // scivolare via.
   //
   // I DUE SALTI NON HANNO LO STESSO VALORE, e vanno letti separati. Il primo
   // (1 -> 81) fu un PRESTITO: 152 px di riga di ricerca usciti dal flusso e
@@ -465,14 +499,19 @@ test("PROVA 1 — una riga di testo in più a un blocco esistente: rosso il mast
   // invece SPAZIO RESTITUITO: il contatore delle interazioni di chiamata e
   // l'istruzione sempre a schermo sulla ricerca hanno smesso di esistere il
   // 2026-08-30, e il sottoblocco PER ME si è accorciato. Nessuno di quei px è
-  // parcheggiato altrove.
+  // parcheggiato altrove. Come il terzo (184 -> 206): il titolo del
+  // sottoblocco PER ME, che ripeteva l'occhiello di sopra, ha smesso di
+  // disegnarsi il 2026-08-31 e i suoi 22,5 px sono usciti dal totale. E come
+  // il quarto (206 -> 220), la sera dello stesso giorno: l'occhiello è salito
+  // a intestare le due metà e due spaziature che non avevano più un compito
+  // sono cadute con lui — 13,5 px, anche questi usciti e non traslocati.
   //
-  // 218 di margine a boot, meno i 34 (20 + il gap della griglia) che questa
+  // 254 di margine a boot, meno i 34 (20 + il gap della griglia) che questa
   // prova ci mette dentro.
   expect(
     CALL_SCREEN_VERTICAL_BUDGET_PX - Math.round(sweep.spanPx),
     "margine residuo sul totale, con l'aggiunta già dentro",
-  ).toBe(184);
+  ).toBe(220);
 
   expect(externalRequests).toEqual([]);
 });

@@ -70,8 +70,8 @@ export type UnratifiedChoiceId =
   | "COPPE_BASELINE_IS_ABSENCE" // «non gioca in Europa» = 0, non −1
   | "PAGELLA_POSITION_IS_TOTAL_OVER_MAX" // rapporto sul fondo scala, non scarto dal punto medio
   // ── Le due letture del sottoblocco «PER ME» (src/perMeCandidates.ts) ──────
-  | "PER_ME_ORDER_APPEAL_BREAKS_SURPLUS_TIES" // chi decide a parità di surplus, e senza surplus
-  | "PER_ME_REQUIRES_COMPLETE_ROLE_PLAN" // senza piano completo il sottoblocco tace
+  | "PER_ME_DECLARED_PLAN_FITS_ON_EXPECTED_PRICE" // in override, `fitsPlan` contro quale prezzo
+  | "PER_ME_REQUIRES_ANCHOR_SCALE" // senza la scala delle Qt.A il sottoblocco tace
   // ── Le otto letture dell'indice relativo (relativeIndex.ts). Pico ha deciso
   //    la FORMA il 2026-08-24 («un punteggio da 0 a 100»); qui restano aperte le
   //    letture che quella decisione NON nomina. `RELATIVE_NUMBER_IS_A_POSITION`
@@ -84,6 +84,30 @@ export type UnratifiedChoiceId =
   | "RELATIVE_TAKEN_INCLUDES_CONFIRMED" // riconfermato = non prendibile, come per l'occupazione delle fasce
   | "RELATIVE_ORDER_INCLUDES_FONDO" // anche chi è oltre l'ultima fascia entra nel conto
   | "RELATIVE_OWNERSHIP_BESIDE_THE_NUMBER"; // «quanti ne ho presi io» resta accanto, non dentro
+
+// ─── Le quattro letture del valore in crediti, CHIUSE ────────────────────────
+//
+// `CREDIT_VALUE_REMAINDER_TIES_BY_VORP`, `CREDIT_VALUE_BAND_CAP_IS_FLOORED_P90`,
+// `CREDIT_VALUE_CAP_DOES_NOT_REDISTRIBUTE` e `CREDIT_VALUE_DECLARED_NOT_ROUNDED`
+// SONO USCITE DA QUESTO VOCABOLARIO IL 2026-08-31, e non perché il codice sia
+// cambiato: perché un documento canonico le ha firmate. `docs/DECISIONS.md`
+// §«Cinque letture del motore dei pannelli di chiamata, chiuse in blocco»
+// (vice di Pico, su delega esplicita) le decide una per una — i pareggi sui
+// resti per `VORP_γ` decrescente poi chiave di listone; il tetto `floor(P90)`
+// mai sotto il pavimento; il tetto che NON ridistribuisce; il valore dichiarato
+// che non si arrotonda — e dichiara fra i propri atti «la chiusura delle
+// quattro letture aperte dichiarate nel motore, con questo record come
+// copertura».
+//
+// PERCHÉ ESCONO INVECE DI RESTARE CON UN'ANNOTAZIONE. Questo vocabolario è
+// MACCHINA-LEGGIBILE e ha un guardiano che non ammette orfani
+// (packages/engine/tests/callScreen.test.ts §«ogni scelta aperta ha un motivo
+// scritto»): un id che nessuna superficie porta più è morto, e un id che una
+// superficie porta è per definizione APERTO. Tenerle qui con la nota «però
+// sono chiuse» sarebbe la contraddizione che il record chiede di rimuovere,
+// scritta in prosa sopra un dato che dice il contrario. Il ricordo di che cosa
+// furono non si perde: sta nel record, che è la casa canonica, e in
+// ./creditValue.ts accanto alle righe che le implementano.
 
 /** Perché ciascuna scelta è aperta. Testo macchina-leggibile, non prosa libera. */
 export const UNRATIFIED_CHOICES: Readonly<Record<UnratifiedChoiceId, string>> =
@@ -112,10 +136,10 @@ export const UNRATIFIED_CHOICES: Readonly<Record<UnratifiedChoiceId, string>> =
       "«non gioca in Europa» è trattato come linea di base (0) e non come l'opposto di «ci gioca»: è una lettura, non il dato",
     PAGELLA_POSITION_IS_TOTAL_OVER_MAX:
       "il totale entra come rapporto sul fondo scala della fonte: uno scarto dal punto medio sarebbe altrettanto scrivibile e nessuno ha scelto",
-    PER_ME_ORDER_APPEAL_BREAKS_SURPLUS_TIES:
-      "l'ordine «piano prima, surplus poi» viene dalla decisione di Pico del 2026-08-25 (in sessione: il piano filtra, il surplus ordina); che a parità di surplus — e per le righe senza valore dichiarato, dove un surplus non esiste — decida la posizione nell'ordine di appetibilità del ruolo è invece una lettura del motore, e nessun documento assegna quel posto a quel criterio",
-    PER_ME_REQUIRES_COMPLETE_ROLE_PLAN:
-      "«dentro il mio piano» è il primo criterio dell'ordine: qui senza piano completo il sottoblocco tace invece di ordinare con un criterio in meno, e nessun documento sceglie fra le due",
+    PER_ME_DECLARED_PLAN_FITS_ON_EXPECTED_PRICE:
+      "il DTI §A.4 dice che con un piano DICHIARATO `withinPlan` torna a essere `fitsPlan` sul piano vivo, ma non dice contro QUALE prezzo si provi la capienza: qui si prova `P̂`, cioè lo stesso prezzo su cui poggiano la popolazione e l'ordine del sottoblocco, mentre la lettura di ieri provava l'ancora corrente. Le due divergono su ogni riga in cui `P̂` e l'ancora non coincidono, e nessun documento sceglie fra loro",
+    PER_ME_REQUIRES_ANCHOR_SCALE:
+      "senza la scala delle Qt.A il sottoblocco tace del tutto, anche dove `V` e `P̂` sarebbero formabili: da quella scala vengono l'inflazione misurata che entra in `P̂`, le alternative a scendere del criterio 3 e la scomposizione dell'inflazione che la riga mostra. Il DTI §B.1 chiude il vocabolario del silenzio su cinque motivi e questo non è fra loro: è la lettura fail-closed di questa superficie, e nessun documento la firma",
     RELATIVE_SCORE_IS_SHARE_OF_FREE_RANKED:
       "Pico ha deciso la scala (0-100) e non la curva: qui il riscalamento è scritto come QUOTA degli altri liberi ordinati che il chiamato precede, cioè l'unica forma senza parametri liberi (riscalare linearmente un rango coincide con il percent rank inclusivo). La dimostrazione è nell'intestazione del modulo, ma la lettura resta nostra",
     RELATIVE_DENOMINATOR_IS_FREE_RANKED:
@@ -135,17 +159,46 @@ export const UNRATIFIED_CHOICES: Readonly<Record<UnratifiedChoiceId, string>> =
   };
 
 /**
- * Lo stato di ratifica che accompagna un giudizio costruito su almeno una
- * scelta aperta. `ratified` è il **letterale** `false`, non `boolean`: finché
- * la lista non è vuota nessun consumatore può ricevere un `true`, e il giorno
- * in cui Owner ratifica il cambio di tipo è un atto deliberato che passa da una
- * review — non un flag che qualcuno gira.
+ * Lo stato di ratifica che accompagna un giudizio del motore.
+ *
+ * ERA UN'INTERFACCIA CON `ratified: false` LETTERALE, e la ragione scritta era
+ * «finché la lista non è vuota nessun consumatore può ricevere un `true`, e il
+ * giorno in cui Owner ratifica il cambio di tipo è un atto deliberato che passa
+ * da una review — non un flag che qualcuno gira». QUEL GIORNO È ARRIVATO, per
+ * una sola superficie: `docs/DECISIONS.md` §«Cinque letture del motore dei
+ * pannelli di chiamata, chiuse in blocco» (vice di Pico, 2026-08-31, su delega
+ * esplicita) chiede fra i propri atti «la chiusura delle quattro letture aperte
+ * dichiarate nel motore, con questo record come copertura», e quelle quattro
+ * sono tutte e sole quelle di ./creditValue.ts.
+ *
+ * IL TIPO NUOVO NON ALLENTA LA GARANZIA, LA STRINGE. Un `boolean` nudo avrebbe
+ * permesso a chiunque di scrivere `ratified: true` continuando a elencare
+ * scelte aperte, che è esattamente la bugia che il letterale `false` esisteva
+ * per impedire. Qui l'unione LEGA le due cose: `true` si può scrivere SOLO
+ * insieme a una lista vuota, e una lista non vuota obbliga a `false`. Quello
+ * che prima era un divieto («nessuno può dire true») adesso è un'implicazione
+ * verificata dal compilatore su ogni chiamante: se dici `true`, non ti resta
+ * niente di aperto da elencare. Il verso opposto NON è chiuso dal tipo — una
+ * lista vuota con `false` è scrivibile — e non deve esserlo: «non ho scelte
+ * aperte» e «qualcuno ha firmato» restano due affermazioni diverse, e la
+ * seconda la fa un documento, non un `length === 0`.
+ *
+ * TUTTE LE ALTRE SUPERFICI NON SI MUOVONO. absoluteValue, relativeIndex,
+ * callScreen, opportunities e src/perMeCandidates.ts continuano a scrivere
+ * `ratified: false` con le proprie liste: il record chiude quattro letture, non
+ * il vocabolario, e nessuna delle loro è toccata.
  */
-export interface RatificationStatus {
-  readonly ratified: false;
-  /** Le scelte aperte su cui poggia QUESTO giudizio, in ordine dichiarato. */
-  readonly unratifiedChoices: readonly UnratifiedChoiceId[];
-}
+export type RatificationStatus =
+  | {
+      readonly ratified: false;
+      /** Le scelte aperte su cui poggia QUESTO giudizio, in ordine dichiarato. */
+      readonly unratifiedChoices: readonly UnratifiedChoiceId[];
+    }
+  | {
+      readonly ratified: true;
+      /** Vuota per costruzione: non c'è nessuna scelta aperta da dichiarare. */
+      readonly unratifiedChoices: readonly never[];
+    };
 
 /**
  * Il valore che Owner dichiara per un giocatore, in crediti.

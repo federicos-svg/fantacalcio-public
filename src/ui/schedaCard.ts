@@ -35,6 +35,24 @@ import { escHtml } from "./theme.js";
 /** Il titolo in maiuscoletto piccolo. La parola la porta chi lo usa. */
 export const SCHEDA_CARD_TITLE_CLASS = "scheda-card__title";
 
+/**
+ * IL SECONDO RANGO, e non un secondo titolo: il modificatore che si applica
+ * ACCANTO a `SCHEDA_CARD_TITLE_CLASS` quando il testo non intesta il blocco ma
+ * una delle sue metà, sotto un occhiello che le intesta entrambe.
+ *
+ * PERCHÉ ESISTE (Pico, 2026-08-31). «GIOCATORE SUGGERITO — CHI CHIAMARE ORA»
+ * intesta adesso DAVVERO le due metà del blocco suggerito, e «PER ME» e «PER
+ * FAR SPENDERE GLI ALTRI» sono i nomi delle due metà. Tre titoli con la stessa
+ * identità visiva impilati uno sotto l'altro non dicono chi intesta chi: il
+ * rango lo deve portare la FORMA, o l'occhiello resta un titolo fra tre.
+ *
+ * PERCHÉ QUI E NON IN perMe.css/bait.css. Le due metà lo usano ENTRAMBE. Scritto
+ * nei due file sarebbero due copie della stessa forma — esattamente il difetto
+ * che questo modulo è nato per chiudere, e che qui era già costato una
+ * divergenza (0.06em contro 0.04em).
+ */
+export const SCHEDA_CARD_SUBTITLE_CLASS = "scheda-card__title--sub";
+
 /** Il riquadro: contorno e respiro attorno a titolo + corpo. */
 export const SCHEDA_CARD_CLASS = "scheda-card";
 
@@ -43,18 +61,31 @@ export const SCHEDA_CARDS_CLASS = "scheda-cards";
 
 /**
  * Il titolo come elemento del DOM. `tag` è un parametro perché i tre adottanti
- * della schermata di chiamata non sono d'accordo, e hanno ragione entrambi:
+ * della schermata di chiamata non sono d'accordo, e hanno ragione tutti:
  * PER ME e PER FAR SPENDERE GLI ALTRI intitolano una `<section>` con
- * `aria-labelledby` e sono `<h3>`, l'occhiello del blocco suggerito etichetta
- * un contenitore che ha già il proprio nome ed è un `<div>`. Forzarli allo
- * stesso tag cambierebbe la struttura del documento per un motivo di stile.
+ * `aria-labelledby` e sono `<h3>`, l'occhiello del blocco suggerito intitola
+ * `<section id="suggested-player">`, che CONTIENE quelle due, ed è quindi un
+ * `<h2>` — un livello sopra, non lo stesso. Forzarli allo stesso tag
+ * appiattirebbe una gerarchia vera in un dettaglio di stile, e chi naviga per
+ * intestazioni si troverebbe tre titoli pari dove ce n'è uno che ne intesta due.
+ *
+ * `subtitle` è il RANGO VISIVO, e viaggia insieme al tag per un motivo: i due
+ * `<h3>` delle metà devono LEGGERSI come subordinati all'occhiello, non solo
+ * esserlo nell'albero del documento. Vedi `SCHEDA_CARD_SUBTITLE_CLASS`.
  */
 export function renderSchedaCardTitle(
   text: string,
-  options: { readonly id?: string; readonly tag?: "h3" | "div" } = {},
+  options: {
+    readonly id?: string;
+    readonly tag?: "h2" | "h3" | "div";
+    readonly subtitle?: boolean;
+  } = {},
 ): HTMLElement {
   const el = document.createElement(options.tag ?? "h3");
-  el.className = SCHEDA_CARD_TITLE_CLASS;
+  el.className =
+    options.subtitle === true
+      ? `${SCHEDA_CARD_TITLE_CLASS} ${SCHEDA_CARD_SUBTITLE_CLASS}`
+      : SCHEDA_CARD_TITLE_CLASS;
   if (options.id !== undefined) el.id = options.id;
   el.textContent = text;
   return el;

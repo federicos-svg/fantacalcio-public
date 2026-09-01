@@ -4,22 +4,27 @@
 // derivano da `reduce()` su acquisti passati da `recordPurchase`, quindi ogni
 // numero atteso qui sotto è lo stesso numero che l'app vede a schermo.
 //
-// L'ORDINE PROVATO QUI È QUELLO DECISO DA PICO IL 2026-08-25 (in sessione):
-// «deve essere un mix tra le due cose. Il numero uno è il filtro a monte ma il
-// due è quello successivo» — il piano FILTRA, il surplus ORDINA. §"il surplus
-// ordina, non esclude" copre i primi due criteri e i tre casi che li rendono
-// falsificabili: il surplus ≤ 0 che RESTA a schermo, il valore dichiarato che
-// manca e NON diventa zero, la parità che scende sull'appetibilità.
+// FIXTURE SINTETICHE, TUTTE: giocatori «Attaccante NN», club «Alfa/Beta»,
+// previsioni e prezzi storici inventati. Nessuna riga del listone vero, nessuna
+// quotazione copiata da una fonte, nessun prezzo d'asta reale.
 //
-// LA PROVA CHE QUESTO FILE ESISTE PER TENERE IN PIEDI è §"selezione avversa".
-// Il minuendo del surplus è il valore DICHIARATO da Pico e nessun altro:
-// sostituirgli il valore ASSOLUTO renderebbe `valore − ancora` monotona
-// decrescente nel prezzo — la base assoluta è piatta per ruolo — e il riquadro
-// finirebbe per ordinare dal più economico, cioè dal peggiore. Qui c'è uno
-// stato costruito apposta perché quella sostituzione, se qualcuno la facesse,
-// metterebbe in cima il giocatore peggiore e più economico del ruolo; il test
-// pinna che questo box lo mette IN FONDO.
-import { readFileSync } from "node:fs";
+// ─────────────────────────────────────────────────────────────────────────────
+// PERCHÉ LA SCENA È GRANDE, e non è pigrizia
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// `V` esiste solo dove il ruolo ARRIVA al proprio rango di rimpiazzo — `r*` è
+// 57 per gli attaccanti (7 slot × 8 squadre + 1, packages/engine/src/
+// creditValue.ts) — e `P̂` esiste solo dove la fascia di rango ha almeno
+// `MIN_PRICE_BAND_SAMPLE` osservazioni storiche. Una scena da quattro righe non
+// produrrebbe né l'uno né l'altro: proverebbe soltanto che il pannello tace, e
+// questo file esiste per provare che parla. La scena si GENERA (60 attaccanti,
+// cinque stagioni di storico) invece di essere scritta a mano riga per riga,
+// così i numeri restano ricalcolabili e nessuno è copiato da nessuna parte.
+//
+// I CRITERI DELL'ORDINE si provano invece su `orderPerMeCandidates`, che è una
+// funzione pura su candidati costruiti a mano: è lì che si può isolare un
+// pareggio alla volta senza dover fabbricare uno stato che lo produca.
+
 import { beforeEach, describe, expect, it } from "vitest";
 import { FANTA_TEAM_IDS } from "../packages/engine/fixtures/synthetic.js";
 import { maxSafe } from "../packages/engine/src/auction.js";
@@ -30,15 +35,22 @@ import {
 } from "../packages/engine/src/declaredValues.js";
 import { recordPurchase } from "../packages/engine/src/feasibility.js";
 import { reduce } from "../packages/engine/src/reduce.js";
-import { ROLES, type AuctionEvent, type Role } from "../packages/engine/src/types.js";
+import { MIN_PRICE_BAND_SAMPLE } from "../packages/engine/src/priceHistory.js";
+import type { HistoricalPurchaseInput } from "../packages/engine/src/priceHistory.js";
+import { COST_FLOOR, type AuctionEvent, type Role } from "../packages/engine/src/types.js";
+import { BAIT_PARAMETERS } from "./baitCandidates.js";
 import {
   PER_ME_PARAMETERS,
   PER_ME_ROWS_MAX,
   PER_ME_UNRATIFIED_CHOICES,
+  ROWS_MAX_STATUS,
+  orderPerMeCandidates,
   perMeAnchorCacheStats,
   perMeCandidates,
   perMeShownCandidates,
   resetPerMeAnchorCache,
+  type PerMeCandidate,
+  type PerMeInput,
   type PerMeReading,
 } from "./perMeCandidates.js";
 import type { RolePlanDraft } from "./rolePlan.js";
@@ -48,36 +60,88 @@ const TEAMS = FANTA_TEAM_IDS;
 const ME = "psg";
 const RIVAL = "ataturk";
 const TS = "2026-08-01T12:00:00Z";
-const RECIPE = "TEST-APPEAL-RECIPE@1.0.0";
+const RECIPE = "TEST-GEN-RECIPE@1.0.0";
+const APPEAL_RECIPE = "TEST-APPEAL-RECIPE@1.0.0";
 
-/** Una riga di listone sintetica. `score` assente = la riga non porta indice. */
-function row(
-  name: string,
-  role: Role,
-  club: string,
-  quotation: number | undefined,
-  score?: number,
-): ListonePlayer {
-  const base = { name, role, club, ...(quotation === undefined ? {} : { quotation }) };
-  if (score === undefined) return base;
+const key = (p: ListonePlayer): string => listonePlayerKey(p);
+
+/**
+ * Un attaccante generato: quotazione e previsioni decrescono col numero, così
+ * il rango di listone (per `T1̂`) coincide con l'ordine dei nomi e ogni
+ * asserzione sull'ordine è leggibile.
+ */
+function attacker(i: number): ListonePlayer {
+  const n = String(i + 1).padStart(2, "0");
   return {
-    ...base,
+    name: `Attaccante ${n}`,
+    role: "A",
+    club: i % 2 === 0 ? "Alfa" : "Beta",
+    quotation: 100 - i,
     appealIndex: {
-      score,
+      score: 100 - i,
       quality: "sintetico — fixture di test",
-      recipe: RECIPE,
-      components: { base: score },
+      recipe: APPEAL_RECIPE,
+      components: { base: 100 - i },
+    },
+    genForecast: {
+      recipeVersion: RECIPE,
+      protocolVersion: "0.0.0-test",
+      runId: "test-run",
+      authority: "advisory",
+      targets: {
+        T2: { value: 6 - i / 100, interval: null, status: "winner" },
+        TN: { value: 30, interval: null, status: "winner", capApplied: false },
+        T1: { value: 300 - 4 * i, interval: null, status: "winner" },
+      },
     },
   };
 }
 
-const key = (p: ListonePlayer): string => listonePlayerKey(p);
+/** Sessanta attaccanti: `r* = 57`, quindi i primi 56 stanno sopra il rimpiazzo. */
+const ATTACKERS: readonly ListonePlayer[] = Array.from({ length: 60 }, (_, i) => attacker(i));
+const TOP = ATTACKERS[0]!;
 
-/** Il piano DICHIARATO per intero: quattro target più la versione. */
-const FULL_PLAN: RolePlanDraft = {
-  planVersion: "test-1",
-  targets: { P: 20, D: 80, C: 140, A: 210 },
-};
+/**
+ * Cinque stagioni di storico d'asta sintetico: `perSeason` acquisti di ruolo A
+ * per stagione, a prezzi decrescenti col rango di prezzo.
+ *
+ * QUANTI PER STAGIONE DECIDE QUALI FASCE SONO LEGGIBILI: le fasce sono 1-3,
+ * 4-8, 9-15, 16-30, 31+ e ognuna ha bisogno di `MIN_PRICE_BAND_SAMPLE`
+ * osservazioni. Con 35 acquisti a stagione sono leggibili tutte e cinque; con
+ * 12 le ultime due restano senza osservazioni — ed è esattamente la
+ * degradazione §D.7, provata più sotto.
+ *
+ * I giocatori dello storico SONO quelli del listone: il ruolo di una riga
+ * storica non è nello storico e si risolve dal listone (`historicalPurchases`),
+ * quindi righe su giocatori sconosciuti non entrerebbero nella curva.
+ */
+const SEASONS = ["2021/22", "2022/23", "2023/24", "2024/25", "2025/26"] as const;
+
+function historyOf(
+  seasons: readonly string[],
+  perSeason: number,
+): readonly HistoricalPurchaseInput[] {
+  const out: HistoricalPurchaseInput[] = [];
+  for (const season of seasons) {
+    for (let r = 1; r <= perSeason; r++) {
+      out.push({
+        season,
+        playerId: key(ATTACKERS[r - 1]!),
+        price: 140 - 3 * r,
+        acquisition: "asta",
+      });
+    }
+  }
+  return out;
+}
+
+const history = (perSeason: number): readonly HistoricalPurchaseInput[] =>
+  historyOf(SEASONS, perSeason);
+
+/** Tutte e cinque le fasce leggibili. */
+const HISTORY_FULL = history(35);
+/** Solo le prime tre fasce: le due in fondo restano senza osservazioni (§D.7). */
+const HISTORY_TOP_ONLY = history(12);
 
 function logAfter(
   purchases: readonly { playerId: string; role: Role; fantaTeamId: string; price: number }[],
@@ -88,512 +152,644 @@ function logAfter(
 }
 
 interface ReadOptions {
+  readonly pool?: readonly ListonePlayer[];
   readonly log?: readonly AuctionEvent[];
+  readonly history?: readonly HistoricalPurchaseInput[];
   readonly planDraft?: RolePlanDraft | null;
-  /**
-   * Il listino dei valori DICHIARATI. Il default è `null` — nessun valore
-   * dichiarato — perché è lo stato dell'app oggi (src/main.ts passa `null`): i
-   * test che non lo passano provano quindi il caso vero, non un caso comodo.
-   */
   readonly values?: DeclaredValueBook | null;
+  readonly renewalsCount?: number;
 }
 
-function read(pool: readonly ListonePlayer[], options: ReadOptions = {}): PerMeReading {
+function read(options: ReadOptions = {}): PerMeReading {
   const log = options.log ?? [];
   return perMeCandidates({
-    pool,
+    pool: options.pool ?? ATTACKERS,
     source: "remote",
     state: reduce(log, TEAMS),
     log,
+    history: options.history ?? HISTORY_FULL,
+    renewalsCount: options.renewalsCount ?? 0,
     selfId: ME,
-    planDraft: options.planDraft === undefined ? FULL_PLAN : options.planDraft,
+    planDraft: options.planDraft ?? null,
     values: options.values ?? null,
   });
 }
 
-/** Un listino di valori dichiarati sintetico, costruito col motore vero (che
- *  lancia su un listino invalido) e non a mano. */
+function candidatesOf(reading: PerMeReading): readonly PerMeCandidate[] {
+  if (reading.kind !== "candidates") throw new Error(`attesi candidati, ricevuto «${reading.reason}»`);
+  return reading.candidates;
+}
+
+/** Un listino di valori dichiarati sintetico, costruito col motore vero. */
 function valuesOf(pairs: readonly (readonly [ListonePlayer, number])[]): DeclaredValueBook {
   return declaredValueBook(
     pairs.map(([player, declaredValue]) => ({ playerId: listonePlayerKey(player), declaredValue })),
   );
 }
 
-const ids = (reading: PerMeReading): readonly string[] =>
-  reading.kind === "candidates" ? reading.candidates.map((c) => c.playerId) : [];
+beforeEach(() => resetPerMeAnchorCache());
 
-// ─── La scena principale ─────────────────────────────────────────────────────
-//
-// Quattro liberi, tre attaccanti e un difensore, tutti con Qt.A e indice.
-// A rosa vuota ogni reparto è aperto e `maxSafe` vale 473, quindi nessuno esce
-// per budget: quello che resta a decidere è solo l'ordine.
+// ─────────────────────────────────────────────────────────────────────────────
 
-const A_FORTE = row("Attaccante Forte", "A", "Alfa", 60, 90);
-const A_MEDIO = row("Attaccante Medio", "A", "Alfa", 40, 80);
-const A_SCARSO = row("Attaccante Scarso", "A", "Beta", 2, 10);
-const D_FORTE = row("Difensore Forte", "D", "Gamma", 30, 70);
-const SCENE: readonly ListonePlayer[] = [A_FORTE, A_MEDIO, A_SCARSO, D_FORTE];
-
-describe("perMeCandidates — l'ordine dichiarato", () => {
-  it("ordina per piano, poi posizione di appetibilità, poi ancora, poi chiave", () => {
-    const reading = read(SCENE);
-    expect(reading.kind).toBe("candidates");
-    // A parità di posizione (entrambi primi del proprio ruolo) decide l'ancora
-    // DECRESCENTE: l'attaccante da 60 prima del difensore da 30.
-    expect(ids(reading)).toEqual([key(A_FORTE), key(D_FORTE), key(A_MEDIO), key(A_SCARSO)]);
-  });
-
-  it("la posizione è quella dell'ordine di appetibilità del RUOLO, non del listone", () => {
-    const reading = read(SCENE);
-    if (reading.kind !== "candidates") throw new Error("attesi candidati");
-    const byId = new Map(reading.candidates.map((c) => [c.playerId, c]));
-    expect(byId.get(key(A_FORTE))!.appealPosition).toBe(1);
-    expect(byId.get(key(A_MEDIO))!.appealPosition).toBe(2);
-    expect(byId.get(key(A_SCARSO))!.appealPosition).toBe(3);
-    expect(byId.get(key(A_FORTE))!.appealOrderSize).toBe(3);
-    // Il difensore è PRIMO del suo ruolo pur essendo quarto per punteggio: è la
-    // prova che l'ordine è per ruolo e non globale.
-    expect(byId.get(key(D_FORTE))!.appealPosition).toBe(1);
-    expect(byId.get(key(D_FORTE))!.appealOrderSize).toBe(1);
-  });
-
-  it("«dentro il piano» viene PRIMA della posizione di appetibilità", () => {
-    // L'allocazione viva del reparto A è 210 cr su 7 slot: `fitsPlan` lascia
-    // passare fino a 204 cr (204 + 6 slot al floor = 210). 300 cr sfora il
-    // piano ma resta comprabile — `maxSafe` a rosa vuota vale 473.
-    const caro = row("Attaccante Caro", "A", "Alfa", 300, 99);
-    const modesto = row("Attaccante Modesto", "A", "Alfa", 20, 30);
-    const reading = read([caro, modesto]);
-    if (reading.kind !== "candidates") throw new Error("attesi candidati");
-    expect(reading.candidates[0]!.playerId).toBe(key(modesto));
-    expect(reading.candidates[0]!.withinRolePlan).toBe(true);
-    expect(reading.candidates[1]!.playerId).toBe(key(caro));
-    expect(reading.candidates[1]!.withinRolePlan).toBe(false);
-    // …e il caro ha davvero la posizione migliore: senza questo, «il piano
-    // viene prima» sarebbe vero per caso.
-    expect(reading.candidates[1]!.appealPosition).toBe(1);
-    expect(reading.candidates[0]!.appealPosition).toBe(2);
-  });
-
-  it("una riga senza verdetto di appetibilità resta DOPO quelle che ne hanno uno", () => {
-    const senza = row("Attaccante Ignoto", "A", "Delta", 55);
-    const reading = read([...SCENE, senza]);
-    if (reading.kind !== "candidates") throw new Error("attesi candidati");
-    expect(reading.candidates[reading.candidates.length - 1]!.playerId).toBe(key(senza));
-    expect(reading.candidates[reading.candidates.length - 1]!.appealPosition).toBeNull();
-    expect(reading.withoutAppealPosition).toBe(1);
-    // `null` non è zero e non è l'ultima posizione: se lo fosse, un'ancora da
-    // 55 lo porterebbe davanti all'attaccante da 40 al criterio 3.
-    expect(ids(reading)).toEqual([
-      key(A_FORTE),
-      key(D_FORTE),
-      key(A_MEDIO),
-      key(A_SCARSO),
-      key(senza),
-    ]);
-  });
-
-  it("l'ordine è totale e stabile: stesso input, stessa lista", () => {
-    expect(ids(read(SCENE))).toEqual(ids(read([...SCENE].reverse())));
-  });
-
-  it("a parità di tutto decide la chiave di listone, crescente", () => {
-    const primo = row("Alfa Uno", "C", "Zeta", 10, 50);
-    const secondo = row("Beta Due", "C", "Zeta", 10, 50);
-    // Stesso punteggio: `buildRoleAppealOrder` rompe il pareggio col proprio
-    // criterio, quindi le posizioni restano distinte; l'asserzione che conta è
-    // che l'ordine non dipenda dall'ordine di ingresso.
-    expect(ids(read([primo, secondo]))).toEqual(ids(read([secondo, primo])));
-  });
-});
-
-describe("perMeCandidates — il surplus ordina, non esclude", () => {
-  // LA DECISIONE DI PICO DEL 2026-08-25, provata criterio per criterio: «deve
-  // essere un mix tra le due cose. Il numero uno è il filtro a monte ma il due
-  // è quello successivo». Il piano filtra, il surplus ordina.
-  //
-  // La scena è quella principale, con i valori DICHIARATI aggiunti sopra: le
-  // ancore a log vuoto sono le Qt.A nude (60, 40, 2, 30), quindi ogni surplus
-  // atteso qui sotto si rifà a mano.
-
-  it("il surplus ordina chi ha passato il filtro, e batte l'appetibilità", () => {
-    // A_MEDIO è 2ª di 3 per appetibilità e A_FORTE è 1ª: se ordinasse
-    // l'appetibilità, A_FORTE verrebbe prima. Col surplus davanti vince A_MEDIO
-    // (+30 contro +10), ed è esattamente ciò che «il due è quello successivo»
-    // significa.
-    const values = valuesOf([
-      [A_FORTE, 70], // 70 − 60 = +10
-      [A_MEDIO, 70], // 70 − 40 = +30
-      [A_SCARSO, 5], // 5 − 2 = +3
-      [D_FORTE, 35], // 35 − 30 = +5
-    ]);
-    const reading = read(SCENE, { values });
-    if (reading.kind !== "candidates") throw new Error("attesi candidati");
-    expect(reading.candidates.map((c) => c.surplus)).toEqual([30, 10, 5, 3]);
-    expect(ids(reading)).toEqual([key(A_MEDIO), key(A_FORTE), key(D_FORTE), key(A_SCARSO)]);
-    expect(reading.withoutDeclaredValue).toBe(0);
-  });
-
-  it("IL PIANO RESTA IL FILTRO A MONTE: un surplus enorme fuori piano non scavalca", () => {
-    // L'allocazione viva del reparto A è 210 cr su 7 slot: `fitsPlan` lascia
-    // passare fino a 204 cr. Il caro a 300 cr sfora il piano ma resta
-    // comprabile (`maxSafe` a rosa vuota vale 473) e porta il surplus più
-    // grande del tavolo: resta comunque SOTTO chi il piano lo rispetta.
-    const caro = row("Attaccante Caro", "A", "Alfa", 300, 99);
-    const modesto = row("Attaccante Modesto", "A", "Alfa", 20, 30);
-    const values = valuesOf([
-      [caro, 500], // 500 − 300 = +200, fuori piano
-      [modesto, 21], // 21 − 20 = +1, nel piano
-    ]);
-    const reading = read([caro, modesto], { values });
-    if (reading.kind !== "candidates") throw new Error("attesi candidati");
-    expect(reading.candidates[0]!.playerId).toBe(key(modesto));
-    expect(reading.candidates[0]!.surplus).toBe(1);
-    expect(reading.candidates[1]!.playerId).toBe(key(caro));
-    expect(reading.candidates[1]!.surplus).toBe(200);
-  });
-
-  it("un surplus ≤ 0 NON esclude: la riga resta visibile, più in basso", () => {
-    // La quinta condizione d'ammissione del radar occasioni (`surplus > 0`) qui
-    // NON torna come cancello: togliere dallo schermo un giocatore che il piano
-    // copre ridurrebbe ciò che Pico vede in asta.
-    const values = valuesOf([
-      [A_FORTE, 50], // 50 − 60 = −10
-      [A_MEDIO, 40], // 40 − 40 = 0
-      [A_SCARSO, 3], // 3 − 2 = +1
-      [D_FORTE, 20], // 20 − 30 = −10
-    ]);
-    const reading = read(SCENE, { values });
-    if (reading.kind !== "candidates") throw new Error("attesi candidati");
-    // Tutti e quattro sono ancora lì: nessuno è sparito per il segno.
-    expect(reading.candidates).toHaveLength(4);
-    expect(reading.evaluated).toBe(4);
-    expect(ids(reading)).toContain(key(A_FORTE));
-    // …e l'unico positivo è in cima, i due negativi in fondo. Fra i due a −10
-    // decide il criterio successivo che ha un verdetto: entrambi sono 1ª del
-    // proprio ruolo, quindi decide l'ancora decrescente (60 prima di 30).
-    expect(ids(reading)).toEqual([key(A_SCARSO), key(A_MEDIO), key(A_FORTE), key(D_FORTE)]);
-  });
-
-  it("un valore dichiarato che manca NON diventa zero, e nemmeno meno infinito", () => {
-    // IL TEST CHE DIFENDE LA REGOLA. `A_FORTE` ha un surplus NEGATIVO (−10):
-    // è una misura, e una misura viene prima di un'assenza. Se l'assenza
-    // diventasse 0 starebbe DAVANTI a lui; se diventasse `-Infinity` sarebbe
-    // «l'ultimo misurato» — cioè un verdetto che nessuno ha espresso.
-    const values = valuesOf([[A_FORTE, 50]]); // 50 − 60 = −10; gli altri tre, niente
-    const reading = read(SCENE, { values });
-    if (reading.kind !== "candidates") throw new Error("attesi candidati");
-    expect(reading.candidates[0]!.playerId).toBe(key(A_FORTE));
-    expect(reading.candidates[0]!.surplus).toBe(-10);
-    expect(reading.candidates[0]!.declaredValue).toBe(50);
-    // Le tre senza dichiarazione seguono, e portano `null` in entrambi i campi:
-    // non uno zero, non un numero di ripiego.
-    for (const c of reading.candidates.slice(1)) {
-      expect(c.surplus).toBeNull();
-      expect(c.declaredValue).toBeNull();
+describe("il pannello parla: V, prezzo atteso e surplus arrivano a schermo", () => {
+  it("con deposito e storico ci sono candidati, e ognuno porta le tre grandezze", () => {
+    const reading = read();
+    const candidates = candidatesOf(reading);
+    expect(candidates.length).toBeGreaterThan(0);
+    for (const c of candidates) {
+      expect(c.value).toBeGreaterThanOrEqual(COST_FLOOR);
+      expect(c.valueSource).toBe("generatore");
+      expect(c.valueRecipe).toBe(RECIPE);
+      if (c.expectedPrice.kind === "prezzo") {
+        expect(c.surplus).toBe(c.value - c.expectedPrice.credits);
+      } else {
+        expect(c.surplus).toBeNull();
+      }
     }
-    expect(reading.withoutDeclaredValue).toBe(3);
   });
 
-  it("a parità di surplus decide l'appetibilità, che è scesa di un gradino e non è sparita", () => {
-    // Stesso surplus (+10) per i tre attaccanti: se l'appetibilità fosse stata
-    // rimossa insieme al ritorno del surplus, a decidere sarebbe l'ancora
-    // decrescente e l'ordine sarebbe FORTE(60) → MEDIO(40) → SCARSO(2). Con
-    // l'appetibilità al suo posto l'ordine coincide qui, quindi la prova sta
-    // nel caso costruito apposta: SCARSO ha l'ancora più bassa ma la posizione
-    // migliore.
-    const primo = row("Attaccante Uno", "A", "Alfa", 10, 90); // 1ª per appetibilità
-    const secondo = row("Attaccante Due", "A", "Alfa", 80, 20); // 2ª, ma ancora più alta
-    const values = valuesOf([
-      [primo, 20], // 20 − 10 = +10
-      [secondo, 90], // 90 − 80 = +10
-    ]);
-    const reading = read([primo, secondo], { values });
-    if (reading.kind !== "candidates") throw new Error("attesi candidati");
-    expect(reading.candidates.map((c) => c.surplus)).toEqual([10, 10]);
-    expect(ids(reading)).toEqual([key(primo), key(secondo)]);
-    expect(reading.candidates[0]!.appealPosition).toBe(1);
-  });
-
-  it("senza listino dei valori nessuna riga ha un surplus, e l'ordine cade sui criteri che restano", () => {
-    // È LO STATO DELL'APP OGGI: `src/main.ts` passa `values: null` perché il
-    // core pubblico non ha ancora una sorgente per il listino dichiarato. Il
-    // criterio 2 non ha verdetto per nessuno, quindi decide il 3 — e nessuna
-    // riga sparisce per questo.
-    const reading = read(SCENE);
-    if (reading.kind !== "candidates") throw new Error("attesi candidati");
-    expect(reading.candidates.every((c) => c.surplus === null)).toBe(true);
-    expect(reading.candidates.every((c) => c.declaredValue === null)).toBe(true);
-    expect(reading.withoutDeclaredValue).toBe(4);
-    expect(ids(reading)).toEqual([key(A_FORTE), key(D_FORTE), key(A_MEDIO), key(A_SCARSO)]);
-  });
-
-  it("la sottrazione è quella del motore, non una copia: valore dichiarato − ancora CORRETTA", () => {
-    // Con un campione sufficiente l'ancora non è più la Qt.A nuda: il surplus
-    // deve muoversi con l'ancora corretta, altrimenti qualcuno sta sottraendo
-    // la base. Nove acquisti a prezzo doppio della Qt.A: inflazione +100%.
-    const log = logAfter(
-      Array.from({ length: 9 }, (_, i) => ({
-        playerId: key(row(`Venduto ${i}`, "C", "Zeta", 10)),
-        role: "C" as Role,
-        fantaTeamId: RIVAL,
-        price: 20,
-      })),
+  it("il prezzo atteso è lo scalare della curva, con la catena rifacibile a mano", () => {
+    const top = candidatesOf(read()).find((c) => c.playerId === key(TOP))!;
+    if (top.expectedPrice.kind !== "prezzo") throw new Error("atteso un prezzo");
+    const chain = top.expectedPrice.chain;
+    // Fascia 1-3, prezzi storici 137/134/131 su cinque stagioni: la mediana è
+    // 134. Il pool di stasera è 4.000 − 489 (ripiego dichiarato dei rinnovi) e
+    // quello medio storico è 4.000, quindi il rapporto è 0,877 25.
+    expect(chain.band.index).toBe(0);
+    expect(chain.base).toBe(134);
+    expect(chain.currentPool).toBe(3511);
+    expect(chain.meanTrainPool).toBe(4000);
+    expect(top.expectedPrice.credits).toBe(
+      Math.max(COST_FLOOR, Math.round(chain.base * chain.appliedFactor)),
     );
-    const pool = [
-      ...SCENE,
-      ...Array.from({ length: 9 }, (_, i) => row(`Venduto ${i}`, "C", "Zeta", 10)),
-    ];
-    const values = valuesOf([[A_FORTE, 130]]);
-    const reading = read(pool, { log, values });
-    if (reading.kind !== "candidates") throw new Error("attesi candidati");
-    const forte = reading.candidates.find((c) => c.playerId === key(A_FORTE))!;
-    expect(forte.anchor.correctedAnchor).toBeGreaterThan(forte.anchor.baseAnchor);
-    expect(forte.surplus).toBe(130 - forte.anchor.correctedAnchor);
-    expect(forte.surplus).not.toBe(130 - forte.anchor.baseAnchor);
-  });
-});
-
-describe("perMeCandidates — selezione avversa: la guardia", () => {
-  // Lo stato è costruito perché la sottrazione CADUTA metterebbe in cima il
-  // peggiore. Il valore assoluto del ruolo A è piatto (una sola cifra per
-  // tutti gli attaccanti): con `base − ancora`, l'attaccante da 2 cr avrebbe il
-  // surplus più grande di tutti e i due da 40 e 60 cr sarebbero addirittura
-  // esclusi (surplus negativo). Il box mostrerebbe UNA riga sola, la peggiore,
-  // col badge OCCASIONE sopra. Nessuna aritmetica di quella forma compare in
-  // questo file, nemmeno nel test: si asserisce dove finisce la riga.
-  it("il giocatore peggiore e più economico del ruolo NON finisce in cima", () => {
-    const reading = read(SCENE);
-    if (reading.kind !== "candidates") throw new Error("attesi candidati");
-    const cheapest = [...reading.candidates].sort(
-      (a, b) => a.anchor.correctedAnchor - b.anchor.correctedAnchor,
-    )[0]!;
-    expect(cheapest.playerId).toBe(key(A_SCARSO));
-    expect(reading.candidates[0]!.playerId).not.toBe(cheapest.playerId);
-    // Non «non in cima» e basta: è ULTIMO, e resta fuori dalle righe mostrate.
-    expect(reading.candidates[reading.candidates.length - 1]!.playerId).toBe(cheapest.playerId);
-    expect(perMeShownCandidates(reading).map((c) => c.playerId)).not.toContain(cheapest.playerId);
+    expect(top.expectedPrice.credits).toBe(118);
   });
 
-  it("anche SENZA nessun indice di appetibilità il più economico resta ultimo", () => {
-    // Il criterio 2 non ha verdetto per nessuno: decide il criterio 3, che è
-    // l'ancora DECRESCENTE. Il verso di quel criterio è ciò che tiene in piedi
-    // la guardia quando l'indice non c'è.
-    const nudi = SCENE.map((p) => row(p.name, p.role, p.club, p.quotation));
-    const reading = read(nudi);
-    if (reading.kind !== "candidates") throw new Error("attesi candidati");
-    expect(reading.withoutAppealPosition).toBe(4);
-    expect(reading.candidates.map((c) => c.anchor.correctedAnchor)).toEqual([60, 40, 30, 2]);
-    expect(reading.candidates[reading.candidates.length - 1]!.playerId).toBe(key(A_SCARSO));
-  });
-
-  it("nel sorgente il minuendo del surplus non è mai un valore DERIVATO", () => {
-    // Guardia di SORGENTE, non di comportamento: un ordine si può cambiare
-    // senza rompere nessuna asserzione sui numeri, ma non si può cambiare
-    // l'INGREDIENTE della sottrazione senza scriverne il nome.
-    //
-    // Che cosa è cambiato il 2026-08-25 e che cosa NO. Il surplus è tornato,
-    // quindi `declaredValue` e `surplus` non sono più parole vietate: sono il
-    // valore DICHIARATO da Pico e la sottrazione che ci si fa sopra. Resta
-    // vietato tutto ciò che DERIVEREBBE quel valore invece di riceverlo
-    // dichiarato — il valore assoluto (piatto per ruolo, quindi selezione
-    // avversa) e gli α del profilo di rischio.
-    const src = stripCommentsAndStrings(
-      readFileSync(new URL("./perMeCandidates.ts", import.meta.url), "utf8"),
-    );
-    for (const forbidden of ["absoluteValue", "ALPHA_BY_PROFILE", "fairToMe"]) {
-      expect(src, `«${forbidden}» è entrato nella via del sottoblocco`).not.toContain(forbidden);
+  it("il blocco d'incertezza viaggia col numero, sempre e tutto intero", () => {
+    for (const c of candidatesOf(read())) {
+      if (c.expectedPrice.kind !== "prezzo") continue;
+      const u = c.expectedPrice.uncertainty;
+      expect(u.n).toBeGreaterThanOrEqual(MIN_PRICE_BAND_SAMPLE);
+      expect(Number.isFinite(u.errMinus)).toBe(true);
+      expect(Number.isFinite(u.errPlus)).toBe(true);
+      expect(["basso", "alto", "nessuno"]).toContain(u.biasDirection);
     }
-    // …e il minuendo dichiarato c'è davvero, altrimenti la negazione qui sopra
-    // sarebbe verde su un file che non fa più nessuna sottrazione.
-    expect(src).toContain("declaredValueOf");
-    expect(src).toContain("surplusOverAnchor");
+  });
+
+  it("V cresce con la produzione prevista: il surplus premia il sottoprezzato, non l'economico", () => {
+    // LA PROVA CHE QUESTO FILE ESISTE PER TENERE IN PIEDI. Con una base PIATTA
+    // per ruolo `S = costante − P̂` sarebbe monotona decrescente nel prezzo e
+    // vincerebbe sempre il più economico, cioè il peggiore (selezione avversa,
+    // packages/engine/src/absoluteValue.ts). Qui `V` cresce con `T1̂`, quindi
+    // il più scarso NON è in cima.
+    const candidates = candidatesOf(read());
+    const byId = new Map(candidates.map((c) => [c.playerId, c]));
+    const primo = byId.get(key(ATTACKERS[0]!))!;
+    const ultimo = byId.get(key(ATTACKERS[55]!))!;
+    expect(primo.value).toBeGreaterThan(ultimo.value);
+    expect(candidates[0]!.playerId).not.toBe(key(ATTACKERS[55]!));
   });
 });
 
-/** Toglie commenti e stringhe: dentro un commento «surplus» è una spiegazione,
- *  non un ingrediente. Stessa funzione di packages/engine/tests/engine.test.ts. */
-function stripCommentsAndStrings(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/(^|[^:])\/\/[^\n]*/g, "$1 ")
-    .replace(/`(?:[^`\\]|\\.)*`/g, '""')
-    .replace(/"(?:[^"\\]|\\.)*"/g, '""')
-    .replace(/'(?:[^'\\]|\\.)*'/g, '""');
-}
+describe("il piano dinamico filtra, e non ha bisogno di nessuna dichiarazione", () => {
+  it("senza piano dichiarato il piano è quello RICALCOLATO, con la sua versione", () => {
+    const reading = read();
+    if (reading.kind !== "candidates") throw new Error("attesi candidati");
+    expect(reading.plan.kind).toBe("dynamic");
+    expect(reading.plan.label).toBe("piano ricalcolato adesso");
+    // Log vuoto: `lastSeq` vale −1 e la versione lo riporta com'è.
+    expect(reading.plan.planVersion).toBe("NOM-DYN@-1");
+  });
 
-describe("perMeCandidates — i cancelli di ammissione", () => {
-  it("un giocatore già venduto non è un candidato", () => {
+  it("la versione del piano si muove col log, perché il piano è il ricalcolo", () => {
     const log = logAfter([
-      { playerId: key(A_FORTE), role: "A", fantaTeamId: RIVAL, price: 50 },
+      { playerId: key(ATTACKERS[0]!), role: "A", fantaTeamId: RIVAL, price: 50 },
     ]);
-    expect(ids(read(SCENE, { log }))).not.toContain(key(A_FORTE));
-  });
-
-  it("un'ancora sopra il mio max bid esclude il candidato, e lo dice", () => {
-    const team = reduce([], TEAMS).teams[ME]!;
-    expect(maxSafe(team, "A").maxSafe).toBe(473);
-    const irraggiungibile = row("Attaccante Proibitivo", "A", "Alfa", 500, 99);
-    const reading = read([irraggiungibile]);
-    expect(reading.kind === "empty" && reading.reason).toBe("no-affordable");
-    expect(reading.evaluated).toBe(0);
-  });
-
-  it("un candidato al limite esatto del max bid entra", () => {
-    const alLimite = row("Attaccante Limite", "A", "Alfa", 473, 99);
-    const reading = read([alLimite]);
-    expect(reading.kind).toBe("candidates");
-    expect(reading.kind === "candidates" && reading.candidates[0]!.maxBid).toBe(473);
-  });
-
-  it("un reparto pieno toglie tutti i suoi giocatori, non solo qualcuno", () => {
-    const sette: { playerId: string; role: Role; fantaTeamId: string; price: number }[] = [];
-    for (let i = 1; i <= 7; i += 1) {
-      sette.push({ playerId: `riempi-a-${i}`, role: "A", fantaTeamId: ME, price: 1 });
-    }
-    const log = logAfter(sette);
-    const reading = read(SCENE, { log });
-    expect(ids(reading)).toEqual([key(D_FORTE)]);
-  });
-
-  it("`maxSafe` è INTERROGATA e riportata, non riderivata", () => {
-    const reading = read(SCENE);
+    const reading = read({ log });
     if (reading.kind !== "candidates") throw new Error("attesi candidati");
-    const team = reduce([], TEAMS).teams[ME]!;
+    expect(reading.plan.planVersion).toBe("NOM-DYN@0");
+    // …e il comprato è sparito dai candidati senza che nessuno l'abbia previsto.
+    expect(reading.candidates.some((c) => c.playerId === key(ATTACKERS[0]!))).toBe(false);
+  });
+
+  it("i candidati nel piano stanno davanti a quelli fuori", () => {
+    const candidates = candidatesOf(read());
+    const primoFuori = candidates.findIndex((c) => !c.withinPlan);
+    if (primoFuori === -1) throw new Error("la scena deve contenere righe fuori dal piano");
+    expect(candidates.slice(0, primoFuori).every((c) => c.withinPlan)).toBe(true);
+    expect(candidates.slice(primoFuori).some((c) => c.withinPlan)).toBe(false);
+  });
+
+  it("l'allocazione del ruolo è quella del piano dinamico, slot compresi", () => {
+    const reading = read();
+    if (reading.kind !== "candidates" || reading.plan.kind !== "dynamic") {
+      throw new Error("atteso il piano dinamico");
+    }
+    const linea = reading.plan.plan.perRole.A;
     for (const c of reading.candidates) {
-      expect(c.maxBid).toBe(maxSafe(team, c.role).maxSafe);
+      expect(c.planAllocation).toBe(linea.allocation);
+      expect(c.planSlotsRemaining).toBe(linea.slotsRemaining);
+      expect(c.planSlotsPlanned).toBe(linea.slotsPlanned);
+    }
+    // La riserva dura resta intatta: il piano non impegna mai più del budget
+    // meno un credito per ogni slot che non ha pianificato.
+    expect(linea.allocation).toBe(linea.plannedSpend + COST_FLOOR * linea.slotsAtFloor);
+  });
+
+  it("«⚑ adesso» è la congiunzione di due fatti già definiti, non una soglia nuova", () => {
+    for (const c of candidatesOf(read())) {
+      expect(c.flagNow).toBe(c.withinPlan && c.cliff.isCliff);
     }
   });
 });
 
-describe("perMeCandidates — i nove silenzi, uno per uno", () => {
-  it("no-pool", () => {
-    const reading = read([]);
+describe("l'override di Pico comanda, e un piano rotto non svuota il pannello", () => {
+  const FULL_PLAN: RolePlanDraft = {
+    planVersion: "dichiarato-1",
+    targets: { P: 20, D: 80, C: 140, A: 210 },
+  };
+
+  it("un piano dichiarato valido prende il posto del dinamico, con la sua etichetta", () => {
+    const reading = read({ planDraft: FULL_PLAN });
+    if (reading.kind !== "candidates") throw new Error("attesi candidati");
+    expect(reading.plan.kind).toBe("declared");
+    expect(reading.plan.label).toBe("piano dichiarato da te");
+    expect(reading.plan.planVersion).toBe("dichiarato-1");
+    // L'allocazione mostrata è quella VIVA del piano dichiarato, non `alloc*`.
+    expect(reading.candidates[0]!.planAllocation).toBe(210);
+    expect(reading.candidates[0]!.planSlotsPlanned).toBeNull();
+  });
+
+  it("il dichiarato e il dinamico non dicono la stessa cosa: l'override si vede", () => {
+    const dinamico = candidatesOf(read());
+    const dichiarato = candidatesOf(read({ planDraft: FULL_PLAN }));
+    const dentroDinamico = dinamico.filter((c) => c.withinPlan).length;
+    const dentroDichiarato = dichiarato.filter((c) => c.withinPlan).length;
+    expect(dentroDichiarato).not.toBe(dentroDinamico);
+  });
+
+  it("un piano dichiarato A METÀ si dice, e comanda il dinamico — mai un pannello vuoto", () => {
+    const reading = read({ planDraft: { planVersion: "monco", targets: { A: 210 } } });
+    if (reading.kind !== "candidates" || reading.plan.kind !== "dynamic") {
+      throw new Error("atteso il piano dinamico");
+    }
+    expect(reading.plan.declaredIssue).toBe("plan-incomplete");
+    expect(reading.plan.declaredIssueDetail).toContain("role-undeclared");
+    expect(reading.candidates.length).toBeGreaterThan(0);
+  });
+
+  it("un piano dichiarato RIFIUTATO dal motore si dice, e comanda il dinamico", () => {
+    // La somma dei target sfonda il budget iniziale: `validateRolePlan` rifiuta.
+    const reading = read({
+      planDraft: { planVersion: "sfora", targets: { P: 400, D: 400, C: 400, A: 400 } },
+    });
+    if (reading.kind !== "candidates" || reading.plan.kind !== "dynamic") {
+      throw new Error("atteso il piano dinamico");
+    }
+    expect(reading.plan.declaredIssue).toBe("plan-invalid");
+    expect(reading.plan.declaredIssueDetail.length).toBeGreaterThan(0);
+    expect(reading.candidates.length).toBeGreaterThan(0);
+  });
+
+  it("il valore DICHIARATO da Pico prende il posto di quello del generatore", () => {
+    const reading = read({ values: valuesOf([[TOP, 999]]) });
+    const top = candidatesOf(reading).find((c) => c.playerId === key(TOP))!;
+    expect(top.value).toBe(999);
+    expect(top.valueSource).toBe("dichiarato");
+  });
+});
+
+describe("l'ordine dichiarato, un criterio alla volta", () => {
+  // I criteri si provano sulla funzione pura: è l'unico modo di isolare un
+  // pareggio per volta senza fabbricare uno stato che lo produca.
+  function candidate(over: Partial<PerMeCandidate> & { playerId: string }): PerMeCandidate {
+    return {
+      player: TOP,
+      role: "A",
+      anchor: {
+        playerId: over.playerId,
+        role: "A",
+        baseAnchor: 20,
+        basis: "none",
+        inflationApplied: null,
+        n: 0,
+        correctedAnchor: 20,
+        coldStart: true,
+      },
+      value: 50,
+      valueSource: "generatore",
+      valueRecipe: RECIPE,
+      expectedPrice: { kind: "assente", reason: "fascia-sotto-campione" },
+      surplus: null,
+      relativePrice: { kind: "assente", reason: "nessun-rivale-eleggibile" },
+      cliff: {
+        playerId: over.playerId,
+        role: "A",
+        anchor: 20,
+        playerAvailable: true,
+        othersAvailableInRole: 5,
+        betterAvailable: 2,
+        alternativesAtOrBelow: 3,
+        nextAlternativeAnchor: 15,
+        gap: 5,
+        gapRatio: 0.25,
+        shape: "gap-below",
+        isCliff: false,
+      },
+      rivalsWithSlot: 4,
+      maxBid: 473,
+      withinPlan: false,
+      planAllocation: 100,
+      planSlotsRemaining: 7,
+      planSlotsPlanned: 2,
+      flagNow: false,
+      appealPosition: 1,
+      appealOrderSize: 10,
+      ...over,
+    };
+  }
+
+  const ids = (cs: readonly PerMeCandidate[]): readonly string[] => cs.map((c) => c.playerId);
+
+  it("1. il piano FILTRA: dentro prima di fuori, anche con un surplus peggiore", () => {
+    const dentro = candidate({ playerId: "b", withinPlan: true, surplus: 1 });
+    const fuori = candidate({ playerId: "a", withinPlan: false, surplus: 99 });
+    expect(ids(orderPerMeCandidates([fuori, dentro]))).toEqual(["b", "a"]);
+  });
+
+  it("2. il surplus ORDINA, e non esclude: il negativo resta, dopo il positivo", () => {
+    const su = candidate({ playerId: "su", surplus: 5 });
+    const giu = candidate({ playerId: "giu", surplus: -5 });
+    expect(ids(orderPerMeCandidates([giu, su]))).toEqual(["su", "giu"]);
+  });
+
+  it("2-bis. l'assenza di surplus va in CODA, anche dopo un surplus negativo", () => {
+    // `null` non è 0 e non è −Infinity: è l'assenza, e va dopo ogni misura.
+    const senza = candidate({ playerId: "senza", surplus: null });
+    const negativo = candidate({ playerId: "neg", surplus: -100 });
+    expect(ids(orderPerMeCandidates([senza, negativo]))).toEqual(["neg", "senza"]);
+  });
+
+  it("3. a parità di surplus decide la SCARSITÀ misurata, crescente", () => {
+    const scarso = candidate({ playerId: "scarso", surplus: 10 });
+    const abbondante = candidate({ playerId: "abbondante", surplus: 10 });
+    const con = (c: PerMeCandidate, n: number): PerMeCandidate => ({
+      ...c,
+      cliff: { ...c.cliff, alternativesAtOrBelow: n },
+    });
+    expect(
+      ids(orderPerMeCandidates([con(abbondante, 9), con(scarso, 1)])),
+    ).toEqual(["scarso", "abbondante"]);
+  });
+
+  it("4. poi V, decrescente", () => {
+    const alto = candidate({ playerId: "z-alto", surplus: 10, value: 80 });
+    const basso = candidate({ playerId: "a-basso", surplus: 10, value: 20 });
+    expect(ids(orderPerMeCandidates([basso, alto]))).toEqual(["z-alto", "a-basso"]);
+  });
+
+  it("5. e infine la chiave di listone: l'ordine è TOTALE", () => {
+    const a = candidate({ playerId: "aaa", surplus: 10 });
+    const b = candidate({ playerId: "bbb", surplus: 10 });
+    expect(ids(orderPerMeCandidates([b, a]))).toEqual(["aaa", "bbb"]);
+    // Nessun pareggio resta aperto: mescolare non cambia l'esito.
+    expect(ids(orderPerMeCandidates([a, b]))).toEqual(["aaa", "bbb"]);
+  });
+
+  it("la posizione di appetibilità NON ordina più: resta un fatto mostrato", () => {
+    // Prima decideva a parità di surplus; adesso non entra proprio nell'ordine,
+    // perché `V` è la sua trasformazione in crediti (§B.1, §H.2).
+    const peggiore = candidate({ playerId: "a", surplus: 10, value: 50, appealPosition: 99 });
+    const migliore = candidate({ playerId: "b", surplus: 10, value: 50, appealPosition: 1 });
+    // Stessi surplus, stesse alternative, stesso V: decide la CHIAVE, non la
+    // posizione — che qui è invertita apposta.
+    expect(ids(orderPerMeCandidates([migliore, peggiore]))).toEqual(["a", "b"]);
+    expect(peggiore.appealPosition).toBe(99);
+  });
+
+  it("l'esito vero è ordinato secondo quei cinque criteri, in quest'ordine", () => {
+    const candidates = candidatesOf(read());
+    for (let i = 1; i < candidates.length; i++) {
+      const a = candidates[i - 1]!;
+      const b = candidates[i]!;
+      const rank = (c: PerMeCandidate): readonly [number, number, number, number, string] => [
+        c.withinPlan ? 0 : 1,
+        c.surplus === null ? Number.POSITIVE_INFINITY : -c.surplus,
+        c.cliff.alternativesAtOrBelow,
+        -c.value,
+        c.playerId,
+      ];
+      const [ra, rb] = [rank(a), rank(b)];
+      const first = ra.findIndex((v, k) => v !== rb[k]);
+      if (first === -1) throw new Error("due candidati indistinguibili: l'ordine non è totale");
+      expect(ra[first]! <= rb[first]!).toBe(true);
+    }
+  });
+});
+
+describe("i sette silenzi, uno per motivo", () => {
+  it("no-pool: nessuna riga caricata", () => {
+    const reading = read({ pool: [] });
     expect(reading.kind === "empty" && reading.reason).toBe("no-pool");
   });
 
-  it("no-quotation — una riga senza Qt.A non diventa zero", () => {
-    const reading = read([row("Senza Quota", "A", "Alfa", undefined, 90)]);
+  it("no-quotation: righe caricate, nessuna Qt.A", () => {
+    const senzaQt = ATTACKERS.map(({ quotation: _q, ...rest }) => rest);
+    const reading = read({ pool: senzaQt });
     expect(reading.kind === "empty" && reading.reason).toBe("no-quotation");
   });
 
-  it("anchors-refused — due righe con la stessa identità, col motivo del motore", () => {
-    const doppio = row("Attaccante Forte", "A", "Alfa", 60, 90);
-    const reading = read([A_FORTE, doppio]);
+  it("anchors-refused: il listino non passa la validazione, e il motivo esce", () => {
+    // Due righe con la stessa identità: `validateAnchors` rifiuta il listino.
+    const doppione = { ...ATTACKERS[0]! };
+    const reading = read({ pool: [...ATTACKERS, doppione] });
     expect(reading.kind === "empty" && reading.reason).toBe("anchors-refused");
-    expect(reading.kind === "empty" && reading.detail).toContain("duplicate-player");
+    expect(reading.kind === "empty" && reading.detail.length).toBeGreaterThan(0);
   });
 
-  it("plan-absent", () => {
-    const reading = read(SCENE, { planDraft: null });
-    expect(reading.kind === "empty" && reading.reason).toBe("plan-absent");
-  });
-
-  it("plan-incomplete — e dice QUALI buchi", () => {
-    const reading = read(SCENE, { planDraft: { planVersion: "x", targets: { P: 20 } } });
-    expect(reading.kind === "empty" && reading.reason).toBe("plan-incomplete");
-    expect(reading.kind === "empty" && reading.detail).toContain("role-undeclared");
-  });
-
-  it("plan-invalid — il motivo è del motore, non una diagnosi locale", () => {
-    const reading = read(SCENE, {
-      planDraft: { planVersion: "x", targets: { P: 200, D: 200, C: 200, A: 200 } },
-    });
-    expect(reading.kind === "empty" && reading.reason).toBe("plan-invalid");
-    expect(reading.kind === "empty" && reading.detail).toContain(
-      "total-exceeds-initial-budget",
-    );
-  });
-
-  it("no-open-role — con tutti e quattro i reparti pieni", () => {
-    const tutti: { playerId: string; role: Role; fantaTeamId: string; price: number }[] = [];
-    for (const role of ROLES) {
-      const slots = reduce([], TEAMS).teams[ME]!.slotsRemaining[role];
-      for (let i = 1; i <= slots; i += 1) {
-        tutti.push({ playerId: `riempi-${role}-${i}`, role, fantaTeamId: ME, price: 1 });
+  it("no-open-role: nessun reparto mio è biddable", () => {
+    // Rosa piena: 3 P, 9 D, 9 C, 7 A al pavimento, su giocatori fuori listone.
+    const acquisti: { playerId: string; role: Role; fantaTeamId: string; price: number }[] = [];
+    const quanti: Readonly<Record<Role, number>> = { P: 3, D: 9, C: 9, A: 7 };
+    for (const role of ["P", "D", "C", "A"] as const) {
+      for (let i = 0; i < quanti[role]; i++) {
+        acquisti.push({ playerId: `fuori-${role}-${i}`, role, fantaTeamId: ME, price: COST_FLOOR });
       }
     }
-    const log = logAfter(tutti);
-    expect(reduce(log, TEAMS).teams[ME]!.totalSlotsRemaining).toBe(0);
-    const reading = read(SCENE, { log });
+    const reading = read({ log: logAfter(acquisti) });
     expect(reading.kind === "empty" && reading.reason).toBe("no-open-role");
   });
 
-  it("no-free-in-open-roles — c'è il listone, ma nei miei reparti aperti non resta nessuno", () => {
-    const solo = row("Attaccante Unico", "A", "Alfa", 30, 90);
-    const log = logAfter([{ playerId: key(solo), role: "A", fantaTeamId: RIVAL, price: 30 }]);
-    const reading = read([solo], { log });
+  it("no-forecast: senza previsioni servite non si forma nessun V", () => {
+    const senzaDeposito = ATTACKERS.map(({ genForecast: _g, ...rest }) => rest);
+    const reading = read({ pool: senzaDeposito });
+    expect(reading.kind === "empty" && reading.reason).toBe("no-forecast");
+  });
+
+  it("no-forecast: senza storico d'asta non si forma nessuna curva", () => {
+    const reading = read({ history: [] });
+    expect(reading.kind === "empty" && reading.reason).toBe("no-forecast");
+    expect(reading.kind === "empty" && reading.detail).toBe("no-history");
+  });
+
+  it("no-free-in-open-roles: il solo reparto con righe è pieno", () => {
+    const acquisti = ATTACKERS.slice(0, 7).map((p) => ({
+      playerId: key(p),
+      role: "A" as Role,
+      fantaTeamId: ME,
+      price: COST_FLOOR,
+    }));
+    const reading = read({ log: logAfter(acquisti) });
     expect(reading.kind === "empty" && reading.reason).toBe("no-free-in-open-roles");
   });
 
-  it("no-affordable — ci sono liberi, ma nessuno che io possa pagare", () => {
-    const reading = read([row("Attaccante Proibitivo", "A", "Alfa", 500, 99)]);
+  it("no-affordable: ci sono liberi con V, ma il max bid non copre nessun prezzo atteso", () => {
+    // Un acquisto da 473 lascia `maxSafe` a 1 credito: nessun prezzo atteso
+    // della scena ci sta sotto.
+    const log = logAfter([
+      { playerId: "fuori-A-0", role: "A", fantaTeamId: ME, price: 473 },
+    ]);
+    const me = reduce(log, TEAMS).teams[ME]!;
+    expect(maxSafe(me, "A").maxSafe).toBe(1);
+    const reading = read({ log });
     expect(reading.kind === "empty" && reading.reason).toBe("no-affordable");
   });
 
-  it("i nove motivi sono nove stringhe distinte", () => {
-    const reasons = [
-      "no-pool",
-      "no-quotation",
-      "anchors-refused",
-      "plan-absent",
-      "plan-incomplete",
-      "plan-invalid",
-      "no-open-role",
-      "no-free-in-open-roles",
-      "no-affordable",
-    ] as const;
-    expect(new Set(reasons).size).toBe(reasons.length);
+  it("i sette motivi sono sette, e ognuno ha il proprio: nessuno ne copre un altro", () => {
+    const visti = new Set<string>();
+    for (const reading of [
+      read({ pool: [] }),
+      read({ pool: ATTACKERS.map(({ quotation: _q, ...r }) => r) }),
+      read({ history: [] }),
+    ]) {
+      if (reading.kind === "empty") visti.add(reading.reason);
+    }
+    expect(visti.size).toBe(3);
   });
 });
 
-describe("perMeCandidates — l'ancora si mostra e non si sottrae", () => {
-  it("a log vuoto l'ancora è in cold start e lo dichiara", () => {
-    const reading = read(SCENE);
-    if (reading.kind !== "candidates") throw new Error("attesi candidati");
-    const a = reading.candidates[0]!.anchor;
-    expect(a.coldStart).toBe(true);
-    expect(a.inflationApplied).toBeNull();
-    expect(a.basis).toBe("none");
-    expect(a.correctedAnchor).toBe(60);
-    expect(a.baseAnchor).toBe(60);
+describe("le degradazioni §D, un gradino per test", () => {
+  it("D.1 — senza il deposito genForecast non c'è né V né rango: il motivo lo dice", () => {
+    const reading = read({ pool: ATTACKERS.map(({ genForecast: _g, ...r }) => r) });
+    expect(reading.kind === "empty" && reading.reason).toBe("no-forecast");
   });
 
-  it("con un campione sufficiente l'ancora è corretta dall'inflazione MISURATA", () => {
-    // Cinque acquisti di ruolo A pagati il doppio della Qt.A: il campione
-    // minimo dichiarato è 5, quindi la misura vale e l'ancora la applica.
-    const venduti = [1, 2, 3, 4, 5].map((i) => row(`Sacrificabile ${i}`, "A", "Alfa", 10, 50));
-    const log = logAfter(
-      venduti.map((p, i) => ({
-        playerId: key(p),
-        role: "A" as Role,
-        fantaTeamId: TEAMS[i]!,
-        price: 20,
-      })),
+  it("D.2 — l'accoppiamento posti→persone non tocca questo pannello", () => {
+    // Questo layer non legge né profili né posti: la lettura non ha nemmeno un
+    // campo per riceverli, e i candidati escono comunque.
+    expect(candidatesOf(read()).length).toBeGreaterThan(0);
+  });
+
+  it("D.3 — senza storico d'asta la curva non si forma, e il pannello lo dichiara", () => {
+    const reading = read({ history: [] });
+    expect(reading.kind === "empty" && reading.reason).toBe("no-forecast");
+    // …e con lo storico presente ma senza acquisti d'asta (solo rinnovi) il
+    // motivo è l'altro, non lo stesso appiattito.
+    const soloRinnovi = HISTORY_FULL.map((r) => ({ ...r, acquisition: "riconferma" }));
+    const altro = read({ history: soloRinnovi });
+    expect(altro.kind === "empty" && altro.detail).toBe("no-auction-rows");
+  });
+
+  it("D.4 — inflazione di serata sotto campione: il fattore NON entra, e si dichiara", () => {
+    // Due acquisti soli: `MIN_INFLATION_SAMPLE` è 5, quindi la misura c'è ma
+    // non qualifica. Il prezzo atteso esce senza il fattore di serata e la
+    // catena lo DICE — non è un 1 travestito da misura.
+    const log = logAfter([
+      { playerId: key(ATTACKERS[40]!), role: "A", fantaTeamId: RIVAL, price: 90 },
+      { playerId: key(ATTACKERS[41]!), role: "A", fantaTeamId: RIVAL, price: 90 },
+    ]);
+    const top = candidatesOf(read({ log })).find((c) => c.playerId === key(TOP))!;
+    if (top.expectedPrice.kind !== "prezzo") throw new Error("atteso un prezzo");
+    expect(top.expectedPrice.chain.inflationBasis).toBe("none");
+    expect(top.expectedPrice.chain.roleInflation).toBeNull();
+    expect(top.expectedPrice.chain.inflationSample).toBe(2);
+    expect(PER_ME_PARAMETERS.minInflationSample).toBe(5);
+  });
+
+  it("D.5 — niente rete sul percorso critico: la lettura non chiama fetch", () => {
+    const originale = globalThis.fetch;
+    let chiamate = 0;
+    globalThis.fetch = (() => {
+      chiamate += 1;
+      throw new Error("la lettura non deve chiamare la rete");
+    }) as typeof fetch;
+    try {
+      expect(candidatesOf(read()).length).toBeGreaterThan(0);
+      expect(chiamate).toBe(0);
+    } finally {
+      globalThis.fetch = originale;
+    }
+  });
+
+  it("D.6 — i profili confermati non entrano qui: nessun canale, PER COSTRUZIONE DEL TIPO", () => {
+    // CHE COSA PROVAVA QUESTO TEST FINO AL 2026-08-31, e non era il gradino:
+    // confrontava `read()` con `read()`, cioè una lettura con se stessa, senza
+    // variare niente. Verde o rosso, diceva solo che `read()` è deterministica
+    // — cosa vera e coperta altrove — mentre il gradino D.6 è un'altra cosa:
+    // «nessun effetto PER COSTRUZIONE DEL TIPO», perché un canale `profiles`
+    // in ingresso NON ESISTE. Un test che varia un ingresso inesistente non si
+    // può scrivere; quello che si può scrivere è la prova che l'ingresso non
+    // c'è, ed è più forte — non dipende da nessuna fixture.
+    //
+    // COME REGGE. L'oggetto qui sotto è tipato `Record<keyof Required<PerMeInput>, true>`:
+    // `tsc --noEmit` (npm run typecheck) rifiuta una chiave mancante E una
+    // chiave di troppo, quindi l'elenco È il tipo, letto a runtime. Il giorno
+    // in cui qualcuno aprisse un canale `profiles` in `PerMeInput`, il
+    // typecheck lo costringerebbe ad aggiungerlo qui e l'asserzione
+    // diventerebbe rossa col nome della chiave nuova, invece di restare verde
+    // per inerzia.
+    const CANALI_DI_INGRESSO: Readonly<Record<keyof Required<PerMeInput>, true>> = {
+      pool: true,
+      source: true,
+      state: true,
+      log: true,
+      history: true,
+      renewalsCount: true,
+      renewalsSpend: true,
+      values: true,
+      selfId: true,
+      planDraft: true,
+    };
+    const chiavi = Object.keys(CANALI_DI_INGRESSO);
+    // La contro-prova: l'elenco è popolato davvero, e la regex morde.
+    expect(chiavi.length).toBeGreaterThan(5);
+    expect(["profiles", "opponentProfiles", "profili"].filter((k) => /profil/i.test(k))).toHaveLength(
+      3,
     );
-    const reading = read([...venduti, A_MEDIO], { log });
+    expect(chiavi.filter((k) => /profil/i.test(k))).toEqual([]);
+
+    // E nulla di ciò che il motore produce porta un fatto di profilo: il
+    // candidato non ha un canale d'uscita che il gradino potrebbe aggirare.
+    const uscite = Object.keys(candidatesOf(read())[0]!);
+    expect(uscite.filter((k) => /profil/i.test(k))).toEqual([]);
+  });
+
+  it("D.7 — fascia di rango senza osservazioni: niente prezzo atteso, riga in coda, contata", () => {
+    // Con dodici acquisti a stagione le fasce 16-30 e 31+ restano vuote: i
+    // giocatori che ci cadono NON ricevono un prezzo inventato.
+    const reading = read({ history: HISTORY_TOP_ONLY });
     if (reading.kind !== "candidates") throw new Error("attesi candidati");
-    const c = reading.candidates[0]!;
-    expect(c.playerId).toBe(key(A_MEDIO));
-    expect(c.anchor.basis).toBe("role-inflation");
-    expect(c.anchor.inflationApplied).toBe(1);
-    expect(c.anchor.n).toBe(5);
-    expect(c.anchor.baseAnchor).toBe(40);
-    expect(c.anchor.correctedAnchor).toBe(80); // 40 x (1 + 1)
+    const senzaPrezzo = reading.candidates.filter((c) => c.expectedPrice.kind === "assente");
+    expect(senzaPrezzo.length).toBeGreaterThan(0);
+    for (const c of senzaPrezzo) {
+      expect(c.surplus).toBeNull();
+      if (c.expectedPrice.kind !== "assente") throw new Error("attesa un'assenza");
+      expect(c.expectedPrice.reason).toBe("fascia-senza-osservazioni");
+      expect(c.withinPlan).toBe(false); // senza P̂ non si entra in TARGET*
+    }
+    // Vanno in CODA e sono CONTATE: nessuno zero al posto dell'assenza.
+    const primoSenza = reading.candidates.findIndex((c) => c.expectedPrice.kind === "assente");
+    expect(reading.candidates.slice(primoSenza).every((c) => c.expectedPrice.kind === "assente")).toBe(
+      true,
+    );
+    expect(reading.withoutSurplus).toBe(senzaPrezzo.length);
+  });
+
+  it("D.7-bis — fascia SOTTO campione è un'assenza diversa da fascia senza osservazioni", () => {
+    // UNA sola stagione da 33 acquisti: la fascia 31+ raccoglie tre
+    // osservazioni, cioè meno del campione minimo. Il motivo è «sotto
+    // campione», e non si confonde con «nessuna osservazione» — sono due
+    // assenze diverse e il vocabolario del motore le distingue.
+    const reading = read({ history: historyOf(["2025/26"], 33) });
+    if (reading.kind !== "candidates") throw new Error("attesi candidati");
+    const motivi = new Set(
+      reading.candidates.flatMap((c) =>
+        c.expectedPrice.kind === "assente" ? [c.expectedPrice.reason] : [],
+      ),
+    );
+    expect(motivi.has("fascia-sotto-campione")).toBe(true);
+    expect(PER_ME_PARAMETERS.minPriceBandSample).toBe(MIN_PRICE_BAND_SAMPLE);
   });
 });
 
-describe("perMeCandidates — i parametri e la ratifica viaggiano nel dato", () => {
-  it("il tetto delle righe è dichiarato provvisorio e tronca davvero", () => {
-    const reading = read(SCENE);
+describe("i fatti che la riga porta, e le assenze contate", () => {
+  it("i due conteggi di scarsità sono conteggi, misurati sullo stato", () => {
+    const top = candidatesOf(read()).find((c) => c.playerId === key(TOP))!;
+    // 60 attaccanti liberi, quotazioni 100..41: sotto il primo ce ne sono 59.
+    expect(top.cliff.alternativesAtOrBelow).toBe(59);
+    expect(top.rivalsWithSlot).toBe(TEAMS.length - 1);
+  });
+
+  it("il costo per vincerlo adesso è quello del motore, per RUOLO e non per riga", () => {
+    const candidates = candidatesOf(read());
+    const stessoRuolo = candidates.filter((c) => c.role === "A");
+    const primo = stessoRuolo[0]!.relativePrice;
+    for (const c of stessoRuolo) expect(c.relativePrice).toEqual(primo);
+  });
+
+  it("il max bid è interrogato e mai riderivato, e nessun prezzo atteso lo supera", () => {
+    const me = reduce([], TEAMS).teams[ME]!;
+    for (const c of candidatesOf(read())) {
+      expect(c.maxBid).toBe(maxSafe(me, c.role).maxSafe);
+      if (c.expectedPrice.kind === "prezzo") {
+        expect(c.expectedPrice.credits).toBeLessThanOrEqual(c.maxBid);
+      }
+    }
+  });
+
+  it("sotto il rango di rimpiazzo V è il PAVIMENTO, non un'assenza", () => {
+    // `r*` è 57: dal rango 57 in giù nessuno produce più di un rimpiazzo
+    // liberamente disponibile, e il motore lo dice assegnando `COST_FLOOR` —
+    // che è un numero misurato dal regolamento, non un ripiego. Quelle righe
+    // restano quindi nella popolazione, in fondo.
+    const reading = read();
+    if (reading.kind !== "candidates") throw new Error("attesi candidati");
+    expect(reading.freeInOpenRoles).toBe(60);
+    expect(reading.withoutValue).toBe(0);
+    const ultimo = reading.candidates.find((c) => c.playerId === key(ATTACKERS[59]!))!;
+    expect(ultimo.value).toBe(COST_FLOOR);
+  });
+
+  it("un ruolo che non arriva al rimpiazzo non ha V, e i suoi liberi sono CONTATI", () => {
+    // Tre difensori soli: il ruolo D non arriva mai al rango 73, quindi non
+    // esiste un rimpiazzo su cui misurare il VORP. Non ricevono un `V`
+    // inventato: restano fuori dalla popolazione, e il conteggio lo dice.
+    const difensori = [0, 1, 2].map((i) => ({
+      ...attacker(i),
+      name: `Difensore 0${i + 1}`,
+      role: "D" as Role,
+    }));
+    const reading = read({ pool: [...ATTACKERS, ...difensori] });
+    if (reading.kind !== "candidates") throw new Error("attesi candidati");
+    expect(reading.freeInOpenRoles).toBe(63);
+    expect(reading.withoutValue).toBe(3);
+    expect(reading.candidates.some((c) => c.role === "D")).toBe(false);
+  });
+
+  it("l'ancora resta a schermo con la sua scomposizione, anche se non sottrae più", () => {
+    const top = candidatesOf(read()).find((c) => c.playerId === key(TOP))!;
+    expect(top.anchor.baseAnchor).toBe(100);
+    expect(top.anchor.correctedAnchor).toBe(100);
+    expect(top.anchor.coldStart).toBe(true);
+  });
+});
+
+describe("i parametri e la ratifica viaggiano nel dato", () => {
+  it("il tetto delle righe è RATIFICATO, e tronca davvero", () => {
+    const reading = read();
     expect(reading.parameters.rowsMax).toBe(PER_ME_ROWS_MAX);
-    expect(reading.parameters.rowsMaxStatus).toContain("provvisorio");
-    expect(perMeShownCandidates(reading)).toHaveLength(3);
-    expect(reading.kind === "candidates" && reading.candidates).toHaveLength(4);
+    expect(reading.parameters.rowsMaxStatus).toBe("ratificato da Pico il 2026-08-31");
+    expect(reading.parameters.rowsMaxStatus).not.toContain("provvisorio");
+    // UNO, dal 2026-08-31: «un giocatore soltanto», decisione di Pico che
+    // supera la ratifica a 3 della mattina dello stesso giorno. Il troncamento
+    // è VERO — l'ordine continua a girare su tutta la popolazione, e la riga
+    // che resta è la prima di quell'ordine, non l'unica calcolata.
+    expect(perMeShownCandidates(reading)).toHaveLength(1);
+    expect(candidatesOf(reading).length).toBeGreaterThan(1);
+    expect(perMeShownCandidates(reading)[0]).toBe(candidatesOf(reading)[0]);
+  });
+
+  it("i due sottoblocchi del riquadro dicono lo stato del tetto NELLO STESSO MODO", () => {
+    // Il letterale è condiviso col pannello esca: due copie della stessa
+    // affermazione sono due occasioni di divergere, e questo test è ciò che
+    // impedisce che una delle due resti indietro.
+    expect(PER_ME_PARAMETERS.rowsMaxStatus).toBe(ROWS_MAX_STATUS);
+    expect(BAIT_PARAMETERS.rowsMaxStatus).toBe(ROWS_MAX_STATUS);
+    expect(BAIT_PARAMETERS.rowsMax).toBe(PER_ME_PARAMETERS.rowsMax);
   });
 
   it("ogni lettura porta le DUE scelte non ratificate, e nessuna è firmata", () => {
-    for (const reading of [read(SCENE), read([])]) {
+    for (const reading of [read(), read({ pool: [] })]) {
       expect(reading.ratification.ratified).toBe(false);
       expect(reading.ratification.unratifiedChoices).toEqual(PER_ME_UNRATIFIED_CHOICES);
     }
@@ -601,47 +797,46 @@ describe("perMeCandidates — i parametri e la ratifica viaggiano nel dato", () 
     // scritto: un identificatore senza motivo sarebbe una scelta nascosta con
     // un nome sopra. Questo test la DOCUMENTA, non la approva.
     expect(PER_ME_UNRATIFIED_CHOICES).toEqual([
-      "PER_ME_ORDER_APPEAL_BREAKS_SURPLUS_TIES",
-      "PER_ME_REQUIRES_COMPLETE_ROLE_PLAN",
+      "PER_ME_DECLARED_PLAN_FITS_ON_EXPECTED_PRICE",
+      "PER_ME_REQUIRES_ANCHOR_SCALE",
     ]);
     for (const id of PER_ME_UNRATIFIED_CHOICES) {
       expect(UNRATIFIED_CHOICES[id].length).toBeGreaterThan(0);
     }
   });
 
-  it("il campione minimo è quello del motore, copiato e non scelto qui", () => {
-    expect(PER_ME_PARAMETERS.minInflationSample).toBe(5);
+  it("la riserva dura è quella del motore, copiata per essere ispezionabile", () => {
+    expect(PER_ME_PARAMETERS.costFloor).toBe(COST_FLOOR);
   });
 
-  it("la lettura porta la versione del piano che l'ha prodotta", () => {
-    const reading = read(SCENE);
-    expect(reading.kind === "candidates" && reading.planVersion).toBe("test-1");
+  it("la base dichiarata dice su che cosa poggia la lettura", () => {
+    expect(read().basis).toBe("credit-value-expected-price-and-dynamic-plan");
   });
 });
 
-describe("perMeCandidates — il costo", () => {
-  beforeEach(() => {
-    resetPerMeAnchorCache();
-  });
-
-  it("un tasto nella ricerca non ricostruisce il listino delle ancore", () => {
-    read(SCENE);
+describe("la cache del listino delle ancore", () => {
+  it("due letture sullo stesso pool costruiscono il listino UNA volta sola", () => {
+    read();
     expect(perMeAnchorCacheStats()).toEqual({ builds: 1, hits: 0 });
-    read(SCENE);
-    read(SCENE);
-    expect(perMeAnchorCacheStats()).toEqual({ builds: 1, hits: 2 });
+    read();
+    expect(perMeAnchorCacheStats()).toEqual({ builds: 1, hits: 1 });
   });
 
-  it("un listone SOSTITUITO fa scadere la voce", () => {
-    read(SCENE);
-    read([...SCENE]);
-    expect(perMeAnchorCacheStats()).toEqual({ builds: 2, hits: 0 });
+  it("un pool DIVERSO ricostruisce: la chiave è l'identità dell'array", () => {
+    read();
+    read({ pool: [...ATTACKERS] });
+    expect(perMeAnchorCacheStats().builds).toBe(2);
   });
 
-  it("la voce conservata è la stessa lettura, non una lettura simile", () => {
-    const first = read(SCENE);
-    const second = read(SCENE);
-    expect(ids(second)).toEqual(ids(first));
-    expect(perMeAnchorCacheStats().hits).toBe(1);
+  it("la cache non tiene nulla che dipenda dallo stato: cambia il log, cambia l'esito", () => {
+    const prima = candidatesOf(read()).map((c) => c.playerId);
+    const log = logAfter([
+      { playerId: key(ATTACKERS[0]!), role: "A", fantaTeamId: RIVAL, price: 50 },
+    ]);
+    const dopo = candidatesOf(read({ log })).map((c) => c.playerId);
+    expect(dopo).not.toEqual(prima);
+    // …e il listino delle ancore è stato comunque riusato: dipende dal pool,
+    // non dallo stato.
+    expect(perMeAnchorCacheStats().hits).toBeGreaterThan(0);
   });
 });

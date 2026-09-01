@@ -31,18 +31,23 @@ import { PER_ME_TITLE_SHORT } from "../src/ui/perMeRow.js";
 // legge davvero il boot. Zero dati reali, e il network guard aborta qualunque
 // altra cosa.
 //
-// I TRE CANDIDATI ATTESI, calcolati sulla fixture e non indovinati: con otto
+// LA RIGA È TRE COSE, DAL 2026-08-31: nome, ruolo, squadra. «Quello che voglio
+// nelle due feature è un giocatore soltanto con Nome, ruolo e squadra. Non devo
+// usarle per leggere ma come consiglio» (Pico). Sono usciti da questa spec il
+// censimento degli avversari esposti, la proiezione «se resta a te» e le righe
+// di evidenza dei precedenti: non perché le asserzioni desse fastidio, ma
+// perché quel testo non è più a schermo. Al loro posto c'è la pretesa opposta e
+// più forte — che nessuno di quei fatti torni sulla riga.
+//
+// IL CANDIDATO ATTESO, calcolato sulla fixture e non indovinato: con otto
 // squadre a rose vuote ogni reparto è aperto e ogni budget capiente, quindi
-// l'ordine è per numero di avversari esposti e poi per chiave di listone.
-//   Primo Portiere (ClubUno)   3 avversari — Squadra2, Squadra3, Squadra4
-//   Secondo Portiere (ClubUno) 3 avversari — gli stessi tre
-//   Primo Difensore (ClubTre)  2 avversari — Squadra2, Squadra3
-// Le righe su ClubDue restano fuori dal tetto di 3, ed è giusto così: hanno
-// due avversari e una chiave di listone che viene dopo.
+// l'ordine è per numero di avversari esposti e poi per chiave di listone, e il
+// primo di quell'ordine è Primo Portiere (ClubUno), con tre avversari esposti.
+// Gli altri — Secondo Portiere, Primo Difensore, le righe su ClubDue — restano
+// fuori dal tetto di UNA riga: il motore continua a ordinarli tutti, la vista
+// ne disegna uno.
 
 const FIRST_ROW = "Primo Portiere";
-const SECOND_ROW = "Secondo Portiere";
-const THIRD_ROW = "Primo Difensore";
 
 /** La guardia di deriva, sul DOM VIVO. Gemella di src/ui/baitRow.test.ts §E14. */
 const DRIFT = /vuole|abbocc|aggressiv|tilt|preved|probabil|stima/i;
@@ -82,7 +87,7 @@ async function documentTop(page: Page, selector: string): Promise<number> {
   }, selector);
 }
 
-test("il sottoblocco mostra i candidati attesi, in ordine, dentro GIOCATORE SUGGERITO", async ({
+test("il sottoblocco mostra IL candidato atteso, dentro GIOCATORE SUGGERITO", async ({
   page,
   context,
 }) => {
@@ -91,51 +96,131 @@ test("il sottoblocco mostra i candidati attesi, in ordine, dentro GIOCATORE SUGG
   await boot(page);
 
   const rows = page.locator("#bait-rows .bait-row");
-  // Il tetto dichiarato è 3 (provvisorio): non due, non tutti.
-  await expect(rows).toHaveCount(3);
-  await expect(rows.nth(0)).toContainText(FIRST_ROW);
-  await expect(rows.nth(1)).toContainText(SECOND_ROW);
-  await expect(rows.nth(2)).toContainText(THIRD_ROW);
+  // Il tetto ratificato è 1: non tre, non tutti. Era 3 fino a stamane, e la
+  // decisione successiva di Pico nella stessa giornata lo supera.
+  await expect(rows).toHaveCount(1);
 
-  // Il censimento e le sue tre condizioni, insieme.
-  await expect(rows.nth(0)).toContainText("3 avversari con un precedente, lo slot e i crediti");
-  await expect(rows.nth(2)).toContainText("2 avversari con un precedente, lo slot e i crediti");
+  // LA RIGA È TRE COSE, e l'asserzione è sulla FORMA INTERA e non su un
+  // «contiene»: «Nome (R · Club)», niente prima e niente dopo.
+  const riga = ((await rows.first().innerText()) ?? "").trim();
+  expect(riga).toBe(`${FIRST_ROW} (P · ClubUno)`);
 
-  // Il costo del piano B, mostrato INSIEME alla mossa.
-  await expect(rows.nth(0)).toContainText("se resta a te a 1 cr: slot P 3→2");
-  await expect(rows.nth(0)).toContainText("restano 499 cr");
+  // IL ROVESCIO DI CIÒ CHE QUESTA SPEC ASSERIVA IERI: nessuno dei fatti che la
+  // riga portava è tornato a schermo. I precedenti coi loro numeri restano nel
+  // pannello AVVERSARI: I PRECEDENTI, e il costo del piano B sulla schermata di
+  // chiamata che questa riga arma — a un clic.
+  expect(riga).not.toContain("avversari"); // il censimento degli esposti
+  expect(riga).not.toContain("avversario");
+  expect(riga).not.toContain("se resta a te"); // la proiezione del piano B
+  expect(riga).not.toContain("slot");
+  expect(riga).not.toContain("restano");
+  expect(riga).not.toContain("ha speso su"); // le righe di evidenza
+  expect(riga).not.toContain("dal 15% in su");
+  expect(riga).not.toContain("⚠"); // il marcatore di prima fascia
+  await expect(page.locator("#bait-rows .bait-row__mark")).toHaveCount(0);
+  await expect(page.locator("#bait-rows .bait-row__evidence")).toHaveCount(0);
 
-  // La prova viaggia col fatto, con la soglia e la numerosità in vista.
-  await expect(rows.nth(0)).toContainText("ha speso su ClubUno");
-  await expect(rows.nth(0)).toContainText("dal 15% in su");
-
-  // Con le righe, l'occhiello è quello per esteso: dice CHE COSA sono.
+  // Con le righe, il nome è quello per esteso: dice CHE COSA sono.
   await expect(page.locator("#bait-title")).toHaveText(BAIT_TITLE);
 
-  // I tre parametri, ispezionabili accanto ai numeri che governano.
-  const note = page.locator("#bait-note");
-  await expect(note).toContainText("provenienza: storico d'asta misurato");
-  await expect(note).toContainText("apertura a 1 cr");
-  await expect(note).toContainText("almeno 1 stagione misurata per fatto");
-  await expect(note).toContainText("al massimo 3 righe (provvisorio");
+  // IL NOME DELLA SECONDA METÀ NON SI NASCONDE, E STA IN SECONDO RANGO — Pico,
+  // 2026-08-31. Il gemello `#per-me-title` è uscito dalla vista perché
+  // l'occhiello diceva già la stessa cosa; questo NO, perché porta la SECONDA
+  // DOMANDA — «per far spendere gli altri» — e nessun altro elemento della
+  // pagina la porta. Le due pretese stanno insieme perché una senza l'altra è
+  // metà della decisione: si vede, E si legge come subordinato all'occhiello.
+  const baitTitle = page.locator("#bait-title");
+  await expect(baitTitle).toBeVisible();
+  const titleBox = await baitTitle.evaluate((el) => el.getBoundingClientRect());
+  expect(titleBox.height, "il nome della seconda metà occupa una riga vera").toBeGreaterThan(1);
+  // IL NOME ACCESSIBILE RESTA QUELLO, e non per abitudine: `aria-labelledby`
+  // punta qui, quindi un titolo tolto dal rendering lascerebbe `#bait-block`
+  // senza nome per chi legge con uno screen reader — la stessa ragione per cui
+  // il gemello nascosto è rimasto nel DOM.
+  await expect(page.locator("#bait-block")).toHaveAttribute("aria-labelledby", "bait-title");
+  expect(
+    await page.locator("#bait-block").evaluate((el) => {
+      const by = el.getAttribute("aria-labelledby") ?? "";
+      return document.getElementById(by)?.textContent ?? null;
+    }),
+    "la seconda metà ha ancora il proprio nome accessibile",
+  ).toBe(BAIT_TITLE);
+  // IL RANGO, MISURATO E NON DICHIARATO: corpo e peso stanno SOTTO quelli
+  // dell'occhiello che intesta entrambe le metà. È la forma che dice chi
+  // intesta chi, e senza questa misura «sottotitolo» sarebbe una parola nei
+  // commenti.
+  const [head, sub] = await page.evaluate(() =>
+    ["suggested-player-title", "bait-title"].map((id) => {
+      const cs = getComputedStyle(document.getElementById(id)!);
+      return { fontSize: parseFloat(cs.fontSize), fontWeight: parseInt(cs.fontWeight, 10) };
+    }),
+  );
+  expect(sub!.fontSize, "il nome della metà è più piccolo dell'occhiello").toBeLessThan(
+    head!.fontSize,
+  );
+  expect(sub!.fontWeight, "…e più leggero").toBeLessThan(head!.fontWeight);
+  // I DUE LIVELLI DI INTESTAZIONE, perché chi naviga per titoli senta la
+  // stessa gerarchia che si vede: l'occhiello un livello sopra i nomi delle
+  // due metà, non allo stesso.
+  expect(
+    await page.evaluate(() =>
+      ["suggested-player-title", "per-me-title", "bait-title"].map(
+        (id) => document.getElementById(id)?.tagName ?? null,
+      ),
+    ),
+  ).toEqual(["H2", "H3", "H3"]);
 
-  // Il blocco ospita DUE sottoblocchi: il segnaposto della prima metà non è
-  // stato toccato, e il listone resta sotto (e2e/call-screen-order.spec.ts).
+  // LA NOTA NON C'È PIÙ, DEL TUTTO — «via del tutto» (Pico, 2026-08-31), messo
+  // davanti alla misura della gemella `#per-me-note`: 92 px di annotazione per
+  // 34 px di riga annotata. Qui la nota costava anche di più — `#bait-block`
+  // popolato è sceso da 178,7 a 91 px a 390×844, cioè 87,7 px di sola
+  // annotazione. L'elemento non esiste in nessuno dei due esiti, e
+  // le sue parole non ricompaiono altrove nel sottoblocco.
+  await expect(page.locator("#bait-note")).toHaveCount(0);
+  const blocco = (await page.locator("#bait-block").textContent()) ?? "";
+  expect(blocco).not.toContain("provenienza");
+  expect(blocco).not.toContain("storico d'asta misurato");
+  expect(blocco).not.toContain("apertura a 1 cr");
+  expect(blocco).not.toContain("stagione misurata");
+  expect(blocco).not.toContain("al massimo");
+  expect(blocco).not.toContain("ratificato da Pico");
+
+  // Il blocco ospita DUE sottoblocchi: la prima metà non è stata toccata, e il
+  // listone resta sotto (e2e/call-screen-order.spec.ts).
   const suggested = page.locator("#suggested-player");
   await expect(suggested).toContainText("GIOCATORE SUGGERITO — CHI CHIAMARE ORA");
-  // La PRIMA metà non è più un segnaposto: è il sottoblocco «PER ME», che in
-  // questa scena non ha un piano rosa dichiarato e quindi dice quale
-  // dichiarazione gli manca invece di ordinare su un piano che non esiste.
-  // L'asserzione è la stessa domanda di prima — «la prima metà c'è e dice
-  // qualcosa di onesto» — aggiornata al contenuto che adesso c'è davvero.
+  // La PRIMA metà è il sottoblocco «PER ME», che in questa scena non ha né le
+  // previsioni servite né lo storico d'asta e quindi dice QUALE deposito gli
+  // manca invece di ordinare su numeri che non esistono.
   await expect(suggested).toContainText(PER_ME_TITLE_SHORT);
-  await expect(page.locator("#per-me-empty")).toHaveAttribute("data-reason", "plan-absent");
+  await expect(page.locator("#per-me-empty")).toHaveAttribute("data-reason", "no-forecast");
   expect(await page.evaluate(() =>
     document.getElementById("suggested-player")!.contains(document.getElementById("bait-block")),
   )).toBe(true);
-  expect(await documentTop(page, "#bait-block")).toBeGreaterThan(
-    await documentTop(page, "#suggested-player-mine"),
-  );
+  // LA SECONDA METÀ VIENE DOPO LA PRIMA, e da qui in poi si dice nell'ordine
+  // del DOCUMENTO e non in pixel verticali. Il confronto in pixel era col
+  // contenitore `#suggested-player-mine`, che partiva dall'occhiello e quindi
+  // stava più in alto di entrambe; dal 2026-08-31 quel contenitore non esiste
+  // — l'occhiello è salito a intestare le due metà — e le due metà sono
+  // sorelle in una griglia che a QUESTA larghezza (1280, il default della
+  // suite) le mette AFFIANCATE: stesso bordo superiore, 199,5 px tutte e due,
+  // misurato. Un «più in basso» sarebbe rosso per la larghezza della finestra,
+  // non per l'ordine — che è la cosa che questa riga vuole difendere.
+  expect(
+    await page.evaluate(() => {
+      const halves = document.getElementById("suggested-player-halves");
+      const perMe = document.getElementById("per-me-block");
+      const bait = document.getElementById("bait-block");
+      if (halves === null || perMe === null || bait === null) return null;
+      return Array.from(halves.children).map((el) => el.id);
+    }),
+    "prima la metà PER ME, poi l'esca, sorelle nello stesso contenitore",
+  ).toEqual(["per-me-block", "bait-block"]);
+  // ED ENTRAMBE STANNO SOTTO L'OCCHIELLO, che le intesta: questo sì è un fatto
+  // verticale, e vale a ogni larghezza.
+  const occhielloTop = await documentTop(page, "#suggested-player-title");
+  expect(await documentTop(page, "#per-me-block")).toBeGreaterThan(occhielloTop);
+  expect(await documentTop(page, "#bait-block")).toBeGreaterThan(occhielloTop);
   expect(await documentTop(page, "#listone-block")).toBeGreaterThan(
     await documentTop(page, "#bait-block"),
   );
@@ -243,14 +328,18 @@ test("E16 — e con la BARRA SPAZIATRICE, che è l'altro tasto di un bottone", a
   await installSyntheticNetworkGuard(context, PRECEDENT_POOL, externalRequests);
   await boot(page);
 
-  await page.locator("#bait-rows .bait-row").nth(2).focus();
-  await expect(page.locator("#bait-rows .bait-row").nth(2)).toBeFocused();
+  // Era `.nth(2)` quando le righe erano tre: col tetto a UNA il gesto si prova
+  // sulla riga che c'è. Ciò che il test dimostra non cambia — che la riga è un
+  // `<button>` vero e che la barra spaziatrice la attiva come Invio.
+  const row = page.locator("#bait-rows .bait-row").first();
+  await row.focus();
+  await expect(row).toBeFocused();
   await page.keyboard.press("Space");
 
-  await expect(page.locator("#search-player")).toHaveValue(THIRD_ROW);
+  await expect(page.locator("#search-player")).toHaveValue(FIRST_ROW);
   await expect(page.getByRole("button", { name: /^Avvia/ })).toBeEnabled();
   await page.getByRole("button", { name: /^Avvia/ }).click();
-  await expect(page.locator("#call-card")).toContainText(THIRD_ROW);
+  await expect(page.locator("#call-card")).toContainText(FIRST_ROW);
 
   expect(externalRequests).toEqual([]);
 });
@@ -306,10 +395,13 @@ test("senza storico il sottoblocco dice «non lo so», e non «nessuno»", async
   await expect(empty).toContainText("«non lo so» non è «nessuno»");
   await expect(page.locator("#bait-rows")).toHaveCount(0);
 
-  // SENZA POPOLAZIONE, IL BLOCCO NON RECITA PARAMETRI CHE NON HANNO GOVERNATO
-  // NIENTE: niente nota, e l'occhiello è il solo nome. Un blocco che non ha
-  // nulla da dire non si prende un quarto di schermata — vedi
-  // e2e/call-screen-order.spec.ts, che tiene la paginazione entro due schermate.
+  // IL MOTIVO DEL SILENZIO C'È, LA NOTA NO. Sono due elementi diversi con due
+  // compiti diversi, e solo il secondo se n'è andato: `#bait-empty` qui sopra
+  // dice PERCHÉ il pannello tace — e per `no-history` dice proprio «non lo so»,
+  // che è l'opposto di «nessuno» — mentre `#bait-note` non esiste più in
+  // nessuno stato. Un blocco che non ha nulla da dire non si prende un quarto
+  // di schermata: vedi e2e/call-screen-order.spec.ts, che tiene la paginazione
+  // entro due schermate.
   await expect(page.locator("#bait-note")).toHaveCount(0);
   await expect(page.locator("#bait-title")).toHaveText(BAIT_TITLE_SHORT);
   const emptyHeight = await page
