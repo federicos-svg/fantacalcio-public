@@ -50,6 +50,7 @@ import {
   RIGORISTA_COLUMN_KEY,
   SIGNAL_COLUMN_KEYS,
   VALUE_NOT_AVAILABLE,
+  VALUE_SILENT,
   type ListoneColumn,
   type ListonePlayer,
   type ListoneRowSignalsLookup,
@@ -1538,9 +1539,33 @@ describe("colonne del Gruppo Esperti — un voto assente è n/d, mai uno zero", 
     expect(listoneCellText(VALID_PLAYER, "pagella_media_voto", signals)).toBe(VALUE_NOT_AVAILABLE);
   });
 
-  it("says n/d — not a dash — for the three ordered signals with no scheda", () => {
+  it("TACE — non n/d e non un trattino — sui tre piazzati che la scheda non nomina", () => {
+    // Il capovolgimento del 2026-09-01, e la ragione per cui i due gruppi di
+    // colonne non possono piu' condividere una riga di resa: per i piazzati
+    // l'assenza e' la NORMA (una squadra ha uno o due rigoristi), quindi `n/d`
+    // ripetuto su quattrocento righe non dichiarava un difetto, lo simulava.
     for (const key of [RIGORISTA_COLUMN_KEY, PUNIZIONI_COLUMN_KEY, ANGOLI_COLUMN_KEY]) {
+      expect(listoneCellText(VALID_PLAYER, key)).toBe(VALUE_SILENT);
+      expect(listoneCellText(VALID_PLAYER, key)).not.toBe(VALUE_NOT_AVAILABLE);
+      expect(listoneCellText(VALID_PLAYER, key)).not.toBe("—");
+    }
+  });
+
+  it("i cinque voti continuano a DICHIARARE l'assenza: il silenzio vale solo per i piazzati", () => {
+    // La meta' che non cambia, asserita accanto a quella che cambia: senza
+    // questa riga il capovolgimento sopra si potrebbe estendere a tutte e otto
+    // le colonne senza che un test se ne accorga, e un voto mancante e' un
+    // difetto vero che deve continuare a vedersi.
+    for (const key of EXPERT_VOTE_COLUMN_KEYS) {
       expect(listoneCellText(VALID_PLAYER, key)).toBe(VALUE_NOT_AVAILABLE);
+    }
+  });
+
+  it("il silenzio non sposta la riga nell'ordinamento", () => {
+    // Cambia cio' che si legge, non dove la riga si posa: `listoneCellValue`
+    // rende ancora `undefined`, che ordina in fondo in entrambe le direzioni.
+    for (const key of [RIGORISTA_COLUMN_KEY, PUNIZIONI_COLUMN_KEY, ANGOLI_COLUMN_KEY]) {
+      expect(listoneCellValue(VALID_PLAYER, key)).toBeUndefined();
     }
   });
 

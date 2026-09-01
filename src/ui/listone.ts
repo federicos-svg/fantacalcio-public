@@ -438,6 +438,43 @@ export const SIGNAL_COLUMN_KEYS: readonly string[] = [
 ];
 
 /**
+ * Le tre colonne dei calci piazzati, elencate a parte perché è l'assenza a
+ * comportarsi diversamente sulle une e sulle altre.
+ *
+ * I CINQUE VOTI hanno un valore per chiunque abbia una scheda: se manca, manca
+ * per un difetto — nessuno l'ha estratto — e `n/d` è la parola giusta, perché
+ * dichiara proprio quel difetto.
+ *
+ * IL POSTO NELLA FILA no. Una squadra ha uno o due rigoristi, e per gli altri
+ * venti la fonte tace non perché qualcosa sia andato storto ma perché non
+ * c'era niente da dire. Su 524 righe, 455 dicevano `n/d` nella colonna dei
+ * rigori: una colonna di dichiarazioni d'assenza, dove l'assenza è la norma.
+ * A quel punto `n/d` smette di informare e comincia a confondere — si legge
+ * «manca un dato» dove il dato non manca affatto (decisione del committente,
+ * 2026-09-01: «mostra il campo vuoto invece che n/d così non ci confondiamo»).
+ *
+ * La cella vuota NON afferma il contrario: non dice «non tira i rigori», dice
+ * che la scheda non lo nomina fra i battitori. È la stessa cosa che diceva
+ * `n/d`, detta tacendo invece che ripetendola quattrocento volte — e il
+ * tooltip della colonna continua a scriverla per esteso, perché una regola che
+ * vale in silenzio va comunque potuta leggere.
+ */
+export const SET_PIECE_COLUMN_KEYS: readonly string[] = [
+  RIGORISTA_COLUMN_KEY,
+  PUNIZIONI_COLUMN_KEY,
+  ANGOLI_COLUMN_KEY,
+];
+
+/**
+ * Il testo di una cella dei piazzati che la scheda non nomina: NIENTE.
+ *
+ * Una costante e non un letterale sparso, per la stessa ragione per cui
+ * `VALUE_NOT_AVAILABLE` è una costante: la resa dell'assenza è un contratto, e
+ * un contratto si cambia in un posto solo.
+ */
+export const VALUE_SILENT = "";
+
+/**
  * I SEGNALI DI UNA RIGA — ciò che la tabella mostra e che la riga di listone
  * non porta.
  *
@@ -1268,8 +1305,8 @@ const SCHEDA_SIGNALS_CLAUSE =
 const PIAZZATI_TOOLTIP = (specialita: string, di: string): string =>
   `Il POSTO NELLA FILA dei battitori ${di} secondo la scheda del Gruppo Esperti: «1» è il ` +
   `primo. «${RANGO_IGNOTO}» quando la scheda dichiara la specialità e non l'ordine. ` +
-  `«${VALUE_NOT_AVAILABLE}» quando la scheda non nomina «${specialita}» fra i calci ` +
-  `piazzati — non significa che non li batta.`;
+  `Cella VUOTA quando la scheda non nomina «${specialita}» fra i calci piazzati — ` +
+  `non significa che non li batta, significa che la scheda non lo dice.`;
 
 const APPEAL_INDEX_COLUMN: ListoneColumn = {
   key: APPEAL_INDEX_COLUMN_KEY,
@@ -1518,7 +1555,8 @@ const COLUMN_TOOLTIPS: Readonly<Record<string, string>> = {
     "Il POSTO NELLA FILA dei rigoristi come lo dichiara la scheda del Gruppo Esperti: «1» è il " +
     `primo rigorista. «${RANGO_IGNOTO}» quando la scheda lo dà fra i rigoristi senza dire in che ` +
     "ordine — è il caso del «rigorista possibile». " +
-    "n/d quando la scheda non lo dice affatto — non significa che non li tiri.",
+    "Cella VUOTA quando la scheda non lo dice affatto — non significa che non li tiri, " +
+    "significa che la scheda non lo dice.",
   [PUNIZIONI_COLUMN_KEY]: PIAZZATI_TOOLTIP("punizioni", "delle punizioni"),
   [ANGOLI_COLUMN_KEY]: PIAZZATI_TOOLTIP("angoli", "degli angoli"),
 };
@@ -1945,6 +1983,13 @@ export function listoneCellText(
   }
   if (columnKey === NO_MALUS_BONUS_COLUMN_KEY && value === undefined) {
     return signals(p).pagella.asseIncoerente ? VALUE_NOT_APPLICABLE : VALUE_NOT_AVAILABLE;
+  }
+  if (SET_PIECE_COLUMN_KEYS.includes(columnKey)) {
+    // L'assenza qui è la norma, non un difetto: tace invece di dichiararsi.
+    // L'ORDINAMENTO NON CAMBIA — `listoneCellValue` continua a rendere
+    // `undefined`, che finisce in fondo in entrambe le direzioni: cambia cosa
+    // si legge nella cella, non dove la riga si posa.
+    return value === undefined ? VALUE_SILENT : String(value);
   }
   if (SIGNAL_COLUMN_KEYS.includes(columnKey)) {
     return value === undefined ? VALUE_NOT_AVAILABLE : String(value);
