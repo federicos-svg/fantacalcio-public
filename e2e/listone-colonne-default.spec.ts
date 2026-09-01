@@ -11,7 +11,11 @@ import {
 } from "./fixtures/synthetic-schede.js";
 import { installSyntheticNetworkGuard } from "./helpers.js";
 import { LISTONE_COLUMN_PREFS_STORAGE_KEY } from "../src/listoneColumnPrefs.js";
-import { LISTONE_IDENTITY_COLUMN_KEYS, VALUE_NOT_AVAILABLE } from "../src/ui/listone.js";
+import {
+  LISTONE_IDENTITY_COLUMN_KEYS,
+  VALUE_NOT_AVAILABLE,
+  VALUE_SILENT,
+} from "../src/ui/listone.js";
 
 // LE UNDICI COLONNE DI DEFAULT DEL LISTONE — sul DOM vivo.
 //
@@ -395,7 +399,7 @@ test("una scheda con l'asse dell'altro ruolo dice n.a., non n/d e non il voto st
   expect(externalRequests).toEqual([]);
 });
 
-test("le tre file ordinate portano IL SOLO POSTO IN FILA, e n/d quando la scheda tace", async ({
+test("le tre file ordinate portano IL SOLO POSTO IN FILA, e tacciono quando la scheda tace", async ({
   page,
   context,
 }) => {
@@ -414,27 +418,36 @@ test("le tre file ordinate portano IL SOLO POSTO IN FILA, e n/d quando la scheda
   // `piazzati: ["punizioni"]` col rango 2.
   await expect(cell(page, WITH_SCHEDA.name, "scheda_rigorista")).toHaveText("1");
   await expect(cell(page, WITH_SCHEDA.name, "scheda_punizioni")).toHaveText("2");
-  // La stessa scheda NON dichiara gli angoli: `n/d`, e non «zero angoli».
-  await expect(cell(page, WITH_SCHEDA.name, "scheda_angoli")).toHaveText(VALUE_NOT_AVAILABLE);
+  // ASSERZIONE INVERTITA — la cella diceva `n/d`. Pico, 2026-09-01: «mostra
+  // il campo vuoto invece che n/d così non ci confondiamo». Per il posto in
+  // fila l'assenza è la norma e non un difetto: su quattrocento righe di
+  // cinquecento, `n/d` simulava un buco dove il buco non c'è.
+  //
+  // La stessa scheda NON dichiara gli angoli: la cella tace, e non dice «zero
+  // angoli» né «non estratto».
+  await expect(cell(page, WITH_SCHEDA.name, "scheda_angoli")).toHaveText(VALUE_SILENT);
+  await expect(cell(page, WITH_SCHEDA.name, "scheda_angoli")).not.toHaveText(VALUE_NOT_AVAILABLE);
 
-  // Un giocatore su cui il deposito non dice niente: `n/d`, non «no». La
+  // Un giocatore su cui il deposito non dice niente: silenzio, non «no». La
   // scheda che tace non è una scheda che nega.
   for (const key of ["scheda_rigorista", "scheda_punizioni", "scheda_angoli"]) {
-    await expect(cell(page, WITHOUT_SCHEDA.name, key)).toHaveText(VALUE_NOT_AVAILABLE);
+    await expect(cell(page, WITHOUT_SCHEDA.name, key)).toHaveText(VALUE_SILENT);
   }
   expect(externalRequests).toEqual([]);
 });
 
-test("la fila dichiarata SENZA posto dice «?», che non è n/d", async ({ page, context }) => {
+test("la fila dichiarata SENZA posto dice «?», che non è silenzio", async ({ page, context }) => {
   // È il caso che ha fatto scegliere il simbolo a Pico: otto giocatori su
   // settanta, sul corpus vero, sono «rigorista possibile» — la scheda dice che
   // sono nella fila e non a che punto. Tolte le parole non resta nessun numero,
-  // e le tre forme che verrebbero spontanee mentono tutte allo stesso modo: la
-  // cella vuota, il trattino e `n/d` si leggono «la scheda non ne parla».
+  // e le forme che verrebbero spontanee mentono tutte allo stesso modo: la
+  // cella vuota e il trattino si leggono «la scheda non ne parla».
   //
   // Le DUE righe insieme sono l'asserzione: `?` per chi è nella fila senza
-  // posto, `n/d` per chi nella fila non c'è. Una sola delle due lascerebbe
-  // passare la confusione fra le due assenze.
+  // posto, silenzio per chi nella fila non c'è. Una sola delle due lascerebbe
+  // passare la confusione fra le due assenze — ed è esattamente la confusione
+  // che il silenzio potrebbe reintrodurre, dato che ora l'assenza non si
+  // dichiara più a parole.
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
   const { rangoRigori: _r, rangoPunizioni: _p, piazzati: _pz, ...senzaPosto } = FULL_SCHEDA;
@@ -442,7 +455,7 @@ test("la fila dichiarata SENZA posto dice «?», che non è n/d", async ({ page,
   await boot(page);
 
   await expect(cell(page, WITH_SCHEDA.name, "scheda_rigorista")).toHaveText("?");
-  await expect(cell(page, WITH_SCHEDA.name, "scheda_punizioni")).toHaveText(VALUE_NOT_AVAILABLE);
+  await expect(cell(page, WITH_SCHEDA.name, "scheda_punizioni")).toHaveText(VALUE_SILENT);
   expect(externalRequests).toEqual([]);
 });
 
