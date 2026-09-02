@@ -178,6 +178,16 @@ describe("i cinque stati di disponibilità", () => {
     expect(view.nota).toBe("");
   });
 
+  it("«stampa» ARRIVA A SCHERMO: e' autorevole, non e' community", () => {
+    // La riga di provenienza dira' «fonti di stampa» e il lettore giudichera'.
+    // Se questo valore finisse nel ramo di `community` il contenuto sparirebbe,
+    // e scriverlo sarebbe stato inutile: e' la differenza fra qualificare una
+    // fonte e nasconderla.
+    const view = resolveExpertInsight(storeOf([{ ...FULL, fonte: "stampa" }]), TARGET);
+    expect(view.availability).toBe("available");
+    expect(view.fonte).toBe("stampa");
+  });
+
   it("available — la scheda piena arriva intera alla vista", () => {
     const view = resolveExpertInsight(storeOf([FULL]), TARGET);
     expect(view).toEqual({
