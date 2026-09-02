@@ -125,6 +125,10 @@ export { AVVISO_LABELS, PIAZZATI_LABELS, RIGORI_LABELS, TITOLARITA_HEAD, TITOLAR
 export const FONTE_LABELS: Readonly<Record<Fonte, string>> = {
   scheda: "scheda ufficiale della squadra",
   staff: "risposta staff",
+  // Non «ricerca sul web»: quel che conta per chi legge non è il mezzo con cui
+  // l'ho trovata ma CHI lo ha scritto, e queste righe nascono da testate e siti
+  // che firmano quel che pubblicano.
+  stampa: "fonti di stampa",
   community: "fonte non di staff",
 };
 

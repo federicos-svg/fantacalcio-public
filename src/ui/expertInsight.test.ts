@@ -267,6 +267,17 @@ describe("lo strato di prosa", () => {
     expect(html).toContain(EXPERT_INSIGHT_PROVENANCE);
   });
 
+  it("«fonti di stampa» ha la sua etichetta, e non e' nessuna delle altre tre", () => {
+    // La quarta autorita' esiste per il contenuto ricostruito quando il thread
+    // non ne parla: se la sua etichetta coincidesse con una delle altre, la
+    // schermata smetterebbe di distinguere chi ha scritto che cosa — che e'
+    // l'unica ragione per cui questo valore e' stato aggiunto.
+    expect(FONTE_LABELS.stampa).toBe("fonti di stampa");
+    expect(FONTE_LABELS.stampa).not.toBe(FONTE_LABELS.scheda);
+    expect(FONTE_LABELS.stampa).not.toBe(FONTE_LABELS.staff);
+    expect(FONTE_LABELS.stampa).not.toBe(FONTE_LABELS.community);
+  });
+
   it("la prosa è escapata: una scheda scritta a mano non può iniettare markup", () => {
     const html = expertInsightProseHtml(viewOf({ nota: "<img src=x onerror=alert(1)>" }));
     expect(html).not.toContain("<img");

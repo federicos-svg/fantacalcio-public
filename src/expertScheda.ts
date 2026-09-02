@@ -290,8 +290,18 @@ export const SCHEDA_BALLOTTAGGIO_MAX = 4;
  * `community` esiste per poter registrare che la fonte NON era autorevole:
  * `isAuthoritative()` (privato) non promuove mai la community, e qui produce
  * lo stato `author_authority_not_verified`.
+ *
+ * `stampa` è la quarta, ed è per il contenuto che NON viene dal thread: quando
+ * un giocatore arriva in squadra dopo che il primo post è stato scritto, la sua
+ * scheda non esiste e il thread può non parlarne affatto — misurato, succede.
+ * Ricostruirla da fonti di stampa è legittimo; spacciarla per «scheda ufficiale
+ * della squadra» o per «risposta staff» no, e `community` non è una via d'uscita
+ * perché quel valore serve a NASCONDERE il contenuto, non a qualificarlo.
+ * Quindi: un valore proprio, con la sua etichetta, mostrato come gli altri due
+ * autorevoli — la schermata dichiara da dove viene e chi legge decide quanto
+ * pesarlo, che è il patto di questo riquadro.
  */
-export const FONTE_VALUES = ["scheda", "staff", "community"] as const;
+export const FONTE_VALUES = ["scheda", "staff", "stampa", "community"] as const;
 export type Fonte = (typeof FONTE_VALUES)[number];
 
 // ── I cinque stati di disponibilità ──────────────────────────────────────────
