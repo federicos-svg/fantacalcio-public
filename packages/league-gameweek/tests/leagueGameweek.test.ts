@@ -324,7 +324,6 @@ describe("vincoli dichiarati, non ancora simulati", () => {
       bonusMalusBase: 6,
       sentOffDuringMatch: 4,
       bookedPreset: 5,
-      yellowCardMalus: -0.5,
       officeReserve: "prohibited",
     });
 
@@ -332,7 +331,8 @@ describe("vincoli dichiarati, non ancora simulati", () => {
     expect(resolveNoVote({ cards: "none", otherBonusMalus: 0 }).status).toBe("must_be_replaced");
     // 2. Espulso dopo il fischio finale: resta senza voto, quindi si sostituisce.
     expect(resolveNoVote({ cards: "red_after_match", otherBonusMalus: 0 }).status).toBe("must_be_replaced");
-    // 3. Ammonito: valore prestabilito dalla lega, già inclusivo del malus.
+    // 3. Ammonito: l'ammonizione È un malus, quindi non è un SV puro — resta in
+    // campo col valore prestabilito dalla lega, già inclusivo del malus.
     expect(resolveNoVote({ cards: "yellow", otherBonusMalus: 0 })).toMatchObject({
       status: "office_score",
       baseVote: 5,
@@ -352,14 +352,15 @@ describe("vincoli dichiarati, non ancora simulati", () => {
     });
   });
 
-  it("l'ammonito che segna fa 8,5 e non 8: si somma il malus vero, non il valore di lega", () => {
-    // Dichiarato da Pico: «bonus e malus si sommano, quindi ammonito e gol
-    // -0,5 + 3 = +2,5». Il preset da 5 vale solo per l'ammonito e nient'altro.
-    expect(resolveNoVote({ cards: "yellow", otherBonusMalus: 3 }).fantasyScore).toBe(8.5);
+  it("la base la decide il cartellino, gli altri bonus/malus si sommano sopra", () => {
+    // Dichiarato da Pico: «sv con ammonito e gol fa 8» — cioè 5 + 3, non
+    // 6 − 0,5 + 3. Il malus del cartellino è già dentro il 5 e non si somma
+    // due volte. Il contrasto che lo chiarisce: un giocatore CON voto ammonito
+    // che segna fa 7 − 0,5 + 3 = 9,5, e quello lo calcola chi fornisce le righe.
+    expect(resolveNoVote({ cards: "yellow", otherBonusMalus: 3 }).fantasyScore).toBe(8);
     expect(resolveNoVote({ cards: "yellow", otherBonusMalus: 0 }).fantasyScore).toBe(5);
-    // Il salto di mezzo punto fra i due casi è la scelta di lega: l'aritmetica
-    // pura darebbe 5,5 all'ammonito solo, la lega ha settato 5.
-    expect(6 + NO_VOTE_RULES.yellowCardMalus).toBe(5.5);
+    expect(resolveNoVote({ cards: "red", otherBonusMalus: 3 }).fantasyScore).toBe(7);
+    expect(resolveNoVote({ cards: "none", otherBonusMalus: 3 }).fantasyScore).toBe(9);
   });
 
   it("le combinazioni che il regolamento non copre si dichiarano, non si scelgono", () => {
@@ -367,14 +368,10 @@ describe("vincoli dichiarati, non ancora simulati", () => {
     expect(resolveNoVote({ cards: null, otherBonusMalus: 0 }).status).toBe("undeclared");
     // Senza bonus/malus non si distingue un SV da sostituire da un SV a 6 più.
     expect(resolveNoVote({ cards: "none", otherBonusMalus: null }).status).toBe("undeclared");
-    // L'ammonito con altri bonus/malus non è più scoperto: bonus e malus si
-    // sommano, e il valore prestabilito della lega non si applica.
-    expect(resolveNoVote({ cards: "yellow", otherBonusMalus: -1 })).toMatchObject({
-      status: "office_score",
-      fantasyScore: 4.5,
-    });
-    // L'espulsione a partita in corso invece decide da sola: 4 comunque.
-    expect(resolveNoVote({ cards: "red", otherBonusMalus: null }).status).toBe("office_score");
+    // Anche col cartellino il dato serve: la base si somma agli altri
+    // bonus/malus, quindi senza quel numero il punteggio non è calcolabile.
+    expect(resolveNoVote({ cards: "yellow", otherBonusMalus: null }).status).toBe("undeclared");
+    expect(resolveNoVote({ cards: "red", otherBonusMalus: null }).status).toBe("undeclared");
   });
 
   it("un senza voto vero non alimenta i modificatori: senza portiere a voto la difesa resta zero", () => {

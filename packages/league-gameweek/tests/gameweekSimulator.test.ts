@@ -143,11 +143,12 @@ describe("senza voto — i cinque casi del regolamento ufficiale", () => {
     expect(out.undeclaredIds).toEqual(["nA1", "nA2"]);
   });
 
-  it("l'ammonito che segna resta in campo a 8,5, e la panchina non lo tocca", () => {
+  it("l'ammonito che segna resta in campo a 8, e la panchina non lo tocca", () => {
     const squad = standardSquad("n", { A1: sv({ cards: "yellow", otherBonusMalus: 3 }) });
     const out = applySubstitutions(lineup442("n"), squadOf(squad));
     expect(out.substitutions).toEqual([]);
-    expect(out.fielded.find((l) => l.id === "nA1")?.fantasyScore).toBe(8.5);
+    // 5 di base più il gol: il malus dell'ammonizione è già dentro il 5.
+    expect(out.fielded.find((l) => l.id === "nA1")?.fantasyScore).toBe(8);
   });
 
   it("un senza voto non dichiarato rende non ufficiale il punteggio della giornata", () => {

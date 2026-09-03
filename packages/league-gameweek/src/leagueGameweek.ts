@@ -481,12 +481,10 @@ export type CardStatus = "none" | "yellow" | "red" | "red_after_match";
  *
  * - un SV che porta **un qualunque bonus/malus** resta in campo e prende
  *   **6 più il valore di quel bonus/malus**;
- * - l'**ammonito e nient'altro** è un caso a parte, con un valore prestabilito
- *   dalla lega — la piattaforma consiglia 5,5, **noi abbiamo settato 5**, già
- *   inclusivo del malus. Se porta **anche altri** bonus/malus il preset non si
- *   applica e vale la regola generale, col malus vero del cartellino: ammonito
- *   più gol fa 6 + (−0,5 + 3) = **8,5**, non 8. Fra i due casi resta un salto
- *   di mezzo punto, ed è la scelta di lega a produrlo;
+ * - l'**ammonito** ha come base un valore prestabilito dalla lega — la
+ *   piattaforma consiglia 5,5, **noi abbiamo settato 5** — già inclusivo del
+ *   malus del cartellino, che quindi non si somma una seconda volta: ammonito
+ *   più gol fa **5 + 3 = 8**;
  * - l'**espulso a partita in corso** ha fantavoto **4**, automatico: non è la
  *   base meno il malus, è un valore a sé;
  * - l'**espulso dopo il fischio finale** resta senza voto, e si sostituisce;
@@ -505,16 +503,28 @@ export const NO_VOTE_RULES = {
   /** Espulso a partita in corso: fantavoto automatico, non derivato dalla base. */
   sentOffDuringMatch: 4,
   /**
-   * Ammonito **e nient'altro**: valore prestabilito dalla nostra lega, dove
-   * l'aritmetica darebbe 5,5 (6 meno il malus). Il salto di mezzo punto è una
-   * scelta di lega, non un errore: si vede confrontando questo 5 con il
-   * risultato del caso qui sotto.
+   * Ammonito: valore prestabilito dalla nostra lega, dove l'aritmetica darebbe
+   * 5,5 (6 meno il malus). **Il malus del cartellino è già dentro questo
+   * numero** e non va sommato una seconda volta.
    */
   bookedPreset: 5,
-  /** Malus da cartellino, per l'ammonito che porta ANCHE altri bonus/malus. */
-  yellowCardMalus: -0.5,
   officeReserve: "prohibited",
 } as const;
+
+/**
+ * La base d'ufficio di un SV, decisa dal solo cartellino. Gli altri bonus/malus
+ * si sommano SOPRA questa base — dichiarato da Pico il 2026-09-03 con
+ * l'esempio: «sv con ammonito e gol fa 8», cioè 5 + 3.
+ *
+ * Il contrasto che l'esempio chiarisce, e che vale mezzo punto: un giocatore
+ * **con voto** ammonito che segna fa 7 − 0,5 + 3 = 9,5, perché lì il malus del
+ * cartellino si somma davvero. Nell'SV no: è già dentro il 5.
+ */
+function noVoteBase(cards: Exclude<CardStatus, "red_after_match">): number {
+  if (cards === "red") return NO_VOTE_RULES.sentOffDuringMatch;
+  if (cards === "yellow") return NO_VOTE_RULES.bookedPreset;
+  return NO_VOTE_RULES.bonusMalusBase;
+}
 
 export interface NoVoteOutcome {
   /**
@@ -561,15 +571,6 @@ export function resolveNoVote(input: {
     };
   }
 
-  if (cards === "red") {
-    return {
-      status: "office_score",
-      baseVote: NO_VOTE_RULES.sentOffDuringMatch,
-      fantasyScore: NO_VOTE_RULES.sentOffDuringMatch,
-      reason: "espulso a partita in corso: fantavoto automatico 4",
-    };
-  }
-
   if (otherBonusMalus === null) {
     return {
       status: "undeclared",
@@ -580,45 +581,37 @@ export function resolveNoVote(input: {
     };
   }
 
-  if (cards === "yellow") {
-    if (otherBonusMalus !== 0) {
-      // Dichiarato da Pico il 2026-09-03: «bonus e malus si sommano, quindi
-      // ammonito e gol -0,5 + 3 = +2,5». Il valore prestabilito della lega NON
-      // entra qui: l'aritmetica usa il malus vero del cartellino, e il caso
-      // ricade nella regola generale del «6 più bonus/malus».
-      const sum = otherBonusMalus + NO_VOTE_RULES.yellowCardMalus;
+  if (cards === "red_after_match" || cards === "none") {
+    if (otherBonusMalus === 0) {
       return {
-        status: "office_score",
-        baseVote: NO_VOTE_RULES.bonusMalusBase,
-        fantasyScore: NO_VOTE_RULES.bonusMalusBase + sum,
-        reason: `ammonito con altri bonus/malus: 6 più ${sum} (il malus del cartellino si somma, il valore prestabilito non si applica)`,
+        status: "must_be_replaced",
+        baseVote: null,
+        fantasyScore: null,
+        reason:
+          cards === "red_after_match"
+            ? "espulso dopo la fine della partita: resta senza voto, si sostituisce"
+            : "senza voto puro: si sostituisce, e senza rimpiazzo conta come assente",
       };
     }
     return {
       status: "office_score",
-      baseVote: NO_VOTE_RULES.bookedPreset,
-      fantasyScore: NO_VOTE_RULES.bookedPreset,
-      reason: "ammonito e nient'altro: valore prestabilito dalla lega, già inclusivo del malus",
+      baseVote: NO_VOTE_RULES.bonusMalusBase,
+      fantasyScore: NO_VOTE_RULES.bonusMalusBase + otherBonusMalus,
+      reason: `senza voto con bonus/malus: 6 più ${otherBonusMalus}`,
     };
   }
 
-  // `none` e `red_after_match`: il rosso dopo il fischio finale resta un SV.
-  if (otherBonusMalus === 0) {
-    return {
-      status: "must_be_replaced",
-      baseVote: null,
-      fantasyScore: null,
-      reason:
-        cards === "red_after_match"
-          ? "espulso dopo la fine della partita: resta senza voto, si sostituisce"
-          : "senza voto puro: si sostituisce, e senza rimpiazzo conta come assente",
-    };
-  }
-
+  // Ammonito ed espulso a partita in corso: la base la decide il cartellino, e
+  // gli altri bonus/malus si sommano sopra. Il malus del cartellino NON entra
+  // nella somma — è già dentro la base.
+  const base = noVoteBase(cards);
   return {
     status: "office_score",
-    baseVote: NO_VOTE_RULES.bonusMalusBase,
-    fantasyScore: NO_VOTE_RULES.bonusMalusBase + otherBonusMalus,
-    reason: `senza voto con bonus/malus: 6 più ${otherBonusMalus}`,
+    baseVote: base,
+    fantasyScore: base + otherBonusMalus,
+    reason:
+      cards === "yellow"
+        ? `ammonito senza voto: ${base} di base (malus già incluso) più ${otherBonusMalus}`
+        : `espulso a partita in corso: ${base} di base più ${otherBonusMalus}`,
   };
 }
