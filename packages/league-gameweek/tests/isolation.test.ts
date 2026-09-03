@@ -30,10 +30,31 @@ import { join } from "node:path";
  * pacchetto. Un pacchetto nuovo entra nella sorveglianza il giorno in cui
  * nasce, senza che nessuno si ricordi di aggiungerlo a un elenco.
  */
+/**
+ * I PACCHETTI DELLA FASE 2, che possono conoscersi fra loro.
+ *
+ * `league-gameweek` è il contratto di giornata; `league-channel-contract` è il
+ * contratto di osservazione della lega, e importa il primo per mestiere — è il
+ * ponte fra la lettura della piattaforma e il calcolo. Sorvegliarlo qui lo
+ * renderebbe rosso per la ragione sbagliata: l'import esiste ed è quello
+ * previsto dal progetto.
+ *
+ * **L'esenzione non apre una porta di servizio**, e la ragione sta a valle:
+ * `packages/league-channel-contract/tests/isolation.test.ts` vieta a chiunque —
+ * motore d'asta e UI compresi — di importare *quel* pacchetto. Il motore non
+ * può quindi raggiungere il contratto di giornata passando di lì, perché non
+ * può raggiungere nemmeno il tramite. Le due guardie insieme chiudono la
+ * catena; una sola no.
+ *
+ * La lista è chiusa e verificata sotto: un terzo pacchetto non può entrare in
+ * esenzione senza che il test lo dica.
+ */
+const PHASE_TWO_PACKAGES: readonly string[] = ["league-gameweek", "league-channel-contract"];
+
 function isolatedRoots(): readonly string[] {
   const roots = ["src"];
   for (const entry of readdirSync(join(REPO_ROOT, "packages"))) {
-    if (entry === "league-gameweek") continue;
+    if (PHASE_TWO_PACKAGES.includes(entry)) continue;
     const candidate = join(REPO_ROOT, "packages", entry, "src");
     try {
       if (statSync(candidate).isDirectory()) roots.push(`packages/${entry}/src`);
@@ -83,8 +104,21 @@ describe("il contratto di giornata resta fuori dal prodotto d'asta", () => {
     expect(roots).toContain("packages/engine/src");
     expect(roots).toContain("packages/appeal-index/src");
     expect(roots).not.toContain("packages/league-gameweek/src");
+    expect(roots).not.toContain("packages/league-channel-contract/src");
     for (const root of roots) {
       expect(sourceFiles(root).length).toBeGreaterThan(0);
+    }
+  });
+
+  it("l'esenzione della Fase 2 è chiusa a due pacchetti, e il secondo è sorvegliato altrove", () => {
+    // Un terzo nome in questa lista sarebbe un'esenzione senza guardia gemella,
+    // cioè la strada per cui il motore d'asta tornerebbe a vedere la Fase 2
+    // passando da un tramite non sorvegliato.
+    expect(PHASE_TWO_PACKAGES).toEqual(["league-gameweek", "league-channel-contract"]);
+    for (const name of PHASE_TWO_PACKAGES) {
+      expect(
+        statSync(join(REPO_ROOT, "packages", name, "tests", "isolation.test.ts")).isFile(),
+      ).toBe(true);
     }
   });
 });
