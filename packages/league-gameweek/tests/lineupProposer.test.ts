@@ -33,7 +33,15 @@ const fc = (
   id,
   role,
   voteProbability,
-  expected: { baseVote, fantasyScore, ...extra },
+  // I due flag di §21 sono OBBLIGATORI nel contratto (dichiarazione 4 in testa a
+  // `lineupProposer.ts`): l'helper li passa sempre, e ogni fixture che attende
+  // un punteggio sopra il voto base deve dichiarare il bonus a mano.
+  expected: {
+    baseVote,
+    fantasyScore,
+    receivedAnyBonus: extra.receivedAnyBonus ?? false,
+    missedPenalty: extra.missedPenalty ?? false,
+  },
 });
 
 /** Le righe attese, come le costruisce il produttore: serve a `lineupViolations`. */
@@ -49,8 +57,8 @@ function expectedMap(...groups: readonly (readonly PlayerForecast[])[]): Map<str
               role: f.role,
               baseVote: f.expected.baseVote,
               fantasyScore: f.expected.fantasyScore,
-              receivedAnyBonus: f.expected.receivedAnyBonus === true,
-              missedPenalty: f.expected.missedPenalty === true,
+              receivedAnyBonus: f.expected.receivedAnyBonus,
+              missedPenalty: f.expected.missedPenalty,
             }
           : { id: f.id, role: f.role, baseVote: null, fantasyScore: null, cards: "none", otherBonusMalus: 0 },
       );
@@ -240,7 +248,9 @@ function fullRoster(uncertain: Readonly<Record<string, number>> = {}): PlayerFor
       const id = `${prefix}${i}`;
       const base = 5 + 0.5 * ((i - 1) % 5); // 5 / 5,5 / 6 / 6,5 / 7 — tutti sulla griglia
       const score = base + ((i % 3) - 1); // punteggio individuale scorrelato dal voto base
-      out.push(fc(id, role, base, score, uncertain[id] ?? 1));
+      // §21: un punteggio atteso sopra il voto base È un bonus atteso, e il
+      // contratto pretende che lo si dichiari invece di dedurlo.
+      out.push(fc(id, role, base, score, uncertain[id] ?? 1, { receivedAnyBonus: score > base }));
     }
   };
   add("P", "P", 3);
@@ -320,6 +330,8 @@ describe("legalità della proposta", () => {
     expect(proposal.lineup).toBeNull();
     expect(proposal.pointForecast.lineup).toBeNull();
     expect(proposal.reason).toMatch(/insufficienti/);
+    // Nessuna formazione, nessun raffinamento: il tetto non è stato raggiunto.
+    expect(proposal.estimate.refinementCapReached).toBe(false);
   });
 });
 
@@ -403,6 +415,135 @@ describe("validazioni fail-closed", () => {
   it("rifiuta un fantasyScore non finito", () => {
     const squad = smallSquad().map((f) => (f.id === "A1" ? fc("A1", "A", 7, Number.NaN) : f));
     expect(() => proposeLineup({ squad, opponent: base(), context: CONTEXT })).toThrow(/fantasyScore non finito/);
+  });
+
+  it("rifiuta un punteggio atteso sopra il voto base senza bonus dichiarato (§21)", () => {
+    // Un attaccante che in attesa fa 9,5 con voto base 6,5 HA un bonus atteso.
+    // Senza il flag, `expectedLine` lo porterebbe a `receivedAnyBonus:false` e
+    // §21 gli darebbe ANCHE il modificatore attacco: lo stesso gol due volte.
+    const squad = smallSquad().map((f) => (f.id === "A1" ? fc("A1", "A", 6.5, 9.5) : f));
+    expect(() => proposeLineup({ squad, opponent: base(), context: CONTEXT })).toThrow(
+      /receivedAnyBonus: true/,
+    );
+    expect(() => proposeLineup({ squad, opponent: base(), context: CONTEXT })).toThrow(/A1/);
+    // Dichiarato, passa: il contratto non vieta il bonus, vieta di tacerlo.
+    const dichiarato = smallSquad().map((f) =>
+      f.id === "A1" ? fc("A1", "A", 6.5, 9.5, 1, { receivedAnyBonus: true }) : f,
+    );
+    expect(() => proposeLineup({ squad: dichiarato, opponent: base(), context: CONTEXT })).not.toThrow();
+    // Vale anche per la rosa avversaria: il loro §21 entra nello stesso conto.
+    const avversari = opponentFlat().map((f) => (f.id === "oA1" ? fc("oA1", "A", 6.5, 9.5) : f));
+    expect(() =>
+      proposeLineup({
+        squad: smallSquad(),
+        opponent: { lineup: OPP_LINEUP, players: avversari },
+        context: CONTEXT,
+      }),
+    ).toThrow(/receivedAnyBonus: true/);
+  });
+
+  it("rifiuta una previsione a cui i flag di §21 mancano del tutto", () => {
+    // «Non dichiarato» non è «falso»: il tipo li pretende, e la guardia a
+    // runtime protegge anche chi chiama da JavaScript senza compilatore.
+    const senzaFlag = {
+      id: "A1",
+      role: "A",
+      voteProbability: 1,
+      expected: { baseVote: 7, fantasyScore: 7 },
+    } as unknown as PlayerForecast;
+    const squad = smallSquad().map((f) => (f.id === "A1" ? senzaFlag : f));
+    expect(() => proposeLineup({ squad, opponent: base(), context: CONTEXT })).toThrow(
+      /receivedAnyBonus e missedPenalty sono obbligatori/,
+    );
+  });
+
+  it("rifiuta un seme che non sia un intero in [0, 2^32): `mulberry32` lo troncherebbe in silenzio", () => {
+    const conSeme = (seed: number) =>
+      proposeLineup({
+        squad: uncertainSquad(),
+        opponent: base(),
+        context: CONTEXT,
+        scenarioBudget: 32,
+        seed,
+      });
+    expect(() => conSeme(3.7)).toThrow(/seed non valido/);
+    expect(() => conSeme(-1)).toThrow(/seed non valido/);
+    expect(() => conSeme(2 ** 32)).toThrow(/seed non valido/);
+    expect(() => conSeme(Number.NaN)).toThrow(/seed non valido/);
+    expect(() => conSeme(Number.POSITIVE_INFINITY)).toThrow(/seed non valido/);
+    // Gli estremi ammessi restano ammessi.
+    expect(() => conSeme(0)).not.toThrow();
+    expect(() => conSeme(2 ** 32 - 1)).not.toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3-bis. §21 — IL SOLO FLAG DEL BONUS CAMBIA CHI SCENDE IN CAMPO
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Rosa 1P/4D/4C/3A: due soli slot d'attacco e tre candidati. A1 vale 7,5 di
+ * voto base e 7,5 di punteggio — nessun bonus nel totale — mentre A2 (8,0) e A3
+ * (8,5) portano un bonus dichiarato e §21 li esclude dal modificatore attacco.
+ * L'UNICA cosa che cambia fra le due varianti è il flag di A1.
+ */
+function attackFlagSquad(bonusDiA1: boolean): PlayerForecast[] {
+  return [
+    fc("P1", "P", 6.5, 6.5),
+    fc("D1", "D", 6.5, 9, 1, { receivedAnyBonus: true }),
+    fc("D2", "D", 6.5, 9, 1, { receivedAnyBonus: true }),
+    fc("D3", "D", 6.5, 9, 1, { receivedAnyBonus: true }),
+    fc("D4", "D", 6.5, 9, 1, { receivedAnyBonus: true }),
+    fc("C1", "C", 6, 9, 1, { receivedAnyBonus: true }),
+    fc("C2", "C", 6, 9, 1, { receivedAnyBonus: true }),
+    fc("C3", "C", 6, 9, 1, { receivedAnyBonus: true }),
+    fc("C4", "C", 6, 9, 1, { receivedAnyBonus: true }),
+    // Punteggio ATTESO uguale al voto base: il flag qui non è dedotto dai
+    // numeri, è esattamente la variabile dell'esperimento.
+    fc("A1", "A", 7.5, 7.5, 1, { receivedAnyBonus: bonusDiA1 }),
+    fc("A2", "A", 6, 8, 1, { receivedAnyBonus: true }),
+    fc("A3", "A", 6, 8.5, 1, { receivedAnyBonus: true }),
+  ];
+}
+
+describe("§21 — il bonus atteso dichiarato cambia la formazione, non solo il totale", () => {
+  it("con A1 senza bonus il produttore lo schiera; dichiarando il bonus lo lascia fuori", () => {
+    // IL CONTO A MANO (4-4-2, giornata 10 in casa, avversario piatto da 67).
+    // Fisso in entrambe le varianti: P1 6,5 + quattro difensori da 9 (36) +
+    // quattro centrocampisti da 9 (36) = 78,5 prima degli attaccanti.
+    // §19 media (6,5 + 6,5·3)/4 = 6,5 -> +3 ; §20 24 contro 24 -> 0 ; §14 +2.
+    //   A1 SENZA bonus:  A1+A3 = 7,5 + 8,5 = 16   -> 94,5 + 3 + 1,5 (§21 su A1
+    //                    a 7,5) + 2 = 101,0  >  A2+A3 = 16,5 -> 95 + 3 + 0 + 2 = 100,0
+    //   A1 CON bonus:    A1+A3 -> 94,5 + 3 + 0 + 2 = 99,5  <  A2+A3 = 100,0
+    // Il totale di squadra di A1 non cambia di un decimo: cambia solo il diritto
+    // al modificatore attacco, e con esso la formazione.
+    const senza = proposeLineup({
+      squad: attackFlagSquad(false),
+      opponent: { lineup: OPP_LINEUP, players: opponentFlat() },
+      context: CONTEXT,
+    });
+    const con = proposeLineup({
+      squad: attackFlagSquad(true),
+      opponent: { lineup: OPP_LINEUP, players: opponentFlat() },
+      context: CONTEXT,
+    });
+
+    expect(senza.lineup!.starterIds).toContain("A1");
+    expect(senza.lineup!.starterIds).not.toContain("A2");
+    expect(senza.lineup!.benchIds).toEqual(["A2"]);
+    expect(senza.pointForecast.outcome!.ours.attack).toBe(1.5); // §21: 7,5 -> +1,5
+    expect(senza.pointForecast.outcome!.ours.total).toBe(101);
+
+    expect(con.lineup!.starterIds).not.toContain("A1");
+    expect(con.lineup!.starterIds).toContain("A2");
+    expect(con.lineup!.benchIds).toEqual(["A1"]);
+    expect(con.pointForecast.outcome!.ours.attack).toBe(0); // §21: tutti con bonus
+    expect(con.pointForecast.outcome!.ours.total).toBe(100);
+
+    // La differenza NON è nel punteggio individuale atteso di A1, che è identico.
+    expect(attackFlagSquad(false)[9]!.expected.fantasyScore).toBe(
+      attackFlagSquad(true)[9]!.expected.fantasyScore,
+    );
   });
 });
 
@@ -623,10 +764,10 @@ function coverSquad(): PlayerForecast[] {
     fc("Dsure", "D", 6, 6),
     fc("Drisky", "D", 6, 6, 0.3),
     fc("Dweak", "D", 6, 4),
-    fc("C1", "C", 6, 7),
-    fc("C2", "C", 6, 7),
-    fc("C3", "C", 6, 7),
-    fc("C4", "C", 6, 7),
+    fc("C1", "C", 6, 7, 1, { receivedAnyBonus: true }),
+    fc("C2", "C", 6, 7, 1, { receivedAnyBonus: true }),
+    fc("C3", "C", 6, 7, 1, { receivedAnyBonus: true }),
+    fc("C4", "C", 6, 7, 1, { receivedAnyBonus: true }),
     fc("A1", "A", 6, 12, 1, { receivedAnyBonus: true }),
     fc("A2", "A", 6, 12, 1, { receivedAnyBonus: true }),
   ];
@@ -726,10 +867,10 @@ describe("disponibilità e sostituzioni", () => {
     const squad: PlayerForecast[] = [
       fc("P1", "P", 6, 6),
       fc("P2", "P", 6, 5),
-      fc("D1", "D", 6, 7),
-      fc("D2", "D", 6, 7),
-      fc("Dsure", "D", 6, 7),
-      fc("Drisky", "D", 6, 7, 0.3),
+      fc("D1", "D", 6, 7, 1, { receivedAnyBonus: true }),
+      fc("D2", "D", 6, 7, 1, { receivedAnyBonus: true }),
+      fc("Dsure", "D", 6, 7, 1, { receivedAnyBonus: true }),
+      fc("Drisky", "D", 6, 7, 0.3, { receivedAnyBonus: true }),
       fc("Dweak", "D", 6, 5),
       fc("C1", "C", 6, 6),
       fc("C2", "C", 6, 6),
@@ -761,17 +902,17 @@ describe("disponibilità e sostituzioni", () => {
 /** 3P, 4D, 5C, 2A: la panchina porta pareggi da rompere con p e poi con l'id. */
 function benchOrderSquad(): PlayerForecast[] {
   return [
-    fc("P1", "P", 6, 7),
+    fc("P1", "P", 6, 7, 1, { receivedAnyBonus: true }),
     fc("P2", "P", 6, 5),
     fc("P3", "P", 6, 5, 0.4),
     fc("D1", "D", 6, 6),
     fc("D2", "D", 6, 6),
     fc("D3", "D", 6, 6),
     fc("D4", "D", 6, 6),
-    fc("C1", "C", 6, 7),
-    fc("C2", "C", 6, 7),
-    fc("C3", "C", 6, 7),
-    fc("C4", "C", 6, 7),
+    fc("C1", "C", 6, 7, 1, { receivedAnyBonus: true }),
+    fc("C2", "C", 6, 7, 1, { receivedAnyBonus: true }),
+    fc("C3", "C", 6, 7, 1, { receivedAnyBonus: true }),
+    fc("C4", "C", 6, 7, 1, { receivedAnyBonus: true }),
     fc("C5", "C", 6, 5),
     fc("A1", "A", 6, 12, 1, { receivedAnyBonus: true }),
     fc("A2", "A", 6, 12, 1, { receivedAnyBonus: true }),
@@ -795,6 +936,153 @@ describe("ordine della panchina (§10 `bench: FREE`, criterio dichiarato dal pro
     // panchina come tutti gli altri e il simulatore le fa entrare allo stesso modo.
     expect(proposal.lineup!.benchIds).toContain("P2");
     expect(proposal.lineup!.benchIds).toContain("P3");
+  });
+
+  it("chi non può prendere voto sta SEMPRE in coda, per alto che sia il suo punteggio atteso", () => {
+    // Dghost ha il punteggio atteso più alto della panchina e p = 0: non ha voto
+    // in nessuno scenario, `applySubstitutions` lo salta sempre, e metterlo
+    // davanti a chi un voto può prenderlo non costa punti ma consegna al
+    // fantallenatore una panchina che lui non userebbe mai. Ordine iniziale
+    // dichiarato 2): prima chi può giocare, poi il punteggio atteso.
+    const squad = [...picoSquad(), fc("Dghost", "D", 6.5, 9, 0, { receivedAnyBonus: true })];
+    const proposal = proposeLineup({
+      squad,
+      opponent: { lineup: OPP_LINEUP, players: opponentFlat() },
+      context: CONTEXT,
+    });
+    const bench = proposal.lineup!.benchIds;
+    expect(bench[bench.length - 1]).toBe("Dghost");
+    // E non è titolare: senza voto non può esserlo.
+    expect(proposal.lineup!.starterIds).not.toContain("Dghost");
+    expect(proposal.lineup!.goalkeeperId).not.toBe("Dghost");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 9-bis. L'ORDINE DELLA PANCHINA È UNA SCELTA, E LA SCELTA LA FA IL SIMULATORE
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * IL CONTROESEMPIO CHE SMONTA «DAVANTI CHI RENDE DI PIÙ».
+ *
+ * 2P / 7D / 7C / 2A. Sei titolari incerti (D1, D2, D3, C1, C2, C3 a p = 0,5):
+ * 2^6 = 64 scenari enumerati, e in UNO solo — quello in cui mancano tutti e sei
+ * — il tetto di cinque sostituzioni (§10) morde e l'ordine della panchina decide
+ * QUALE ruolo resta scoperto.
+ *
+ * I panchinari di centrocampo rendono più di quelli di difesa (5,0 e 4,0 contro
+ * 4,5 e 3,5), quindi l'ordine euristico li mette davanti. Ma §19 è una SOGLIA:
+ * con solo tre difensori a voto il modificatore difesa non c'è, e valeva +3.
+ */
+function benchCapSquad(): PlayerForecast[] {
+  return [
+    fc("P1", "P", 6.5, 6.5),
+    fc("P2", "P", 6, 3),
+    fc("D1", "D", 6.5, 6, 0.5),
+    fc("D2", "D", 6.5, 6, 0.5),
+    fc("D3", "D", 6.5, 6, 0.5),
+    fc("D4", "D", 6.5, 6),
+    fc("Db1", "D", 6.5, 4.5),
+    fc("Db2", "D", 6.5, 4.5),
+    fc("Db3", "D", 6.5, 3.5),
+    fc("C1", "C", 6, 6, 0.5),
+    fc("C2", "C", 6, 6, 0.5),
+    fc("C3", "C", 6, 6, 0.5),
+    fc("C4", "C", 6, 6),
+    fc("Cb1", "C", 6, 5),
+    fc("Cb2", "C", 6, 5),
+    fc("Cb3", "C", 6, 4),
+    fc("A1", "A", 6, 13, 1, { receivedAnyBonus: true }),
+    fc("A2", "A", 6, 13, 1, { receivedAnyBonus: true }),
+  ];
+}
+
+/** L'ordine euristico puro: punteggio atteso decrescente, senza la ricerca. */
+const PANCHINA_EURISTICA = ["Cb1", "Cb2", "Db1", "Db2", "Cb3", "Db3", "P2"] as const;
+
+describe("ordine della panchina: la ricerca lo sceglie sugli scenari (§10 tetto, §19 soglia)", () => {
+  it("mette il terzo difensore davanti al terzo centrocampista, e il simulatore dice che è meglio", () => {
+    // IL CONTO A MANO, sullo scenario in cui mancano tutti e sei gli incerti.
+    // Panchina EURISTICA [Cb1, Cb2, Db1, Db2, Cb3, Db3, P2]: entrano Cb1->C1,
+    //   Cb2->C2, Db1->D1, Db2->D2, Cb3->C3 e il tetto di 5 si chiude. D3 resta
+    //   scoperto (§13 `office_reserve: prohibited` -> vale 0).
+    //   individuali 6,5 + 6 + 4,5 + 4,5 + 0 + 6 + 5 + 5 + 4 + 13 + 13 = 67,5
+    //   §19 tre difensori a voto su quattro richiesti -> 0
+    //   §20 quattro voti base da 6 contro quattro da 6 -> 0 ; §21 attaccanti con
+    //   bonus dichiarato -> 0 ; §14 +2  =>  69,5 contro 67  ->  1-1, un punto.
+    // Panchina PROPOSTA [Cb1, Cb2, Db1, Db2, Db3, Cb3, P2]: entrano Cb1->C1,
+    //   Cb2->C2, Db1->D1, Db2->D2, Db3->D3. Scoperto C3.
+    //   individuali 6,5 + 6 + 4,5 + 4,5 + 3,5 + 6 + 5 + 5 + 0 + 13 + 13 = 67,0
+    //   §19 quattro difensori a voto, media (6,5 + 6,5·3)/4 = 6,5 -> +3
+    //   §20 tre voti base da 6 più un fittizio da 5 (§20) = 23 contro 24 ->
+    //       differenza 1,0 < 2,0 -> 0 ; §21 0 ; §14 +2  =>  72,0 contro 67
+    //       ->  2-1, tre punti.
+    // Mezzo punto di punteggi individuali IN MENO, due punti e mezzo di totale
+    // in più: la soglia di §19 non è un contributo che si somma, è un interruttore.
+    const squad = benchCapSquad();
+    const opponent = opponentFlat();
+    const proposal = proposeLineup({
+      squad,
+      opponent: { lineup: OPP_LINEUP, players: opponent },
+      context: CONTEXT,
+    });
+
+    expect(proposal.lineup!.module).toBe("442");
+    expect(proposal.estimate.method).toBe("exact");
+    expect(proposal.estimate.scenarios).toBe(64); // 2^6, i sei incerti
+    const bench = proposal.lineup!.benchIds;
+    // La premessa del controesempio: l'euristica di partenza è un altro ordine.
+    expect([...PANCHINA_EURISTICA]).not.toEqual(bench);
+    expect(bench.indexOf("Db3")).toBeLessThan(bench.indexOf("Cb3"));
+    expect(bench).toEqual(["Cb1", "Cb2", "Db1", "Db2", "Db3", "Cb3", "P2"]);
+
+    // ── E adesso i due ordini messi alla prova dal simulatore, non da una formula.
+    const players = expectedMap(squad, opponent);
+    for (const id of ["D1", "D2", "D3", "C1", "C2", "C3"]) {
+      const f = squad.find((x) => x.id === id)!;
+      players.set(id, {
+        id,
+        role: f.role,
+        baseVote: null,
+        fantasyScore: null,
+        cards: "none",
+        otherBonusMalus: 0,
+      });
+    }
+    const simula = (benchIds: readonly string[]) =>
+      simulateGameweek({
+        ourLineup: { ...proposal.lineup!, benchIds: [...benchIds] },
+        theirLineup: OPP_LINEUP,
+        players,
+        context: CONTEXT,
+      });
+
+    const euristica = simula(PANCHINA_EURISTICA);
+    expect(euristica.ours.resolution.substitutionsUsed).toBe(5); // §10 max_substitutions
+    expect(euristica.ours.resolution.uncoveredIds).toEqual(["D3"]);
+    expect(euristica.ours.playersTotal).toBe(67.5);
+    expect(euristica.ours.defence).toBe(0); // §19: tre difensori a voto
+    expect(euristica.ours.total).toBe(69.5);
+    expect([euristica.ourGoals, euristica.theirGoals]).toEqual([1, 1]);
+    expect(leaguePointsOf(euristica, LEAGUE_POINTS).value).toBe(LEAGUE_POINTS.draw);
+
+    const proposta = simula(bench);
+    expect(proposta.ours.resolution.substitutionsUsed).toBe(5);
+    expect(proposta.ours.resolution.uncoveredIds).toEqual(["C3"]);
+    expect(proposta.ours.playersTotal).toBe(67); // MENO individuali dell'euristica
+    expect(proposta.ours.defence).toBe(3); // §19: quattro difensori a voto
+    expect(proposta.ours.midfield).toBe(0); // §20: fittizio da 5, differenza 1,0
+    expect(proposta.ours.total).toBe(72);
+    expect([proposta.ourGoals, proposta.theirGoals]).toEqual([2, 1]);
+    expect(leaguePointsOf(proposta, LEAGUE_POINTS).value).toBe(LEAGUE_POINTS.win);
+
+    // Il confronto che conta: l'ordine proposto batte quello euristico proprio
+    // nello scenario in cui il tetto morde, e nessun altro scenario cambia
+    // (sotto le cinque sostituzioni l'ordine dentro ogni ruolo è lo stesso).
+    expect(proposta.ours.total).toBeGreaterThan(euristica.ours.total);
+    expect(proposta.ours.playersTotal).toBeLessThan(euristica.ours.playersTotal);
+    // 2 punti di lega in più su uno scenario da 1/64: (3 - 1)/64 = 0,03125.
+    expect(proposal.estimate.expectedLeaguePoints).toBeCloseTo(3, 12);
   });
 });
 
@@ -827,10 +1115,10 @@ describe("ordine della panchina (§10 `bench: FREE`, criterio dichiarato dal pro
  */
 function capSquad(): PlayerForecast[] {
   const out: PlayerForecast[] = [fc("P1", "P", 6, 6), fc("P2", "P", 6, 5)];
-  for (let i = 1; i <= 4; i += 1) out.push(fc(`D${i}`, "D", 6, 8, 0.8));
+  for (let i = 1; i <= 4; i += 1) out.push(fc(`D${i}`, "D", 6, 8, 0.8, { receivedAnyBonus: true }));
   for (let i = 5; i <= 8; i += 1) out.push(fc(`D${i}`, "D", 6, 4));
-  for (let i = 1; i <= 2; i += 1) out.push(fc(`C${i}`, "C", 6, 8, 0.8));
-  for (let i = 3; i <= 4; i += 1) out.push(fc(`C${i}`, "C", 6, 7));
+  for (let i = 1; i <= 2; i += 1) out.push(fc(`C${i}`, "C", 6, 8, 0.8, { receivedAnyBonus: true }));
+  for (let i = 3; i <= 4; i += 1) out.push(fc(`C${i}`, "C", 6, 7, 1, { receivedAnyBonus: true }));
   for (let i = 5; i <= 8; i += 1) out.push(fc(`C${i}`, "C", 6, 4));
   out.push(fc("A1", "A", 6, 15, 1, { receivedAnyBonus: true }));
   out.push(fc("A2", "A", 6, 15, 1, { receivedAnyBonus: true }));
@@ -900,5 +1188,9 @@ describe("coerenza del risultato", () => {
     expect(proposal.objectiveLabel).toContain("§22");
     expect(proposal.evaluated).toBeGreaterThan(0);
     expect(proposal.reason).toContain("hill climbing");
+    // Il tetto delle iterazioni si legge da un campo, non dalla prosa: chi
+    // consuma la proposta non deve fare il parsing di una frase in italiano.
+    expect(proposal.estimate.refinementCapReached).toBe(false);
+    expect(proposal.reason).not.toContain("TETTO");
   });
 });

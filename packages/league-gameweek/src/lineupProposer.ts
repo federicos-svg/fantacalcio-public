@@ -13,7 +13,7 @@
 // Non c'è modello, non c'è prezzo, non c'è output direttivo: c'è l'aritmetica di
 // §9, §10, §13, §14, §15, §19, §20, §21, §22 applicata a numeri di qualcun altro.
 //
-// ── LE TRE DICHIARAZIONI CHE NON SONO REGOLE DI LEGA ──────────────────────────
+// ── LE QUATTRO DICHIARAZIONI CHE NON SONO REGOLE DI LEGA ─────────────────────
 //
 // 1) SEMPLIFICAZIONE DELLO SCENARIO. Uno scenario assegna gioca/non-gioca a ogni
 //    giocatore delle due rose (Bernoulli indipendenti con `voteProbability`).
@@ -29,20 +29,31 @@
 //    dato che le distinguerebbe non gli arriva.
 //
 // 2) ORDINE DELLA PANCHINA. §10 dice `bench: FREE` e non detta nessun criterio:
-//    l'ordine qui sotto è una scelta DICHIARATA di questo modulo, non una regola.
-//    In panchina vanno TUTTI i non titolari, ordinati per `expected.fantasyScore`
-//    decrescente, poi `voteProbability` decrescente, poi `id` crescente. La
-//    ragione è meccanica: in `applySubstitutions` entra il primo di panchina con
-//    voto e dello stesso ruolo, e il tetto di 5 (§10 `max_substitutions`) è
-//    globale — quindi mettere davanti chi rende di più è ciò che conta quando il
-//    tetto morde. I portieri di riserva stanno in panchina come tutti gli altri:
-//    §13 dice che «il portiere non ha una regola propria».
-//    UN LIMITE NOTO DI QUESTO ORDINE: un giocatore con p = 0 ordinato per
-//    punteggio atteso può finire davanti a chi un voto ce l'ha, e in quello
-//    scenario non entra mai (`applySubstitutions` salta chi non ha voto). Non
-//    BLOCCA nessuno — il simulatore passa oltre e prende il successivo — ma
-//    l'ordine mostrato al fantallenatore non è quello che userebbe lui. Si
-//    corregge qui e in un punto solo, il giorno in cui si decide come.
+//    l'ordine è una scelta DICHIARATA di questo modulo, non una regola. In
+//    panchina vanno TUTTI i non titolari. L'ordine INIZIALE è un'euristica —
+//    prima chi una probabilità di giocare ce l'ha, poi `expected.fantasyScore`
+//    decrescente, poi `voteProbability` decrescente, poi `id` crescente — e NON
+//    è l'ordine finale: l'ordine della panchina fa parte dello STATO della
+//    ricerca (mossa (d) del vicinato) e viene scelto sugli stessi scenari e con
+//    lo stesso criterio di tutto il resto.
+//    PERCHÉ NON BASTA «DAVANTI CHI RENDE DI PIÙ». In `applySubstitutions` entra
+//    il primo di panchina con voto e dello stesso ruolo, e il tetto di 5 (§10
+//    `max_substitutions`) è globale: quando morde, l'ordine decide QUALI RUOLI
+//    restano scoperti, e §19 è una SOGLIA (portiere più quattro difensori con
+//    voto), non un contributo additivo. Un difensore che rende meno di un
+//    centrocampista può valere più di lui in panchina, perché tiene in piedi il
+//    modificatore difesa. Per questo l'ordine si valuta col simulatore invece di
+//    postularlo: «davanti chi rende di più perché è quel che conta quando il
+//    tetto morde» è una motivazione FALSA, e basta un controesempio a sei senza
+//    voto per smentirla.
+//    I giocatori con `voteProbability = 0` stanno SEMPRE in coda e la ricerca non
+//    li muove: senza voto in nessuno scenario, `applySubstitutions` li salta
+//    sempre, quindi la loro posizione non può cambiare un solo punteggio e
+//    spostarli sarebbe una mossa nulla pagata a prezzo pieno. Il limite che
+//    questa dichiarazione ammetteva — «un p = 0 può finire davanti a chi un voto
+//    ce l'ha» — non esiste più: è diventato un fatto verificato da un test.
+//    I portieri di riserva stanno in panchina come tutti gli altri: §13 dice che
+//    «il portiere non ha una regola propria».
 //
 // 3) ORDINE DEI TITOLARI. Anche questo è dichiarato e non regolamentare: ruolo
 //    (D, poi C, poi A) e dentro il ruolo `expected.fantasyScore` decrescente, poi
@@ -50,6 +61,20 @@
 //    decide SOLO quale SV dello stesso ruolo viene coperto per primo, e siccome
 //    due SV valgono zero entrambi e il sostituto è lo stesso, non muove il
 //    punteggio: serve a rendere l'output riproducibile, non a scegliere.
+//
+// 4) LA RIGA ATTESA È MODALE, E IL BONUS ATTESO SI DICHIARA. `expected` non è
+//    una media: è la riga che il previsore ritiene più probabile — il vincolo G
+//    qui sotto lo impone già al voto base — e i suoi due flag,
+//    `receivedAnyBonus` e `missedPenalty`, sono OBBLIGATORI. La ragione è §21:
+//    un attaccante che ha preso un bonus qualunque è ESCLUSO dal modificatore
+//    attacco. Un `fantasyScore` maggiore del `baseVote` è un bonus atteso, e
+//    lasciarlo senza flag darebbe a quell'attaccante il bonus dentro il totale
+//    di squadra E il modificatore che §21 gli vieta: due volte lo stesso gol.
+//    `assertForecasts` rifiuta quella combinazione invece di indovinarla.
+//    Il contrario NON si deduce: un `fantasyScore` minore o uguale al voto base
+//    può essere un malus, un bonus compensato da un malus, o niente — questo
+//    modulo non inventa la differenza, la dichiara chi produce la previsione.
+//    Non è una regola di lega: è il contratto di questo produttore.
 //
 // ── PERCHÉ DUE LIVELLI E NON UNO ─────────────────────────────────────────────
 //
@@ -103,8 +128,15 @@ export interface PlayerForecast {
     readonly baseVote: number;
     /** Punteggio individuale atteso (voto base + bonus/malus attesi). */
     readonly fantasyScore: number;
-    readonly receivedAnyBonus?: boolean;
-    readonly missedPenalty?: boolean;
+    /**
+     * Bonus atteso, in qualunque forma (gol, assist, imbattibilità…).
+     * OBBLIGATORIO: §21 esclude dal modificatore attacco chi ha preso un bonus,
+     * e un `fantasyScore` sopra il voto base senza questo flag prenderebbe il
+     * bonus due volte. Dichiarazione 4) in testa al file.
+     */
+    readonly receivedAnyBonus: boolean;
+    /** Rigore sbagliato atteso: §21 esclude anche lui. OBBLIGATORIO. */
+    readonly missedPenalty: boolean;
   };
 }
 
@@ -156,6 +188,12 @@ export interface LineupProposal {
     readonly fullyTabulated: boolean;
     /** `false` se anche UNO scenario ha prodotto `resolved:false`. */
     readonly allResolved: boolean;
+    /**
+     * `true` se il raffinamento si è fermato sul tetto di iterazioni invece che
+     * su un ottimo locale: la proposta è legale e valutata, ma NON è convergente.
+     * La stessa cosa è scritta in `reason`, e la prosa non si interroga.
+     */
+    readonly refinementCapReached: boolean;
   };
   /** Formazioni valutate in totale (Tier 1 + Tier 2). */
   readonly evaluated: number;
@@ -172,6 +210,8 @@ export const DEFAULT_SCENARIO_BUDGET = 4096 as const;
 export const DEFAULT_SEED = 20260903 as const;
 /** Tetto di iterazioni dell'hill climbing. Raggiunto, il risultato lo dice. */
 export const MAX_REFINEMENT_ITERATIONS = 50 as const;
+/** Il seme sta in [0, 2^32): oltre, `mulberry32` lo troncherebbe in silenzio. */
+export const SEED_MODULUS = 4294967296 as const;
 
 const ROLES: readonly Role[] = ["P", "D", "C", "A"];
 const OUTFIELD_ROLES: readonly Role[] = ["D", "C", "A"];
@@ -224,6 +264,22 @@ function assertForecasts(players: readonly PlayerForecast[], where: string): voi
           "un voto atteso deve essere un multiplo di 0,5 (voto modale, non media).",
       );
     }
+    // §21 — IL BONUS ATTESO NON SI INDOVINA. I due flag sono obbligatori anche a
+    // runtime, perché il tipo protegge solo chi compila con questo contratto.
+    if (typeof f.expected.receivedAnyBonus !== "boolean" || typeof f.expected.missedPenalty !== "boolean") {
+      throw new Error(
+        `${where}: receivedAnyBonus e missedPenalty sono obbligatori per ${f.id}. ` +
+          "§21 esclude dal modificatore attacco chi ha preso un bonus: «non dichiarato» non è «falso».",
+      );
+    }
+    if (f.expected.fantasyScore > f.expected.baseVote && !f.expected.receivedAnyBonus) {
+      throw new Error(
+        `${where}: ${f.id} ha un punteggio atteso ${f.expected.fantasyScore} sopra il voto base ` +
+          `${f.expected.baseVote} senza bonus dichiarato. Un punteggio atteso superiore al voto base ` +
+          "implica un bonus atteso: la riga attesa è modale, dichiaralo con receivedAnyBonus: true. " +
+          "Senza il flag §21 gli darebbe anche il modificatore attacco, cioè lo stesso bonus due volte.",
+      );
+    }
   }
 }
 
@@ -240,7 +296,16 @@ function assertInput(input: LineupProposalInput): void {
     throw new Error(`scenarioBudget non valido: ${String(input.scenarioBudget)} (serve un intero >= 1)`);
   }
   const seed = input.seed ?? DEFAULT_SEED;
-  if (!Number.isFinite(seed)) throw new Error(`seed non valido: ${String(input.seed)}`);
+  // `mulberry32` fa `seed >>> 0`: un 3,7 o un 2^33 diventerebbero un altro seme
+  // senza dirlo, e due chiamate «identiche» con semi diversi darebbero lo stesso
+  // risultato. Un determinismo solo apparente è peggio di un errore.
+  if (!Number.isInteger(seed) || seed < 0 || seed >= SEED_MODULUS) {
+    throw new Error(
+      `seed non valido: ${String(input.seed)}. Serve un intero in [0, 2^32): il PRNG lo tronca con ` +
+        "`>>> 0`, e un seme troncato in silenzio renderebbe irriproducibile una proposta che deve " +
+        "poter essere rifatta identica.",
+    );
+  }
 
   const theirExpected = new Map(input.opponent.players.map((f) => [f.id, expectedLine(f)]));
   const violations = lineupViolations(input.opponent.lineup, theirExpected);
@@ -256,8 +321,8 @@ function expectedLine(f: PlayerForecast): PlayerLine {
     role: f.role,
     baseVote: f.expected.baseVote,
     fantasyScore: f.expected.fantasyScore,
-    receivedAnyBonus: f.expected.receivedAnyBonus === true,
-    missedPenalty: f.expected.missedPenalty === true,
+    receivedAnyBonus: f.expected.receivedAnyBonus,
+    missedPenalty: f.expected.missedPenalty,
   };
 }
 
@@ -296,6 +361,39 @@ interface LineupPlan {
   readonly keeperId: string;
   /** Insieme dei titolari di movimento, senza ordine significativo. */
   readonly starterIds: readonly string[];
+  /**
+   * La panchina NELL'ORDINE in cui verrà consegnata. Fa parte dello stato del
+   * piano — non è una funzione dei titolari — perché quell'ordine decide quali
+   * ruoli restano scoperti quando il tetto di §10 morde, e quindi è una scelta
+   * da valutare come le altre. Dichiarazione 2) in testa al file.
+   */
+  readonly benchIds: readonly string[];
+}
+
+/** Chi non ha probabilità di giocare non entra mai: §13 lo lascia senza voto. */
+function neverPlays(f: PlayerForecast): boolean {
+  return f.voteProbability <= 0;
+}
+
+/**
+ * L'ordine INIZIALE della panchina: chi un voto può prenderlo davanti a chi non
+ * può prenderlo in nessuno scenario, poi il criterio dichiarato. È un punto di
+ * partenza euristico, non la risposta: la ricerca lo rimette in discussione.
+ */
+function compareForBenchStart(a: PlayerForecast, b: PlayerForecast): number {
+  const aNever = neverPlays(a) ? 1 : 0;
+  const bNever = neverPlays(b) ? 1 : 0;
+  if (aNever !== bNever) return aNever - bNever;
+  return compareByExpectedDesc(a, b);
+}
+
+/** La panchina di partenza per un insieme di undici già scelto. */
+function startingBench(squad: readonly PlayerForecast[], chosen: ReadonlySet<string>): string[] {
+  return squad
+    .filter((f) => !chosen.has(f.id))
+    .slice()
+    .sort(compareForBenchStart)
+    .map((f) => f.id);
 }
 
 interface Scenario {
@@ -353,7 +451,6 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
   const exact = uncertain.length <= 30 && Math.pow(2, uncertain.length) <= scenarioBudget;
   const method: "exact" | "sampled" = exact ? "exact" : "sampled";
   const usedSeed = exact ? null : requestedSeed;
-  const scenarios = buildScenarios(everyone, uncertain, exact, scenarioBudget, requestedSeed, expectedPlayers);
 
   // ── TIER 1 — previsione puntuale, con l'ottimizzatore esatto a voti noti.
   const tierOne = bestLineupExPost({
@@ -383,6 +480,7 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
         expectedOurTotal: 0,
         fullyTabulated: true,
         allResolved: true,
+        refinementCapReached: false,
       },
       evaluated: tierOne.evaluated,
       objectiveLabel,
@@ -390,8 +488,14 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
     };
   }
 
+  // Gli scenari si costruiscono SOLO quando c'è una formazione da valutare: con
+  // `feasible:false` sarebbero migliaia di mappe generate per non essere lette.
+  // Si generano UNA volta sola e valgono per ogni candidata.
+  const scenarios = buildScenarios(everyone, uncertain, exact, scenarioBudget, requestedSeed, expectedPlayers);
+
+  // L'ordine dei titolari è dichiarato (3) in testa al file); la panchina arriva
+  // dal piano e NON viene riscritta qui: riscriverla annullerebbe le mosse (d).
   const buildLineup = (plan: LineupPlan): Lineup => {
-    const chosen = new Set<string>([plan.keeperId, ...plan.starterIds]);
     const starters: string[] = [];
     for (const role of OUTFIELD_ROLES) {
       const ofRole = plan.starterIds
@@ -400,12 +504,12 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
         .sort(compareByExpectedDesc);
       for (const f of ofRole) starters.push(f.id);
     }
-    const bench = squad
-      .filter((f) => !chosen.has(f.id))
-      .slice()
-      .sort(compareByExpectedDesc)
-      .map((f) => f.id);
-    return { module: plan.module, goalkeeperId: plan.keeperId, starterIds: starters, benchIds: bench };
+    return {
+      module: plan.module,
+      goalkeeperId: plan.keeperId,
+      starterIds: starters,
+      benchIds: [...plan.benchIds],
+    };
   };
 
   let evaluated = tierOne.evaluated;
@@ -452,6 +556,7 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
     module: tierOne.lineup.module,
     keeperId: tierOne.lineup.goalkeeperId,
     starterIds: [...tierOne.lineup.starterIds],
+    benchIds: startingBench(squad, new Set([tierOne.lineup.goalkeeperId, ...tierOne.lineup.starterIds])),
   };
   const pointForecastLineup = buildLineup(startPlan);
   const pointForecastOutcome = simulateGameweek({
@@ -531,6 +636,7 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
       expectedOurTotal: currentValue.expectedOurTotal,
       fullyTabulated: currentValue.fullyTabulated,
       allResolved: currentValue.allResolved,
+      refinementCapReached: capReached,
     },
     evaluated,
     objectiveLabel,
@@ -538,17 +644,39 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
   };
 }
 
-/** Chiave di rottura dei pareggi: ordine di `MODULES`, poi titolari in stringa. */
+/**
+ * Chiave di rottura dei pareggi: ordine di `MODULES`, portiere, titolari e —
+ * da quando l'ordine della panchina è una mossa — la panchina. Senza l'ultimo
+ * pezzo due ordini di panchina che valgono uguale avrebbero la stessa chiave, e
+ * a scegliere sarebbe l'ordine di generazione del vicinato: deterministico, sì,
+ * ma illeggibile e fragile a ogni riordino del codice.
+ */
 function tieBreakKey(lineup: Lineup): string {
   const moduleIndex = MODULES.indexOf(lineup.module);
-  return `${String(moduleIndex).padStart(2, "0")}|${lineup.goalkeeperId}|${lineup.starterIds.join(",")}`;
+  return (
+    `${String(moduleIndex).padStart(2, "0")}|${lineup.goalkeeperId}|${lineup.starterIds.join(",")}` +
+    `|${lineup.benchIds.join(",")}`
+  );
 }
 
 /**
  * Il vicinato: (a) scambio di un titolare di movimento con un non-titolare dello
  * stesso ruolo; (b) scambio del portiere con un altro portiere; (c) cambio
  * modulo, togliendo i peggiori dove il modulo chiede meno e aggiungendo i
- * migliori dove chiede di più.
+ * migliori dove chiede di più; (d) RIORDINO DELLA PANCHINA — scambio di due
+ * posizioni adiacenti, oppure un panchinaro portato in testa.
+ *
+ * Le mosse (a) e (b) fanno UNO SCAMBIO: chi entra lascia il suo posto in
+ * panchina a chi esce, e il resto dell'ordine non si tocca. Una mossa non deve
+ * cambiare due cose insieme, altrimenti non si sa quale delle due l'ha
+ * migliorata. Solo (c) ricostruisce la panchina, perché cambia l'insieme dei
+ * titolari in più ruoli e un ordine ereditato non avrebbe significato.
+ *
+ * Le mosse (d) saltano chiunque abbia `voteProbability = 0`: non ha voto in
+ * nessuno scenario, `applySubstitutions` lo salta sempre, e spostarlo lascia
+ * invariato l'ordine relativo di tutti quelli che possono entrare. Sarebbero
+ * mosse identiche all'originale pagate al prezzo pieno di una valutazione su
+ * tutti gli scenari — e terrebbero in vita il limite che 2) dichiara chiuso.
  */
 function neighbours(
   current: LineupPlan,
@@ -558,16 +686,26 @@ function neighbours(
   const out: LineupPlan[] = [];
   const startersSet = new Set(current.starterIds);
   const inLineup = new Set([current.keeperId, ...current.starterIds]);
+  /** Chi esce dagli undici prende in panchina il posto di chi entra. */
+  const benchAfterSwap = (leavingId: string, enteringId: string): string[] =>
+    current.benchIds.map((id) => (id === enteringId ? leavingId : id));
 
   // (a) scambi di movimento, stesso ruolo.
   for (const starterId of current.starterIds) {
     const starter = byId.get(starterId) as PlayerForecast;
     for (const candidate of squad) {
       if (inLineup.has(candidate.id) || candidate.role !== starter.role) continue;
+      // Chi non prende voto in nessuno scenario non torna fra gli undici: a
+      // previsione puntuale `bestLineupExPost` lo esclude già (non ha riga), e
+      // reintrodurlo qui vorrebbe dire schierare un titolare da sostituire
+      // sempre. Tenerlo fuori è anche ciò che rende VERO il «p = 0 in coda»
+      // della dichiarazione 2): nessuna mossa può riportarlo davanti.
+      if (neverPlays(candidate)) continue;
       out.push({
         module: current.module,
         keeperId: current.keeperId,
         starterIds: current.starterIds.map((id) => (id === starterId ? candidate.id : id)),
+        benchIds: benchAfterSwap(starterId, candidate.id),
       });
     }
   }
@@ -575,7 +713,13 @@ function neighbours(
   // (b) scambio del portiere.
   for (const candidate of squad) {
     if (candidate.role !== "P" || candidate.id === current.keeperId || startersSet.has(candidate.id)) continue;
-    out.push({ module: current.module, keeperId: candidate.id, starterIds: [...current.starterIds] });
+    if (neverPlays(candidate)) continue; // stessa ragione di (a).
+    out.push({
+      module: current.module,
+      keeperId: candidate.id,
+      starterIds: [...current.starterIds],
+      benchIds: benchAfterSwap(current.keeperId, candidate.id),
+    });
   }
 
   // (c) cambio modulo.
@@ -583,6 +727,29 @@ function neighbours(
     if (module === current.module) continue;
     const plan = replan(current, module, squad, byId);
     if (plan !== null) out.push(plan);
+  }
+
+  // (d) riordino della panchina, a titolari invariati.
+  const canMove = (id: string): boolean => !neverPlays(byId.get(id) as PlayerForecast);
+  for (let i = 0; i + 1 < current.benchIds.length; i += 1) {
+    const first = current.benchIds[i] as string;
+    const second = current.benchIds[i + 1] as string;
+    if (!canMove(first) || !canMove(second)) continue;
+    const swapped = [...current.benchIds];
+    swapped[i] = second;
+    swapped[i + 1] = first;
+    out.push({ ...current, benchIds: swapped });
+  }
+  // Portare in testa: uno scambio adiacente alla volta non basta a risalire una
+  // panchina lunga, perché i passi intermedi non migliorano e la salita si ferma
+  // prima di arrivare. Da 2 in poi: da 1 sarebbe lo scambio adiacente di sopra.
+  for (let i = 2; i < current.benchIds.length; i += 1) {
+    const moved = current.benchIds[i] as string;
+    if (!canMove(moved)) continue;
+    out.push({
+      ...current,
+      benchIds: [moved, ...current.benchIds.filter((_, index) => index !== i)],
+    });
   }
   return out;
 }
@@ -623,7 +790,15 @@ function replan(
       for (const f of spare.slice(0, needed)) kept.push(f.id);
     }
   }
-  return { module, keeperId: current.keeperId, starterIds: kept };
+  // Il modulo cambia l'insieme dei titolari in più ruoli insieme: la panchina si
+  // ricostruisce dall'euristica iniziale, e le mosse (d) la rimettono in ordine
+  // se conviene.
+  return {
+    module,
+    keeperId: current.keeperId,
+    starterIds: kept,
+    benchIds: startingBench(squad, new Set([current.keeperId, ...kept])),
+  };
 }
 
 /**
