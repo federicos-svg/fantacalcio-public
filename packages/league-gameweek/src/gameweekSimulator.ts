@@ -37,6 +37,8 @@ import {
   moduleShape,
   scoreToGoals,
   SUBSTITUTION_RULES,
+  type CardStatus,
+  noVoteScore,
 } from "./leagueGameweek.js";
 
 export type Role = "P" | "D" | "C" | "A";
@@ -56,6 +58,13 @@ export interface PlayerLine {
   readonly receivedAnyBonus?: boolean;
   /** Rigore sbagliato: esclude dal modificatore attacco. */
   readonly missedPenalty?: boolean;
+  /**
+   * Stato disciplinare. Serve SOLO a chi resta in campo senza voto, dove decide
+   * fra 5, 4 e nessun punteggio. Lasciarlo indefinito su un senza voto scoperto
+   * non è neutro: il calcolo si ferma invece di supporre «nessun cartellino»,
+   * perché quella supposizione vale un punteggio intero.
+   */
+  readonly cards?: CardStatus;
 }
 
 /**
@@ -78,12 +87,25 @@ export interface SubstitutionRecord {
   readonly role: Role;
 }
 
+/** Un titolare rimasto in campo senza voto, e quel che il regolamento gli dà. */
+export interface NoVoteApplication {
+  readonly id: string;
+  readonly role: Role;
+  readonly cards: CardStatus | null;
+  /** `null` = nessun punteggio d'ufficio, conta come assente. */
+  readonly score: number | null;
+}
+
 export interface SideResolution {
   /** Gli undici effettivi dopo le sostituzioni. */
   readonly fielded: readonly PlayerLine[];
   readonly substitutions: readonly SubstitutionRecord[];
-  /** Titolari rimasti senza voto e senza rimpiazzo. */
-  readonly unresolvedIds: readonly string[];
+  /** Titolari rimasti senza voto e senza rimpiazzo, col punteggio che spetta loro. */
+  readonly noVote: readonly NoVoteApplication[];
+  /** Fra quelli, chi non dichiara lo stato cartellini: il punteggio non è calcolabile. */
+  readonly undeclaredCardIds: readonly string[];
+  /** Somma dei punteggi d'ufficio applicati. */
+  readonly noVoteTotal: number;
   readonly substitutionsUsed: number;
   readonly substitutionCapReached: boolean;
 }
@@ -126,11 +148,31 @@ export function applySubstitutions(
     benchUsed.add(candidate.id);
   }
 
-  const unresolvedIds = fielded.filter((line) => !hasVote(line)).map((line) => line.id);
+  // La sostituzione viene prima, sempre e per tutti — il portiere compreso, che
+  // in `fielded` è un titolare come gli altri e che la panchina copre per ruolo.
+  // Solo su chi resta scoperto il regolamento mette un punteggio d'ufficio.
+  const noVote: NoVoteApplication[] = fielded
+    .filter((line) => !hasVote(line))
+    .map((line) => {
+      const cards = line.cards ?? null;
+      const isGoalkeeper = line.role === "P";
+      // Il portiere non ha bisogno dei cartellini: il regolamento gli dà 6 e
+      // basta. Il movimento sì, e senza quel dato il punteggio non si calcola.
+      const score =
+        isGoalkeeper || cards !== null
+          ? noVoteScore({ isGoalkeeper, cards: cards ?? "none" })
+          : null;
+      return { id: line.id, role: line.role, cards, score };
+    });
+
   return {
     fielded,
     substitutions,
-    unresolvedIds,
+    noVote,
+    undeclaredCardIds: noVote
+      .filter((entry) => entry.cards === null && entry.role !== "P")
+      .map((entry) => entry.id),
+    noVoteTotal: noVote.reduce((sum, entry) => sum + (entry.score ?? 0), 0),
     substitutionsUsed: substitutions.length,
     substitutionCapReached: substitutions.length >= SUBSTITUTION_RULES.maxSubstitutions,
   };
@@ -145,8 +187,10 @@ export interface GameweekContext {
 
 export interface SideScore {
   readonly resolution: SideResolution;
-  /** Somma dei punteggi individuali degli undici effettivi. */
+  /** Somma dei punteggi individuali degli undici effettivi, punteggi d'ufficio inclusi. */
   readonly playersTotal: number;
+  /** Quanta parte di `playersTotal` viene dai senza voto rimasti scoperti. */
+  readonly noVoteTotal: number;
   readonly defence: number;
   readonly midfield: number;
   readonly attack: number;
@@ -162,10 +206,11 @@ export interface GameweekOutcome {
   readonly ourGoals: number;
   readonly theirGoals: number;
   /**
-   * `false` quando almeno un titolare è rimasto senza voto e senza rimpiazzo:
-   * il regolamento assegna un valore al «senza voto», ma la sua semantica non è
-   * confermata e dedurla è vietato. Un punteggio prodotto lo stesso sarebbe
-   * costruito su una premessa inventata, e somiglierebbe a un risultato.
+   * `false` quando un giocatore di movimento è rimasto in campo senza voto e
+   * senza che i suoi cartellini siano dichiarati: fra 5, 4 e nessun punteggio
+   * ci sono cinque punti, e sceglierne uno per comodità somiglierebbe a un
+   * risultato. Il senza voto in sé non rende più irrisolta la giornata — la sua
+   * semantica è dichiarata dal 2026-09-03.
    */
   readonly resolved: boolean;
   readonly unresolvedReason: string | null;
@@ -197,7 +242,7 @@ export function simulateGameweek(input: {
   const ourResolution = applySubstitutions(ourLineup, players);
   const theirResolution = applySubstitutions(theirLineup, players);
 
-  const unresolved = [...ourResolution.unresolvedIds, ...theirResolution.unresolvedIds];
+  const unresolved = [...ourResolution.undeclaredCardIds, ...theirResolution.undeclaredCardIds];
 
   const ourMid = baseVotesOfRole(ourResolution.fielded, "C");
   const theirMid = baseVotesOfRole(theirResolution.fielded, "C");
@@ -226,7 +271,10 @@ export function simulateGameweek(input: {
       goalkeeperBaseVote: goalkeeper?.baseVote ?? null,
       defenderBaseVotes: baseVotesOfRole(resolution.fielded, "D"),
     });
-    const playersTotal = resolution.fielded.reduce((sum, line) => sum + (line.fantasyScore ?? 0), 0);
+    // I senza voto scoperti hanno `fantasyScore` nullo e valgono zero nella
+    // somma: il loro punteggio d'ufficio si aggiunge qui, una volta sola.
+    const playersTotal =
+      resolution.fielded.reduce((sum, line) => sum + (line.fantasyScore ?? 0), 0) + resolution.noVoteTotal;
     // Il modificatore modulo lo REGALA L'AVVERSARIO col suo modulo: qui si
     // legge quello dell'altra formazione, non il proprio.
     const moduleFromOpponent = modulePointsToOpponent(opponentModule);
@@ -234,6 +282,7 @@ export function simulateGameweek(input: {
     return {
       resolution,
       playersTotal,
+      noVoteTotal: resolution.noVoteTotal,
       defence: defence.value,
       midfield: midfieldDelta,
       attack: attack.value,
@@ -259,7 +308,7 @@ export function simulateGameweek(input: {
     unresolvedReason:
       unresolved.length === 0
         ? null
-        : `senza voto e senza rimpiazzo: ${unresolved.join(", ")}. Il valore del «senza voto» non è confermato e dedurlo è vietato: il punteggio qui sopra li conta come assenti, quindi NON è il punteggio ufficiale.`,
+        : `senza voto, senza rimpiazzo e senza stato cartellini dichiarato: ${unresolved.join(", ")}. Il regolamento dà 5 col giallo, 4 col rosso e nessun punteggio senza cartellini: il punteggio qui sopra li conta come assenti, quindi NON è il punteggio ufficiale.`,
     fullyTabulated: midfield.tabulated && ourAttack.fullyTabulated && theirAttack.fullyTabulated,
     leagueRuleVersion: LEAGUE_RULE_VERSION,
   };

@@ -9,7 +9,8 @@ import {
   MISSING_LINEUP_POLICY,
   NEUTRAL_GROUND_FROM_MATCHDAY,
   SUBSTITUTION_RULES,
-  SV_VALUES_SEMANTICS_UNCONFIRMED,
+  NO_VOTE_SCORES,
+  noVoteScore,
   attackModifier,
   defenceModifier,
   homeFieldBonus,
@@ -318,15 +319,27 @@ describe("vincoli dichiarati, non ancora simulati", () => {
     expect(MISSING_LINEUP_POLICY.firstMatchdayScoreWithoutPrevious).toBe(0);
   });
 
-  it("espone i valori del senza voto SENZA usarli, perché la loro semantica non è confermata", () => {
-    expect(SV_VALUES_SEMANTICS_UNCONFIRMED).toEqual({
+  it("il senza voto ha una tabella chiusa: 6 al portiere, 5 col giallo, 4 col rosso, niente senza cartellini", () => {
+    expect(NO_VOTE_SCORES).toEqual({
       goalkeeper: 6,
       playerWithYellowCard: 5,
       playerWithRedCard: 4,
+      playerWithoutCard: null,
       officeReserve: "prohibited",
     });
-    // Nessun calcolo li legge: un senza voto non entra in nessuna delle
-    // funzioni di questo modulo finché il committente non dice che cosa vale.
+    expect(noVoteScore({ isGoalkeeper: true, cards: "none" })).toBe(6);
+    // Il portiere prende 6 comunque: il regolamento non condiziona il suo valore.
+    expect(noVoteScore({ isGoalkeeper: true, cards: "red" })).toBe(6);
+    expect(noVoteScore({ isGoalkeeper: false, cards: "yellow" })).toBe(5);
+    expect(noVoteScore({ isGoalkeeper: false, cards: "red" })).toBe(4);
+    // Il caso che decide il valore della panchina: nessun punteggio d'ufficio,
+    // `officeReserve: "prohibited"`, quindi conta come assente e vale zero.
+    expect(noVoteScore({ isGoalkeeper: false, cards: "none" })).toBeNull();
+  });
+
+  it("un punteggio d'ufficio non è un voto base: non entra nei modificatori", () => {
+    // Quattro difensori di cui uno senza voto: il modificatore difesa non ha i
+    // suoi quattro voti base e resta zero, anche se quel difensore prendesse 5.
     expect(defenceModifier({ goalkeeperBaseVote: null, defenderBaseVotes: [7, 7, 7, 7] }).value).toBe(0);
   });
 });

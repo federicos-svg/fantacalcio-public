@@ -71,13 +71,88 @@ const lineup442 = (prefix: string): Lineup => ({
 
 const CONTEXT: GameweekContext = { matchday: 10, weAreHome: true };
 
+describe("senza voto — la tabella dichiarata il 2026-09-03", () => {
+  it("il portiere senza voto viene sostituito come tutti gli altri", () => {
+    // La risposta di Pico: «portiere con SV va sostituito anche lui». Il 6 del
+    // regolamento non è la prima scelta, è quel che resta se la panchina tace.
+    const squad = standardSquad("n", { P1: { baseVote: null, fantasyScore: null } });
+    const out = applySubstitutions(lineup442("n"), squadOf(squad));
+    expect(out.substitutions).toEqual([{ outId: "nP1", inId: "nP2", role: "P" }]);
+    expect(out.noVote).toEqual([]);
+    expect(out.noVoteTotal).toBe(0);
+  });
+
+  it("il portiere scoperto prende 6, e non gli servono i cartellini", () => {
+    const squad = standardSquad("n", {
+      P1: { baseVote: null, fantasyScore: null },
+      P2: { baseVote: null, fantasyScore: null },
+    });
+    const out = applySubstitutions(lineup442("n"), squadOf(squad));
+    expect(out.substitutions).toEqual([]);
+    expect(out.noVote).toEqual([{ id: "nP1", role: "P", cards: null, score: 6 }]);
+    expect(out.undeclaredCardIds).toEqual([]);
+    expect(out.noVoteTotal).toBe(6);
+  });
+
+  it("il movimento scoperto vale 5 col giallo, 4 col rosso, zero senza cartellini", () => {
+    const squad = standardSquad("n", {
+      A1: { baseVote: null, fantasyScore: null, cards: "yellow" },
+      A2: { baseVote: null, fantasyScore: null, cards: "none" },
+      A3: { baseVote: null, fantasyScore: null },
+      C1: { baseVote: null, fantasyScore: null, cards: "red" },
+      C5: { baseVote: null, fantasyScore: null },
+    });
+    const out = applySubstitutions(lineup442("n"), squadOf(squad));
+    expect(out.substitutions).toEqual([]);
+    expect(out.noVote).toEqual([
+      { id: "nC1", role: "C", cards: "red", score: 4 },
+      { id: "nA1", role: "A", cards: "yellow", score: 5 },
+      { id: "nA2", role: "A", cards: "none", score: null },
+    ]);
+    // 4 + 5, e A2 conta come assente: `officeReserve: "prohibited"`.
+    expect(out.noVoteTotal).toBe(9);
+  });
+
+  it("un movimento scoperto senza stato cartellini ferma il conto invece di supporlo", () => {
+    const squad = standardSquad("n", {
+      A1: { baseVote: null, fantasyScore: null },
+      A3: { baseVote: null, fantasyScore: null },
+    });
+    const out = applySubstitutions(lineup442("n"), squadOf(squad));
+    expect(out.undeclaredCardIds).toEqual(["nA1"]);
+    expect(out.noVoteTotal).toBe(0);
+  });
+
+  it("i punteggi d'ufficio entrano nel totale di squadra, i voti base no", () => {
+    const players = squadOf([
+      ...standardSquad("n", {
+        A1: { baseVote: null, fantasyScore: null, cards: "yellow" },
+        A3: { baseVote: null, fantasyScore: null },
+      }),
+      ...standardSquad("l"),
+    ]);
+    const out = simulateGameweek({
+      ourLineup: lineup442("n"),
+      theirLineup: lineup442("l"),
+      players,
+      context: CONTEXT,
+    });
+    expect(out.resolved).toBe(true);
+    expect(out.ours.noVoteTotal).toBe(5);
+    // Dieci giocatori a 6 più il 5 d'ufficio: il senza voto non vale zero.
+    expect(out.ours.playersTotal).toBe(65);
+    // E non ha alimentato il modificatore attacco, che legge i voti base.
+    expect(out.ours.attack).toBe(0);
+  });
+});
+
 describe("sostituzioni", () => {
   it("il primo di panchina utile entra per il primo titolare senza voto dello stesso ruolo", () => {
     const squad = standardSquad("n", { D2: { baseVote: null, fantasyScore: null } });
     const players = squadOf(squad);
     const out = applySubstitutions(lineup442("n"), players);
     expect(out.substitutions).toEqual([{ outId: "nD2", inId: "nD5", role: "D" }]);
-    expect(out.unresolvedIds).toEqual([]);
+    expect(out.noVote).toEqual([]);
     expect(out.fielded.map((l) => l.id)).toContain("nD5");
   });
 
@@ -90,7 +165,7 @@ describe("sostituzioni", () => {
     });
     const out = applySubstitutions(lineup442("n"), squadOf(squad));
     expect(out.substitutions).toEqual([]);
-    expect(out.unresolvedIds).toEqual(["nA1"]);
+    expect(out.noVote.map((e) => e.id)).toEqual(["nA1"]);
   });
 
   it("non supera le cinque sostituzioni, e lo dichiara", () => {
@@ -101,7 +176,7 @@ describe("sostituzioni", () => {
     // D5 e C5, e anche loro senza voto. Nessuna sostituzione possibile.
     const out = applySubstitutions(lineup442("n"), squadOf(many));
     expect(out.substitutionsUsed).toBe(0);
-    expect(out.unresolvedIds.length).toBe(8);
+    expect(out.noVote.length).toBe(8);
   });
 
   it("usa al massimo cinque rimpiazzi quando la panchina lo consentirebbe", () => {
@@ -114,7 +189,7 @@ describe("sostituzioni", () => {
     // In panchina un solo difensore: entra lui, gli altri tre restano scoperti.
     const out = applySubstitutions(lineup442("n"), squadOf(squad));
     expect(out.substitutionsUsed).toBe(1);
-    expect(out.unresolvedIds).toEqual(["nD2", "nD3", "nD4"]);
+    expect(out.noVote.map((e) => e.id)).toEqual(["nD2", "nD3", "nD4"]);
   });
 });
 
@@ -173,7 +248,7 @@ describe("simulazione della giornata", () => {
       context: CONTEXT,
     });
     expect(out.resolved).toBe(false);
-    expect(out.unresolvedReason).toMatch(/non è confermato/);
+    expect(out.unresolvedReason).toMatch(/senza stato cartellini dichiarato/);
     expect(out.unresolvedReason).toContain("nA1");
   });
 

@@ -463,22 +463,52 @@ export const MISSING_LINEUP_POLICY = {
   firstMatchdayScoreWithoutPrevious: 0,
 } as const;
 
+/** Stato disciplinare di un giocatore nella giornata. */
+export type CardStatus = "none" | "yellow" | "red";
+
 /**
- * SENZA VOTO — costanti dichiarate dal regolamento, DELIBERATAMENTE NON USATE.
+ * SENZA VOTO — dichiarato da Pico il 2026-09-03, non più un'incognita.
  *
- * Il regolamento porta questi tre numeri sotto «Senza voto», ma non dichiara la
- * loro semantica esatta, e dedurla è vietato. Se fossero il punteggio attribuito
- * a chi non prende voto, allora tutto l'impianto di rischio del recap
- * («probabilità di chiudere con 10, con 9») poggerebbe su una premessa
- * sbagliata, perché un giocatore senza voto non contribuirebbe zero.
+ * Prima di questa data i tre numeri erano esposti e deliberatamente inutilizzati,
+ * perché il regolamento li portava senza dichiararne la semantica. Pico ha
+ * risposto in due tempi, e le due risposte insieme chiudono la tabella:
  *
- * Sono esposti qui perché la domanda sia visibile nel codice e non solo in un
- * documento, e perché il giorno in cui il committente risponde ci sia un posto
- * solo da cambiare. Nessuna funzione di questo file li legge.
+ * 1. sono il **punteggio attribuito a chi non prende voto**, non un correttivo
+ *    su un voto esistente;
+ * 2. **il senza voto si sostituisce sempre, portiere compreso**: questi valori
+ *    valgono solo su chi resta in campo senza voto perché la panchina non l'ha
+ *    coperto.
+ *
+ * Il giocatore di movimento **senza cartellino** non ha un punteggio d'ufficio:
+ * `officeReserve: "prohibited"` non è decorativo, e chi resta scoperto conta
+ * come assente — contribuisce zero, non sei.
  */
-export const SV_VALUES_SEMANTICS_UNCONFIRMED = {
+export const NO_VOTE_SCORES = {
   goalkeeper: 6,
   playerWithYellowCard: 5,
   playerWithRedCard: 4,
+  /** `null` = nessun punteggio d'ufficio: conta come assente. */
+  playerWithoutCard: null,
   officeReserve: "prohibited",
 } as const;
+
+/**
+ * Il punteggio di chi resta in campo senza voto, o `null` se non gliene spetta
+ * uno. Applicare questa funzione a chi la panchina ha coperto è un errore: la
+ * sostituzione viene prima, sempre.
+ *
+ * **Due letture, non due regole, ed è giusto che si vedano.** Il regolamento
+ * dichiara `goalkeeper_sv` senza condizionarlo ai cartellini, quindi il portiere
+ * prende 6 comunque; e dichiara i due valori del movimento come categorie
+ * distinte, quindi un rosso vince su un giallo. Nessuna delle due è scritta in
+ * quei termini: se una delle due fosse sbagliata, si cambia qui e solo qui.
+ */
+export function noVoteScore(input: {
+  readonly isGoalkeeper: boolean;
+  readonly cards: CardStatus;
+}): number | null {
+  if (input.isGoalkeeper) return NO_VOTE_SCORES.goalkeeper;
+  if (input.cards === "red") return NO_VOTE_SCORES.playerWithRedCard;
+  if (input.cards === "yellow") return NO_VOTE_SCORES.playerWithYellowCard;
+  return NO_VOTE_SCORES.playerWithoutCard;
+}
