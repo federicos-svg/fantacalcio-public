@@ -71,64 +71,94 @@ const lineup442 = (prefix: string): Lineup => ({
 
 const CONTEXT: GameweekContext = { matchday: 10, weAreHome: true };
 
-describe("senza voto — la tabella dichiarata il 2026-09-03", () => {
-  it("il portiere senza voto viene sostituito come tutti gli altri", () => {
-    // La risposta di Pico: «portiere con SV va sostituito anche lui». Il 6 del
-    // regolamento non è la prima scelta, è quel che resta se la panchina tace.
-    const squad = standardSquad("n", { P1: { baseVote: null, fantasyScore: null } });
+describe("senza voto — i cinque casi del regolamento ufficiale", () => {
+  const sv = (over: Partial<PlayerLine> = {}) => ({
+    baseVote: null,
+    fantasyScore: null,
+    ...over,
+  });
+
+  it("il senza voto puro si sostituisce, portiere compreso: non ha una regola propria", () => {
+    const squad = standardSquad("n", { P1: sv({ cards: "none", otherBonusMalus: 0 }) });
     const out = applySubstitutions(lineup442("n"), squadOf(squad));
     expect(out.substitutions).toEqual([{ outId: "nP1", inId: "nP2", role: "P" }]);
-    expect(out.noVote).toEqual([]);
-    expect(out.noVoteTotal).toBe(0);
+    expect(out.uncoveredIds).toEqual([]);
   });
 
-  it("il portiere scoperto prende 6, e non gli servono i cartellini", () => {
+  it("il senza voto puro senza rimpiazzo conta come assente: officeReserve è prohibited", () => {
     const squad = standardSquad("n", {
-      P1: { baseVote: null, fantasyScore: null },
-      P2: { baseVote: null, fantasyScore: null },
+      P1: sv({ cards: "none", otherBonusMalus: 0 }),
+      P2: sv({ cards: "none", otherBonusMalus: 0 }),
     });
     const out = applySubstitutions(lineup442("n"), squadOf(squad));
     expect(out.substitutions).toEqual([]);
-    expect(out.noVote).toEqual([{ id: "nP1", role: "P", cards: null, score: 6 }]);
-    expect(out.undeclaredCardIds).toEqual([]);
-    expect(out.noVoteTotal).toBe(6);
+    expect(out.uncoveredIds).toEqual(["nP1"]);
+    // Nessun punteggio d'ufficio: la riga resta senza voto e varrà zero.
+    expect(out.fielded.find((l) => l.id === "nP1")?.fantasyScore).toBeNull();
   });
 
-  it("il movimento scoperto vale 5 col giallo, 4 col rosso, zero senza cartellini", () => {
+  it("l'ammonito resta in campo col valore della lega, e la panchina non lo tocca", () => {
+    const squad = standardSquad("n", { D2: sv({ cards: "yellow", otherBonusMalus: 0 }) });
+    const out = applySubstitutions(lineup442("n"), squadOf(squad));
+    expect(out.substitutions).toEqual([]);
+    const line = out.fielded.find((l) => l.id === "nD2");
+    // 5, non il 5,5 consigliato dalla piattaforma: è il valore settato dalla lega.
+    expect(line?.fantasyScore).toBe(5);
+    // E soprattutto: è un VOTO BASE, quindi i modificatori lo leggono.
+    expect(line?.baseVote).toBe(5);
+  });
+
+  it("l'espulso a partita in corso prende 4, l'espulso dopo il fischio finale si sostituisce", () => {
     const squad = standardSquad("n", {
-      A1: { baseVote: null, fantasyScore: null, cards: "yellow" },
-      A2: { baseVote: null, fantasyScore: null, cards: "none" },
-      A3: { baseVote: null, fantasyScore: null },
-      C1: { baseVote: null, fantasyScore: null, cards: "red" },
-      C5: { baseVote: null, fantasyScore: null },
+      D2: sv({ cards: "red", otherBonusMalus: 0 }),
+      D3: sv({ cards: "red_after_match", otherBonusMalus: 0 }),
+    });
+    const out = applySubstitutions(lineup442("n"), squadOf(squad));
+    expect(out.fielded.find((l) => l.id === "nD2")?.fantasyScore).toBe(4);
+    // Due espulsioni, un solo cambio: quella dopo il fischio resta un SV.
+    expect(out.substitutions).toEqual([{ outId: "nD3", inId: "nD5", role: "D" }]);
+  });
+
+  it("il senza voto con un qualunque bonus/malus resta in campo a 6 più quel valore", () => {
+    const squad = standardSquad("n", {
+      A1: sv({ cards: "none", otherBonusMalus: 3 }),
+      D2: sv({ cards: "none", otherBonusMalus: -1 }),
     });
     const out = applySubstitutions(lineup442("n"), squadOf(squad));
     expect(out.substitutions).toEqual([]);
-    expect(out.noVote).toEqual([
-      { id: "nC1", role: "C", cards: "red", score: 4 },
-      { id: "nA1", role: "A", cards: "yellow", score: 5 },
-      { id: "nA2", role: "A", cards: "none", score: null },
-    ]);
-    // 4 + 5, e A2 conta come assente: `officeReserve: "prohibited"`.
-    expect(out.noVoteTotal).toBe(9);
+    expect(out.fielded.find((l) => l.id === "nA1")?.fantasyScore).toBe(9);
+    expect(out.fielded.find((l) => l.id === "nD2")?.fantasyScore).toBe(5);
+    // Il voto base resta 6: i modificatori leggono i voti, non i bonus.
+    expect(out.fielded.find((l) => l.id === "nA1")?.baseVote).toBe(6);
   });
 
-  it("un movimento scoperto senza stato cartellini ferma il conto invece di supporlo", () => {
+  it("due combinazioni non coperte dal regolamento fermano il conto invece di sceglierne una", () => {
     const squad = standardSquad("n", {
-      A1: { baseVote: null, fantasyScore: null },
-      A3: { baseVote: null, fantasyScore: null },
+      // Cartellini non dichiarati.
+      A1: sv({ otherBonusMalus: 0 }),
+      // Ammonito che porta anche altri bonus/malus: il regolamento tratta i due
+      // casi come distinti e non dice quale prevalga.
+      A2: sv({ cards: "yellow", otherBonusMalus: 3 }),
     });
     const out = applySubstitutions(lineup442("n"), squadOf(squad));
-    expect(out.undeclaredCardIds).toEqual(["nA1"]);
-    expect(out.noVoteTotal).toBe(0);
+    expect(out.undeclaredIds).toEqual(["nA1", "nA2"]);
   });
 
-  it("i punteggi d'ufficio entrano nel totale di squadra, i voti base no", () => {
+  it("un senza voto non dichiarato rende non ufficiale il punteggio della giornata", () => {
+    const players = squadOf([...standardSquad("n", { A1: sv({ otherBonusMalus: 0 }) }), ...standardSquad("l")]);
+    const out = simulateGameweek({
+      ourLineup: lineup442("n"),
+      theirLineup: lineup442("l"),
+      players,
+      context: CONTEXT,
+    });
+    expect(out.resolved).toBe(false);
+    expect(out.unresolvedReason).toContain("nA1");
+  });
+
+  it("i punteggi d'ufficio entrano nel totale di squadra come qualunque altro voto", () => {
     const players = squadOf([
-      ...standardSquad("n", {
-        A1: { baseVote: null, fantasyScore: null, cards: "yellow" },
-        A3: { baseVote: null, fantasyScore: null },
-      }),
+      ...standardSquad("n", { A1: sv({ cards: "yellow", otherBonusMalus: 0 }) }),
       ...standardSquad("l"),
     ]);
     const out = simulateGameweek({
@@ -138,58 +168,57 @@ describe("senza voto — la tabella dichiarata il 2026-09-03", () => {
       context: CONTEXT,
     });
     expect(out.resolved).toBe(true);
-    expect(out.ours.noVoteTotal).toBe(5);
-    // Dieci giocatori a 6 più il 5 d'ufficio: il senza voto non vale zero.
+    // Dieci giocatori a 6 più il 5 dell'ammonito.
     expect(out.ours.playersTotal).toBe(65);
-    // E non ha alimentato il modificatore attacco, che legge i voti base.
-    expect(out.ours.attack).toBe(0);
   });
 });
 
 describe("sostituzioni", () => {
   it("il primo di panchina utile entra per il primo titolare senza voto dello stesso ruolo", () => {
-    const squad = standardSquad("n", { D2: { baseVote: null, fantasyScore: null } });
+    const squad = standardSquad("n", { D2: { baseVote: null, fantasyScore: null, cards: "none", otherBonusMalus: 0 } });
     const players = squadOf(squad);
     const out = applySubstitutions(lineup442("n"), players);
     expect(out.substitutions).toEqual([{ outId: "nD2", inId: "nD5", role: "D" }]);
-    expect(out.noVote).toEqual([]);
+    expect(out.uncoveredIds).toEqual([]);
     expect(out.fielded.map((l) => l.id)).toContain("nD5");
   });
 
   it("non sostituisce mai fuori ruolo", () => {
     // Un attaccante senza voto e in panchina solo un difensore: nessuno entra.
     const squad = standardSquad("n", {
-      A1: { baseVote: null, fantasyScore: null },
-      C5: { baseVote: null, fantasyScore: null },
-      A3: { baseVote: null, fantasyScore: null },
+      A1: { baseVote: null, fantasyScore: null, cards: "none", otherBonusMalus: 0 },
+      C5: { baseVote: null, fantasyScore: null, cards: "none", otherBonusMalus: 0 },
+      A3: { baseVote: null, fantasyScore: null, cards: "none", otherBonusMalus: 0 },
     });
     const out = applySubstitutions(lineup442("n"), squadOf(squad));
     expect(out.substitutions).toEqual([]);
-    expect(out.noVote.map((e) => e.id)).toEqual(["nA1"]);
+    expect(out.uncoveredIds).toEqual(["nA1"]);
   });
 
   it("non supera le cinque sostituzioni, e lo dichiara", () => {
     const many = standardSquad("n").map((l) =>
-      l.id.startsWith("nD") || l.id.startsWith("nC") ? { ...l, baseVote: null, fantasyScore: null } : l,
+      l.id.startsWith("nD") || l.id.startsWith("nC")
+        ? { ...l, baseVote: null, fantasyScore: null, cards: "none" as const, otherBonusMalus: 0 }
+        : l,
     );
     // Titolari senza voto: 4 difensori e 4 centrocampisti = 8; in panchina solo
     // D5 e C5, e anche loro senza voto. Nessuna sostituzione possibile.
     const out = applySubstitutions(lineup442("n"), squadOf(many));
     expect(out.substitutionsUsed).toBe(0);
-    expect(out.noVote.length).toBe(8);
+    expect(out.uncoveredIds.length).toBe(8);
   });
 
   it("usa al massimo cinque rimpiazzi quando la panchina lo consentirebbe", () => {
     const squad = standardSquad("n", {
-      D1: { baseVote: null, fantasyScore: null },
-      D2: { baseVote: null, fantasyScore: null },
-      D3: { baseVote: null, fantasyScore: null },
-      D4: { baseVote: null, fantasyScore: null },
+      D1: { baseVote: null, fantasyScore: null, cards: "none", otherBonusMalus: 0 },
+      D2: { baseVote: null, fantasyScore: null, cards: "none", otherBonusMalus: 0 },
+      D3: { baseVote: null, fantasyScore: null, cards: "none", otherBonusMalus: 0 },
+      D4: { baseVote: null, fantasyScore: null, cards: "none", otherBonusMalus: 0 },
     });
     // In panchina un solo difensore: entra lui, gli altri tre restano scoperti.
     const out = applySubstitutions(lineup442("n"), squadOf(squad));
     expect(out.substitutionsUsed).toBe(1);
-    expect(out.noVote.map((e) => e.id)).toEqual(["nD2", "nD3", "nD4"]);
+    expect(out.uncoveredIds).toEqual(["nD2", "nD3", "nD4"]);
   });
 });
 
@@ -233,11 +262,11 @@ describe("simulazione della giornata", () => {
     expect(out.ours.moduleFromOpponent).toBe(0);
   });
 
-  it("con un titolare senza voto e senza rimpiazzo dichiara che il punteggio non è ufficiale", () => {
+  it("un titolare scoperto si gioca in dieci: il punteggio è valido, e la cosa si vede", () => {
     const scoperti = squadOf([
       ...standardSquad("n", {
-        A1: { baseVote: null, fantasyScore: null },
-        A3: { baseVote: null, fantasyScore: null },
+        A1: { baseVote: null, fantasyScore: null, cards: "none", otherBonusMalus: 0 },
+        A3: { baseVote: null, fantasyScore: null, cards: "none", otherBonusMalus: 0 },
       }),
       ...standardSquad("l"),
     ]);
@@ -247,9 +276,13 @@ describe("simulazione della giornata", () => {
       players: scoperti,
       context: CONTEXT,
     });
-    expect(out.resolved).toBe(false);
-    expect(out.unresolvedReason).toMatch(/senza stato cartellini dichiarato/);
-    expect(out.unresolvedReason).toContain("nA1");
+    // Prima del 2026-09-03 questo caso era `resolved: false`, perché non si
+    // sapeva che valore desse il regolamento a un senza voto. Ora si sa:
+    // nessuno. Il punteggio è calcolabile ed è quello di una squadra in dieci.
+    expect(out.resolved).toBe(true);
+    expect(out.ours.resolution.uncoveredIds).toEqual(["nA1"]);
+    // Dieci giocatori a 6, e l'undicesimo che non c'è.
+    expect(out.ours.playersTotal).toBe(60);
   });
 
   it("il fattore campo sparisce dalla 29ª", () => {

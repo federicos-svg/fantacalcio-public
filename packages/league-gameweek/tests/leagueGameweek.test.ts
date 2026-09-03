@@ -9,8 +9,8 @@ import {
   MISSING_LINEUP_POLICY,
   NEUTRAL_GROUND_FROM_MATCHDAY,
   SUBSTITUTION_RULES,
-  NO_VOTE_SCORES,
-  noVoteScore,
+  NO_VOTE_RULES,
+  resolveNoVote,
   attackModifier,
   defenceModifier,
   homeFieldBonus,
@@ -319,27 +319,52 @@ describe("vincoli dichiarati, non ancora simulati", () => {
     expect(MISSING_LINEUP_POLICY.firstMatchdayScoreWithoutPrevious).toBe(0);
   });
 
-  it("il senza voto ha una tabella chiusa: 6 al portiere, 5 col giallo, 4 col rosso, niente senza cartellini", () => {
-    expect(NO_VOTE_SCORES).toEqual({
-      goalkeeper: 6,
-      playerWithYellowCard: 5,
-      playerWithRedCard: 4,
-      playerWithoutCard: null,
+  it("il senza voto ha cinque casi, e nessuno di essi è una regola sul portiere", () => {
+    expect(NO_VOTE_RULES).toEqual({
+      bonusMalusBase: 6,
+      sentOffDuringMatch: 4,
+      bookedPreset: 5,
       officeReserve: "prohibited",
     });
-    expect(noVoteScore({ isGoalkeeper: true, cards: "none" })).toBe(6);
-    // Il portiere prende 6 comunque: il regolamento non condiziona il suo valore.
-    expect(noVoteScore({ isGoalkeeper: true, cards: "red" })).toBe(6);
-    expect(noVoteScore({ isGoalkeeper: false, cards: "yellow" })).toBe(5);
-    expect(noVoteScore({ isGoalkeeper: false, cards: "red" })).toBe(4);
-    // Il caso che decide il valore della panchina: nessun punteggio d'ufficio,
-    // `officeReserve: "prohibited"`, quindi conta come assente e vale zero.
-    expect(noVoteScore({ isGoalkeeper: false, cards: "none" })).toBeNull();
+
+    // 1. Puro: si sostituisce, e senza rimpiazzo conta come assente.
+    expect(resolveNoVote({ cards: "none", otherBonusMalus: 0 }).status).toBe("must_be_replaced");
+    // 2. Espulso dopo il fischio finale: resta senza voto, quindi si sostituisce.
+    expect(resolveNoVote({ cards: "red_after_match", otherBonusMalus: 0 }).status).toBe("must_be_replaced");
+    // 3. Ammonito: valore prestabilito dalla lega, già inclusivo del malus.
+    expect(resolveNoVote({ cards: "yellow", otherBonusMalus: 0 })).toMatchObject({
+      status: "office_score",
+      baseVote: 5,
+      fantasyScore: 5,
+    });
+    // 4. Espulso a partita in corso: 4 automatico, non 6 meno il malus.
+    expect(resolveNoVote({ cards: "red", otherBonusMalus: 0 })).toMatchObject({
+      status: "office_score",
+      baseVote: 4,
+      fantasyScore: 4,
+    });
+    // 5. Con un qualunque altro bonus/malus: 6 più quel valore, voto base 6.
+    expect(resolveNoVote({ cards: "none", otherBonusMalus: 3 })).toMatchObject({
+      status: "office_score",
+      baseVote: 6,
+      fantasyScore: 9,
+    });
   });
 
-  it("un punteggio d'ufficio non è un voto base: non entra nei modificatori", () => {
-    // Quattro difensori di cui uno senza voto: il modificatore difesa non ha i
-    // suoi quattro voti base e resta zero, anche se quel difensore prendesse 5.
+  it("le combinazioni che il regolamento non copre si dichiarano, non si scelgono", () => {
+    // Senza cartellini dichiarati non si sa fra tre esiti diversi.
+    expect(resolveNoVote({ cards: null, otherBonusMalus: 0 }).status).toBe("undeclared");
+    // Senza bonus/malus non si distingue un SV da sostituire da un SV a 6 più.
+    expect(resolveNoVote({ cards: "none", otherBonusMalus: null }).status).toBe("undeclared");
+    // L'ammonito con altri bonus/malus: due casi distinti, nessuna precedenza dichiarata.
+    expect(resolveNoVote({ cards: "yellow", otherBonusMalus: -1 }).status).toBe("undeclared");
+    // L'espulsione a partita in corso invece decide da sola: 4 comunque.
+    expect(resolveNoVote({ cards: "red", otherBonusMalus: null }).status).toBe("office_score");
+  });
+
+  it("un senza voto vero non alimenta i modificatori: senza portiere a voto la difesa resta zero", () => {
+    // Il punteggio d'ufficio invece SÌ, ed è il simulatore a metterlo nella
+    // riga effettiva prima che i modificatori la leggano.
     expect(defenceModifier({ goalkeeperBaseVote: null, defenderBaseVotes: [7, 7, 7, 7] }).value).toBe(0);
   });
 });
