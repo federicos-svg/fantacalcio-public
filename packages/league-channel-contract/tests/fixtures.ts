@@ -142,6 +142,26 @@ export const SFIDA_COPPA_G14_RITORNO: ObservedFixture = {
   leg: "ritorno",
 };
 
+/** Andata del turno di eliminazione (giornata 24), in casa. */
+export const SFIDA_COPPA_G24_ANDATA: ObservedFixture = {
+  competitionId: "c2",
+  matchday: 24,
+  opponentTeamId: "t4",
+  venue: "casa",
+  cupPhase: "eliminazione",
+  leg: "andata",
+};
+
+/** Ritorno dello stesso turno (giornata 28), campo invertito. */
+export const SFIDA_COPPA_G28_RITORNO: ObservedFixture = {
+  competitionId: "c2",
+  matchday: 28,
+  opponentTeamId: "t4",
+  venue: "trasferta",
+  cupPhase: "eliminazione",
+  leg: "ritorno",
+};
+
 /**
  * Calendario sintetico con DUE competizioni: la giornata 5 porta due partite,
  * una per competizione, con due avversari diversi.
@@ -150,6 +170,14 @@ export const CALENDARIO: ObservedCalendar = {
   teamId: "t1",
   competitions: [
     { competition: CAMPIONATO, fixtures: [SFIDA_CAMPIONATO_G5] },
-    { competition: COPPA, fixtures: [SFIDA_COPPA_G5, SFIDA_COPPA_G14_RITORNO] },
+    {
+      competition: COPPA,
+      fixtures: [
+        SFIDA_COPPA_G5,
+        SFIDA_COPPA_G14_RITORNO,
+        SFIDA_COPPA_G24_ANDATA,
+        SFIDA_COPPA_G28_RITORNO,
+      ],
+    },
   ],
 };

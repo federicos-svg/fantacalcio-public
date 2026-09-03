@@ -182,6 +182,55 @@ export function expectedCupPhase(matchday: number): ObservedCupPhase | null {
   return null;
 }
 
+/**
+ * FORMA DI PUNTEGGIO DI UNA FASE (§23, dichiarazione di Pico).
+ *
+ * - `punti_3_1_0` — **girone** ed **eliminazione diretta**. Nei gironi valgono
+ *   gli stessi punti del campionato; l'eliminazione diretta è un **mini girone
+ *   di due squadre andata e ritorno**, quindi l'esito del turno si legge sul
+ *   complesso delle due gare con gli stessi punti. Le due gare restano due
+ *   giornate distinte, ciascuna col suo campo e il suo §14.
+ * - `gara_secca` — la **finale**, che è fuori dal mini girone.
+ *
+ * Le regole di punteggio della singola giornata non cambiano mai: cambia solo
+ * come si legge il turno.
+ */
+export type CupScoringShape = "punti_3_1_0" | "gara_secca";
+
+/** Che forma di punteggio si applica a una fase. Dichiarazione, non calcolo. */
+export function cupScoringShape(phase: ObservedCupPhase): CupScoringShape {
+  return phase === "finale" ? "gara_secca" : "punti_3_1_0";
+}
+
+/**
+ * L'eliminazione diretta è un mini girone da due, non una gara con ritorno
+ * «di rimonta»: il turno vale come un girone di due squadre.
+ */
+export const KNOCKOUT_IS_MINI_GROUP = true as const;
+
+/**
+ * CHI PASSA IL TURNO — **non lo dice questo contratto, e non lo dice nemmeno il
+ * regolamento**.
+ *
+ * A parità nel mini girone da due, §23 non dichiara il criterio, e per
+ * supplementari e rigori rinvia a una pagina esterna che il regolamento vieta
+ * di ricostruire. Le tre uscite possibili erano: indovinare un criterio
+ * (differenza reti? gol in trasferta? punteggio totale?), copiare una regola da
+ * un'altra competizione, oppure fermarsi. Le prime due sarebbero
+ * un'imputazione su un esito eliminatorio, cioè il posto peggiore dove
+ * indovinare. Questa funzione è la terza: esiste per **fallire in modo
+ * dichiarato** invece di lasciare un vuoto in cui qualcuno, un giorno,
+ * scriverebbe una regola inventata.
+ *
+ * Il contratto **osserva** la coppa: se serve sapere chi è passato, lo si legge
+ * dalla piattaforma come un fatto, non lo si deriva qui.
+ */
+export function resolveKnockoutQualification(): never {
+  throw new Error(
+    "chi passa il turno di eliminazione non è dichiarato dal regolamento (§23 rinvia a una fonte esterna per supplementari e rigori, e vieta di ricostruirla): il contratto osserva la coppa, non la risolve",
+  );
+}
+
 function assertMatchday(matchday: number): void {
   if (!Number.isInteger(matchday) || matchday < 1) {
     throw new Error(`giornata non valida: ${matchday}`);

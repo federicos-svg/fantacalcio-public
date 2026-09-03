@@ -3,17 +3,22 @@ import { describe, expect, it } from "vitest";
 import {
   COPPA_MATCHDAYS_2026_27,
   COPPA_STRUCTURE_2026_27,
+  KNOCKOUT_IS_MINI_GROUP,
   competitionFixtures,
+  cupScoringShape,
   expectedCupPhase,
   fixtureFor,
   fixturesOnMatchday,
   isCupMatchday,
+  resolveKnockoutQualification,
   toGameweekContext,
 } from "../src/calendar.js";
 import {
   CALENDARIO,
   SFIDA_CAMPIONATO_G5,
   SFIDA_COPPA_G14_RITORNO,
+  SFIDA_COPPA_G24_ANDATA,
+  SFIDA_COPPA_G28_RITORNO,
   SFIDA_COPPA_G5,
 } from "./fixtures.js";
 
@@ -112,6 +117,41 @@ describe("struttura di coppa del regolamento (§23)", () => {
     expect(COPPA_STRUCTURE_2026_27.finalMatchday).toBe(32);
     expect(isCupMatchday(5)).toBe(true);
     expect(isCupMatchday(6)).toBe(false);
+  });
+
+  it("girone ed eliminazione valgono 3/1/0, la finale è gara secca", () => {
+    // Nei gironi i punti sono quelli del campionato; l'eliminazione diretta è
+    // un mini girone di due squadre andata e ritorno, quindi il turno si legge
+    // con gli stessi punti. La finale resta fuori dal mini girone.
+    expect(cupScoringShape("girone")).toBe("punti_3_1_0");
+    expect(cupScoringShape("eliminazione")).toBe("punti_3_1_0");
+    expect(cupScoringShape("finale")).toBe("gara_secca");
+    expect(KNOCKOUT_IS_MINI_GROUP).toBe(true);
+  });
+
+  it("andata e ritorno di un turno di eliminazione: due contesti, una forma di punteggio", () => {
+    const andata = toGameweekContext(SFIDA_COPPA_G24_ANDATA, 24, "c2");
+    const ritorno = toGameweekContext(SFIDA_COPPA_G28_RITORNO, 28, "c2");
+
+    // Stesso avversario, campo invertito: due giornate distinte, ciascuna col
+    // suo fattore campo di §14. La 28ª è l'ultima con il campo che conta.
+    expect(SFIDA_COPPA_G24_ANDATA.opponentTeamId).toBe(SFIDA_COPPA_G28_RITORNO.opponentTeamId);
+    expect(andata).toEqual({ matchday: 24, weAreHome: true });
+    expect(ritorno).toEqual({ matchday: 28, weAreHome: false });
+    expect(andata).not.toEqual(ritorno);
+
+    expect(cupScoringShape("eliminazione")).toBe(cupScoringShape("girone"));
+  });
+
+  it("l'esito del turno NON lo calcola il contratto: a parità il regolamento tace", () => {
+    // §23 non dichiara chi passa a parità nel mini girone da due e rinvia a una
+    // fonte esterna per supplementari e rigori, che vieta di ricostruire.
+    // Indovinare un criterio su un esito eliminatorio sarebbe il posto peggiore
+    // dove indovinare: si fallisce in modo dichiarato.
+    expect(() => resolveKnockoutQualification()).toThrow(
+      /non è dichiarato dal regolamento/,
+    );
+    expect(() => resolveKnockoutQualification()).toThrow(/osserva la coppa, non la risolve/);
   });
 
   it("la fase attesa è un'attesa, non un'osservazione", () => {
