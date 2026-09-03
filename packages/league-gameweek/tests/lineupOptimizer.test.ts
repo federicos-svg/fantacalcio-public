@@ -330,3 +330,101 @@ describe("funzione obiettivo", () => {
     expect(conPunti).not.toBe(senzaPunti);
   });
 });
+
+describe("l'ottimizzatore contro la forza bruta, su un campionario di rose", () => {
+  // QUESTO TEST ESISTE PERCHÉ LA PRIMA VERSIONE ERA SBAGLIATA.
+  //
+  // `bestLineupExPost` dichiara di trovare il massimo esatto senza enumerare
+  // tutte le formazioni. La prima stesura sceglieva i centrocampisti PRIMA
+  // degli attaccanti, contro un attacco «di riferimento» arbitrario: siccome i
+  // centrocampisti muovono entrambi i totali e la conversione in goal è a
+  // bande, il centrocampo migliore accanto a un attacco finto non è il
+  // migliore accanto a quello vero. Una review indipendente ha prodotto il
+  // controesempio; la prima rosa generata qui sotto è proprio quella.
+  //
+  // Un solo caso scelto a mano non basta a difendere una pretesa di
+  // esattezza: qui si generano rose deterministiche e si confronta ogni volta
+  // con l'enumerazione completa.
+  function lcg(seed: number): () => number {
+    let state = seed;
+    return () => {
+      state = (state * 1103515245 + 12345) % 2147483648;
+      return state / 2147483648;
+    };
+  }
+
+  it("nessuna rosa in cui la forza bruta batta l'algoritmo", () => {
+    const rnd = lcg(12345);
+    const vote = (): number => Math.round((4 + rnd() * 5) * 2) / 2;
+    const bonus = (): number => Math.round(rnd() * 8) - 3;
+    // Voti base prima, bonus/malus poi: il punteggio individuale è scorrelato
+    // dal voto base, ed è proprio lì che l'ordine dei ruoli conta.
+    const withScores = (lines: readonly PlayerLine[]): PlayerLine[] =>
+      lines.map((l) => ({ ...l, fantasyScore: (l.baseVote as number) + bonus() }));
+    const voted = (id: string, role: Role): PlayerLine => ({ id, role, baseVote: vote(), fantasyScore: 0 });
+
+    for (let trial = 0; trial < 30; trial += 1) {
+      const rosaBase: PlayerLine[] = [voted("P1", "P")];
+      for (let i = 1; i <= 6; i += 1) rosaBase.push(voted(`D${i}`, "D"));
+      for (let i = 1; i <= 6; i += 1) rosaBase.push(voted(`C${i}`, "C"));
+      for (let i = 1; i <= 5; i += 1) rosaBase.push(voted(`A${i}`, "A"));
+      const rosa = withScores(rosaBase);
+      const loroBase: PlayerLine[] = [voted("oP1", "P")];
+      for (let i = 1; i <= 4; i += 1) loroBase.push(voted(`oD${i}`, "D"));
+      for (let i = 1; i <= 4; i += 1) loroBase.push(voted(`oC${i}`, "C"));
+      for (let i = 1; i <= 2; i += 1) loroBase.push(voted(`oA${i}`, "A"));
+      const loro = withScores(loroBase);
+      const players = new Map([...rosa, ...loro].map((l) => [l.id, l]));
+
+      const best = bestLineupExPost({
+        squad: rosa,
+        theirLineup: THEIR_LINEUP,
+        players,
+        context: CONTEXT,
+        onlyModule: "442",
+      });
+      expect(best.feasible).toBe(true);
+
+      const value = (o: ReturnType<typeof simulateGameweek>): number => objectiveValue(o, null).value;
+      let brute = -Infinity;
+      for (const d of combinations(rosa.filter((l) => l.role === "D"), 4)) {
+        for (const c of combinations(rosa.filter((l) => l.role === "C"), 4)) {
+          for (const a of combinations(rosa.filter((l) => l.role === "A"), 2)) {
+            const starters = [...d, ...c, ...a];
+            const chosen = new Set(["P1", ...starters.map((x) => x.id)]);
+            const lineup: Lineup = {
+              module: "442",
+              goalkeeperId: "P1",
+              starterIds: starters.map((x) => x.id),
+              benchIds: rosa.filter((x) => !chosen.has(x.id)).map((x) => x.id),
+            };
+            brute = Math.max(
+              brute,
+              value(simulateGameweek({ ourLineup: lineup, theirLineup: THEIR_LINEUP, players, context: CONTEXT })),
+            );
+          }
+        }
+      }
+      expect(value(best.outcome!), `rosa numero ${trial}`).toBe(brute);
+    }
+  });
+});
+
+describe("punti di lega dichiarati", () => {
+  it("rifiuta tre numeri disordinati invece di cercare un massimo che non lo è", () => {
+    const players = allPlayers();
+    const lineup: Lineup = {
+      module: "442",
+      goalkeeperId: "P2",
+      starterIds: ["D6", "D5", "D4", "D3", "C6", "C5", "C4", "C3", "A4", "A3"],
+      benchIds: [],
+    };
+    const outcome = simulateGameweek({ ourLineup: lineup, theirLineup: THEIR_LINEUP, players, context: CONTEXT });
+    // Una vittoria che vale meno di un pareggio romperebbe in silenzio la
+    // monotonia su cui poggia tutta la ricerca del massimo.
+    expect(() => leaguePointsOf(outcome, { win: 0, draw: 3, loss: 1 })).toThrow(/non ordinati/);
+    expect(() => leaguePointsOf(outcome, { win: 3, draw: 1, loss: 0 })).not.toThrow();
+    // Tre numeri uguali sono ordinati, anche se rendono l'obiettivo piatto.
+    expect(() => leaguePointsOf(outcome, { win: 1, draw: 1, loss: 1 })).not.toThrow();
+  });
+});

@@ -74,14 +74,20 @@ export interface BestLineupResult {
  * Qui il criterio è l'obiettivo: i punti di lega se sono dichiarati, altrimenti
  * differenza goal e poi punteggio, con l'etichetta a vista.
  *
- * PERCHÉ NON SERVE LA FORZA BRUTA. A modulo e portiere fissati il problema si
- * separa per ruolo: i difensori e gli attaccanti muovono solo il nostro totale,
- * e l'obiettivo è monotono in quello; i centrocampisti muovono il nostro delta
- * e — con segno opposto — il loro, quindi si valutano sull'obiettivo
- * direttamente; modulo e fattore campo non dipendono da quali giocatori si
- * scelgono. Costa 126 + 126 + 35 valutazioni per portiere invece del loro
- * prodotto, e ogni candidato viene comunque misurato dentro una simulazione
- * completa: non c'è una seconda formula parallela che un giorno divergerà.
+ * PERCHÉ NON SERVE LA FORZA BRUTA, E QUAL È LA CONDIZIONE.
+ * A modulo e portiere fissati, difensori e attaccanti muovono SOLO il nostro
+ * totale, con contributo additivo, e l'obiettivo è monotono nel nostro totale
+ * a totale avversario fermo: si scelgono massimizzando `ours.total`, e la loro
+ * scelta non dipende dagli altri ruoli. I centrocampisti sono l'unico ruolo che
+ * muove entrambi i totali, e la conversione in goal è a bande: vanno quindi
+ * scelti PER ULTIMI, sull'obiettivo, con difesa e attacco già definitivi.
+ * Costa 126 + 35 + 126 valutazioni per portiere invece del loro prodotto, e
+ * ogni candidato è misurato dentro una simulazione completa: non c'è una
+ * seconda formula parallela che un giorno divergerà.
+ *
+ * L'ordine è la condizione, non un dettaglio: scegliere il centrocampo prima
+ * dell'attacco rende il risultato subottimale, ed è l'errore che una review
+ * indipendente ha trovato nella prima versione di questo file.
  *
  * Le sostituzioni non entrano nel conto perché a voti noti non servono: chi
  * sceglie ex-post non schiera mai un giocatore senza voto se ne ha uno con
@@ -166,38 +172,50 @@ export function bestLineupExPost(input: {
         return outcome;
       };
 
-      // Ruolo per ruolo, tenendo fissi gli altri due su una scelta di
-      // riferimento: la separabilità garantisce che il massimo trovato così sia
-      // il massimo assoluto per questo portiere e questo modulo.
-      const refD = pick(defenders, shape.defenders)[0]!;
+      // L'ORDINE DEI TRE RUOLI NON È INDIFFERENTE, E LA PRIMA VERSIONE DI
+      // QUESTO FILE LO SBAGLIAVA. Difensori e attaccanti muovono SOLO il nostro
+      // totale, e l'obiettivo è monotono in quello a totale avversario fermo:
+      // si scelgono quindi massimizzando `ours.total`, e la loro scelta non
+      // dipende da nient'altro perché il contributo è additivo. I
+      // centrocampisti sono l'unico ruolo che muove ENTRAMBI i totali (il loro
+      // delta è il nostro cambiato di segno), e la conversione in goal è a
+      // bande, cioè non lineare: il centrocampo migliore accanto a un attacco
+      // debole NON è detto sia il migliore accanto all'attacco vero. Perciò il
+      // centrocampo si sceglie PER ULTIMO, con difesa e attacco già definitivi.
+      //
+      // La prima versione sceglieva il centrocampo in mezzo, contro un attacco
+      // «di riferimento» arbitrario, e una review indipendente ha prodotto il
+      // controesempio: mezzo punto di differenza sul massimo. Il test
+      // `non esiste una rosa in cui la forza bruta batta l'algoritmo` percorre
+      // ora un campionario di rose invece di una sola.
       const refC = pick(midfielders, shape.midfielders)[0]!;
       const refA = pick(strikers, shape.strikers)[0]!;
 
-      let bestD = refD;
-      let bestDValue = -Infinity;
+      let bestD = pick(defenders, shape.defenders)[0]!;
+      let bestDTotal = -Infinity;
       for (const d of pick(defenders, shape.defenders)) {
-        const value = valueOf(evaluate(d, refC, refA));
-        if (value > bestDValue) {
-          bestDValue = value;
+        const total = evaluate(d, refC, refA).ours.total;
+        if (total > bestDTotal) {
+          bestDTotal = total;
           bestD = d;
+        }
+      }
+      let bestA = refA;
+      let bestATotal = -Infinity;
+      for (const a of pick(strikers, shape.strikers)) {
+        const total = evaluate(bestD, refC, a).ours.total;
+        if (total > bestATotal) {
+          bestATotal = total;
+          bestA = a;
         }
       }
       let bestC = refC;
       let bestCValue = -Infinity;
       for (const c of pick(midfielders, shape.midfielders)) {
-        const value = valueOf(evaluate(bestD, c, refA));
+        const value = valueOf(evaluate(bestD, c, bestA));
         if (value > bestCValue) {
           bestCValue = value;
           bestC = c;
-        }
-      }
-      let bestA = refA;
-      let bestAValue = -Infinity;
-      for (const a of pick(strikers, shape.strikers)) {
-        const value = valueOf(evaluate(bestD, bestC, a));
-        if (value > bestAValue) {
-          bestAValue = value;
-          bestA = a;
         }
       }
       evaluate(bestD, bestC, bestA);
@@ -226,7 +244,10 @@ export function bestLineupExPost(input: {
     lineup: best.lineup,
     outcome: best.outcome,
     feasible: true,
-    reason: `massimo sull'obiettivo (${objectiveValue(best.outcome, points).objective}) su ${modules.length} modulo/i`,
+    reason:
+      `massimo su ${modules.length} modulo/i, criterio ${objectiveValue(best.outcome, points).objective}; ` +
+      "ricerca per ruoli con il centrocampo valutato per ultimo, e ogni candidato misurato dentro una simulazione completa",
+
     evaluated,
     leagueRuleVersion: LEAGUE_RULE_VERSION,
   };
@@ -303,8 +324,25 @@ export interface ObjectiveValue {
   readonly leagueRuleVersion: LeagueRuleVersion;
 }
 
+/**
+ * I tre numeri devono essere ordinati: una vittoria non può valere meno di un
+ * pareggio. Non è una preferenza di stile — tutta la ricerca del massimo
+ * poggia sulla monotonia dell'obiettivo, e tre numeri disordinati la
+ * romperebbero in silenzio. Meglio fermarsi che restituire un massimo che non
+ * lo è.
+ */
+export function assertDeclaredLeaguePoints(points: DeclaredLeaguePoints): void {
+  if (!(points.win >= points.draw && points.draw >= points.loss)) {
+    throw new Error(
+      `punti di lega non ordinati: vittoria ${points.win}, pareggio ${points.draw}, sconfitta ${points.loss}. ` +
+        "La ricerca del massimo assume che una vittoria non valga meno di un pareggio.",
+    );
+  }
+}
+
 /** Punti di lega di un singolo esito, dati i tre numeri dichiarati. */
 export function leaguePointsOf(outcome: GameweekOutcome, points: DeclaredLeaguePoints): ObjectiveValue {
+  assertDeclaredLeaguePoints(points);
   const value =
     outcome.ourGoals > outcome.theirGoals
       ? points.win
