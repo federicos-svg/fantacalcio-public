@@ -105,10 +105,13 @@ export function bestLineupExPost(input: {
    * I punti di lega dichiarati. `null` (o assente) = non dichiarati: si ordina
    * su differenza goal e poi punteggio, con l'etichetta a vista.
    */
+  /** Omesso: `LEAGUE_POINTS`, i punti dichiarati. `null`: l'ordinamento surrogato. */
   readonly points?: DeclaredLeaguePoints | null;
 }): BestLineupResult {
   const { squad, theirLineup, players, context } = input;
-  const points = input.points ?? null;
+  // Omettere i punti significa «usa quelli della lega»; passare esplicitamente
+  // `null` significa «fammi vedere che succede senza», ed è un'altra domanda.
+  const points = input.points === undefined ? LEAGUE_POINTS : input.points;
   const valueOf = (outcome: GameweekOutcome): number => objectiveValue(outcome, points).value;
   const withVote = squad.filter(hasVote);
   const byRole = (role: Role): PlayerLine[] => withVote.filter((line) => line.role === role);
@@ -331,6 +334,20 @@ export interface ObjectiveValue {
  * romperebbero in silenzio. Meglio fermarsi che restituire un massimo che non
  * lo è.
  */
+/**
+ * I punti di lega, dichiarati da Pico il 2026-09-03: **la convenzione della
+ * Serie A**, 3 / 1 / 0. Il regolamento metteva «punti» al primo criterio di
+ * classifica senza quantificarli, e §27 vietava di dedurli.
+ *
+ * **Non è un numero neutro per il Coach.** Con 3/1/0 una vittoria vale tre
+ * pareggi, quindi da sfavorito conviene alzare la varianza: il pareggio che si
+ * protegge vale un terzo di quel che si rischia di guadagnare. Con 2/1/0 la
+ * stessa formazione sarebbe spesso la scelta sbagliata. Su una decisione
+ * deterministica a giornata singola invece non cambia nulla, perché lì conta
+ * solo l'ordine V > N > P.
+ */
+export const LEAGUE_POINTS: DeclaredLeaguePoints = { win: 3, draw: 1, loss: 0 };
+
 export function assertDeclaredLeaguePoints(points: DeclaredLeaguePoints): void {
   if (!(points.win >= points.draw && points.draw >= points.loss)) {
     throw new Error(
@@ -387,7 +404,21 @@ export function objectiveValue(
   outcome: GameweekOutcome,
   points: DeclaredLeaguePoints | null,
 ): ObjectiveValue {
-  if (points !== null) return leaguePointsOf(outcome, points);
+  if (points !== null) {
+    // I punti da soli sono un obiettivo PIATTO: con 3/1/0 ogni vittoria vale
+    // quanto ogni altra, e fra decine di formazioni che vincono l'ottimizzatore
+    // sceglierebbe a caso — anche quella che vince buttando dentro i peggiori.
+    // Il pareggio si rompe con i criteri che il regolamento mette subito dopo
+    // «punti» in §22: somma del punteggio totale, poi differenza reti. Non è
+    // un'invenzione per far tornare i conti, è l'ordine della classifica.
+    const league = leaguePointsOf(outcome, points);
+    return {
+      value: league.value * 1_000_000 + outcome.ours.total * 1_000 + (outcome.ourGoals - outcome.theirGoals),
+      objective: "LEAGUE_POINTS",
+      label: `${league.label}, pareggi rotti da punteggio totale e differenza reti (criteri di classifica §22)`,
+      leagueRuleVersion: LEAGUE_RULE_VERSION,
+    };
+  }
   // Codifica lessicografica in un numero solo: esito, poi punteggio totale,
   // poi differenza reti — l'ordine dei criteri di classifica del regolamento
   // meno i punti, che non sono dichiarati. I fattori sono più grandi di
@@ -399,7 +430,7 @@ export function objectiveValue(
       (outcome.ourGoals - outcome.theirGoals),
     objective: "GOALS_THEN_SCORE",
     label:
-      "punti di lega non dichiarati: ordinamento su esito, poi punteggio totale, poi differenza reti (ordine dei criteri di classifica del regolamento). NON è la funzione obiettivo del Coach",
+      "punti di lega esclusi su richiesta: ordinamento su esito, poi punteggio totale, poi differenza reti (ordine dei criteri di classifica del regolamento). NON è la funzione obiettivo del Coach, che dal 2026-09-03 usa LEAGUE_POINTS",
     leagueRuleVersion: LEAGUE_RULE_VERSION,
   };
 }

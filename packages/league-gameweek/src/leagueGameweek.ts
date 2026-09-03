@@ -39,10 +39,9 @@
 //  - nessuna interpolazione fuori tabella. Dove il regolamento tabula punti
 //    discreti e vieta di interpolare, un valore non tabulato produce un esito
 //    dichiarato — mai uno zero silenzioso, che somiglierebbe a un risultato;
-//  - nessun punteggio di lega per vittoria/pareggio/sconfitta: il regolamento
-//    mette «punti» al primo criterio di classifica e non li quantifica, e
-//    dedurli è vietato. Finché il committente non li dichiara, la funzione
-//    obiettivo del Coach non esiste e questo file non la finge;
+//  - i punti di lega, che il regolamento non quantificava, sono dichiarati da
+//    Pico il 2026-09-03 sulla convenzione della Serie A: 3 / 1 / 0. Il
+//    fallback di ordinamento resta, ma non è più la strada principale;
 //  - il «senza voto» invece NON è più un'incognita: dichiarato da Pico il
 //    2026-09-03 sul regolamento ufficiale, è modellato sotto in cinque casi,
 //    e i punteggi d'ufficio che ne escono sono voti base a tutti gli effetti.

@@ -10,6 +10,7 @@ import {
   leaguePointsOf,
   lineupRegret,
   objectiveValue,
+  LEAGUE_POINTS,
   resultSign,
   simulateGameweek,
 } from "../src/index.js";
@@ -205,7 +206,7 @@ describe("miglior formazione ex-post", () => {
       context: CONTEXT,
       onlyModule: "442",
     });
-    const value = (o: ReturnType<typeof simulateGameweek>): number => objectiveValue(o, null).value;
+    const value = (o: ReturnType<typeof simulateGameweek>): number => objectiveValue(o, LEAGUE_POINTS).value;
     const keepers = squad.filter((l) => l.role === "P");
     const defenders = squad.filter((l) => l.role === "D");
     const midfielders = squad.filter((l) => l.role === "C");
@@ -323,6 +324,26 @@ describe("funzione obiettivo", () => {
     expect(compareOutcomesWithoutDeclaredPoints(strettaMaAlta, larghaMaBassa)).toBeLessThan(0);
   });
 
+  it("coi punti di lega due vittorie non sono la stessa cosa: il pareggio lo rompe il punteggio", () => {
+    // 3/1/0 è un obiettivo piatto — ogni vittoria vale 3 — e da solo lascerebbe
+    // l'ottimizzatore indifferente fra una vittoria coi migliori e una coi
+    // peggiori. §22 mette «somma punteggio totale» subito dopo i punti.
+    const vittoriaRicca = { ourGoals: 2, theirGoals: 1, ours: { total: 90 } } as never as import("../src/index.js").GameweekOutcome;
+    const vittoriaMagra = { ourGoals: 2, theirGoals: 1, ours: { total: 70 } } as never as import("../src/index.js").GameweekOutcome;
+    expect(objectiveValue(vittoriaRicca, LEAGUE_POINTS).value).toBeGreaterThan(
+      objectiveValue(vittoriaMagra, LEAGUE_POINTS).value,
+    );
+    // Ma nessun punteggio compra un esito: un pareggio ricchissimo resta sotto.
+    const pareggioRicchissimo = { ourGoals: 1, theirGoals: 1, ours: { total: 200 } } as never as import("../src/index.js").GameweekOutcome;
+    expect(objectiveValue(vittoriaMagra, LEAGUE_POINTS).value).toBeGreaterThan(
+      objectiveValue(pareggioRicchissimo, LEAGUE_POINTS).value,
+    );
+  });
+
+  it("i punti dichiarati sono 3/1/0, la convenzione della Serie A", () => {
+    expect(LEAGUE_POINTS).toEqual({ win: 3, draw: 1, loss: 0 });
+  });
+
   it("i punti dichiarati cambiano davvero il criterio, non solo l'etichetta", () => {
     const outcome = simulateGameweek({ ourLineup: vinta, theirLineup: THEIR_LINEUP, players, context: CONTEXT });
     const conPunti = objectiveValue(outcome, { win: 3, draw: 1, loss: 0 }).value;
@@ -385,7 +406,7 @@ describe("l'ottimizzatore contro la forza bruta, su un campionario di rose", () 
       });
       expect(best.feasible).toBe(true);
 
-      const value = (o: ReturnType<typeof simulateGameweek>): number => objectiveValue(o, null).value;
+      const value = (o: ReturnType<typeof simulateGameweek>): number => objectiveValue(o, LEAGUE_POINTS).value;
       let brute = -Infinity;
       for (const d of combinations(rosa.filter((l) => l.role === "D"), 4)) {
         for (const c of combinations(rosa.filter((l) => l.role === "C"), 4)) {
