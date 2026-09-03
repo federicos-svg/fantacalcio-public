@@ -324,6 +324,7 @@ describe("vincoli dichiarati, non ancora simulati", () => {
       bonusMalusBase: 6,
       sentOffDuringMatch: 4,
       bookedPreset: 5,
+      yellowCardMalus: -0.5,
       officeReserve: "prohibited",
     });
 
@@ -351,13 +352,27 @@ describe("vincoli dichiarati, non ancora simulati", () => {
     });
   });
 
+  it("l'ammonito che segna fa 8,5 e non 8: si somma il malus vero, non il valore di lega", () => {
+    // Dichiarato da Pico: «bonus e malus si sommano, quindi ammonito e gol
+    // -0,5 + 3 = +2,5». Il preset da 5 vale solo per l'ammonito e nient'altro.
+    expect(resolveNoVote({ cards: "yellow", otherBonusMalus: 3 }).fantasyScore).toBe(8.5);
+    expect(resolveNoVote({ cards: "yellow", otherBonusMalus: 0 }).fantasyScore).toBe(5);
+    // Il salto di mezzo punto fra i due casi è la scelta di lega: l'aritmetica
+    // pura darebbe 5,5 all'ammonito solo, la lega ha settato 5.
+    expect(6 + NO_VOTE_RULES.yellowCardMalus).toBe(5.5);
+  });
+
   it("le combinazioni che il regolamento non copre si dichiarano, non si scelgono", () => {
     // Senza cartellini dichiarati non si sa fra tre esiti diversi.
     expect(resolveNoVote({ cards: null, otherBonusMalus: 0 }).status).toBe("undeclared");
     // Senza bonus/malus non si distingue un SV da sostituire da un SV a 6 più.
     expect(resolveNoVote({ cards: "none", otherBonusMalus: null }).status).toBe("undeclared");
-    // L'ammonito con altri bonus/malus: due casi distinti, nessuna precedenza dichiarata.
-    expect(resolveNoVote({ cards: "yellow", otherBonusMalus: -1 }).status).toBe("undeclared");
+    // L'ammonito con altri bonus/malus non è più scoperto: bonus e malus si
+    // sommano, e il valore prestabilito della lega non si applica.
+    expect(resolveNoVote({ cards: "yellow", otherBonusMalus: -1 })).toMatchObject({
+      status: "office_score",
+      fantasyScore: 4.5,
+    });
     // L'espulsione a partita in corso invece decide da sola: 4 comunque.
     expect(resolveNoVote({ cards: "red", otherBonusMalus: null }).status).toBe("office_score");
   });

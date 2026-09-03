@@ -132,16 +132,22 @@ describe("senza voto — i cinque casi del regolamento ufficiale", () => {
     expect(out.fielded.find((l) => l.id === "nA1")?.baseVote).toBe(6);
   });
 
-  it("due combinazioni non coperte dal regolamento fermano il conto invece di sceglierne una", () => {
+  it("le combinazioni non dichiarate fermano il conto invece di sceglierne una", () => {
     const squad = standardSquad("n", {
       // Cartellini non dichiarati.
       A1: sv({ otherBonusMalus: 0 }),
-      // Ammonito che porta anche altri bonus/malus: il regolamento tratta i due
-      // casi come distinti e non dice quale prevalga.
-      A2: sv({ cards: "yellow", otherBonusMalus: 3 }),
+      // Bonus/malus non dichiarati: non si distingue un SV puro da un SV a 6 più.
+      A2: sv({ cards: "none" }),
     });
     const out = applySubstitutions(lineup442("n"), squadOf(squad));
     expect(out.undeclaredIds).toEqual(["nA1", "nA2"]);
+  });
+
+  it("l'ammonito che segna resta in campo a 8,5, e la panchina non lo tocca", () => {
+    const squad = standardSquad("n", { A1: sv({ cards: "yellow", otherBonusMalus: 3 }) });
+    const out = applySubstitutions(lineup442("n"), squadOf(squad));
+    expect(out.substitutions).toEqual([]);
+    expect(out.fielded.find((l) => l.id === "nA1")?.fantasyScore).toBe(8.5);
   });
 
   it("un senza voto non dichiarato rende non ufficiale il punteggio della giornata", () => {
