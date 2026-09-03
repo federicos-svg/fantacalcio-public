@@ -782,8 +782,10 @@ function replan(
       for (const f of startersOfRole) if (!dropped.has(f.id)) kept.push(f.id);
     } else {
       for (const f of startersOfRole) kept.push(f.id);
+      // Chi non prende voto in nessuno scenario non torna fra i titolari: stessa
+      // guardia di (a)/(b) in `neighbours`, qui applicata al cambio modulo.
       const spare = squad
-        .filter((f) => f.role === role && !inLineup.has(f.id))
+        .filter((f) => f.role === role && !inLineup.has(f.id) && !neverPlays(f))
         .sort(compareByExpectedDesc);
       const needed = target - startersOfRole.length;
       if (spare.length < needed) return null;

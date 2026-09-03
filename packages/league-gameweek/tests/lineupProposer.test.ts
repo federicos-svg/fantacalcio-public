@@ -1087,6 +1087,75 @@ describe("ordine della panchina: la ricerca lo sceglie sugli scenari (§10 tetto
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 9-ter. IL CAMBIO MODULO NON PUÒ TITOLARIZZARE CHI NON HA VOTO
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 2P / 4D / 4C / 4A. A previsione puntuale (Tier 1) il 4-4-2 è già la scelta
+ * migliore fra i sette moduli e schiera i due attaccanti col punteggio atteso
+ * più alto, Ariserva (4,5) e A1 (4,0); Afiller (4,0, pareggia A1 e perde il
+ * pareggio) resta in panchina. Cincerto (C, p = 0,3) rende però il 4-3-3
+ * migliore sugli scenari (Tier 2): un centrocampista in meno, un attaccante
+ * in più — la mossa (c) del vicinato.
+ *
+ * Per quel posto in più in panchina restano solo due candidati: Afiller
+ * (reale, p = 1, punteggio atteso 4,0) e Aghost (p = 0, punteggio atteso 9,0
+ * — il più alto di TUTTA la rosa). Se `replan` sceglie i rincalzi ordinando
+ * per punteggio atteso senza escludere chi non ha mai voto (dichiarazione 2
+ * in testa a `lineupProposer.ts`), Aghost entra fra i titolari del 4-3-3
+ * proposto: è esattamente il difetto che l'esclusione in `neighbours` (a) e
+ * (b) chiude per gli scambi di movimento e il cambio modulo no.
+ */
+function moduleSwitchNeverPlaysSquad(): PlayerForecast[] {
+  return [
+    fc("P1", "P", 6.0),
+    fc("P2", "P", 5.0),
+    fc("D1", "D", 6.5),
+    fc("D2", "D", 6.5),
+    fc("D3", "D", 6.5),
+    fc("D4", "D", 6.5),
+    fc("C1", "C", 6.5),
+    fc("C2", "C", 6.5),
+    fc("C3", "C", 6.5),
+    fc("Cincerto", "C", 4.0, 4.0, 0.3),
+    fc("A1", "A", 4.0),
+    fc("Afiller", "A", 4.0),
+    fc("Ariserva", "A", 4.5),
+    fc("Aghost", "A", 9.0, 9.0, 0),
+  ];
+}
+
+describe("il cambio modulo non titolarizza chi non ha mai voto", () => {
+  it("Aghost (p = 0, punteggio atteso più alto della rosa) non è mai titolare quando il 4-3-3 cerca un attaccante in più al posto del 4-4-2 di Tier 1", () => {
+    const squad = moduleSwitchNeverPlaysSquad();
+    const opponent = opponentFlat();
+    const proposal = proposeLineup({
+      squad,
+      opponent: { lineup: OPP_LINEUP, players: opponent },
+      context: CONTEXT,
+    });
+
+    // La premessa: Tier 1 sceglie il 4-4-2, la ricerca sugli scenari lo cambia
+    // in 4-3-3 — è la mossa (c) che deve filtrare `neverPlays`, non la mossa
+    // (a)/(b) già a posto.
+    expect(proposal.pointForecast.lineup!.module).toBe("442");
+    expect(proposal.lineup!.module).toBe("433");
+
+    // L'INVARIANTE: Aghost non è mai in campo, in nessun ruolo.
+    expect(proposal.lineup!.starterIds).not.toContain("Aghost");
+    expect(proposal.lineup!.goalkeeperId).not.toBe("Aghost");
+    // E la dichiarazione 2) vale alla lettera: è l'ultimo della panchina,
+    // dietro anche ad Afiller che un voto, quando gioca, ce l'ha davvero.
+    const bench = proposal.lineup!.benchIds;
+    expect(bench[bench.length - 1]).toBe("Aghost");
+
+    // La formazione resta legale.
+    const players = expectedMap(squad, opponent);
+    expect(lineupViolations(proposal.lineup!, players)).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 10. IL TETTO DELLE SOSTITUZIONI
 // ─────────────────────────────────────────────────────────────────────────────
 
