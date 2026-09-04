@@ -63,6 +63,17 @@ test("quando la lega non è collegata la pagina lo dice, e non mostra nessuna fo
   await expect(page.locator(".formazione-riga")).toHaveCount(0);
   await expect(page.locator("#formazione-stato-invio")).toHaveCount(0);
 
+  // E NEMMENO I COMANDI DI MODIFICA. Da quando la formazione si può cambiare,
+  // «l'avviso prende il posto della squadra» ha una superficie più larga da
+  // difendere: una tendina del modulo, un «Annulla le modifiche» o una riga
+  // «come letta dalla piattaforma» accanto all'avviso direbbero che una
+  // formazione c'è, ed è la stessa bugia della griglia vuota.
+  await expect(page.locator("[id^='formazione-modifica-']")).toHaveCount(0);
+  await expect(page.locator("[id^='formazione-comandi-']")).toHaveCount(0);
+  await expect(page.locator("[id^='formazione-annulla-']")).toHaveCount(0);
+  await expect(page.locator("[id^='formazione-modulo-schierato-']")).toHaveCount(0);
+  await expect(page.locator("[id^='formazione-panchina-']")).toHaveCount(0);
+
   // E la schermata d'asta resta raggiungibile: il ripiego non toglie niente.
   await gotoScreen(page, "Asta");
   await expect(page.locator("#listone-block")).toBeVisible();

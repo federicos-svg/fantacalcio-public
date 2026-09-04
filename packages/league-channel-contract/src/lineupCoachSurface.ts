@@ -46,6 +46,8 @@ import type {
 } from "../../league-gameweek/src/lineupProposer.js";
 import type { ObservedCompetition } from "./calendar.js";
 import type { ObservedLeagueSettings } from "./leagueSettings.js";
+import type { DraftLegality, LineupPlace } from "./lineupDraft.js";
+import { draftLegality, isLineupModified, placeOf } from "./lineupDraft.js";
 import type {
   LineupDifference,
   LineupSubmission,
@@ -611,8 +613,18 @@ export function unmetConstraints(
 export interface FormazionePlayerRow {
   readonly id: string;
   readonly role: Role;
-  /** È fra i titolari della formazione mostrata. */
+  /** È fra i titolari della formazione mostrata (portiere compreso). */
   readonly starter: boolean;
+  /** Dove sta esattamente: la porta è un posto solo, e la panchina è ordinata. */
+  readonly place: LineupPlace;
+  /**
+   * La posizione in panchina, da 1. `null` fuori dalla panchina.
+   *
+   * NON È PRESENTAZIONE: §10 dà cinque sostituzioni e chi entra lo decide
+   * questo numero. Portarlo nel modello — invece di lasciare che la UI lo
+   * ricavi contando le righe — è ciò che lo rende una cosa che si può provare.
+   */
+  readonly benchOrder: number | null;
   /** Porta la spunta «questo lo voglio in campo». */
   readonly locked: boolean;
   /** Disponibilità dichiarata dalla lega, se osservata. */
@@ -626,11 +638,47 @@ export interface FormazioneCompetitionView {
   readonly matchday: number | null;
   /** Vuoto quando la formazione è leggibile; altrimenti il motivo dichiarato. */
   readonly unavailableReason: string;
-  /** `null` quando non è disponibile, o quando la lega non ne ha una. */
+  /**
+   * LA FORMAZIONE CHE SI VEDE: quella letta, oppure la modifica non ancora
+   * inviata. `null` quando non è disponibile, o quando la lega non ne ha una.
+   */
   readonly lineup: ObservedLineup | null;
+  /**
+   * Quella che la piattaforma riporta: il punto a cui «Annulla» riporta, e il
+   * termine di paragone di `modified`. Non è mai la modifica.
+   */
+  readonly readLineup: ObservedLineup | null;
+  /**
+   * `true` quando ciò che si vede NON è ciò che la piattaforma riporta.
+   *
+   * Serve a una cosa sola e non piccola: chi guarda deve sapere sempre se sta
+   * guardando la sua squadra com'è schierata o com'è stata modificata e non
+   * ancora mandata. Le due cose si assomigliano e valgono una giornata.
+   */
+  readonly modified: boolean;
+  /**
+   * I MODULI CHE LA LEGA DICHIARA SCHIERABILI. `null` = non dichiarati.
+   *
+   * `null` non è «tutti»: è «non lo sappiamo», e la pagina lo dice invece di
+   * offrire un elenco che nessuno ha osservato. La fonte è la lega, non una
+   * costante di questo codice.
+   */
+  readonly allowedModules: readonly Module[] | null;
   /** `false` quando l'intera formazione è bloccata o non è disponibile. */
   readonly editable: boolean;
+  /** Tutta la rosa, nell'ordine in cui la lega la riporta. */
   readonly players: readonly FormazionePlayerRow[];
+  /** Il portiere e i titolari di movimento, nell'ordine della formazione. */
+  readonly starters: readonly FormazionePlayerRow[];
+  /** La panchina, nell'ordine che decide chi entra. */
+  readonly bench: readonly FormazionePlayerRow[];
+  /** In rosa e non schierati: né titolari né in panchina. */
+  readonly outside: readonly FormazionePlayerRow[];
+  /**
+   * LA LEGALITÀ DI CIÒ CHE SI VEDE, ricontrollata a ogni modifica con la stessa
+   * funzione che decide se l'invio parte.
+   */
+  readonly legality: DraftLegality;
   readonly constraints: LineupConstraints;
   readonly quarantined: readonly ConstraintQuarantine[];
   /**
@@ -711,6 +759,15 @@ export function buildFormazioneView(
    * vedono da qui, che sono un sottoinsieme, mai un'invenzione.
    */
   producerReports?: ReadonlyMap<string, ConstraintReportLike>,
+  /**
+   * LE MODIFICHE NON ANCORA INVIATE, per competizione.
+   *
+   * Una modifica vale per la formazione che la lega riporta ADESSO: una bozza
+   * calcolata per un'altra competizione non è una modifica di questa, è un'altra
+   * formazione, e viene ignorata invece di essere mostrata al posto suo. Assente
+   * = si guarda ciò che la piattaforma riporta, che è il caso normale.
+   */
+  draftsByCompetition?: ReadonlyMap<string, ObservedLineup>,
 ): FormazioneView {
   if (state.kind === "sconosciuto") {
     const detail = state.detail.length === 0 ? AVVISI[state.cause] : `${AVVISI[state.cause]} (${state.detail})`;
@@ -723,32 +780,79 @@ export function buildFormazioneView(
 
   const roles = rolesByPlayerId(state.roster);
   const competitions = state.competitions.map((observed) => {
-    const saved = constraintsByCompetition.get(observed.competition.competitionId) ?? NO_LINEUP_CONSTRAINTS;
+    const competitionId = observed.competition.competitionId;
+    const saved = constraintsByCompetition.get(competitionId) ?? NO_LINEUP_CONSTRAINTS;
     const reconciled = reconcileConstraints(saved, state.roster, state.settings.allowedModules);
-    const lineup = observed.state.kind === "letta" ? observed.state.lineup : null;
+    const readLineup = observed.state.kind === "letta" ? observed.state.lineup : null;
     const unavailableReason = observed.state.kind === "non_disponibile" ? observed.state.reason : "";
-    const starters = new Set(lineup === null ? [] : [lineup.goalkeeperId, ...lineup.starterIds]);
-    const locked = new Set(reconciled.applied.lockedStarterIds);
 
+    // LA MODIFICA VALE PER LA FORMAZIONE CHE C'È. Senza una formazione letta non
+    // c'è niente da modificare, e una bozza di un'altra competizione non è una
+    // modifica di questa: in entrambi i casi si guarda ciò che la lega riporta.
+    const draft = draftsByCompetition?.get(competitionId);
+    const lineup =
+      readLineup !== null && draft !== undefined && draft.competitionId === competitionId
+        ? draft
+        : readLineup;
+    const modified = readLineup !== null && lineup !== null && isLineupModified(readLineup, lineup);
+
+    const locked = new Set(reconciled.applied.lockedStarterIds);
     const issues = mergeConstraintIssues(
       localConstraintIssues(reconciled.applied, lineup, roles, state.settings.allowedModules),
-      normalizeConstraintReport(producerReports?.get(observed.competition.competitionId)),
+      normalizeConstraintReport(producerReports?.get(competitionId)),
     );
 
+    const players = state.roster.players.map((player) => {
+      const place: LineupPlace = lineup === null ? "fuori" : placeOf(lineup, player.id);
+      const benchIndex = lineup === null ? -1 : lineup.benchIds.indexOf(player.id);
+      return {
+        id: player.id,
+        role: player.role,
+        starter: place === "porta" || place === "titolare",
+        place,
+        benchOrder: benchIndex === -1 ? null : benchIndex + 1,
+        locked: locked.has(player.id),
+        ...(player.availability === undefined ? {} : { availability: player.availability }),
+      } satisfies FormazionePlayerRow;
+    });
+
+    // I GRUPPI NELL'ORDINE DELLA FORMAZIONE, non in quello della rosa: la
+    // panchina si legge dal primo che entra all'ultimo, e leggerla in ordine di
+    // rosa direbbe un'altra cosa. Un id schierato che nella rosa non c'è non
+    // produce una riga inventata: lo dichiara `id_fuori_rosa` in `legality`.
+    const byId = new Map(players.map((row) => [row.id, row]));
+    const inOrder = (ids: readonly string[]): readonly FormazionePlayerRow[] =>
+      ids.map((id) => byId.get(id)).filter((row): row is FormazionePlayerRow => row !== undefined);
+
     return {
-      competitionId: observed.competition.competitionId,
+      competitionId,
       label: competitionLabel(observed.competition),
       matchday: observed.matchday,
       unavailableReason,
       lineup,
+      readLineup,
+      modified,
+      allowedModules: state.settings.allowedModules ?? null,
       editable: unavailableReason.length === 0 && !reconciled.applied.locked,
-      players: state.roster.players.map((player) => ({
-        id: player.id,
-        role: player.role,
-        starter: starters.has(player.id),
-        locked: locked.has(player.id),
-        ...(player.availability === undefined ? {} : { availability: player.availability }),
-      })),
+      players,
+      starters: lineup === null ? [] : inOrder([lineup.goalkeeperId, ...lineup.starterIds]),
+      bench: lineup === null ? [] : inOrder(lineup.benchIds),
+      outside: players.filter((row) => row.place === "fuori"),
+      legality:
+        lineup === null
+          ? {
+              kind: "non_verificabile",
+              reason:
+                "la lega non riporta nessuna formazione per questa partita: non c'è niente di " +
+                "cui verificare la legalità",
+            }
+          : draftLegality({
+              lineup,
+              matchday: observed.matchday,
+              competitionId,
+              roster: state.roster,
+              settings: state.settings,
+            }),
       constraints: reconciled.applied,
       quarantined: reconciled.quarantined,
       issues,
@@ -758,6 +862,42 @@ export function buildFormazioneView(
   });
 
   return { known: true, notice: null, competitions };
+}
+
+/**
+ * PERCHÉ IL SALVATAGGIO NON SI OFFRE, tutte le ragioni insieme.
+ *
+ * Sta qui e non nella funzione di render per la ragione di sempre: un bottone
+ * disabilitato da una condizione scritta nel DOM è una regola che si può
+ * provare solo con un browser, e che diverge il giorno in cui `prepareSubmission`
+ * cambia idea. Le ragioni sono le stesse che fermerebbero l'invio, dette prima
+ * di premere invece che dopo — «mai un salvataggio che sorprende».
+ *
+ * Vuoto significa: si può salvare, per tutto ciò che da qui si è potuto vedere.
+ */
+export function saveBlockers(competition: FormazioneCompetitionView): readonly string[] {
+  const reasons: string[] = [];
+  if (competition.unavailableReason.length > 0) {
+    reasons.push(`la formazione non è disponibile: ${competition.unavailableReason}`);
+  }
+  if (competition.lineup === null) {
+    reasons.push("non c'è nessuna formazione da mandare");
+  }
+  if (!competition.feasible) {
+    reasons.push("con questi vincoli la formazione non si può fare");
+  }
+  if (competition.unmet.length > 0) {
+    reasons.push("la formazione mostrata non rispetta i vincoli che hai messo");
+  }
+  if (competition.legality.kind === "non_verificabile" && competition.lineup !== null) {
+    reasons.push(competition.legality.reason);
+  }
+  if (competition.legality.kind === "verificata" && competition.legality.blocking.length > 0) {
+    reasons.push(
+      `l'invio non sarebbe legale in ${competition.legality.blocking.length} punti`,
+    );
+  }
+  return reasons;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

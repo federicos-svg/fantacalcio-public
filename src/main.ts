@@ -198,9 +198,19 @@ import {
 // ./formazioneChannel.js e nel core pubblico NON sono collegate: la pagina lo
 // dichiara invece di fingere dati.
 import {
+  benchMoveConflict,
   buildFormazioneView,
   decideInitialScreen,
+  editsBlockedReason,
+  moduleChangeConflict,
+  moveBench,
+  moveOutside,
+  moveToBench,
+  moveToStarters,
   prepareSubmission,
+  rolesByPlayerId,
+  setLineupFlag,
+  setLineupModule,
   setLockedModule,
   submissionUiState,
   toggleLocked,
@@ -209,7 +219,10 @@ import {
   NO_LINEUP_CONSTRAINTS,
   type LineupConstraints,
   type LineupChannelState,
+  type LineupEdit,
+  type LineupFlags,
   type Module,
+  type ObservedLineup,
   type SubmissionViolation,
 } from "../packages/league-channel-contract/src/index.js";
 import {
@@ -222,7 +235,12 @@ import {
   loadFormazioneConstraints,
   saveFormazioneConstraints,
 } from "./formazioneConstraints.js";
-import { renderFormazioneScreen, type FormazioneSaveState } from "./ui/formazione.js";
+import {
+  renderFormazioneScreen,
+  NESSUNA_MODIFICA_IN_SOSPESO,
+  type FormazioneEditState,
+  type FormazioneSaveState,
+} from "./ui/formazione.js";
 import { renderClubBadge } from "./ui/serieA.js";
 import { activateAccessibleDialog } from "./ui/accessibleDialog.js";
 import {
@@ -536,6 +554,19 @@ type ConfirmationsRecoveryState =
     }
   | { readonly kind: "storage-error"; readonly message: string };
 
+/**
+ * UNA MODIFICA CHE ASPETTA UNA DECISIONE, tenuta per intero.
+ *
+ * Quando una mossa contraddice un vincolo la pagina non la esegue e non la
+ * butta via: la mette qui, mostra il conflitto, e la riprende identica se chi
+ * ha messo il vincolo decide di toglierlo. Tenere l'intenzione invece di
+ * chiedere «riprova» è ciò che rende la domanda una domanda e non un intoppo.
+ */
+type PendingLineupEdit =
+  | { readonly kind: "in_panchina"; readonly competitionId: string; readonly playerId: string }
+  | { readonly kind: "fuori"; readonly competitionId: string; readonly playerId: string }
+  | { readonly kind: "modulo"; readonly competitionId: string; readonly module: Module };
+
 interface AppState {
   screen: Screen;
   /**
@@ -549,8 +580,22 @@ interface AppState {
   lineupChannel: LineupChannelState;
   /** I vincoli della formazione, per competizione. Persistiti in locale. */
   lineupConstraints: Map<string, LineupConstraints>;
+  /**
+   * LE FORMAZIONI MODIFICATE E NON ANCORA INVIATE, per competizione.
+   *
+   * In memoria e basta, deliberatamente: una modifica non inviata è una cosa
+   * che si sta facendo adesso, e ritrovarla domani credendola schierata sarebbe
+   * la stessa confusione che la riga «modificata / come letta» esiste per
+   * evitare. I VINCOLI invece si persistono, perché valgono per le giornate che
+   * verranno: sono due cose diverse e vivono in due posti diversi.
+   */
+  lineupDrafts: Map<string, ObservedLineup>;
   /** Perché l'archivio dei vincoli non è al sicuro. Vuoto è lo stato normale. */
   lineupConstraintsNotice: string;
+  /** Il conflitto in attesa di una decisione, e l'ultima mossa rifiutata. */
+  formazioneEdit: FormazioneEditState;
+  /** La modifica che aspetta la decisione sul conflitto. `null` è la norma. */
+  formazionePendingEdit: PendingLineupEdit | null;
   /** L'esito dell'ultimo «Salva»: quale competizione, e i tre stati dell'invio. */
   formazioneSave: FormazioneSaveState;
   moment: Moment;
@@ -1034,7 +1079,10 @@ const state: AppState = {
   screen: decideInitialScreen(bootLineupChannel),
   lineupChannel: bootLineupChannel,
   lineupConstraints: new Map(bootFormazioneConstraints.byCompetition),
+  lineupDrafts: new Map(),
   lineupConstraintsNotice: formazioneConstraintsNotice(bootFormazioneConstraints.status),
+  formazioneEdit: NESSUNA_MODIFICA_IN_SOSPESO,
+  formazionePendingEdit: null,
   formazioneSave: { competitionId: null, state: NIENTE_DA_INVIARE, blocking: [], warnings: [] },
   moment: "chiamata",
   log: bootLogEvents,
@@ -3118,23 +3166,284 @@ function competitionConstraints(competitionId: string): LineupConstraints {
 }
 
 /**
- * Applica un vincolo e lo persiste. Se la scrittura non tiene lo si DICE: un
+ * Scrive un vincolo e lo persiste. Se la scrittura non tiene lo si DICE: un
  * vincolo che sembra salvato e sparisce al reload è una preferenza persa in
  * silenzio, e su una formazione una preferenza persa vale una giornata.
+ *
+ * Non ridisegna: chi chiama sa se sta facendo una cosa sola (una spunta) o due
+ * (togliere un vincolo ed eseguire la modifica che lo contraddiceva), e due
+ * `render()` per un gesto solo farebbero saltare il fuoco a metà strada.
  */
-function applyLineupConstraints(
-  competitionId: string,
-  next: LineupConstraints,
-  focusId: string,
-): void {
+function persistLineupConstraints(competitionId: string, next: LineupConstraints): void {
   state.lineupConstraints.set(competitionId, next);
   const persisted = saveFormazioneConstraints(browserStorage, state.lineupConstraints);
   state.lineupConstraintsNotice = persisted
     ? ""
     : "I vincoli appena messi non sono stati scritti nell'archivio locale: valgono per questa sessione e " +
       "non saranno qui al prossimo avvio.";
+}
+
+/** Applica un vincolo, lo persiste, ridisegna e riporta il fuoco dov'era. */
+function applyLineupConstraints(
+  competitionId: string,
+  next: LineupConstraints,
+  focusId: string,
+): void {
+  persistLineupConstraints(competitionId, next);
   render();
   focusAfterRender(focusId);
+}
+
+/* ── MODIFICARE LA FORMAZIONE ────────────────────────────────────────────────
+ *
+ * Le mosse sono funzioni pure del contratto di osservazione (`lineupDraft.ts`):
+ * qui non si sposta nessuno, si tiene la bozza, si dichiara il rifiuto quando
+ * la mossa non esisteva, e si fa la domanda quando la mossa contraddice un
+ * vincolo. La legalità di ciò che ne esce la ricalcola `buildFormazioneView` a
+ * ogni render con la stessa funzione che decide se l'invio parte.
+ */
+
+/** La competizione letta, se c'è ed è leggibile. */
+function observedCompetition(
+  competitionId: string,
+): { readonly matchday: number | null; readonly lineup: ObservedLineup | null } | null {
+  const channel = state.lineupChannel;
+  if (channel.kind !== "letto") return null;
+  const observed = channel.competitions.find(
+    (candidate) => candidate.competition.competitionId === competitionId,
+  );
+  if (observed === undefined || observed.state.kind !== "letta") return null;
+  return { matchday: observed.matchday, lineup: observed.state.lineup };
+}
+
+/** La formazione che si sta guardando: la modifica se c'è, altrimenti quella letta. */
+function shownLineup(competitionId: string): ObservedLineup | null {
+  const observed = observedCompetition(competitionId);
+  if (observed === null || observed.lineup === null) return null;
+  const draft = state.lineupDrafts.get(competitionId);
+  return draft !== undefined && draft.competitionId === competitionId ? draft : observed.lineup;
+}
+
+/** Lo stato «mossa non eseguita», col motivo. Non cambia nessuna formazione. */
+function mossaRifiutata(competitionId: string, reason: string): void {
+  state.formazioneEdit = { competitionId, conflict: null, refusal: reason };
+  state.formazionePendingEdit = null;
+  render();
+  focusAfterRender(`formazione-mossa-rifiutata-${competitionId}`);
+}
+
+/**
+ * L'esito di una mossa diventa stato: la bozza nuova, oppure il rifiuto scritto.
+ * Non c'è una terza strada, e in particolare non c'è quella silenziosa.
+ */
+function applyLineupEdit(competitionId: string, edit: LineupEdit, focusId: string): void {
+  if (!edit.ok) {
+    mossaRifiutata(competitionId, edit.reason);
+    return;
+  }
+  state.lineupDrafts.set(competitionId, edit.lineup);
+  state.formazioneEdit = NESSUNA_MODIFICA_IN_SOSPESO;
+  state.formazionePendingEdit = null;
+  render();
+  focusAfterRender(focusId);
+}
+
+/**
+ * Le due condizioni in cui questa pagina non modifica niente, dette a parole:
+ * la formazione blindata da Pico, e la competizione che non ne ha una.
+ */
+function lineupModificabile(competitionId: string): ObservedLineup | null {
+  const lineup = shownLineup(competitionId);
+  const blocked = editsBlockedReason(competitionConstraints(competitionId), lineup);
+  if (blocked.length > 0) {
+    mossaRifiutata(competitionId, blocked);
+    return null;
+  }
+  return lineup;
+}
+
+/**
+ * I ruoli della rosa letta. Una rosa non leggibile è un rifiuto dichiarato.
+ *
+ * Il tipo si prende dalla funzione che lo produce invece di nominare `Role`:
+ * quel tipo vive nel contratto di giornata, che questa schermata non deve
+ * nominare — la guardia di isolamento di quel pacchetto lo vieta, e una
+ * ri-esportazione qui non servirebbe che ad aprire una seconda strada.
+ */
+function ruoliDellaRosa(competitionId: string): ReturnType<typeof rolesByPlayerId> | null {
+  const channel = state.lineupChannel;
+  if (channel.kind !== "letto") {
+    mossaRifiutata(competitionId, "la squadra non è stata letta: non c'è nessuna rosa da spostare");
+    return null;
+  }
+  try {
+    return rolesByPlayerId(channel.roster);
+  } catch (error) {
+    mossaRifiutata(
+      competitionId,
+      `la rosa letta non è interpretabile: ${error instanceof Error ? error.message : "ruoli non leggibili"}`,
+    );
+    return null;
+  }
+}
+
+function portaTraTitolari(competitionId: string, playerId: string): void {
+  const lineup = lineupModificabile(competitionId);
+  if (lineup === null) return;
+  const roles = ruoliDellaRosa(competitionId);
+  if (roles === null) return;
+  applyLineupEdit(
+    competitionId,
+    moveToStarters(lineup, playerId, roles),
+    `formazione-${competitionId}-${playerId}-in-panchina`,
+  );
+}
+
+/**
+ * IL CONFLITTO SI CHIEDE, NON SI RISOLVE. Spostare fuori dagli undici qualcuno
+ * che è spuntato «lo voglio in campo» è la contraddizione fra due volontà della
+ * stessa persona: la pagina la mostra e aspetta.
+ */
+function chiediOEsegui(
+  competitionId: string,
+  pending: PendingLineupEdit,
+  esegui: () => void,
+): void {
+  const constraints = competitionConstraints(competitionId);
+  const conflict =
+    pending.kind === "modulo"
+      ? moduleChangeConflict(constraints, pending.module)
+      : benchMoveConflict(constraints, pending.playerId);
+  if (conflict === null) {
+    esegui();
+    return;
+  }
+  state.formazionePendingEdit = pending;
+  state.formazioneEdit = { competitionId, conflict, refusal: "" };
+  render();
+  focusAfterRender(`formazione-conflitto-procedi-${competitionId}`);
+}
+
+function mandaInPanchina(competitionId: string, playerId: string): void {
+  const lineup = lineupModificabile(competitionId);
+  if (lineup === null) return;
+  chiediOEsegui(competitionId, { kind: "in_panchina", competitionId, playerId }, () =>
+    applyLineupEdit(
+      competitionId,
+      moveToBench(lineup, playerId),
+      `formazione-${competitionId}-${playerId}-in-campo`,
+    ),
+  );
+}
+
+function mandaFuori(competitionId: string, playerId: string): void {
+  const lineup = lineupModificabile(competitionId);
+  if (lineup === null) return;
+  chiediOEsegui(competitionId, { kind: "fuori", competitionId, playerId }, () =>
+    applyLineupEdit(
+      competitionId,
+      moveOutside(lineup, playerId),
+      `formazione-${competitionId}-${playerId}-in-campo`,
+    ),
+  );
+}
+
+function riordinaPanchina(competitionId: string, playerId: string, direction: "su" | "giu"): void {
+  const lineup = lineupModificabile(competitionId);
+  if (lineup === null) return;
+  applyLineupEdit(
+    competitionId,
+    moveBench(lineup, playerId, direction),
+    `formazione-${competitionId}-${playerId}-panchina-${direction}`,
+  );
+}
+
+function cambiaModuloSchierato(competitionId: string, module: Module): void {
+  const lineup = lineupModificabile(competitionId);
+  if (lineup === null) return;
+  chiediOEsegui(competitionId, { kind: "modulo", competitionId, module }, () =>
+    applyLineupEdit(
+      competitionId,
+      setLineupModule(lineup, module),
+      `formazione-modulo-schierato-${competitionId}`,
+    ),
+  );
+}
+
+function cambiaOpzione(competitionId: string, flag: keyof LineupFlags, value: boolean): void {
+  const lineup = lineupModificabile(competitionId);
+  if (lineup === null) return;
+  applyLineupEdit(
+    competitionId,
+    setLineupFlag(lineup, flag, value),
+    flag === "hidden"
+      ? `formazione-nascosta-${competitionId}`
+      : `formazione-tutte-competizioni-${competitionId}`,
+  );
+}
+
+/**
+ * ANNULLA — un gesto solo, e si torna esattamente alla formazione letta.
+ *
+ * Non «quasi»: si butta via la bozza, e ciò che resta è quello che la porta di
+ * lettura ha riferito. Una modifica non inviata non ha nessun'altra casa.
+ */
+function annullaModifiche(competitionId: string): void {
+  state.lineupDrafts.delete(competitionId);
+  state.formazioneEdit = NESSUNA_MODIFICA_IN_SOSPESO;
+  state.formazionePendingEdit = null;
+  render();
+  focusAfterRender(`formazione-annulla-${competitionId}`);
+}
+
+/**
+ * LA DECISIONE SUL CONFLITTO, presa da chi ha messo il vincolo.
+ *
+ * `true` toglie il vincolo contraddetto ed esegue la modifica che aspettava;
+ * `false` non tocca niente — né il vincolo né la formazione — e chiude la
+ * domanda. In nessuno dei due casi il codice sceglie al posto suo.
+ */
+function risolviConflitto(competitionId: string, removeConstraint: boolean): void {
+  const pending = state.formazionePendingEdit;
+  state.formazionePendingEdit = null;
+  state.formazioneEdit = NESSUNA_MODIFICA_IN_SOSPESO;
+  if (pending === null || pending.competitionId !== competitionId || !removeConstraint) {
+    render();
+    focusAfterRender(`formazione-competizione-${competitionId}`);
+    return;
+  }
+
+  const constraints = competitionConstraints(competitionId);
+  persistLineupConstraints(
+    competitionId,
+    pending.kind === "modulo"
+      ? setLockedModule(constraints, null)
+      : toggleLockedStarter(constraints, pending.playerId),
+  );
+
+  const lineup = shownLineup(competitionId);
+  if (lineup === null) {
+    mossaRifiutata(
+      competitionId,
+      "il vincolo è stato tolto, ma non c'è più nessuna formazione da modificare",
+    );
+    return;
+  }
+  if (pending.kind === "modulo") {
+    applyLineupEdit(
+      competitionId,
+      setLineupModule(lineup, pending.module),
+      `formazione-modulo-schierato-${competitionId}`,
+    );
+    return;
+  }
+  applyLineupEdit(
+    competitionId,
+    pending.kind === "in_panchina"
+      ? moveToBench(lineup, pending.playerId)
+      : moveOutside(lineup, pending.playerId),
+    `formazione-${competitionId}-${pending.playerId}-in-campo`,
+  );
 }
 
 /** Lo stato «da inviare» con la sua ragione: nulla è partito, e si dice perché. */
@@ -3184,7 +3493,11 @@ function saveFormazione(competitionId: string): void {
     formazioneNonInviata(competitionId, `formazione non disponibile: ${observed.state.reason}`);
     return;
   }
-  const lineup = observed.state.lineup;
+  // SI MANDA QUELLO CHE SI VEDE. Se c'è una modifica non ancora inviata è
+  // quella la formazione che chi guarda crede di stare mandando: mandare quella
+  // letta al posto sua sarebbe la stessa bugia della riga «salvato» sopra un
+  // invio mai partito, girata dall'altra parte.
+  const lineup = shownLineup(competitionId);
   if (lineup === null) {
     formazioneNonInviata(
       competitionId,
@@ -3241,7 +3554,12 @@ function renderFormazione(): HTMLElement {
   // provare da sé. Quando non c'è, non si finge di averlo interrogato; quando
   // c'è e non risponde, lo si dice — è un'informazione diversa.
   const produttore = lineupProducerReports(state.lineupChannel, state.lineupConstraints);
-  const view = buildFormazioneView(state.lineupChannel, state.lineupConstraints, produttore.reports);
+  const view = buildFormazioneView(
+    state.lineupChannel,
+    state.lineupConstraints,
+    produttore.reports,
+    state.lineupDrafts,
+  );
   const avviso = [state.lineupConstraintsNotice, produttore.failure].filter((riga) => riga.length > 0);
   return renderFormazioneScreen(
     view,
@@ -3265,8 +3583,19 @@ function renderFormazione(): HTMLElement {
           `formazione-blindata-${competitionId}`,
         ),
       onSave: (competitionId) => saveFormazione(competitionId),
+      onMoveToStarters: (competitionId, playerId) => portaTraTitolari(competitionId, playerId),
+      onMoveToBench: (competitionId, playerId) => mandaInPanchina(competitionId, playerId),
+      onMoveOutside: (competitionId, playerId) => mandaFuori(competitionId, playerId),
+      onMoveBench: (competitionId, playerId, direction) =>
+        riordinaPanchina(competitionId, playerId, direction),
+      onSetModule: (competitionId, module) => cambiaModuloSchierato(competitionId, module),
+      onSetFlag: (competitionId, flag, value) => cambiaOpzione(competitionId, flag, value),
+      onResetLineup: (competitionId) => annullaModifiche(competitionId),
+      onResolveConflict: (competitionId, removeConstraint) =>
+        risolviConflitto(competitionId, removeConstraint),
     },
     state.formazioneSave,
+    state.formazioneEdit,
     avviso.join(" "),
   );
 }

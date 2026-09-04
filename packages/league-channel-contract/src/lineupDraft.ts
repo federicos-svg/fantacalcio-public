@@ -1,0 +1,378 @@
+// LA FORMAZIONE CHE SI STA MODIFICANDO — le mosse, i loro rifiuti dichiarati, e
+// i conflitti fra una modifica e un vincolo già messo.
+//
+// PERCHÉ MODIFICARE E VINCOLARE SONO DUE COSE DIVERSE. Un vincolo dice «questo
+// lo voglio in campo» e vale per la formazione che verrà; una modifica dice
+// «questo mettilo in panchina adesso» e vale per quella che si sta guardando.
+// Sono due volontà distinte della stessa persona, e possono contraddirsi: la
+// terza strada — eseguire in silenzio, oppure rifiutare senza spiegare — è
+// esattamente quella che questo file non lascia percorrere. Le mosse che
+// contraddicono un vincolo non le decide il codice: `benchMoveConflict` e
+// `moduleChangeConflict` restituiscono il conflitto, e chi ha messo il vincolo
+// sceglie se toglierlo.
+//
+// OGNI MOSSA IMPOSSIBILE È UN RIFIUTO DICHIARATO, mai un cambiamento a metà.
+// `LineupEdit` è una somma, non una formazione: una mossa che non si può fare
+// restituisce il motivo, e chi chiama non ha modo di confondere «fatto» con
+// «non fatto» perché non riceve una formazione affatto.
+//
+// L'ORDINE DELLA PANCHINA È DATO, NON PRESENTAZIONE. §10 dà cinque
+// sostituzioni: quando i senza voto sono più delle sostituzioni disponibili,
+// chi entra e chi resta fuori lo decide l'ordine della panchina — l'unica
+// preferenza che il regolamento concede. Per questo la panchina si riordina, e
+// per questo nessuna funzione di qui riordina niente da sé: chi esce dagli
+// undici va IN FONDO, dove entra per ultimo, e spostarlo è un gesto di chi
+// guarda. Mettere un uscente «al suo posto» significherebbe scegliere al posto
+// suo chi entra per primo la domenica.
+//
+// NIENTE RETE E NIENTE OROLOGIO, come in tutto il pacchetto: funzioni pure, gli
+// stessi argomenti danno lo stesso esito.
+
+import type { Module } from "../../league-gameweek/src/leagueGameweek.js";
+import type { Role } from "../../league-gameweek/src/gameweekSimulator.js";
+import type { LineupConstraints } from "../../league-gameweek/src/lineupProposer.js";
+import type { ObservedLeagueSettings } from "./leagueSettings.js";
+import type { LineupFlags, ObservedLineup } from "./lineupSubmission.js";
+import { diffLineups, toSubmission } from "./lineupSubmission.js";
+import type { ObservedTeam } from "./roster.js";
+import { rolesByPlayerId } from "./roster.js";
+import type { SubmissionViolation } from "./submissionLegality.js";
+import { validateSubmissionAgainstSettings } from "./submissionLegality.js";
+
+/** L'esito di una mossa: la formazione nuova, oppure il motivo del rifiuto. */
+export type LineupEdit =
+  | { readonly ok: true; readonly lineup: ObservedLineup }
+  | { readonly ok: false; readonly reason: string };
+
+function rifiutata(reason: string): LineupEdit {
+  return { ok: false, reason };
+}
+
+function eseguita(lineup: ObservedLineup): LineupEdit {
+  return { ok: true, lineup };
+}
+
+/**
+ * PERCHÉ QUESTA FORMAZIONE NON SI MODIFICA, quando non si modifica.
+ *
+ * Vuoto significa che si modifica. Le due condizioni sono opposte fra loro e
+ * vanno tenute distinte: la BLINDATURA è una volontà dichiarata — «questa
+ * tienila così» — e si toglie con un clic; l'ASSENZA di una formazione letta è
+ * un fatto della lettura, e non c'è nessun comando che la produca da qui.
+ *
+ * Sta nel contratto e non nella shell perché è una regola, non un dettaglio di
+ * disegno: un bottone disabilitato da una condizione scritta nel DOM è una
+ * regola che si può provare solo con un browser.
+ */
+export function editsBlockedReason(
+  constraints: LineupConstraints,
+  lineup: ObservedLineup | null,
+): string {
+  if (constraints.locked) {
+    return "la formazione è blindata: nessun comando la cambia finché la blindatura resta accesa";
+  }
+  if (lineup === null) {
+    return "non c'è nessuna formazione letta per questa partita: non c'è niente da modificare";
+  }
+  return "";
+}
+
+/** Dove sta un giocatore nella formazione che si sta guardando. */
+export type LineupPlace = "porta" | "titolare" | "panchina" | "fuori";
+
+/** Dove sta `playerId` in `lineup`. `fuori` = in rosa e non schierato. */
+export function placeOf(lineup: ObservedLineup, playerId: string): LineupPlace {
+  if (playerId === lineup.goalkeeperId) return "porta";
+  if (lineup.starterIds.includes(playerId)) return "titolare";
+  if (lineup.benchIds.includes(playerId)) return "panchina";
+  return "fuori";
+}
+
+/**
+ * DA FUORI O DALLA PANCHINA AGLI UNDICI.
+ *
+ * Due mosse diverse, perché i due posti sono diversi:
+ *
+ *  - un PORTIERE entra in porta, e il posto in porta è uno solo: chi c'era
+ *    prende la casella che l'entrante lasciava in panchina. Non è una scelta
+ *    estetica — è l'unica che non inventa una posizione nuova in un elenco il
+ *    cui ordine è un dato;
+ *  - un giocatore DI MOVIMENTO entra in fondo agli undici. Se il modulo non lo
+ *    prevede, l'undici diventa illegale e si vede subito: è la conseguenza che
+ *    `draftLegality` mostra, non un errore da nascondere impedendo la mossa.
+ *
+ * Un ruolo NON OSSERVATO ferma la mossa invece di indovinarla: senza sapere se
+ * quel giocatore entrerebbe in porta o in campo non c'è nessuna mossa da fare,
+ * e sceglierne una sarebbe dedurre un dato che nessuno ha letto.
+ */
+export function moveToStarters(
+  lineup: ObservedLineup,
+  playerId: string,
+  roles: ReadonlyMap<string, Role>,
+): LineupEdit {
+  const place = placeOf(lineup, playerId);
+  if (place === "porta" || place === "titolare") {
+    return rifiutata(`«${playerId}» è già fra i titolari di questa formazione`);
+  }
+  const role = roles.get(playerId);
+  if (role === undefined) {
+    return rifiutata(
+      `il ruolo di «${playerId}» non è stato osservato: non si sa se entrerebbe in porta o in ` +
+        "campo, e qui non lo si deduce",
+    );
+  }
+
+  if (role === "P") {
+    const benchIds = [...lineup.benchIds];
+    const index = benchIds.indexOf(playerId);
+    if (index === -1) {
+      // Fuori dalla panchina e portiere: prende la porta, e chi esce va in
+      // fondo alla panchina come ogni altro uscente.
+      return eseguita({
+        ...lineup,
+        goalkeeperId: playerId,
+        benchIds: [...benchIds, lineup.goalkeeperId],
+      });
+    }
+    benchIds[index] = lineup.goalkeeperId;
+    return eseguita({ ...lineup, goalkeeperId: playerId, benchIds });
+  }
+
+  return eseguita({
+    ...lineup,
+    starterIds: [...lineup.starterIds, playerId],
+    benchIds: lineup.benchIds.filter((id) => id !== playerId),
+  });
+}
+
+/**
+ * IN PANCHINA, IN FONDO — dagli undici o da fuori dai convocati.
+ *
+ * LA PORTA NON RESTA VUOTA. Un portiere lascia la porta soltanto quando un
+ * altro portiere la prende: una formazione senza portiere non è una tappa
+ * intermedia utile, è un invio illegale che nessuno voleva. Il rifiuto lo dice
+ * con parole, e la mossa che serve — far entrare l'altro portiere — è a due
+ * righe di distanza sullo schermo.
+ */
+export function moveToBench(lineup: ObservedLineup, playerId: string): LineupEdit {
+  const place = placeOf(lineup, playerId);
+  if (place === "porta") {
+    return rifiutata(
+      `«${playerId}» è in porta, e la porta non può restare vuota: lascia il posto solo quando ` +
+        "un altro portiere entra al suo posto",
+    );
+  }
+  if (place === "panchina") return rifiutata(`«${playerId}» è già in panchina`);
+  return eseguita({
+    ...lineup,
+    starterIds: lineup.starterIds.filter((id) => id !== playerId),
+    benchIds: [...lineup.benchIds, playerId],
+  });
+}
+
+/** Fuori dai convocati: né titolare né in panchina. */
+export function moveOutside(lineup: ObservedLineup, playerId: string): LineupEdit {
+  const place = placeOf(lineup, playerId);
+  if (place === "porta") {
+    return rifiutata(
+      `«${playerId}» è in porta: esce solo quando un altro portiere entra al suo posto`,
+    );
+  }
+  if (place === "fuori") return rifiutata(`«${playerId}» non è schierato in questa formazione`);
+  return eseguita({
+    ...lineup,
+    starterIds: lineup.starterIds.filter((id) => id !== playerId),
+    benchIds: lineup.benchIds.filter((id) => id !== playerId),
+  });
+}
+
+/** Verso l'alto entra prima, verso il basso entra dopo. */
+export type BenchDirection = "su" | "giu";
+
+/**
+ * RIORDINA LA PANCHINA di un posto.
+ *
+ * Uno scambio con il vicino, non un inserimento: un inserimento sposterebbe
+ * tutti gli altri di una posizione, e ognuna di quelle posizioni è una
+ * preferenza che qualcuno ha espresso.
+ */
+export function moveBench(
+  lineup: ObservedLineup,
+  playerId: string,
+  direction: BenchDirection,
+): LineupEdit {
+  const benchIds = [...lineup.benchIds];
+  const index = benchIds.indexOf(playerId);
+  if (index === -1) return rifiutata(`«${playerId}» non è in panchina`);
+  const target = direction === "su" ? index - 1 : index + 1;
+  if (target < 0 || target >= benchIds.length) {
+    return rifiutata(
+      direction === "su"
+        ? `«${playerId}» è già il primo a entrare`
+        : `«${playerId}» è già l'ultimo a entrare`,
+    );
+  }
+  const vicino = benchIds[target];
+  const proprio = benchIds[index];
+  if (vicino === undefined || proprio === undefined) {
+    return rifiutata("la panchina non è leggibile in quella posizione");
+  }
+  benchIds[index] = vicino;
+  benchIds[target] = proprio;
+  return eseguita({ ...lineup, benchIds });
+}
+
+/**
+ * IL MODULO DELLA FORMAZIONE.
+ *
+ * Cambiare modulo non ridispone nessuno: gli undici restano quelli, e se non
+ * compongono il modulo nuovo la violazione si vede subito accanto a chi la
+ * causa. Ridisporli qui significherebbe scegliere al posto di chi guarda quali
+ * giocatori sacrificare — che è precisamente la decisione che sta prendendo.
+ */
+export function setLineupModule(lineup: ObservedLineup, module: Module): LineupEdit {
+  if (lineup.module === module) return rifiutata(`la formazione è già schierata con «${module}»`);
+  return eseguita({ ...lineup, module });
+}
+
+/** Le due opzioni della formazione, una alla volta. */
+export function setLineupFlag(
+  lineup: ObservedLineup,
+  flag: keyof LineupFlags,
+  value: boolean,
+): LineupEdit {
+  if (lineup.flags[flag] === value) return rifiutata("l'opzione è già così");
+  return eseguita({ ...lineup, flags: { ...lineup.flags, [flag]: value } });
+}
+
+/**
+ * CIÒ CHE SI VEDE È CIÒ CHE LA PIATTAFORMA RIPORTA?
+ *
+ * Il confronto è quello dell'invio (`diffLineups`), indice per indice: due
+ * panchine con gli stessi nomi in ordine diverso sono due formazioni diverse, e
+ * dire «non modificata» di una panchina riordinata nasconderebbe proprio la
+ * modifica che decide chi entra la domenica.
+ */
+export function isLineupModified(read: ObservedLineup, shown: ObservedLineup): boolean {
+  return diffLineups(read, shown).length > 0;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   MODIFICA CONTRO VINCOLO — il conflitto si dichiara, non si risolve da soli
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/** Un vincolo che la modifica appena chiesta contraddice. */
+export interface ConstraintConflict {
+  readonly kind: "titolare_spuntato" | "modulo_bloccato";
+  /** Il vincolo contraddetto, scritto per chi lo ha messo. */
+  readonly message: string;
+  /** Che cosa succede se lo si toglie. Mai un'azione presa da sola. */
+  readonly ifRemoved: string;
+}
+
+/**
+ * Spostare in panchina (o fuori) qualcuno che è spuntato «lo voglio in campo».
+ *
+ * Non è un errore e non è un divieto: sono due volontà della stessa persona che
+ * si contraddicono, e la contraddizione la scioglie lei.
+ */
+export function benchMoveConflict(
+  constraints: LineupConstraints,
+  playerId: string,
+): ConstraintConflict | null {
+  if (!constraints.lockedStarterIds.includes(playerId)) return null;
+  return {
+    kind: "titolare_spuntato",
+    message: `«${playerId}» è spuntato come «lo voglio in campo»: toglierlo dagli undici contraddice quel vincolo`,
+    ifRemoved: `la spunta su «${playerId}» viene tolta, e la mossa viene eseguita`,
+  };
+}
+
+/** Cambiare modulo quando ce n'è uno bloccato, e non è quello. */
+export function moduleChangeConflict(
+  constraints: LineupConstraints,
+  module: Module,
+): ConstraintConflict | null {
+  const bloccato = constraints.lockedModule;
+  if (bloccato === undefined || bloccato === module) return null;
+  return {
+    kind: "modulo_bloccato",
+    message: `il modulo bloccato è «${bloccato}»: schierare «${module}» contraddice quel vincolo`,
+    ifRemoved: `il blocco sul modulo «${bloccato}» viene tolto, e la formazione passa a «${module}»`,
+  };
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   LA LEGALITÀ DI CIÒ CHE SI VEDE, ricontrollata a ogni modifica
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * L'esito del controllo di legalità sulla formazione mostrata.
+ *
+ * `non_verificabile` NON è «legale»: è «da qui non si può dire», e i due casi
+ * che lo producono sono entrambi fatti dell'osservazione, non della formazione
+ * — la giornata non nota e un invio non costruibile. Trattarlo come un via
+ * libera sarebbe la stessa bugia che `submissionLegality` evita in grande.
+ */
+export type DraftLegality =
+  | {
+      readonly kind: "verificata";
+      /** Fermano il salvataggio, e si mostrano tutte insieme. */
+      readonly blocking: readonly SubmissionViolation[];
+      /** Non fermano niente, e si mostrano lo stesso. */
+      readonly warnings: readonly SubmissionViolation[];
+    }
+  | { readonly kind: "non_verificabile"; readonly reason: string };
+
+export interface DraftLegalityInput {
+  readonly lineup: ObservedLineup;
+  /** `null` quando la giornata non è stata osservata: non si suppone. */
+  readonly matchday: number | null;
+  readonly competitionId: string;
+  readonly roster: ObservedTeam;
+  readonly settings: ObservedLeagueSettings;
+}
+
+/**
+ * LA STESSA VALIDAZIONE DEL SALVATAGGIO, ADESSO.
+ *
+ * È `validateSubmissionAgainstSettings`, la stessa funzione che decide se
+ * l'invio parte, chiamata a ogni modifica invece che solo alla fine. La ragione
+ * è tutta qui: un controllo che arriva al momento del salvataggio trasforma
+ * ogni errore in un giro di correggi-e-riprova, e ogni giro costa a chi schiera
+ * il tempo che alla deadline di §16 non ha. Le violazioni si vedono mentre si
+ * modifica, tutte insieme, accanto a ciò che le causa.
+ */
+export function draftLegality(input: DraftLegalityInput): DraftLegality {
+  if (input.matchday === null) {
+    return {
+      kind: "non_verificabile",
+      reason:
+        "la giornata non è nota: la legalità di questa formazione non è verificabile da qui, e " +
+        "un invio senza giornata finirebbe su una partita che nessuno ha scelto",
+    };
+  }
+  let violations: readonly SubmissionViolation[];
+  try {
+    const submission = toSubmission(input.matchday, input.competitionId, input.lineup);
+    violations = validateSubmissionAgainstSettings(submission, input.settings, {
+      rosterIds: input.roster.players.map((player) => player.id),
+      roles: rolesByPlayerId(input.roster),
+    });
+  } catch (error) {
+    return {
+      kind: "non_verificabile",
+      reason: error instanceof Error ? error.message : "invio non costruibile",
+    };
+  }
+  return {
+    kind: "verificata",
+    blocking: violations.filter((violation) => violation.severity === "bloccante"),
+    warnings: violations.filter((violation) => violation.severity === "avvertimento"),
+  };
+}
+
+/** Le violazioni bloccanti, o nessuna quando la legalità non è verificabile. */
+export function blockingViolations(legality: DraftLegality): readonly SubmissionViolation[] {
+  return legality.kind === "verificata" ? legality.blocking : [];
+}
