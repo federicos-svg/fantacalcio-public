@@ -41,6 +41,35 @@
 // senza aver scritto il parser. Non esiste un ramo che restituisca una
 // formazione parziale: o la pagina ha la forma descritta, o non se ne ricava
 // niente.
+//
+// QUANDO UNA COSA È SCRITTA PIÙ DI UNA VOLTA — **il primo vince, e dove il
+// primo non basta si rifiuta**. È la convenzione unica di questo file, e prima
+// non c'era: alcune letture prendevano il primo valore trovato e una — il lato
+// di casa — prendeva l'ultimo, senza che nessuna delle due fosse dichiarata.
+// Due convenzioni opposte sulla stessa specie di ambiguità sono un difetto
+// anche quando ogni singola riga sembra ragionevole.
+//
+// La convenzione si legge così, e vale per tutto il file:
+//
+//   1. per un dato **accessorio** — l'etichetta della squadra, il modulo,
+//      l'allenatore, la maglia, il ruolo, l'arbitro, il calcio d'inizio, la
+//      giornata — vince **il primo valore leggibile** nell'ordine in cui il
+//      documento lo espone. Un secondo valore più avanti non lo sostituisce e
+//      non lo corregge: è, al più, rumore, e il rumore non deve poter cambiare
+//      il risultato a seconda di dove capita;
+//   2. per un dato che **decide di che partita si tratta** — se la formazione è
+//      probabile o effettiva, e quale squadra gioca in casa — «il primo» non è
+//      una risposta accettabile, perché sceglierebbe a caso fra due
+//      affermazioni che non possono essere vere insieme. Lì due dichiarazioni
+//      discordi sono un'AMBIGUITÀ e la lettura si ferma, dicendo quale famiglia
+//      di chiavi l'ha prodotta.
+//
+// Il secondo punto non è teorico. Le espressioni della tabella privata sono
+// compilate **non ancorate**: una chiave come `isHomeTeamFavourite` dentro il
+// blocco della squadra ospite basta a far scattare la famiglia `homeSide` sul
+// blocco sbagliato. Con la regola «vince l'ultimo» quella chiave **invertiva la
+// partita in silenzio**, e una partita invertita inverte tutto ciò che a valle
+// si costruisce sopra. Con questa regola, invece, si ferma.
 
 import { absentInSource, notObserved, observed, type Field } from "./field.js";
 import {
@@ -67,10 +96,11 @@ export const PARSE_STOP_CODES = {
   noStructuredBlock: "BLOCCO_STRUTTURATO_ASSENTE",
   unreadableBlock: "BLOCCO_STRUTTURATO_ILLEGGIBILE",
   startersNotTwo: "TITOLARI_NON_DUE",
-  teamBlockMissing: "BLOCCO_SQUADRA_ASSENTE",
+  startersSameBlock: "TITOLARI_STESSO_BLOCCO",
   natureUndeclared: "NATURA_NON_DICHIARATA",
   natureConflicting: "NATURA_DISCORDE",
   homeSideUndeclared: "LATO_CASA_NON_DICHIARATO",
+  homeSideConflicting: "LATO_CASA_DISCORDE",
   lineupUnreadable: "FORMAZIONE_NON_LEGGIBILE",
 } as const;
 
@@ -101,7 +131,57 @@ export interface ParseRequest {
 }
 
 const MODULE_SHAPE = /^\d{1,2}(-\d{1,2}){1,4}$/;
+
+/**
+ * GLI ISTANTI CHE QUESTO PARSER EMETTE — il contratto verso chi li consuma.
+ *
+ * Questa forma è l'unica che esce di qui, e vale sia per il calcio d'inizio sia
+ * per il momento della lettura: ISO-8601 **con il fuso scritto**, o come `Z` o
+ * come scostamento esplicito (`+02:00`). Un istante senza fuso non è un istante
+ * incompleto da correggere più tardi: è **malformato**, e qui viene dichiarato
+ * assente invece che emesso.
+ *
+ * IL MOTIVO STA A VALLE, non qui. La misura di affidabilità di una fonte vive
+ * sul confronto fra quando abbiamo letto e il calcio d'inizio — è ciò che
+ * separa una previsione da una cronaca. Due ore di scostamento attraversano
+ * quel confine per intero: un `20:45` senza fuso, letto da chi ragiona in UTC,
+ * diventa un `22:45` italiano, e una lettura fatta prima della partita sembra
+ * fatta dopo.
+ *
+ * LA DIVISIONE DEL LAVORO, dichiarata perché nessuno dei due lati la deduca:
+ * **questo parser emette il fuso**, e **chi consuma normalizza a UTC prima di
+ * confrontare**. Il parser non normalizza — riscrivere l'istante della fonte in
+ * un altro fuso è già un'interpretazione, e questo file non ne fa — e chi
+ * confronta non suppone un fuso quando non lo trova: rifiuta.
+ */
 const INSTANT_WITH_ZONE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * LA COMPLETEZZA RESTA «NON SO», E IL PERCHÉ È UN LIMITE DELLA FONTE.
+ *
+ * Non è una svista né una riga rimasta indietro: è ciò che la struttura che
+ * sappiamo descrivere permette di dire. La `SourceShape` — l'unica cosa che
+ * questo parser sa della fonte — ha una famiglia di chiavi per i titolari, una
+ * per la panchina, una per lo stato «probabile o effettiva», e **nessuna che
+ * dica dove una pagina dichiari di aver elencato tutti**. Senza quella
+ * famiglia, «completa» e «parziale» qui non si possono leggere: si potrebbero
+ * solo dedurre, e dedurle sarebbe il difetto peggiore dei tre.
+ *
+ * PERCHÉ NON SI DEDUCE. Undici nomi non sono una dichiarazione di completezza:
+ * una fonte può pubblicarne undici perché sono quelli che sa. Chi scrivesse
+ * «completa» guardando la lunghezza dell'elenco regalerebbe punteggio a ogni
+ * fonte che si limita a scrivere meno, e la misura di affidabilità premierebbe
+ * il silenzio — esattamente ciò che deve invece penalizzare.
+ *
+ * COSA SERVIREBBE PER FARLA VALERE DAVVERO, detto per intero perché chi arriva
+ * dopo non debba ricostruirlo: una nuova famiglia di chiavi in `SourceShape` e
+ * i modi di dire «completa» e «parziale» accanto a `saysActual` e
+ * `saysProbable`. Sono due cose che vivono nella tabella privata, non qui: la
+ * loro assenza è una **proprietà della fonte descritta**, e finché dura, questa
+ * costante è la risposta onesta. Il giorno in cui la tabella le porti, questo è
+ * il punto unico da cambiare, ed è unico apposta.
+ */
+const UNKNOWN_COMPLETENESS: Completeness = "unknown";
 
 interface Entry {
   readonly key: string;
@@ -179,6 +259,14 @@ function firstReadableJson(blocks: readonly string[]): unknown {
   return null;
 }
 
+// I TRE MODI DI PESCARE UN VALORE DENTRO UN CONTENITORE.
+//
+// Tutti e tre applicano il punto 1 della convenzione in testa al file — **vince
+// il primo valore leggibile** — e lo applicano allo stesso modo: si scorrono le
+// chiavi nell'ordine in cui il documento le espone, e alla prima che è della
+// famiglia giusta e porta un valore della forma giusta ci si ferma. Nessuno dei
+// tre continua a cercare per vedere se più avanti c'è di meglio.
+
 function firstLabelIn(container: Record<string, unknown>, pattern: RegExp): string | null {
   for (const key of Object.keys(container)) {
     if (!pattern.test(key)) continue;
@@ -228,9 +316,9 @@ function playerFrom(element: unknown, shape: SourceShape): ObservedPlayer | null
  * corta che a valle sembra una formazione con pochi giocatori — il difetto
  * peggiore di tutti, perché non ha l'aria di un difetto.
  *
- * La completezza è `unknown` e viene scritta **qui, in un posto solo**: nessuna
- * pagina osservata la dichiara, e undici nomi non sono una dichiarazione. Il
- * giorno in cui una fonte la dichiarasse, questa è la riga da cambiare.
+ * La completezza è `unknown`, e viene scritta **qui, in un posto solo**. Il
+ * perché per esteso è in `UNKNOWN_COMPLETENESS`: è un limite dichiarato della
+ * struttura che sappiamo descrivere, non una svista.
  */
 function rosterFrom(elements: readonly unknown[] | null, shape: SourceShape): ObservedRoster | null {
   if (elements === null) return null;
@@ -240,8 +328,7 @@ function rosterFrom(elements: readonly unknown[] | null, shape: SourceShape): Ob
     if (player === null) return null;
     players.push(player);
   }
-  const completeness: Completeness = "unknown";
-  return { players, completeness };
+  return { players, completeness: UNKNOWN_COMPLETENESS };
 }
 
 function substitutionsFrom(
@@ -286,6 +373,26 @@ function pageNature(entries: readonly Entry[], shape: SourceShape): "probable" |
     found = read;
   }
   return found;
+}
+
+/**
+ * La natura di **una** squadra: quella che dichiara il suo blocco se ce l'ha,
+ * altrimenti quella dichiarata dalla pagina. `null` quando non la dichiara
+ * nessuno dei due, e allora non si deduce.
+ *
+ * Dentro il blocco vale il punto 1 della convenzione: `firstLabelIn` prende la
+ * prima chiave della famiglia `status` che porti un'etichetta leggibile. Le
+ * dichiarazioni discordi **fra** blocchi le ha già intercettate `pageNature`,
+ * che le vede tutte.
+ */
+function sideFrom(
+  block: Record<string, unknown>,
+  declared: "probable" | "actual" | null,
+  shape: SourceShape,
+): Side | null {
+  const own = natureFromText(firstLabelIn(block, shape.keys.status), shape);
+  const nature = own ?? declared;
+  return nature === null ? null : { block, nature };
 }
 
 /** Una formazione letta, oppure **quale famiglia** non si è lasciata leggere. */
@@ -334,7 +441,9 @@ function lineupCandidate(
       unavailable: notObserved(),
       suspended: notObserved(),
       duels: notObserved(),
-      completeness: "unknown",
+      // Stesso limite dichiarato delle liste, per la formazione nel suo
+      // insieme: vedi `UNKNOWN_COMPLETENESS`.
+      completeness: UNKNOWN_COMPLETENESS,
     },
   };
 }
@@ -363,20 +472,81 @@ function matchdayReference(
   return { origin: "unobserved" };
 }
 
-function homeSideIndex(blocks: readonly Record<string, unknown>[], shape: SourceShape): number {
-  let index = -1;
-  for (let i = 0; i < blocks.length; i += 1) {
-    const block = blocks[i];
-    if (block === undefined) continue;
-    for (const key of Object.keys(block)) {
-      if (!shape.keys.homeSide.test(key)) continue;
-      const value = block[key];
-      if (value === true || (typeof value === "string" && /^(home|casa|true)$/i.test(value.trim()))) {
-        index = i;
-      }
-    }
+/** Una squadra della pagina: il suo blocco, e la natura già decisa per lei. */
+interface Side {
+  readonly block: Record<string, unknown>;
+  readonly nature: "probable" | "actual";
+}
+
+const SAYS_HOME = /^(home|casa|true)$/i;
+const SAYS_AWAY = /^(away|trasferta|ospite|false)$/i;
+
+/**
+ * Che cosa dichiara **questo** blocco sul proprio lato: casa, trasferta,
+ * tutt'e due, oppure niente.
+ *
+ * «Tutt'e due» non è un caso astratto da mettere in conto per scrupolo: le
+ * espressioni della tabella non sono ancorate, quindi nello stesso blocco
+ * possono cadere due chiavi diverse della famiglia `homeSide` che dicono cose
+ * opposte. Quando succede, questo blocco non dichiara niente di utilizzabile, e
+ * chi chiama si ferma invece di scegliere.
+ */
+function declaredSideOf(block: Record<string, unknown>, shape: SourceShape): "home" | "away" | "both" | null {
+  let saysHome = false;
+  let saysAway = false;
+  for (const key of Object.keys(block)) {
+    if (!shape.keys.homeSide.test(key)) continue;
+    const value = block[key];
+    if (value === true || (typeof value === "string" && SAYS_HOME.test(value.trim()))) saysHome = true;
+    else if (value === false || (typeof value === "string" && SAYS_AWAY.test(value.trim()))) saysAway = true;
   }
-  return index;
+  if (saysHome && saysAway) return "both";
+  if (saysHome) return "home";
+  if (saysAway) return "away";
+  return null;
+}
+
+/** Le due squadre messe in ordine, oppure il motivo per cui non si ordinano. */
+type OrderedSides =
+  | { readonly kind: "ordered"; readonly home: Side; readonly away: Side }
+  | { readonly kind: "undeclared" }
+  | { readonly kind: "conflicting"; readonly why: string };
+
+/**
+ * CHI GIOCA IN CASA — dal campo dichiarato, e mai dalla posizione.
+ *
+ * Qui vive il punto 2 della convenzione in testa al file. Prima questa funzione
+ * restituiva **l'ultimo** blocco che si dichiarava in casa senza mai fermarsi:
+ * con due dichiarazioni di casa vinceva quella scritta più in basso, cioè la
+ * partita si decideva sull'ordine del documento, che è esattamente ciò che il
+ * campo dichiarato esiste per non far succedere. E siccome le espressioni della
+ * tabella non sono ancorate, bastava una chiave come `isHomeTeamFavourite`
+ * dentro il blocco ospite per **invertire la partita in silenzio**.
+ *
+ * Ora due dichiarazioni di casa sono un'ambiguità e si rifiuta — la stessa
+ * politica che `pageNature` applica alle dichiarazioni discordi di natura.
+ * Averne due opposte, nello stesso parser, sulla stessa specie di problema, era
+ * il difetto sotto il difetto.
+ */
+function orderSides(first: Side, second: Side, shape: SourceShape): OrderedSides {
+  const firstSaid = declaredSideOf(first.block, shape);
+  const secondSaid = declaredSideOf(second.block, shape);
+
+  if (firstSaid === "both" || secondSaid === "both") {
+    return {
+      kind: "conflicting",
+      why: "un blocco squadra si dichiara insieme in casa e in trasferta, e non si sceglie per lui",
+    };
+  }
+  if (firstSaid === "home" && secondSaid === "home") {
+    return {
+      kind: "conflicting",
+      why: "entrambi i blocchi squadra si dichiarano in casa, e l'ordine in cui compaiono non è una risposta",
+    };
+  }
+  if (firstSaid === "home") return { kind: "ordered", home: first, away: second };
+  if (secondSaid === "home") return { kind: "ordered", home: second, away: first };
+  return { kind: "undeclared" };
 }
 
 function refereeFrom(entries: readonly Entry[], shape: SourceShape): string | null {
@@ -389,11 +559,16 @@ function refereeFrom(entries: readonly Entry[], shape: SourceShape): string | nu
 }
 
 /**
- * Il calcio d'inizio, **solo con il fuso**.
+ * Il calcio d'inizio, **solo con il fuso** — `Z` o scostamento esplicito.
  *
- * Un istante senza fuso non si può confrontare con il momento della lettura, e
- * il confronto è tutto ciò per cui serve: meglio dichiararlo assente che
- * ordinarlo a caso.
+ * Il contratto verso chi consuma, e la divisione del lavoro che ne segue, sono
+ * scritti per esteso su `INSTANT_WITH_ZONE`. Qui basta la conseguenza: un
+ * istante senza fuso non si può confrontare con il momento della lettura, e il
+ * confronto è tutto ciò per cui questo campo serve. Meglio dichiararlo assente
+ * che ordinarlo a caso.
+ *
+ * Vale il punto 1 della convenzione: **il primo** istante ben formato che si
+ * incontra vince, e nessuno più avanti lo sostituisce.
  */
 function kickOffFrom(entries: readonly Entry[], shape: SourceShape): Field<string> {
   for (const entry of entries) {
@@ -433,18 +608,32 @@ export function parseMatchPage(request: ParseRequest): ReadOutcome<ObservedMatch
 
   const entries = entriesOf(root);
   const starterEntries = entries.filter((entry) => shape.keys.starters.test(entry.key) && Array.isArray(entry.value));
-  if (starterEntries.length !== 2) {
+  // Due elenchi di titolari, presi **per nome** e non per posizione. La forma
+  // destrutturata non è un vezzo: è ciò che rende il «sono esattamente due» un
+  // fatto anche per il compilatore, e toglie di mezzo i controlli che dopo
+  // questo punto non potevano più fallire — e che, non potendo fallire, non
+  // proteggevano nessuno pur avendone l'aria.
+  const [firstStarters, secondStarters, ...extraStarters] = starterEntries;
+  if (firstStarters === undefined || secondStarters === undefined || extraStarters.length > 0) {
     return stop(
       PARSE_STOP_CODES.startersNotTwo,
       "starters",
       `attesi due elenchi di titolari, uno per squadra: trovati ${String(starterEntries.length)}`,
     );
   }
-
-  const teamBlocks: Record<string, unknown>[] = [];
-  for (const entry of starterEntries) teamBlocks.push(entry.container);
-  if (teamBlocks.length !== 2) {
-    return stop(PARSE_STOP_CODES.teamBlockMissing, "starters", "un elenco di titolari senza il proprio blocco squadra");
+  // DUE ELENCHI, MA NELLO STESSO CONTENITORE. Un blocco è una squadra: due
+  // elenchi di titolari dentro lo stesso oggetto non sono due squadre, sono una
+  // struttura che non è quella descritta — e con le espressioni della tabella
+  // non ancorate ci si arriva con due chiavi simili nello stesso posto. Va
+  // fermato qui, dove si vede: più a valle diventerebbe «le due squadre di una
+  // partita non possono essere la stessa», cioè un problema di contenuto al
+  // posto di un problema di struttura.
+  if (firstStarters.container === secondStarters.container) {
+    return stop(
+      PARSE_STOP_CODES.startersSameBlock,
+      "starters",
+      "due elenchi di titolari nello stesso blocco squadra: un blocco è una squadra, e due squadre non ci stanno",
+    );
   }
 
   const declaredNature = pageNature(entries, shape);
@@ -456,52 +645,33 @@ export function parseMatchPage(request: ParseRequest): ReadOutcome<ObservedMatch
     );
   }
 
-  const natures: ("probable" | "actual")[] = [];
-  for (const block of teamBlocks) {
-    const own = natureFromText(firstLabelIn(block, shape.keys.status), shape);
-    const chosen = own ?? declaredNature;
-    if (chosen === null) {
-      return stop(
-        PARSE_STOP_CODES.natureUndeclared,
-        "status",
-        "la pagina non dichiara se questa formazione è probabile o effettiva, e non si deduce",
-      );
-    }
-    natures.push(chosen);
+  const firstSide = sideFrom(firstStarters.container, declaredNature, shape);
+  const secondSide = sideFrom(secondStarters.container, declaredNature, shape);
+  if (firstSide === null || secondSide === null) {
+    return stop(
+      PARSE_STOP_CODES.natureUndeclared,
+      "status",
+      "la pagina non dichiara se questa formazione è probabile o effettiva, e non si deduce",
+    );
   }
 
-  const homeIndex = homeSideIndex(teamBlocks, shape);
-  if (homeIndex === -1) {
+  const ordered = orderSides(firstSide, secondSide, shape);
+  if (ordered.kind === "undeclared") {
     return stop(
       PARSE_STOP_CODES.homeSideUndeclared,
       "homeSide",
       "la pagina non dichiara quale squadra gioca in casa, e l'ordine degli elenchi non lo dice",
     );
   }
-  const awayIndex = homeIndex === 0 ? 1 : 0;
-
-  const homeBlock = teamBlocks[homeIndex];
-  const awayBlock = teamBlocks[awayIndex];
-  const homeNature = natures[homeIndex];
-  const awayNature = natures[awayIndex];
-  if (homeBlock === undefined || awayBlock === undefined || homeNature === undefined || awayNature === undefined) {
-    return stop(PARSE_STOP_CODES.teamBlockMissing, "starters", "blocco squadra mancante dopo la lettura");
+  if (ordered.kind === "conflicting") {
+    return stop(PARSE_STOP_CODES.homeSideConflicting, "homeSide", ordered.why);
   }
 
-  const home = lineupCandidate(homeBlock, homeNature, shape);
-  const away = lineupCandidate(awayBlock, awayNature, shape);
-  for (const side of [home, away]) {
-    if (!side.ok) {
-      return stop(
-        PARSE_STOP_CODES.lineupUnreadable,
-        side.family,
-        "un pezzo della formazione non ha la forma descritta: meglio nessuna formazione che una a metà",
-      );
-    }
-  }
-  if (!home.ok || !away.ok) {
-    return stop(PARSE_STOP_CODES.lineupUnreadable, "starters", "formazione non leggibile");
-  }
+  const lineupWhy = "un pezzo della formazione non ha la forma descritta: meglio nessuna formazione che una a metà";
+  const home = lineupCandidate(ordered.home.block, ordered.home.nature, shape);
+  if (!home.ok) return stop(PARSE_STOP_CODES.lineupUnreadable, home.family, lineupWhy);
+  const away = lineupCandidate(ordered.away.block, ordered.away.nature, shape);
+  if (!away.ok) return stop(PARSE_STOP_CODES.lineupUnreadable, away.family, lineupWhy);
 
   const referee = refereeFrom(entries, shape);
 

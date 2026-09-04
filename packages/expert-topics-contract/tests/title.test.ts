@@ -48,6 +48,30 @@ describe("chiave d'incrocio letta dal titolo", () => {
     expect(key.kickoffLocal).toBe("");
   });
 
+  // `99:99` da solo non prova il tetto delle ORE: ha anche i minuti fuori
+  // scala, quindi cade comunque sul controllo dei minuti e lascia passare un
+  // tetto sulle ore sbagliato — 24, 30, 99 — senza che nessun test cambi
+  // colore. Questi casi hanno i minuti validi apposta: qui può fallire solo il
+  // controllo delle ore.
+  it("il giorno finisce alle 23: le ore oltre il tetto si rifiutano una per una", () => {
+    for (const ora of ["24", "25", "30", "48", "99"]) {
+      const key = readMatchKey(`Alfa - Beta ${ora}:30`);
+      expect(key.kickoffPresent, ora).toBe(false);
+      expect(key.kickoffLocal, ora).toBe("");
+    }
+  });
+
+  it("le ore ai due estremi ammessi si leggono", () => {
+    expect(readMatchKey("Alfa - Beta 0:30").kickoffLocal).toBe("00:30");
+    expect(readMatchKey("Alfa - Beta 23:30").kickoffLocal).toBe("23:30");
+  });
+
+  it("i minuti oltre 59 si rifiutano, con l'ora valida", () => {
+    const key = readMatchKey("Alfa - Beta 20:75");
+    expect(key.kickoffPresent).toBe(false);
+    expect(key.kickoffLocal).toBe("");
+  });
+
   // IL VINCOLO: il titolo non porta la giornata. Il campo esiste per CONTARE,
   // e nessuna funzione di legame lo guarda.
   it("conta il numero di giornata nel titolo senza mai usarlo", () => {
