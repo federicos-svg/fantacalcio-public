@@ -9,7 +9,8 @@ import {
   MISSING_LINEUP_POLICY,
   NEUTRAL_GROUND_FROM_MATCHDAY,
   SUBSTITUTION_RULES,
-  SV_VALUES_SEMANTICS_UNCONFIRMED,
+  NO_VOTE_RULES,
+  resolveNoVote,
   attackModifier,
   defenceModifier,
   homeFieldBonus,
@@ -318,15 +319,64 @@ describe("vincoli dichiarati, non ancora simulati", () => {
     expect(MISSING_LINEUP_POLICY.firstMatchdayScoreWithoutPrevious).toBe(0);
   });
 
-  it("espone i valori del senza voto SENZA usarli, perché la loro semantica non è confermata", () => {
-    expect(SV_VALUES_SEMANTICS_UNCONFIRMED).toEqual({
-      goalkeeper: 6,
-      playerWithYellowCard: 5,
-      playerWithRedCard: 4,
+  it("il senza voto ha cinque casi, e nessuno di essi è una regola sul portiere", () => {
+    expect(NO_VOTE_RULES).toEqual({
+      bonusMalusBase: 6,
+      sentOffDuringMatch: 4,
+      bookedPreset: 5,
       officeReserve: "prohibited",
     });
-    // Nessun calcolo li legge: un senza voto non entra in nessuna delle
-    // funzioni di questo modulo finché il committente non dice che cosa vale.
+
+    // 1. Puro: si sostituisce, e senza rimpiazzo conta come assente.
+    expect(resolveNoVote({ cards: "none", otherBonusMalus: 0 }).status).toBe("must_be_replaced");
+    // 2. Espulso dopo il fischio finale: resta senza voto, quindi si sostituisce.
+    expect(resolveNoVote({ cards: "red_after_match", otherBonusMalus: 0 }).status).toBe("must_be_replaced");
+    // 3. Ammonito: l'ammonizione È un malus, quindi non è un SV puro — resta in
+    // campo col valore prestabilito dalla lega, già inclusivo del malus.
+    expect(resolveNoVote({ cards: "yellow", otherBonusMalus: 0 })).toMatchObject({
+      status: "office_score",
+      baseVote: 5,
+      fantasyScore: 5,
+    });
+    // 4. Espulso a partita in corso: 4 automatico, non 6 meno il malus.
+    expect(resolveNoVote({ cards: "red", otherBonusMalus: 0 })).toMatchObject({
+      status: "office_score",
+      baseVote: 4,
+      fantasyScore: 4,
+    });
+    // 5. Con un qualunque altro bonus/malus: 6 più quel valore, voto base 6.
+    expect(resolveNoVote({ cards: "none", otherBonusMalus: 3 })).toMatchObject({
+      status: "office_score",
+      baseVote: 6,
+      fantasyScore: 9,
+    });
+  });
+
+  it("la base la decide il cartellino, gli altri bonus/malus si sommano sopra", () => {
+    // Dichiarato da Pico: «sv con ammonito e gol fa 8» — cioè 5 + 3, non
+    // 6 − 0,5 + 3. Il malus del cartellino è già dentro il 5 e non si somma
+    // due volte. Il contrasto che lo chiarisce: un giocatore CON voto ammonito
+    // che segna fa 7 − 0,5 + 3 = 9,5, e quello lo calcola chi fornisce le righe.
+    expect(resolveNoVote({ cards: "yellow", otherBonusMalus: 3 }).fantasyScore).toBe(8);
+    expect(resolveNoVote({ cards: "yellow", otherBonusMalus: 0 }).fantasyScore).toBe(5);
+    expect(resolveNoVote({ cards: "red", otherBonusMalus: 3 }).fantasyScore).toBe(7);
+    expect(resolveNoVote({ cards: "none", otherBonusMalus: 3 }).fantasyScore).toBe(9);
+  });
+
+  it("le combinazioni che il regolamento non copre si dichiarano, non si scelgono", () => {
+    // Senza cartellini dichiarati non si sa fra tre esiti diversi.
+    expect(resolveNoVote({ cards: null, otherBonusMalus: 0 }).status).toBe("undeclared");
+    // Senza bonus/malus non si distingue un SV da sostituire da un SV a 6 più.
+    expect(resolveNoVote({ cards: "none", otherBonusMalus: null }).status).toBe("undeclared");
+    // Anche col cartellino il dato serve: la base si somma agli altri
+    // bonus/malus, quindi senza quel numero il punteggio non è calcolabile.
+    expect(resolveNoVote({ cards: "yellow", otherBonusMalus: null }).status).toBe("undeclared");
+    expect(resolveNoVote({ cards: "red", otherBonusMalus: null }).status).toBe("undeclared");
+  });
+
+  it("un senza voto vero non alimenta i modificatori: senza portiere a voto la difesa resta zero", () => {
+    // Il punteggio d'ufficio invece SÌ, ed è il simulatore a metterlo nella
+    // riga effettiva prima che i modificatori la leggano.
     expect(defenceModifier({ goalkeeperBaseVote: null, defenderBaseVotes: [7, 7, 7, 7] }).value).toBe(0);
   });
 });

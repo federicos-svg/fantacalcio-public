@@ -39,13 +39,12 @@
 //  - nessuna interpolazione fuori tabella. Dove il regolamento tabula punti
 //    discreti e vieta di interpolare, un valore non tabulato produce un esito
 //    dichiarato — mai uno zero silenzioso, che somiglierebbe a un risultato;
-//  - nessun punteggio di lega per vittoria/pareggio/sconfitta: il regolamento
-//    mette «punti» al primo criterio di classifica e non li quantifica, e
-//    dedurli è vietato. Finché il committente non li dichiara, la funzione
-//    obiettivo del Coach non esiste e questo file non la finge;
-//  - nessun valore attribuito al «senza voto»: le costanti dichiarate dal
-//    regolamento sono esposte sotto, ma la loro semantica non è confermata e
-//    NESSUN calcolo di questo file le usa.
+//  - i punti di lega, che il regolamento non quantificava, sono dichiarati da
+//    Pico il 2026-09-03 sulla convenzione della Serie A: 3 / 1 / 0. Il
+//    fallback di ordinamento resta, ma non è più la strada principale;
+//  - il «senza voto» invece NON è più un'incognita: dichiarato da Pico il
+//    2026-09-03 sul regolamento ufficiale, è modellato sotto in cinque casi,
+//    e i punteggi d'ufficio che ne escono sono voti base a tutti gli effetti.
 
 /**
  * Versione del regolamento su cui poggia ogni funzione di questo file. Ogni
@@ -464,21 +463,155 @@ export const MISSING_LINEUP_POLICY = {
 } as const;
 
 /**
- * SENZA VOTO — costanti dichiarate dal regolamento, DELIBERATAMENTE NON USATE.
- *
- * Il regolamento porta questi tre numeri sotto «Senza voto», ma non dichiara la
- * loro semantica esatta, e dedurla è vietato. Se fossero il punteggio attribuito
- * a chi non prende voto, allora tutto l'impianto di rischio del recap
- * («probabilità di chiudere con 10, con 9») poggerebbe su una premessa
- * sbagliata, perché un giocatore senza voto non contribuirebbe zero.
- *
- * Sono esposti qui perché la domanda sia visibile nel codice e non solo in un
- * documento, e perché il giorno in cui il committente risponde ci sia un posto
- * solo da cambiare. Nessuna funzione di questo file li legge.
+ * Stato disciplinare nella giornata. `red` è l'espulsione **a partita in
+ * corso**; `red_after_match` è quella comminata dopo il fischio finale, che il
+ * regolamento tratta in modo opposto — resta un senza voto, e si sostituisce.
  */
-export const SV_VALUES_SEMANTICS_UNCONFIRMED = {
-  goalkeeper: 6,
-  playerWithYellowCard: 5,
-  playerWithRedCard: 4,
+export type CardStatus = "none" | "yellow" | "red" | "red_after_match";
+
+/**
+ * SENZA VOTO — dichiarato da Pico il 2026-09-03 sul regolamento ufficiale.
+ *
+ * Le prime due risposte («sono il punteggio di chi non prende voto», «il senza
+ * voto si sostituisce, portiere compreso») erano lette su un blocco di tre
+ * valori che si è poi rivelato incompleto e in un punto sbagliato: `goalkeeper_sv`
+ * era **un errore di trascrizione**, e il regolamento non dà nessun punteggio
+ * d'ufficio al portiere che resta scoperto. Quel che il regolamento dice
+ * davvero è più semplice e più largo:
+ *
+ * - un SV che porta **un qualunque bonus/malus** resta in campo e prende
+ *   **6 più il valore di quel bonus/malus**;
+ * - l'**ammonito** ha come base un valore prestabilito dalla lega — la
+ *   piattaforma consiglia 5,5, **noi abbiamo settato 5** — già inclusivo del
+ *   malus del cartellino, che quindi non si somma una seconda volta: ammonito
+ *   più gol fa **5 + 3 = 8**;
+ * - l'**espulso a partita in corso** ha fantavoto **4**, automatico: non è la
+ *   base meno il malus, è un valore a sé;
+ * - l'**espulso dopo il fischio finale** resta senza voto, e si sostituisce;
+ * - il **senza voto puro**, senza alcun bonus/malus, si sostituisce; e se la
+ *   panchina non lo copre conta come assente, perché `officeReserve` è
+ *   `prohibited` e nessun punteggio d'ufficio esiste per lui.
+ *
+ * **Il portiere non ha una regola propria.** Il regolamento lo nomina una volta
+ * sola, per escludere il bonus imbattibilità da un suo SV e mandarlo in
+ * sostituzione: è una regola sul *bonus*, non sul portiere, e vive nel
+ * contratto del campo `otherBonusMalus` qui sotto.
+ */
+export const NO_VOTE_RULES = {
+  /** La base del «6 + bonus/malus». */
+  bonusMalusBase: 6,
+  /** Espulso a partita in corso: fantavoto automatico, non derivato dalla base. */
+  sentOffDuringMatch: 4,
+  /**
+   * Ammonito: valore prestabilito dalla nostra lega, dove l'aritmetica darebbe
+   * 5,5 (6 meno il malus). **Il malus del cartellino è già dentro questo
+   * numero** e non va sommato una seconda volta.
+   */
+  bookedPreset: 5,
   officeReserve: "prohibited",
 } as const;
+
+/**
+ * La base d'ufficio di un SV, decisa dal solo cartellino. Gli altri bonus/malus
+ * si sommano SOPRA questa base — dichiarato da Pico il 2026-09-03 con
+ * l'esempio: «sv con ammonito e gol fa 8», cioè 5 + 3.
+ *
+ * Il contrasto che l'esempio chiarisce, e che vale mezzo punto: un giocatore
+ * **con voto** ammonito che segna fa 7 − 0,5 + 3 = 9,5, perché lì il malus del
+ * cartellino si somma davvero. Nell'SV no: è già dentro il 5.
+ */
+function noVoteBase(cards: Exclude<CardStatus, "red_after_match">): number {
+  if (cards === "red") return NO_VOTE_RULES.sentOffDuringMatch;
+  if (cards === "yellow") return NO_VOTE_RULES.bookedPreset;
+  return NO_VOTE_RULES.bonusMalusBase;
+}
+
+export interface NoVoteOutcome {
+  /**
+   * `office_score` — resta in campo con un punteggio; `must_be_replaced` — è un
+   * senza voto da sostituire, e senza rimpiazzo conta come assente;
+   * `undeclared` — il regolamento non copre questa combinazione, e il calcolo
+   * si ferma invece di sceglierne una.
+   */
+  readonly status: "office_score" | "must_be_replaced" | "undeclared";
+  /** Voto base d'ufficio: alimenta i modificatori come un voto qualunque. */
+  readonly baseVote: number | null;
+  readonly fantasyScore: number | null;
+  readonly reason: string;
+}
+
+/**
+ * Che cosa succede a un titolare che ha preso SV.
+ *
+ * **Contratto di `otherBonusMalus`** — somma algebrica dei bonus/malus della
+ * giornata **esclusi i cartellini**, che hanno i loro casi dedicati, e —
+ * **per il portiere** — **escluso il bonus imbattibilità**, che il regolamento
+ * dice espressamente di non sommare a un SV, mandandolo invece in
+ * sostituzione. `null` significa «non lo so», e produce `undeclared`: fra un SV
+ * puro da sostituire e un SV a 6 più bonus la differenza è l'intera formazione.
+ *
+ * **Una lettura, non una regola:** per l'espulso il regolamento dichiara il
+ * *fantavoto* 4 e tace sul voto base. Qui il 4 vale come voto base, per
+ * simmetria con l'ammonito, dove il regolamento dice esplicitamente che «il
+ * voto preso in considerazione sarà esattamente quello inserito nelle
+ * opzioni». Se fosse sbagliata, si cambia in questa funzione e basta.
+ */
+export function resolveNoVote(input: {
+  readonly cards: CardStatus | null;
+  readonly otherBonusMalus: number | null;
+}): NoVoteOutcome {
+  const { cards, otherBonusMalus } = input;
+
+  if (cards === null) {
+    return {
+      status: "undeclared",
+      baseVote: null,
+      fantasyScore: null,
+      reason: "stato dei cartellini non dichiarato: il regolamento ha tre esiti diversi a seconda del cartellino",
+    };
+  }
+
+  if (otherBonusMalus === null) {
+    return {
+      status: "undeclared",
+      baseVote: null,
+      fantasyScore: null,
+      reason:
+        "bonus/malus non dichiarati: senza quel dato non si distingue un senza voto puro, da sostituire, da un senza voto a 6 più bonus/malus",
+    };
+  }
+
+  if (cards === "red_after_match" || cards === "none") {
+    if (otherBonusMalus === 0) {
+      return {
+        status: "must_be_replaced",
+        baseVote: null,
+        fantasyScore: null,
+        reason:
+          cards === "red_after_match"
+            ? "espulso dopo la fine della partita: resta senza voto, si sostituisce"
+            : "senza voto puro: si sostituisce, e senza rimpiazzo conta come assente",
+      };
+    }
+    return {
+      status: "office_score",
+      baseVote: NO_VOTE_RULES.bonusMalusBase,
+      fantasyScore: NO_VOTE_RULES.bonusMalusBase + otherBonusMalus,
+      reason: `senza voto con bonus/malus: 6 più ${otherBonusMalus}`,
+    };
+  }
+
+  // Ammonito ed espulso a partita in corso: la base la decide il cartellino, e
+  // gli altri bonus/malus si sommano sopra. Il malus del cartellino NON entra
+  // nella somma — è già dentro la base.
+  const base = noVoteBase(cards);
+  return {
+    status: "office_score",
+    baseVote: base,
+    fantasyScore: base + otherBonusMalus,
+    reason:
+      cards === "yellow"
+        ? `ammonito senza voto: ${base} di base (malus già incluso) più ${otherBonusMalus}`
+        : `espulso a partita in corso: ${base} di base più ${otherBonusMalus}`,
+  };
+}

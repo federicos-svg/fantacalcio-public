@@ -37,6 +37,9 @@ import {
   moduleShape,
   scoreToGoals,
   SUBSTITUTION_RULES,
+  type CardStatus,
+  type NoVoteOutcome,
+  resolveNoVote,
 } from "./leagueGameweek.js";
 
 export type Role = "P" | "D" | "C" | "A";
@@ -56,6 +59,20 @@ export interface PlayerLine {
   readonly receivedAnyBonus?: boolean;
   /** Rigore sbagliato: esclude dal modificatore attacco. */
   readonly missedPenalty?: boolean;
+  /**
+   * Stato disciplinare. Serve SOLO a chi ha preso SV, dove decide fra il valore
+   * dell'ammonito, il 4 dell'espulso e la sostituzione. Lasciarlo indefinito su
+   * un SV non è neutro: il calcolo si ferma invece di supporre «nessun
+   * cartellino», perché quella supposizione vale un punteggio intero.
+   */
+  readonly cards?: CardStatus;
+  /**
+   * Somma algebrica dei bonus/malus della giornata, **esclusi i cartellini** e —
+   * per il portiere — **escluso il bonus imbattibilità**. Serve SOLO a chi ha
+   * preso SV: distingue il senza voto puro, che si sostituisce, da quello che
+   * resta in campo a 6 più bonus/malus. Indefinito su un SV ferma il calcolo.
+   */
+  readonly otherBonusMalus?: number;
 }
 
 /**
@@ -78,12 +95,28 @@ export interface SubstitutionRecord {
   readonly role: Role;
 }
 
+/** Un giocatore che ha preso SV, e quel che il regolamento decide per lui. */
+export interface NoVoteApplication {
+  readonly id: string;
+  readonly role: Role;
+  readonly outcome: NoVoteOutcome;
+}
+
 export interface SideResolution {
-  /** Gli undici effettivi dopo le sostituzioni. */
+  /**
+   * Gli undici effettivi dopo le sostituzioni. Chi ha preso SV con un punteggio
+   * d'ufficio compare QUI COL SUO PUNTEGGIO GIÀ APPLICATO: il regolamento dice
+   * che quel valore è il voto preso in considerazione, quindi alimenta i
+   * modificatori come qualunque altro voto base.
+   */
   readonly fielded: readonly PlayerLine[];
   readonly substitutions: readonly SubstitutionRecord[];
-  /** Titolari rimasti senza voto e senza rimpiazzo. */
-  readonly unresolvedIds: readonly string[];
+  /** Ogni SV incontrato, in campo o in panchina, con l'esito che il regolamento gli dà. */
+  readonly noVote: readonly NoVoteApplication[];
+  /** Titolari da sostituire rimasti senza rimpiazzo: contano come assenti. */
+  readonly uncoveredIds: readonly string[];
+  /** SV la cui combinazione il regolamento non copre: il conto si ferma. */
+  readonly undeclaredIds: readonly string[];
   readonly substitutionsUsed: number;
   readonly substitutionCapReached: boolean;
 }
@@ -97,6 +130,33 @@ function lineOf(players: ReadonlyMap<string, PlayerLine>, id: string): PlayerLin
 const hasVote = (line: PlayerLine): boolean => line.baseVote !== null && line.fantasyScore !== null;
 
 /**
+ * Un SV risolto secondo il regolamento: la riga effettiva col punteggio
+ * d'ufficio già dentro, oppure la riga originale quando un punteggio non gli
+ * spetta o non è calcolabile.
+ */
+interface ResolvedLine {
+  readonly line: PlayerLine;
+  readonly application: NoVoteApplication | null;
+}
+
+function resolveLine(line: PlayerLine): ResolvedLine {
+  if (hasVote(line)) return { line, application: null };
+  const outcome = resolveNoVote({
+    cards: line.cards ?? null,
+    otherBonusMalus: line.otherBonusMalus ?? null,
+  });
+  const application: NoVoteApplication = { id: line.id, role: line.role, outcome };
+  if (outcome.status !== "office_score") return { line, application };
+  // Il punteggio d'ufficio entra nella riga come un voto qualunque: il
+  // regolamento dice che è «esattamente quello» il voto preso in considerazione,
+  // quindi i modificatori lo leggono senza saperne la provenienza.
+  return {
+    line: { ...line, baseVote: outcome.baseVote, fantasyScore: outcome.fantasyScore },
+    application,
+  };
+}
+
+/**
  * SOSTITUZIONI — massimo 5, stesso ruolo, nessun cambio modulo.
  *
  * L'ORDINE DI ENTRATA È QUELLO DELLA PANCHINA, e l'ordine di uscita è quello
@@ -104,33 +164,52 @@ const hasVote = (line: PlayerLine): boolean => line.baseVote !== null && line.fa
  * regolamento non detta un criterio diverso, e inventarne uno (per esempio «esce
  * chi ha la media più bassa») significherebbe far scegliere al sistema al posto
  * di chi schiera.
+ *
+ * **Si sostituisce solo chi va sostituito.** Un SV con un punteggio d'ufficio —
+ * l'ammonito, l'espulso, chi porta un bonus/malus — un voto ce l'ha, e la
+ * panchina non lo tocca. Vale per il portiere come per tutti gli altri: il
+ * regolamento non gli riserva nulla di proprio.
  */
 export function applySubstitutions(
   lineup: Lineup,
   players: ReadonlyMap<string, PlayerLine>,
 ): SideResolution {
-  const starters = [lineup.goalkeeperId, ...lineup.starterIds].map((id) => lineOf(players, id));
-  const bench = lineup.benchIds.map((id) => lineOf(players, id));
-  const fielded = [...starters];
+  const starters = [lineup.goalkeeperId, ...lineup.starterIds].map((id) => resolveLine(lineOf(players, id)));
+  const bench = lineup.benchIds.map((id) => resolveLine(lineOf(players, id)));
+  const applications: NoVoteApplication[] = [];
+  for (const entry of [...starters, ...bench]) {
+    if (entry.application !== null) applications.push(entry.application);
+  }
+
+  const fielded = starters.map((entry) => entry.line);
+  const needsReplacement = starters.map((entry) => entry.application?.outcome.status === "must_be_replaced");
   const substitutions: SubstitutionRecord[] = [];
   const benchUsed = new Set<string>();
 
   for (const candidate of bench) {
     if (substitutions.length >= SUBSTITUTION_RULES.maxSubstitutions) break;
-    if (!hasVote(candidate) || benchUsed.has(candidate.id)) continue;
-    // Stesso ruolo, e il primo titolare senza voto in ordine dichiarato.
-    const index = fielded.findIndex((line) => line.role === candidate.role && !hasVote(line));
+    // Entra chi un voto ce l'ha, d'ufficio o meno. Chi è `undeclared` non entra:
+    // non sappiamo se possa.
+    if (!hasVote(candidate.line) || benchUsed.has(candidate.line.id)) continue;
+    const index = fielded.findIndex((line, i) => needsReplacement[i] === true && line.role === candidate.line.role);
     if (index === -1) continue;
-    substitutions.push({ outId: fielded[index]!.id, inId: candidate.id, role: candidate.role });
-    fielded[index] = candidate;
-    benchUsed.add(candidate.id);
+    substitutions.push({ outId: fielded[index]!.id, inId: candidate.line.id, role: candidate.line.role });
+    fielded[index] = candidate.line;
+    needsReplacement[index] = false;
+    benchUsed.add(candidate.line.id);
   }
 
-  const unresolvedIds = fielded.filter((line) => !hasVote(line)).map((line) => line.id);
   return {
     fielded,
     substitutions,
-    unresolvedIds,
+    noVote: applications,
+    uncoveredIds: fielded.filter((_, i) => needsReplacement[i] === true).map((line) => line.id),
+    // Un SV non dichiarato ferma il conto ovunque si trovi: in campo perché non
+    // sappiamo che punteggio dargli, in panchina perché non sappiamo se poteva
+    // entrare, e quella differenza è un titolare scoperto o coperto.
+    undeclaredIds: applications
+      .filter((entry) => entry.outcome.status === "undeclared")
+      .map((entry) => entry.id),
     substitutionsUsed: substitutions.length,
     substitutionCapReached: substitutions.length >= SUBSTITUTION_RULES.maxSubstitutions,
   };
@@ -145,7 +224,7 @@ export interface GameweekContext {
 
 export interface SideScore {
   readonly resolution: SideResolution;
-  /** Somma dei punteggi individuali degli undici effettivi. */
+  /** Somma dei punteggi individuali degli undici effettivi, punteggi d'ufficio inclusi. */
   readonly playersTotal: number;
   readonly defence: number;
   readonly midfield: number;
@@ -162,10 +241,10 @@ export interface GameweekOutcome {
   readonly ourGoals: number;
   readonly theirGoals: number;
   /**
-   * `false` quando almeno un titolare è rimasto senza voto e senza rimpiazzo:
-   * il regolamento assegna un valore al «senza voto», ma la sua semantica non è
-   * confermata e dedurla è vietato. Un punteggio prodotto lo stesso sarebbe
-   * costruito su una premessa inventata, e somiglierebbe a un risultato.
+   * `false` quando un SV cade in una combinazione che il regolamento non copre
+   * — cartellini non dichiarati, bonus/malus non dichiarati, un ammonito che
+   * porta anche altri bonus/malus. Il senza voto in sé non rende irrisolta la
+   * giornata: dal 2026-09-03 ha cinque casi, tutti calcolabili.
    */
   readonly resolved: boolean;
   readonly unresolvedReason: string | null;
@@ -197,7 +276,7 @@ export function simulateGameweek(input: {
   const ourResolution = applySubstitutions(ourLineup, players);
   const theirResolution = applySubstitutions(theirLineup, players);
 
-  const unresolved = [...ourResolution.unresolvedIds, ...theirResolution.unresolvedIds];
+  const unresolved = [...ourResolution.undeclaredIds, ...theirResolution.undeclaredIds];
 
   const ourMid = baseVotesOfRole(ourResolution.fielded, "C");
   const theirMid = baseVotesOfRole(theirResolution.fielded, "C");
@@ -226,6 +305,9 @@ export function simulateGameweek(input: {
       goalkeeperBaseVote: goalkeeper?.baseVote ?? null,
       defenderBaseVotes: baseVotesOfRole(resolution.fielded, "D"),
     });
+    // I punteggi d'ufficio sono già dentro le righe effettive; chi è rimasto
+    // scoperto ha `fantasyScore` nullo e vale zero, che è quel che il
+    // regolamento gli dà: `officeReserve` è `prohibited`.
     const playersTotal = resolution.fielded.reduce((sum, line) => sum + (line.fantasyScore ?? 0), 0);
     // Il modificatore modulo lo REGALA L'AVVERSARIO col suo modulo: qui si
     // legge quello dell'altra formazione, non il proprio.
@@ -259,7 +341,7 @@ export function simulateGameweek(input: {
     unresolvedReason:
       unresolved.length === 0
         ? null
-        : `senza voto e senza rimpiazzo: ${unresolved.join(", ")}. Il valore del «senza voto» non è confermato e dedurlo è vietato: il punteggio qui sopra li conta come assenti, quindi NON è il punteggio ufficiale.`,
+        : `senza voto in una combinazione che il regolamento non copre: ${unresolved.join(", ")}. Il punteggio qui sopra li conta come assenti, quindi NON è il punteggio ufficiale.`,
     fullyTabulated: midfield.tabulated && ourAttack.fullyTabulated && theirAttack.fullyTabulated,
     leagueRuleVersion: LEAGUE_RULE_VERSION,
   };

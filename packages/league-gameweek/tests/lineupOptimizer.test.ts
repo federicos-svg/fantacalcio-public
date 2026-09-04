@@ -10,6 +10,7 @@ import {
   leaguePointsOf,
   lineupRegret,
   objectiveValue,
+  LEAGUE_POINTS,
   resultSign,
   simulateGameweek,
 } from "../src/index.js";
@@ -205,7 +206,7 @@ describe("miglior formazione ex-post", () => {
       context: CONTEXT,
       onlyModule: "442",
     });
-    const value = (o: ReturnType<typeof simulateGameweek>): number => objectiveValue(o, null).value;
+    const value = (o: ReturnType<typeof simulateGameweek>): number => objectiveValue(o, LEAGUE_POINTS).value;
     const keepers = squad.filter((l) => l.role === "P");
     const defenders = squad.filter((l) => l.role === "D");
     const midfielders = squad.filter((l) => l.role === "C");
@@ -323,6 +324,26 @@ describe("funzione obiettivo", () => {
     expect(compareOutcomesWithoutDeclaredPoints(strettaMaAlta, larghaMaBassa)).toBeLessThan(0);
   });
 
+  it("coi punti di lega due vittorie non sono la stessa cosa: il pareggio lo rompe il punteggio", () => {
+    // 3/1/0 è un obiettivo piatto — ogni vittoria vale 3 — e da solo lascerebbe
+    // l'ottimizzatore indifferente fra una vittoria coi migliori e una coi
+    // peggiori. §22 mette «somma punteggio totale» subito dopo i punti.
+    const vittoriaRicca = { ourGoals: 2, theirGoals: 1, ours: { total: 90 } } as never as import("../src/index.js").GameweekOutcome;
+    const vittoriaMagra = { ourGoals: 2, theirGoals: 1, ours: { total: 70 } } as never as import("../src/index.js").GameweekOutcome;
+    expect(objectiveValue(vittoriaRicca, LEAGUE_POINTS).value).toBeGreaterThan(
+      objectiveValue(vittoriaMagra, LEAGUE_POINTS).value,
+    );
+    // Ma nessun punteggio compra un esito: un pareggio ricchissimo resta sotto.
+    const pareggioRicchissimo = { ourGoals: 1, theirGoals: 1, ours: { total: 200 } } as never as import("../src/index.js").GameweekOutcome;
+    expect(objectiveValue(vittoriaMagra, LEAGUE_POINTS).value).toBeGreaterThan(
+      objectiveValue(pareggioRicchissimo, LEAGUE_POINTS).value,
+    );
+  });
+
+  it("i punti dichiarati sono 3/1/0, la convenzione della Serie A", () => {
+    expect(LEAGUE_POINTS).toEqual({ win: 3, draw: 1, loss: 0 });
+  });
+
   it("i punti dichiarati cambiano davvero il criterio, non solo l'etichetta", () => {
     const outcome = simulateGameweek({ ourLineup: vinta, theirLineup: THEIR_LINEUP, players, context: CONTEXT });
     const conPunti = objectiveValue(outcome, { win: 3, draw: 1, loss: 0 }).value;
@@ -385,7 +406,7 @@ describe("l'ottimizzatore contro la forza bruta, su un campionario di rose", () 
       });
       expect(best.feasible).toBe(true);
 
-      const value = (o: ReturnType<typeof simulateGameweek>): number => objectiveValue(o, null).value;
+      const value = (o: ReturnType<typeof simulateGameweek>): number => objectiveValue(o, LEAGUE_POINTS).value;
       let brute = -Infinity;
       for (const d of combinations(rosa.filter((l) => l.role === "D"), 4)) {
         for (const c of combinations(rosa.filter((l) => l.role === "C"), 4)) {
@@ -426,5 +447,85 @@ describe("punti di lega dichiarati", () => {
     expect(() => leaguePointsOf(outcome, { win: 3, draw: 1, loss: 0 })).not.toThrow();
     // Tre numeri uguali sono ordinati, anche se rendono l'obiettivo piatto.
     expect(() => leaguePointsOf(outcome, { win: 1, draw: 1, loss: 1 })).not.toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `mustStart` — i titolari imposti. L'insieme vuoto non è un caso particolare
+// da gestire: è LA STESSA ricerca di sempre, e questa è la prova che lo è.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("titolari imposti (`mustStart`)", () => {
+  const base = {
+    squad: ourSquad(),
+    theirLineup: THEIR_LINEUP,
+    players: allPlayers(),
+    context: CONTEXT,
+  };
+
+  it("assente, insieme vuoto e insieme vuoto con un modulo solo danno il risultato IDENTICO", () => {
+    // La garanzia «con l'insieme vuoto la ricerca è quella di sempre» non è una
+    // frase: qui si confronta l'intero risultato — formazione, esito, conteggio
+    // delle valutazioni e motivo — fra la chiamata senza l'argomento e quella
+    // con l'argomento vuoto. Se `mustStart: []` prendesse un ramo diverso, il
+    // numero di formazioni valutate lo direbbe subito.
+    expect(bestLineupExPost({ ...base, mustStart: [] })).toEqual(bestLineupExPost(base));
+
+    // E vale anche accanto all'altro argomento facoltativo, che tocca gli
+    // stessi pool: i due non interferiscono.
+    expect(bestLineupExPost({ ...base, onlyModule: "442", mustStart: [] })).toEqual(
+      bestLineupExPost({ ...base, onlyModule: "442" }),
+    );
+  });
+
+  it("gli imposti sono schierati, e la formazione resta la migliore FRA QUELLE che li rispettano", () => {
+    const libera = bestLineupExPost(base);
+    // D1 (5,0) e A1 (5,0) sono i peggiori dei loro ruoli: la ricerca libera non
+    // li schiera, e imposti ci vanno comunque, a un costo che si misura.
+    expect(libera.lineup!.starterIds).not.toContain("D1");
+    expect(libera.lineup!.starterIds).not.toContain("A1");
+
+    const imposta = bestLineupExPost({ ...base, mustStart: ["D1", "A1"] });
+    expect(imposta.feasible).toBe(true);
+    expect(imposta.lineup!.starterIds).toContain("D1");
+    expect(imposta.lineup!.starterIds).toContain("A1");
+    expect(imposta.outcome!.ours.total).toBeLessThan(libera.outcome!.ours.total);
+  });
+
+  it("un portiere imposto è il portiere, e nessun altro viene provato", () => {
+    const libera = bestLineupExPost(base);
+    expect(libera.lineup!.goalkeeperId).toBe("P2"); // 7,0 contro 6,0
+    const imposta = bestLineupExPost({ ...base, mustStart: ["P1"] });
+    expect(imposta.lineup!.goalkeeperId).toBe("P1");
+    // Un portiere solo da provare invece di due: metà delle valutazioni.
+    expect(imposta.evaluated).toBeLessThan(libera.evaluated);
+  });
+
+  it("un imposto SENZA VOTO entra lo stesso: non è una scelta della funzione, è una volontà", () => {
+    // `Dsv` non ha voto, quindi la ricerca non lo sceglierebbe mai. Imposto,
+    // ci va: la regola «ex-post non si schiera chi non ha voto» descrive ciò
+    // che questa funzione SCEGLIE, e un imposto non è una sua scelta.
+    const squad = [...ourSquad(), p("Dsv", "D", null, null)];
+    const players = new Map(allPlayers());
+    players.set("Dsv", p("Dsv", "D", null, null));
+    const imposta = bestLineupExPost({ ...base, squad, players, mustStart: ["Dsv"] });
+    expect(imposta.feasible).toBe(true);
+    expect(imposta.lineup!.starterIds).toContain("Dsv");
+  });
+
+  it("un modulo che non regge gli imposti si dichiara insufficiente, non li scarta", () => {
+    // Cinque difensori imposti nel 4-4-2: il modulo ne chiede quattro.
+    const imposta = bestLineupExPost({
+      ...base,
+      onlyModule: "442",
+      mustStart: ["D1", "D2", "D3", "D4", "D5"],
+    });
+    expect(imposta.feasible).toBe(false);
+    expect(imposta.lineup).toBeNull();
+    expect(imposta.reason).toMatch(/5 D imposti/);
+  });
+
+  it("un id imposto che non è in rosa è un errore di chi chiama, e si ferma subito", () => {
+    expect(() => bestLineupExPost({ ...base, mustStart: ["Xfantasma"] })).toThrow(/non è in rosa/);
   });
 });
