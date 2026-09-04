@@ -8,6 +8,14 @@
 // sotto di noi**, che è il caso in cui un parser scritto male restituisce mezza
 // formazione e a valle sembra una squadra con pochi giocatori.
 //
+// PERCHÉ NON SA DI CHI È LA PAGINA CHE LEGGE. I nomi delle chiavi — quale campo
+// porta i titolari, quale la panchina — non stanno qui: arrivano come parametro
+// obbligatorio, la `SourceShape`, che vive nel privato. Il motivo per esteso è
+// in `sourceShape.ts`, e va letto prima di essere tentati di riportarla dentro:
+// un elenco di nomi di campo **dice di quale sito si tratta**, e la regola del
+// confine, nel dubbio, manda al privato. Senza tabella questo file non tenta
+// niente e non ha un elenco di riserva.
+//
 // COSA NON C'È QUI, e non deve arrivarci: niente rete, niente host, niente
 // indirizzi, niente credenziali, nessun HTML reale. Chi va a prendere la pagina
 // e deposita il raw vive nel layer privato; questa funzione riceve **un testo**
@@ -20,18 +28,19 @@
 // `Date.parse` dentro la lettura degli istanti: una funzione del suo argomento
 // e di nient'altro.
 //
-// COME LEGGE, E PERCHÉ COSÌ. L'osservazione della struttura (2026-09-04) ha
-// misurato **quali famiglie di campi** esistono nel blocco di dati strutturati
-// della pagina — titolari, panchina, sostituzioni, modulo, allenatore, arbitro —
-// non a che profondità stanno. Quindi si cerca **per nome di chiave**, e si
-// pretende di trovarne esattamente quante ne servono: due elenchi di titolari,
-// uno per squadra. Trovarne zero, uno o tre non è un caso da gestire con
-// fantasia, è la struttura che è cambiata, e si dichiara.
+// COME LEGGE, E PERCHÉ COSÌ. Le famiglie di chiavi si cercano **per nome**, non
+// per percorso: l'osservazione di una struttura misura quali campi esistono, non
+// a che profondità stanno, e un percorso scritto a mano si rompe al primo
+// annidamento diverso. Di ogni famiglia si pretende di trovare quanto serve —
+// due elenchi di titolari, uno per squadra. Trovarne zero, uno o tre non è un
+// caso da gestire con fantasia: è la struttura che è cambiata, e si dichiara.
 //
 // FERMARSI È UN ESITO, NON UN FALLIMENTO. Ogni «non so» di questo file è un
-// `shape-not-recognised` con un codice stabile e il punto in cui si è fermato.
-// Non esiste un ramo che restituisca una formazione parziale: o la pagina ha la
-// forma osservata, o non se ne ricava niente.
+// `shape-not-recognised` con un codice stabile, **il nome della famiglia di
+// chiavi** che mancava e il punto in cui si è fermato: un motivo si legge anche
+// senza aver scritto il parser. Non esiste un ramo che restituisca una
+// formazione parziale: o la pagina ha la forma descritta, o non se ne ricava
+// niente.
 
 import { absentInSource, notObserved, observed, type Field } from "./field.js";
 import {
@@ -44,6 +53,7 @@ import {
 } from "./matchPage.js";
 import type { MatchdayReference } from "./provenance.js";
 import { isRead, readLabel, shapeNotRecognised, type ReadOutcome } from "./readOutcome.js";
+import type { SourceShape, SourceShapeFamily } from "./sourceShape.js";
 
 /**
  * I codici con cui il parser dichiara di essersi fermato.
@@ -68,6 +78,12 @@ export const PARSE_STOP_CODES = {
 export interface ParseRequest {
   /** Il contenuto grezzo già letto e depositato. Questa funzione non va a prenderlo. */
   readonly rawHtml: string;
+  /**
+   * La tabella delle famiglie di chiavi, **obbligatoria**: senza, il parser non
+   * sa come si chiamano le cose e non tira a indovinare. Vive nel privato — vedi
+   * `sourceShape.ts` — ed è compilata da `readSourceShape`.
+   */
+  readonly shape: SourceShape;
   /** Etichetta della testata. Non un indirizzo: la lettura lo verifica. */
   readonly source: string;
   /** Etichetta della pagina. Non un percorso. */
@@ -84,29 +100,6 @@ export interface ParseRequest {
   readonly requestedMatchday: number | null;
 }
 
-// --- famiglie di chiavi, come l'osservazione le ha misurate -----------------
-
-const KEY_STARTERS = /(titolari|starters|startingeleven|starting_eleven|startinglineup|lineup)/i;
-const KEY_BENCH = /(panchina|bench|riserve|substitutes)/i;
-const KEY_SUBSTITUTIONS = /(sostituzioni|substitutions|cambi)/i;
-const KEY_MODULE = /(modulo|formation|schema)/i;
-const KEY_COACH = /(allenatore|coach|manager|mister)/i;
-const KEY_REFEREE = /(arbitro|referee)/i;
-const KEY_TEAM_NAME = /(^team$|teamname|nomesquadra|squadra|club)/i;
-const KEY_PLAYER_NAME = /(displayname|shortname|fullname|playername|nomegiocatore|^nome$|^name$|^giocatore$|^player$)/i;
-const KEY_SHIRT = /(shirtnumber|shirt_number|numeromaglia|^numero$|^number$|jersey)/i;
-const KEY_ROLE = /(^ruolo$|^role$|position|posizione)/i;
-const KEY_STATUS = /(status|stato|tipoformazione|lineuptype|lineupstatus)/i;
-const KEY_HOME_SIDE = /(ishome|^home|home$|casa)/i;
-const KEY_KICKOFF = /(kickoff|kick_off|datainizio|startdate|starttime|dataora|orariogara)/i;
-const KEY_MATCHDAY = /(giornata|matchday|matchweek|^round$|gameweek)/i;
-const KEY_OFF = /(esce|out$|playerout|sostituito)/i;
-const KEY_ON = /(entra|in$|playerin|subentrato)/i;
-const KEY_MINUTE = /(minuto|minute)/i;
-
-const SAYS_ACTUAL = /(ufficial|confermat|effettiv|official|confirmed)/i;
-const SAYS_PROBABLE = /(probabil|previst|attes|predicted|expected|probable)/i;
-
 const MODULE_SHAPE = /^\d{1,2}(-\d{1,2}){1,4}$/;
 const INSTANT_WITH_ZONE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/;
 
@@ -120,8 +113,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function stop<T>(code: string, why: string, at: readonly string[]): ReadOutcome<T> {
-  return shapeNotRecognised<T>(`${code} — ${why}`, at);
+/**
+ * Una fermata, detta in modo che si capisca da fuori: il codice, **la famiglia
+ * di chiavi** in ballo quando ce n'è una, e il perché in parole.
+ */
+function stop<T>(code: string, family: SourceShapeFamily | null, why: string): ReadOutcome<T> {
+  const where = family === null ? ["parseMatchPage"] : ["parseMatchPage", "keys", family];
+  const named = family === null ? why : `famiglia di chiavi "${family}": ${why}`;
+  return shapeNotRecognised<T>(`${code} — ${named}`, where);
 }
 
 /** Un'etichetta pulita, oppure `null`. Le stringhe lunghe come una frase non lo sono. */
@@ -154,13 +153,14 @@ function entriesOf(root: unknown): readonly Entry[] {
   return out;
 }
 
-function structuredBlocks(html: string): readonly string[] {
+function structuredBlocks(html: string, shape: SourceShape): readonly string[] {
   const out: string[] = [];
-  const next = /<script[^>]+id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i.exec(html);
-  if (next?.[1] !== undefined) out.push(next[1]);
-  const ld = /<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi;
-  for (const match of html.matchAll(ld)) {
-    const body = match[1];
+  for (const pattern of shape.structuredBlocks) {
+    // `exec` su una regexp con stato globale sarebbe una funzione con memoria:
+    // se ne fa una copia senza `g` per restare puri fra una chiamata e l'altra.
+    const once = new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, ""));
+    const match = once.exec(html);
+    const body = match?.[1];
     if (body !== undefined && out.length < 10) out.push(body);
   }
   return out;
@@ -208,12 +208,12 @@ function firstArrayIn(container: Record<string, unknown>, pattern: RegExp): read
 
 // --- i pezzi della formazione ----------------------------------------------
 
-function playerFrom(element: unknown): ObservedPlayer | null {
+function playerFrom(element: unknown, shape: SourceShape): ObservedPlayer | null {
   if (!isRecord(element)) return null;
-  const name = firstLabelIn(element, KEY_PLAYER_NAME);
+  const name = firstLabelIn(element, shape.keys.playerName);
   if (name === null) return null;
-  const shirt = firstWholeNumberIn(element, KEY_SHIRT);
-  const role = firstLabelIn(element, KEY_ROLE);
+  const shirt = firstWholeNumberIn(element, shape.keys.shirtNumber);
+  const role = firstLabelIn(element, shape.keys.role);
   return {
     displayName: name,
     shirtNumber: shirt === null ? absentInSource() : observed(shirt),
@@ -228,15 +228,15 @@ function playerFrom(element: unknown): ObservedPlayer | null {
  * corta che a valle sembra una formazione con pochi giocatori — il difetto
  * peggiore di tutti, perché non ha l'aria di un difetto.
  *
- * La completezza è `unknown` e viene scritta **qui, in un posto solo**: la
- * pagina osservata non la dichiara, e undici nomi non sono una dichiarazione.
- * Il giorno in cui una fonte la dichiarasse, questa è la riga da cambiare.
+ * La completezza è `unknown` e viene scritta **qui, in un posto solo**: nessuna
+ * pagina osservata la dichiara, e undici nomi non sono una dichiarazione. Il
+ * giorno in cui una fonte la dichiarasse, questa è la riga da cambiare.
  */
-function rosterFrom(elements: readonly unknown[] | null): ObservedRoster | null {
+function rosterFrom(elements: readonly unknown[] | null, shape: SourceShape): ObservedRoster | null {
   if (elements === null) return null;
   const players: ObservedPlayer[] = [];
   for (const element of elements) {
-    const player = playerFrom(element);
+    const player = playerFrom(element, shape);
     if (player === null) return null;
     players.push(player);
   }
@@ -244,26 +244,28 @@ function rosterFrom(elements: readonly unknown[] | null): ObservedRoster | null 
   return { players, completeness };
 }
 
-function substitutionsFrom(elements: readonly unknown[] | null): readonly ObservedSubstitution[] | null {
+function substitutionsFrom(
+  elements: readonly unknown[] | null,
+  shape: SourceShape,
+): readonly ObservedSubstitution[] | null {
   if (elements === null) return null;
   const out: ObservedSubstitution[] = [];
   for (const element of elements) {
     if (!isRecord(element)) return null;
-    const off = firstLabelIn(element, KEY_OFF);
-    const on = firstLabelIn(element, KEY_ON);
+    const off = firstLabelIn(element, shape.keys.substitutionOff);
+    const on = firstLabelIn(element, shape.keys.substitutionOn);
     if (off === null || on === null || off === on) return null;
-    // Sulla pagina osservata il minuto non c'è. Se un giorno comparisse, questa
-    // riga lo legge; finché non c'è resta assente, e nessuno lo mette a zero.
-    const minute = firstWholeNumberIn(element, KEY_MINUTE);
+    // Se la fonte non espone il minuto, resta assente: nessuno lo mette a zero.
+    const minute = firstWholeNumberIn(element, shape.keys.minute);
     out.push({ off, on, minute: minute === null ? absentInSource() : observed(minute) });
   }
   return out;
 }
 
-function natureFromText(text: string | null): "probable" | "actual" | null {
+function natureFromText(text: string | null, shape: SourceShape): "probable" | "actual" | null {
   if (text === null) return null;
-  if (SAYS_ACTUAL.test(text)) return "actual";
-  if (SAYS_PROBABLE.test(text)) return "probable";
+  if (shape.saysActual.test(text)) return "actual";
+  if (shape.saysProbable.test(text)) return "probable";
   return null;
 }
 
@@ -274,11 +276,11 @@ function natureFromText(text: string | null): "probable" | "actual" | null {
  * deciderebbe a caso se una formazione è una previsione o un fatto, che è
  * esattamente la confusione che il requisito di misurabilità vieta.
  */
-function pageNature(entries: readonly Entry[]): "probable" | "actual" | "conflicting" | null {
+function pageNature(entries: readonly Entry[], shape: SourceShape): "probable" | "actual" | "conflicting" | null {
   let found: "probable" | "actual" | null = null;
   for (const entry of entries) {
-    if (!KEY_STATUS.test(entry.key)) continue;
-    const read = natureFromText(label(entry.value));
+    if (!shape.keys.status.test(entry.key)) continue;
+    const read = natureFromText(label(entry.value), shape);
     if (read === null) continue;
     if (found !== null && found !== read) return "conflicting";
     found = read;
@@ -286,51 +288,64 @@ function pageNature(entries: readonly Entry[]): "probable" | "actual" | "conflic
   return found;
 }
 
+/** Una formazione letta, oppure **quale famiglia** non si è lasciata leggere. */
+type LineupResult =
+  | { readonly ok: true; readonly value: Record<string, unknown> }
+  | { readonly ok: false; readonly family: SourceShapeFamily };
+
 function lineupCandidate(
   block: Record<string, unknown>,
   nature: "probable" | "actual",
-): Record<string, unknown> | null {
-  const team = firstLabelIn(block, KEY_TEAM_NAME);
-  if (team === null) return null;
+  shape: SourceShape,
+): LineupResult {
+  const team = firstLabelIn(block, shape.keys.teamName);
+  if (team === null) return { ok: false, family: "teamName" };
 
-  const starters = rosterFrom(firstArrayIn(block, KEY_STARTERS));
-  if (starters === null) return null;
+  const starters = rosterFrom(firstArrayIn(block, shape.keys.starters), shape);
+  if (starters === null) return { ok: false, family: "playerName" };
 
-  const rawBench = firstArrayIn(block, KEY_BENCH);
-  const bench = rawBench === null ? null : rosterFrom(rawBench);
-  if (rawBench !== null && bench === null) return null;
+  const rawBench = firstArrayIn(block, shape.keys.bench);
+  const bench = rawBench === null ? null : rosterFrom(rawBench, shape);
+  if (rawBench !== null && bench === null) return { ok: false, family: "bench" };
 
-  const rawSubs = firstArrayIn(block, KEY_SUBSTITUTIONS);
-  const substitutions = rawSubs === null ? null : substitutionsFrom(rawSubs);
-  if (rawSubs !== null && substitutions === null) return null;
+  const rawSubs = firstArrayIn(block, shape.keys.substitutions);
+  const substitutions = rawSubs === null ? null : substitutionsFrom(rawSubs, shape);
+  if (rawSubs !== null && substitutions === null) return { ok: false, family: "substitutions" };
 
-  const moduleText = firstLabelIn(block, KEY_MODULE);
-  const coach = firstLabelIn(block, KEY_COACH);
+  const moduleText = firstLabelIn(block, shape.keys.module);
+  const coach = firstLabelIn(block, shape.keys.coach);
 
   const asField = <T>(value: T | null): Field<T> => (value === null ? absentInSource<T>() : observed(value));
 
   return {
-    team,
-    nature,
-    module: moduleText !== null && MODULE_SHAPE.test(moduleText) ? observed(moduleText) : absentInSource(),
-    coach: asField(coach),
-    starters: observed(starters),
-    // Panchina assente NON è panchina vuota: è la sezione che la pagina non
-    // espone, e resta un'assenza dichiarata.
-    bench: asField(bench),
-    substitutions: asField(substitutions),
-    // Questa pagina non porta indisponibili, squalificati e ballottaggi: non li
-    // abbiamo guardati qui, e «non guardato» non è «la fonte non ce l'ha».
-    unavailable: notObserved(),
-    suspended: notObserved(),
-    duels: notObserved(),
-    completeness: "unknown",
+    ok: true,
+    value: {
+      team,
+      nature,
+      module: moduleText !== null && MODULE_SHAPE.test(moduleText) ? observed(moduleText) : absentInSource(),
+      coach: asField(coach),
+      starters: observed(starters),
+      // Panchina assente NON è panchina vuota: è la sezione che la pagina non
+      // espone, e resta un'assenza dichiarata.
+      bench: asField(bench),
+      substitutions: asField(substitutions),
+      // Questa pagina non porta indisponibili, squalificati e ballottaggi: non
+      // li abbiamo guardati qui, e «non guardato» non è «la fonte non ce l'ha».
+      unavailable: notObserved(),
+      suspended: notObserved(),
+      duels: notObserved(),
+      completeness: "unknown",
+    },
   };
 }
 
-function matchdayReference(entries: readonly Entry[], requested: number | null): MatchdayReference {
+function matchdayReference(
+  entries: readonly Entry[],
+  shape: SourceShape,
+  requested: number | null,
+): MatchdayReference {
   for (const entry of entries) {
-    if (!KEY_MATCHDAY.test(entry.key)) continue;
+    if (!shape.keys.matchday.test(entry.key)) continue;
     const value = entry.value;
     if (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 60) {
       return { origin: "declared-by-source", number: value };
@@ -348,13 +363,13 @@ function matchdayReference(entries: readonly Entry[], requested: number | null):
   return { origin: "unobserved" };
 }
 
-function homeSideIndex(blocks: readonly Record<string, unknown>[]): number {
+function homeSideIndex(blocks: readonly Record<string, unknown>[], shape: SourceShape): number {
   let index = -1;
   for (let i = 0; i < blocks.length; i += 1) {
     const block = blocks[i];
     if (block === undefined) continue;
     for (const key of Object.keys(block)) {
-      if (!KEY_HOME_SIDE.test(key)) continue;
+      if (!shape.keys.homeSide.test(key)) continue;
       const value = block[key];
       if (value === true || (typeof value === "string" && /^(home|casa|true)$/i.test(value.trim()))) {
         index = i;
@@ -364,122 +379,9 @@ function homeSideIndex(blocks: readonly Record<string, unknown>[]): number {
   return index;
 }
 
-/**
- * DAL TESTO DELLA PAGINA AL TIPO DEL CONTRATTO — o a un esito che dice perché no.
- *
- * L'ultimo passo è deliberato: il candidato costruito qui viene dato in pasto a
- * `readMatchPage`, la stessa lettura fail-closed che userebbe chiunque altro.
- * Così il parser non ha una sua idea privata di che cosa sia valido, e un giorno
- * in cui il contratto diventasse più severo il parser lo scoprirebbe subito.
- */
-export function parseMatchPage(request: ParseRequest): ReadOutcome<ObservedMatchPage> {
-  const at = ["parseMatchPage"];
-  if (request.rawHtml.length === 0) {
-    return stop(PARSE_STOP_CODES.emptyInput, "nessun contenuto grezzo da leggere", at);
-  }
-
-  const blocks = structuredBlocks(request.rawHtml);
-  if (blocks.length === 0) {
-    return stop(
-      PARSE_STOP_CODES.noStructuredBlock,
-      "la pagina non porta il blocco di dati strutturati osservato",
-      at,
-    );
-  }
-  const root = firstReadableJson(blocks);
-  if (root === null) {
-    return stop(PARSE_STOP_CODES.unreadableBlock, "nessuno dei blocchi trovati è JSON valido", at);
-  }
-
-  const entries = entriesOf(root);
-  const starterEntries = entries.filter((entry) => KEY_STARTERS.test(entry.key) && Array.isArray(entry.value));
-  if (starterEntries.length !== 2) {
-    return stop(
-      PARSE_STOP_CODES.startersNotTwo,
-      `attesi due elenchi di titolari, uno per squadra: trovati ${String(starterEntries.length)}`,
-      [...at, "starters"],
-    );
-  }
-
-  const teamBlocks: Record<string, unknown>[] = [];
-  for (const entry of starterEntries) teamBlocks.push(entry.container);
-  if (teamBlocks.length !== 2) {
-    return stop(PARSE_STOP_CODES.teamBlockMissing, "un elenco di titolari senza il proprio blocco squadra", at);
-  }
-
-  const declaredNature = pageNature(entries);
-  if (declaredNature === "conflicting") {
-    return stop(
-      PARSE_STOP_CODES.natureConflicting,
-      "la pagina dichiara sia probabile sia effettiva, e non si sceglie per lei",
-      [...at, "nature"],
-    );
-  }
-
-  const natures: ("probable" | "actual")[] = [];
-  for (const block of teamBlocks) {
-    const own = natureFromText(firstLabelIn(block, KEY_STATUS));
-    const chosen = own ?? declaredNature;
-    if (chosen === null) {
-      return stop(
-        PARSE_STOP_CODES.natureUndeclared,
-        "la pagina non dichiara se questa formazione è probabile o effettiva, e non si deduce",
-        [...at, "nature"],
-      );
-    }
-    natures.push(chosen);
-  }
-
-  const homeIndex = homeSideIndex(teamBlocks);
-  if (homeIndex === -1) {
-    return stop(
-      PARSE_STOP_CODES.homeSideUndeclared,
-      "la pagina non dichiara quale squadra gioca in casa, e l'ordine degli elenchi non lo dice",
-      [...at, "home"],
-    );
-  }
-  const awayIndex = homeIndex === 0 ? 1 : 0;
-
-  const homeBlock = teamBlocks[homeIndex];
-  const awayBlock = teamBlocks[awayIndex];
-  const homeNature = natures[homeIndex];
-  const awayNature = natures[awayIndex];
-  if (homeBlock === undefined || awayBlock === undefined || homeNature === undefined || awayNature === undefined) {
-    return stop(PARSE_STOP_CODES.teamBlockMissing, "blocco squadra mancante dopo la lettura", at);
-  }
-
-  const home = lineupCandidate(homeBlock, homeNature);
-  const away = lineupCandidate(awayBlock, awayNature);
-  if (home === null || away === null) {
-    return stop(
-      PARSE_STOP_CODES.lineupUnreadable,
-      "un elenco di giocatori non ha la forma osservata: meglio nessuna formazione che una a metà",
-      [...at, "lineup"],
-    );
-  }
-
-  const refereeName = firstLabelIn(isRecord(root) ? root : {}, KEY_REFEREE) ?? refereeFrom(entries);
-  const kickOff = kickOffFrom(entries);
-
-  const candidate = {
-    provenance: {
-      source: request.source,
-      page: request.page,
-      observedAt: request.observedAt,
-      matchday: matchdayReference(entries, request.requestedMatchday),
-    },
-    home,
-    away,
-    kickOff,
-    referee: refereeName === null ? absentInSource() : observed(refereeName),
-  };
-
-  return readMatchPage(candidate, at);
-}
-
-function refereeFrom(entries: readonly Entry[]): string | null {
+function refereeFrom(entries: readonly Entry[], shape: SourceShape): string | null {
   for (const entry of entries) {
-    if (!KEY_REFEREE.test(entry.key)) continue;
+    if (!shape.keys.referee.test(entry.key)) continue;
     const name = label(entry.value);
     if (name !== null) return name;
   }
@@ -493,11 +395,128 @@ function refereeFrom(entries: readonly Entry[]): string | null {
  * il confronto è tutto ciò per cui serve: meglio dichiararlo assente che
  * ordinarlo a caso.
  */
-function kickOffFrom(entries: readonly Entry[]): Field<string> {
+function kickOffFrom(entries: readonly Entry[], shape: SourceShape): Field<string> {
   for (const entry of entries) {
-    if (!KEY_KICKOFF.test(entry.key)) continue;
+    if (!shape.keys.kickOff.test(entry.key)) continue;
     if (typeof entry.value !== "string") continue;
     if (INSTANT_WITH_ZONE.test(entry.value)) return observed(entry.value);
   }
   return absentInSource();
+}
+
+/**
+ * DAL TESTO DELLA PAGINA AL TIPO DEL CONTRATTO — o a un esito che dice perché no.
+ *
+ * L'ultimo passo è deliberato: il candidato costruito qui viene dato in pasto a
+ * `readMatchPage`, la stessa lettura fail-closed che userebbe chiunque altro.
+ * Così il parser non ha una sua idea privata di che cosa sia valido, e un giorno
+ * in cui il contratto diventasse più severo il parser lo scoprirebbe subito.
+ */
+export function parseMatchPage(request: ParseRequest): ReadOutcome<ObservedMatchPage> {
+  const shape = request.shape;
+  if (request.rawHtml.length === 0) {
+    return stop(PARSE_STOP_CODES.emptyInput, null, "nessun contenuto grezzo da leggere");
+  }
+
+  const blocks = structuredBlocks(request.rawHtml, shape);
+  if (blocks.length === 0) {
+    return stop(
+      PARSE_STOP_CODES.noStructuredBlock,
+      null,
+      "nessuno dei modi dichiarati di estrarre il blocco di dati strutturati ha trovato qualcosa",
+    );
+  }
+  const root = firstReadableJson(blocks);
+  if (root === null) {
+    return stop(PARSE_STOP_CODES.unreadableBlock, null, "nessuno dei blocchi trovati è JSON valido");
+  }
+
+  const entries = entriesOf(root);
+  const starterEntries = entries.filter((entry) => shape.keys.starters.test(entry.key) && Array.isArray(entry.value));
+  if (starterEntries.length !== 2) {
+    return stop(
+      PARSE_STOP_CODES.startersNotTwo,
+      "starters",
+      `attesi due elenchi di titolari, uno per squadra: trovati ${String(starterEntries.length)}`,
+    );
+  }
+
+  const teamBlocks: Record<string, unknown>[] = [];
+  for (const entry of starterEntries) teamBlocks.push(entry.container);
+  if (teamBlocks.length !== 2) {
+    return stop(PARSE_STOP_CODES.teamBlockMissing, "starters", "un elenco di titolari senza il proprio blocco squadra");
+  }
+
+  const declaredNature = pageNature(entries, shape);
+  if (declaredNature === "conflicting") {
+    return stop(
+      PARSE_STOP_CODES.natureConflicting,
+      "status",
+      "la pagina dichiara sia probabile sia effettiva, e non si sceglie per lei",
+    );
+  }
+
+  const natures: ("probable" | "actual")[] = [];
+  for (const block of teamBlocks) {
+    const own = natureFromText(firstLabelIn(block, shape.keys.status), shape);
+    const chosen = own ?? declaredNature;
+    if (chosen === null) {
+      return stop(
+        PARSE_STOP_CODES.natureUndeclared,
+        "status",
+        "la pagina non dichiara se questa formazione è probabile o effettiva, e non si deduce",
+      );
+    }
+    natures.push(chosen);
+  }
+
+  const homeIndex = homeSideIndex(teamBlocks, shape);
+  if (homeIndex === -1) {
+    return stop(
+      PARSE_STOP_CODES.homeSideUndeclared,
+      "homeSide",
+      "la pagina non dichiara quale squadra gioca in casa, e l'ordine degli elenchi non lo dice",
+    );
+  }
+  const awayIndex = homeIndex === 0 ? 1 : 0;
+
+  const homeBlock = teamBlocks[homeIndex];
+  const awayBlock = teamBlocks[awayIndex];
+  const homeNature = natures[homeIndex];
+  const awayNature = natures[awayIndex];
+  if (homeBlock === undefined || awayBlock === undefined || homeNature === undefined || awayNature === undefined) {
+    return stop(PARSE_STOP_CODES.teamBlockMissing, "starters", "blocco squadra mancante dopo la lettura");
+  }
+
+  const home = lineupCandidate(homeBlock, homeNature, shape);
+  const away = lineupCandidate(awayBlock, awayNature, shape);
+  for (const side of [home, away]) {
+    if (!side.ok) {
+      return stop(
+        PARSE_STOP_CODES.lineupUnreadable,
+        side.family,
+        "un pezzo della formazione non ha la forma descritta: meglio nessuna formazione che una a metà",
+      );
+    }
+  }
+  if (!home.ok || !away.ok) {
+    return stop(PARSE_STOP_CODES.lineupUnreadable, "starters", "formazione non leggibile");
+  }
+
+  const referee = refereeFrom(entries, shape);
+
+  const candidate = {
+    provenance: {
+      source: request.source,
+      page: request.page,
+      observedAt: request.observedAt,
+      matchday: matchdayReference(entries, shape, request.requestedMatchday),
+    },
+    home: home.value,
+    away: away.value,
+    kickOff: kickOffFrom(entries, shape),
+    referee: referee === null ? absentInSource() : observed(referee),
+  };
+
+  return readMatchPage(candidate, ["parseMatchPage"]);
 }

@@ -7,6 +7,14 @@
 // noi, in cui il parser si ferma e lo dichiara invece di restituire mezza
 // formazione. Chi va a prendere la pagina e deposita il raw resta nel privato.
 //
+// MA IL PARSER NON SA DI CHI È LA PAGINA. I nomi delle chiavi arrivano da fuori
+// come parametro obbligatorio — la `SourceShape` — e vivono nel privato: un
+// elenco di nomi di campo **dice di quale sito si tratta**, e la regola del
+// confine, nel dubbio, manda al privato. **Ambiguità segnalata** come il
+// documento del confine richiede: un parser è pubblico, la forma della fonte
+// che legge no. Senza tabella questo pacchetto non tenta niente — vedi
+// `sourceShape.ts`, e leggilo prima di pensare di riportarla dentro.
+//
 // COSA C'È QUI DENTRO: la provenienza obbligatoria di ogni osservazione (fonte,
 // momento della lettura, giornata e da dove viene il suo numero); il campo che
 // sa dire le due assenze; la pagina di una partita con probabili, formazioni
@@ -96,6 +104,14 @@ export {
 } from "./matchPage.js";
 
 export { PARSE_STOP_CODES, parseMatchPage, type ParseRequest } from "./parseMatchPage.js";
+
+export {
+  SOURCE_SHAPE_FAMILIES,
+  readSourceShape,
+  type SourceShape,
+  type SourceShapeFamily,
+  type SourceShapePatterns,
+} from "./sourceShape.js";
 
 export {
   goalDifferenceCheck,

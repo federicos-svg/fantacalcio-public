@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { absenceIsMeaningful, matchPageSnapshot, rosterCompleteness } from "../src/matchPage.js";
 import { PARSE_STOP_CODES, parseMatchPage, type ParseRequest } from "../src/parseMatchPage.js";
+import { SOURCE_SHAPE_FAMILIES, readSourceShape, type SourceShape } from "../src/sourceShape.js";
 import { matchdayIfDeclared } from "../src/provenance.js";
 import { isRead } from "../src/readOutcome.js";
 
@@ -14,19 +15,53 @@ import { isRead } from "../src/readOutcome.js";
 
 const PROSA = "questa e' prosa inventata per la prova, e non deve finire da nessuna parte nel candidato";
 
+// LA TABELLA DELLE FAMIGLIE DI CHIAVI È INVENTATA, e apposta: nomi che nessuna
+// fonte usa provano che il parser legge quello che gli si descrive e non una
+// struttura che conosce già. La tabella vera vive nel privato.
+const TABELLA_SINTETICA = {
+  structuredBlocks: ['<script id="dati-di-prova"[^>]*>([\\s\\S]*?)</script>'],
+  keys: {
+    starters: "^undici$",
+    bench: "^riserve$",
+    substitutions: "^cambi$",
+    module: "^disposizione$",
+    coach: "^guida$",
+    referee: "^direttore$",
+    teamName: "^insegna$",
+    playerName: "^etichetta$",
+    shirtNumber: "^cifra$",
+    role: "^mansione$",
+    status: "^qualita$",
+    homeSide: "^interno$",
+    kickOff: "^avvio$",
+    matchday: "^turno$",
+    substitutionOff: "^esce$",
+    substitutionOn: "^entra$",
+    minute: "^istante$",
+  },
+  saysActual: "(effettiv|ufficial)",
+  saysProbable: "(probabil|previst)",
+};
+
+function tabella(): SourceShape {
+  const esito = readSourceShape(TABELLA_SINTETICA);
+  if (!isRead(esito)) throw new Error("tabella di prova non leggibile");
+  return esito.value;
+}
+
 function pagina(blocco: unknown): string {
   return (
     `<!doctype html><html><body><p>${PROSA}</p>` +
-    `<script id="__NEXT_DATA__" type="application/json">${JSON.stringify(blocco)}</script>` +
+    `<script id="dati-di-prova" type="application/json">${JSON.stringify(blocco)}</script>` +
     `</body></html>`
   );
 }
 
 function undici(prefisso: string): readonly Record<string, unknown>[] {
   return Array.from({ length: 11 }, (_, i) => ({
-    name: `${prefisso} ${String(i + 1)}`,
-    shirtNumber: i + 1,
-    role: "CEN",
+    etichetta: `${prefisso} ${String(i + 1)}`,
+    cifra: i + 1,
+    mansione: "CEN",
   }));
 }
 
@@ -42,36 +77,44 @@ interface OpzioniBlocco {
 
 function blocco(opzioni: OpzioniBlocco = {}): Record<string, unknown> {
   const casa: Record<string, unknown> = {
-    teamName: "Alfa",
-    formation: "4-3-3",
-    coach: "Allenatore Alfa",
-    starters: undici("Alfa"),
-    substitutions: [{ playerOut: "Alfa 11", playerIn: "Alfa 12" }],
+    insegna: "Alfa",
+    disposizione: "4-3-3",
+    guida: "Allenatore Alfa",
+    undici: undici("Alfa"),
+    cambi: [{ esce: "Alfa 11", entra: "Alfa 12" }],
   };
-  if (opzioni.latoCasaDichiarato !== false) casa["isHome"] = true;
-  if (opzioni.conPanchina !== false) casa["bench"] = [{ name: "Alfa 12", shirtNumber: 12 }];
-  if (opzioni.statusCasa !== undefined) casa["status"] = opzioni.statusCasa;
+  if (opzioni.latoCasaDichiarato !== false) casa["interno"] = true;
+  if (opzioni.conPanchina !== false) casa["riserve"] = [{ etichetta: "Alfa 12", cifra: 12 }];
+  if (opzioni.statusCasa !== undefined) casa["qualita"] = opzioni.statusCasa;
 
   const trasferta: Record<string, unknown> = {
-    teamName: "Beta",
-    formation: "3-5-2",
-    coach: "Allenatore Beta",
-    starters: undici("Beta"),
+    insegna: "Beta",
+    disposizione: "3-5-2",
+    guida: "Allenatore Beta",
+    undici: undici("Beta"),
   };
-  if (opzioni.latoCasaDichiarato !== false) trasferta["isHome"] = false;
+  if (opzioni.latoCasaDichiarato !== false) trasferta["interno"] = false;
 
-  const partita: Record<string, unknown> = { teams: [casa, trasferta] };
-  if (opzioni.status !== null) partita["status"] = opzioni.status ?? "Formazioni ufficiali";
-  if (opzioni.referee !== null) partita["referee"] = opzioni.referee ?? "Arbitro Sintetico";
-  if (opzioni.matchday !== null) partita["matchday"] = opzioni.matchday ?? 2;
-  if (opzioni.kickoff !== null) partita["kickoff"] = opzioni.kickoff ?? "2026-09-04T20:45:00+02:00";
+  const partita: Record<string, unknown> = { squadre: [casa, trasferta] };
+  if (opzioni.status !== null) partita["qualita"] = opzioni.status ?? "Formazioni ufficiali";
+  if (opzioni.referee !== null) partita["direttore"] = opzioni.referee ?? "Arbitro Sintetico";
+  if (opzioni.matchday !== null) partita["turno"] = opzioni.matchday ?? 2;
+  if (opzioni.kickoff !== null) partita["avvio"] = opzioni.kickoff ?? "2026-09-04T20:45:00+02:00";
 
-  return { props: { pageProps: { match: partita } } };
+  return { radice: { contenuto: { partita } } };
+}
+
+/** Il blocco della partita dentro la fixture, senza percorsi scritti a mano ovunque. */
+function dentro(meta: Record<string, unknown>): Record<string, unknown> {
+  const radice = meta["radice"] as Record<string, unknown>;
+  const contenuto = radice["contenuto"] as Record<string, unknown>;
+  return contenuto["partita"] as Record<string, unknown>;
 }
 
 function richiesta(html: string, extra: Partial<ParseRequest> = {}): ParseRequest {
   return {
     rawHtml: html,
+    shape: tabella(),
     source: "testata sintetica",
     page: "pagina della partita",
     observedAt: "2026-09-04T18:00:00+02:00",
@@ -94,11 +137,9 @@ describe("la pagina con la forma osservata si legge per intero", () => {
     // Stesso documento con l'ordine invertito: se il parser guardasse l'ordine,
     // qui scambierebbe le squadre — e le scambierebbe in ogni misura futura.
     const invertito = blocco();
-    const partita = (invertito["props"] as Record<string, Record<string, Record<string, unknown>>>)["pageProps"]?.[
-      "match"
-    ] as Record<string, unknown>;
-    const squadre = partita["teams"] as unknown[];
-    partita["teams"] = [squadre[1], squadre[0]];
+    const partita = dentro(invertito);
+    const squadre = partita["squadre"] as unknown[];
+    partita["squadre"] = [squadre[1], squadre[0]];
     const esito = parseMatchPage(richiesta(pagina(invertito)));
     if (!isRead(esito)) throw new Error("atteso letto");
     expect(esito.value.home.team).toBe("Alfa");
@@ -243,7 +284,7 @@ describe("LA STRUTTURA CAMBIATA SOTTO DI NOI — si dichiara, non si arrangia", 
   });
 
   it("blocco presente ma illeggibile: si ferma", () => {
-    const html = `<script id="__NEXT_DATA__" type="application/json">{ questo non è json </script>`;
+    const html = `<script id="dati-di-prova" type="application/json">{ questo non è json </script>`;
     const esito = parseMatchPage(richiesta(html));
     if (isRead(esito)) throw new Error("atteso fermo");
     expect(esito.reason).toContain(PARSE_STOP_CODES.unreadableBlock);
@@ -251,10 +292,8 @@ describe("LA STRUTTURA CAMBIATA SOTTO DI NOI — si dichiara, non si arrangia", 
 
   it("un solo elenco di titolari: si ferma", () => {
     const meta = blocco();
-    const partita = ((meta["props"] as Record<string, Record<string, unknown>>)["pageProps"] as Record<string, unknown>)[
-      "match"
-    ] as Record<string, unknown>;
-    (partita["teams"] as unknown[]).pop();
+    const partita = dentro(meta);
+    (partita["squadre"] as unknown[]).pop();
     const esito = parseMatchPage(richiesta(pagina(meta)));
     if (isRead(esito)) throw new Error("atteso fermo");
     expect(esito.reason).toContain(PARSE_STOP_CODES.startersNotTwo);
@@ -262,11 +301,9 @@ describe("LA STRUTTURA CAMBIATA SOTTO DI NOI — si dichiara, non si arrangia", 
 
   it("tre elenchi di titolari: si ferma, invece di scegliere i primi due", () => {
     const meta = blocco();
-    const partita = ((meta["props"] as Record<string, Record<string, unknown>>)["pageProps"] as Record<string, unknown>)[
-      "match"
-    ] as Record<string, unknown>;
-    const squadre = partita["teams"] as Record<string, unknown>[];
-    partita["teams"] = [...squadre, { teamName: "Gamma", isHome: false, starters: undici("Gamma") }];
+    const partita = dentro(meta);
+    const squadre = partita["squadre"] as Record<string, unknown>[];
+    partita["squadre"] = [...squadre, { insegna: "Gamma", interno: false, undici: undici("Gamma") }];
     const esito = parseMatchPage(richiesta(pagina(meta)));
     if (isRead(esito)) throw new Error("atteso fermo");
     expect(esito.reason).toContain(PARSE_STOP_CODES.startersNotTwo);
@@ -278,13 +315,11 @@ describe("LA STRUTTURA CAMBIATA SOTTO DI NOI — si dichiara, non si arrangia", 
     // e a valle sembrerebbe una squadra con pochi giocatori — un dato falso con
     // l'aria di un dato vero.
     const meta = blocco();
-    const partita = ((meta["props"] as Record<string, Record<string, unknown>>)["pageProps"] as Record<string, unknown>)[
-      "match"
-    ] as Record<string, unknown>;
-    const squadre = partita["teams"] as Record<string, unknown>[];
+    const partita = dentro(meta);
+    const squadre = partita["squadre"] as Record<string, unknown>[];
     const casa = squadre[0];
     if (casa === undefined) throw new Error("fixture rotta");
-    casa["starters"] = [...undici("Alfa").slice(0, 10), { shirtNumber: 11 }];
+    casa["undici"] = [...undici("Alfa").slice(0, 10), { cifra: 11 }];
     const esito = parseMatchPage(richiesta(pagina(meta)));
     expect(esito.status).toBe("shape-not-recognised");
     if (isRead(esito)) return;
@@ -310,5 +345,97 @@ describe("LA STRUTTURA CAMBIATA SOTTO DI NOI — si dichiara, non si arrangia", 
     if (isRead(esito)) throw new Error("atteso fermo");
     expect(esito.at).toEqual(["parseMatchPage"]);
     expect(Object.values(PARSE_STOP_CODES).some((code) => esito.reason.startsWith(code))).toBe(true);
+  });
+});
+
+describe("la tabella delle famiglie di chiavi è un ingresso obbligatorio", () => {
+  it("una tabella completa si legge e si compila", () => {
+    const esito = readSourceShape(TABELLA_SINTETICA);
+    expect(esito.status).toBe("read");
+    if (!isRead(esito)) return;
+    for (const famiglia of SOURCE_SHAPE_FAMILIES) {
+      expect(esito.value.keys[famiglia], famiglia).toBeInstanceOf(RegExp);
+    }
+  });
+
+  it("una famiglia mancante ferma tutto, e dice QUALE mancava", () => {
+    // Il punto del test: chi legge il motivo non ha scritto il parser, e deve
+    // capire che cosa aggiungere alla tabella senza aprire il codice.
+    for (const famiglia of SOURCE_SHAPE_FAMILIES) {
+      const rotta = { ...TABELLA_SINTETICA, keys: { ...TABELLA_SINTETICA.keys } };
+      delete (rotta.keys as Record<string, unknown>)[famiglia];
+      const esito = readSourceShape(rotta);
+      expect(esito.status, famiglia).toBe("shape-not-recognised");
+      if (isRead(esito)) continue;
+      expect(esito.at, famiglia).toEqual(["sourceShape", "keys", famiglia]);
+    }
+  });
+
+  it("un'espressione che non compila è fuori contratto, non un caso da ignorare", () => {
+    const rotta = { ...TABELLA_SINTETICA, keys: { ...TABELLA_SINTETICA.keys, starters: "([" } };
+    const esito = readSourceShape(rotta);
+    expect(esito.status).toBe("out-of-contract");
+    if (isRead(esito)) return;
+    expect(esito.at).toEqual(["sourceShape", "keys", "starters"]);
+  });
+
+  it("senza un modo di estrarre il blocco strutturato non si parte", () => {
+    const esito = readSourceShape({ ...TABELLA_SINTETICA, structuredBlocks: [] });
+    expect(esito.status).toBe("shape-not-recognised");
+  });
+
+  it("una tabella che descrive un'altra struttura non trova niente, e lo dichiara", () => {
+    // Stessa pagina, tabella diversa: il parser non «riconosce lo stesso» —
+    // prova che legge ciò che gli si descrive e non una forma che conosce già.
+    const altra = readSourceShape({
+      ...TABELLA_SINTETICA,
+      keys: { ...TABELLA_SINTETICA.keys, starters: "^formazione-di-partenza$" },
+    });
+    if (!isRead(altra)) throw new Error("tabella non leggibile");
+    const esito = parseMatchPage({ ...richiesta(pagina(blocco())), shape: altra.value });
+    expect(esito.status).toBe("shape-not-recognised");
+    if (isRead(esito)) return;
+    expect(esito.reason).toContain(PARSE_STOP_CODES.startersNotTwo);
+  });
+});
+
+describe("i motivi delle fermate si leggono senza aver scritto il parser", () => {
+  it("ogni fermata legata a una famiglia la nomina, invece di dare un indice", () => {
+    const casi: readonly [string, ParseRequest, string][] = [
+      ["titolari", richiesta(pagina(blocco())), "starters"],
+      ["natura", richiesta(pagina(blocco({ status: null }))), "status"],
+      ["lato casa", richiesta(pagina(blocco({ latoCasaDichiarato: false }))), "homeSide"],
+    ];
+    // Il primo caso legge davvero: si rompe apposta la famiglia dei titolari.
+    const senzaTitolari = readSourceShape({
+      ...TABELLA_SINTETICA,
+      keys: { ...TABELLA_SINTETICA.keys, starters: "^niente-di-simile$" },
+    });
+    if (!isRead(senzaTitolari)) throw new Error("tabella non leggibile");
+    const primo = casi[0];
+    if (primo === undefined) throw new Error("casi vuoti");
+    const esiti: readonly [string, ReturnType<typeof parseMatchPage>][] = [
+      ["starters", parseMatchPage({ ...primo[1], shape: senzaTitolari.value })],
+      ["status", parseMatchPage(casi[1]?.[1] ?? primo[1])],
+      ["homeSide", parseMatchPage(casi[2]?.[1] ?? primo[1])],
+    ];
+    for (const [famiglia, esito] of esiti) {
+      expect(isRead(esito), famiglia).toBe(false);
+      if (isRead(esito)) continue;
+      expect(esito.reason, famiglia).toContain(`famiglia di chiavi "${famiglia}"`);
+      expect(esito.at, famiglia).toEqual(["parseMatchPage", "keys", famiglia]);
+    }
+  });
+
+  it("il titolare illeggibile nomina la famiglia del nome, non un numero d'ordine", () => {
+    const meta = blocco();
+    const partita = dentro(meta);
+    const squadre = partita["squadre"] as Record<string, unknown>[];
+    const casa = squadre[0];
+    if (casa === undefined) throw new Error("fixture rotta");
+    casa["undici"] = [...undici("Alfa").slice(0, 10), { cifra: 11 }];
+    const esito = parseMatchPage(richiesta(pagina(meta)));
+    if (isRead(esito)) throw new Error("atteso fermo");
+    expect(esito.reason).toContain(`famiglia di chiavi "playerName"`);
   });
 });
