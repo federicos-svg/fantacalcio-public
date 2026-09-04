@@ -102,6 +102,14 @@
 //    far tornare i conti produrrebbe una formazione plausibile in cui manca un
 //    giocatore che il fantallenatore crede di aver messo in campo. È il modo
 //    peggiore di sbagliare, perché non si vede.
+//    IL RIFIUTO LI DICE TUTTI IN UNA VOLTA. `constraints.rejections` è una
+//    lista, non un motivo solo: chi spunta i giocatori a mano e ne ha tre in
+//    conflitto, con un motivo per volta corregge e riprova all'infinito. Ma
+//    contiene SOLO motivi realmente verificati — un controllo che legge un dato
+//    che un altro controllo ha già dichiarato illeggibile non emette il suo
+//    motivo, perché un elenco che contiene un motivo falso è peggio di un
+//    motivo solo. Le dipendenze fra controlli sono elencate una per una davanti
+//    a `checkConstraints`.
 //    UN VINCOLO COSTOSO NON È UN VINCOLO IMPOSSIBILE, e i due casi non si
 //    confondono. Un imposto con `voteProbability = 0` vale un senza voto in
 //    ogni scenario e la proposta ne esce peggiore: è una scelta legittima che
@@ -256,8 +264,23 @@ export interface ConstraintReport {
   readonly lockedStarterIds: readonly string[];
   readonly lockedModule: Module | null;
   readonly locked: boolean;
-  /** Il motivo del rifiuto, o `null` se i vincoli erano soddisfacibili. */
-  readonly rejection: ConstraintIssue<ConstraintRejectionCode> | null;
+  /**
+   * TUTTI i motivi del rifiuto, vuota se i vincoli erano soddisfacibili.
+   *
+   * È una LISTA, e la ragione è la schermata: chi spunta cinque giocatori a
+   * mano e ne ha tre in conflitto, con un motivo per volta corregge, riprova,
+   * corregge, riprova. Un referto incompleto costringe a colpire le talpe.
+   *
+   * Contiene solo motivi REALMENTE VERIFICATI. Un controllo che non è
+   * eseguibile perché un altro è fallito — i ruoli di una lista che contiene un
+   * id sconosciuto, la capienza di un modulo che non esiste — NON produce il
+   * suo motivo: un elenco che contiene un motivo falso è peggio di un motivo
+   * solo. Quali controlli dipendono da quali è scritto in `checkConstraints`.
+   *
+   * L'ordine è stabile e dichiarato: identità degli id, poi modulo, poi
+   * capienza, poi formazione bloccata.
+   */
+  readonly rejections: readonly ConstraintIssue<ConstraintRejectionCode>[];
   readonly warnings: readonly ConstraintIssue<ConstraintWarningCode>[];
 }
 
@@ -488,18 +511,45 @@ function isActive(c: LineupConstraints): boolean {
 }
 
 interface ConstraintCheck {
-  readonly rejection: ConstraintIssue<ConstraintRejectionCode> | null;
+  readonly rejections: readonly ConstraintIssue<ConstraintRejectionCode>[];
   readonly warnings: readonly ConstraintIssue<ConstraintWarningCode>[];
 }
 
 /**
- * I VINCOLI SI DICHIARANO IMPOSSIBILI, NON SI RILASSANO.
+ * I VINCOLI SI DICHIARANO IMPOSSIBILI, NON SI RILASSANO — E SI DICHIARANO
+ * TUTTI INSIEME.
  *
- * Ogni fattispecie ha il suo codice, e l'ordine dei controlli va dal più
- * elementare al più fine: prima «questo id non esiste», poi «questi ruoli non
- * stanno in nessun modulo». Restituire il primo motivo vero invece di una lista
- * è una scelta: un rifiuto che elenca cinque conseguenze di uno stesso errore
- * non aiuta a capire quale vincolo togliere.
+ * Il referto è una LISTA di motivi, non il primo che si incontra. Chi spunta i
+ * giocatori a mano su una schermata e ne ha tre in conflitto, con un motivo per
+ * volta corregge e riprova, corregge e riprova: è un gioco a colpire le talpe,
+ * e il colpevole è il referto incompleto. Scelta dichiarata e contestabile: non
+ * aggiunge una funzione, cambia la completezza di un referto già previsto.
+ *
+ * MA UN MOTIVO FALSO È PEGGIO DI UN MOTIVO SOLO, e per questo i controlli non
+ * sono indipendenti: alcuni leggono un dato che un controllo precedente ha già
+ * dichiarato illeggibile. Le dipendenze sono queste, e sono l'unica ragione per
+ * cui un motivo può mancare da questo elenco:
+ *
+ *  - i CONTEGGI PER RUOLO (`LOCKED_TOO_MANY`, `LOCKED_ROLE_OVERFLOW`,
+ *    `LOCKED_ELEVEN_NOT_A_MODULE`, `LOCKED_MODULE_INCOMPATIBLE`) leggono i
+ *    ruoli degli imposti: con un id SCONOSCIUTO non c'è un ruolo da contare, e
+ *    con un id RIPETUTO il conteggio è una lettura arbitraria di una richiesta
+ *    che non si sa leggere. In entrambi i casi non si emettono.
+ *  - i controlli sul MODULO AMMISSIBILE (`LOCKED_MODULE_INCOMPATIBLE`,
+ *    `LOCKED_ELEVEN_NOT_A_MODULE`) leggono l'insieme dei moduli ammessi: se il
+ *    modulo imposto non è uno dei sette, quell'insieme non esiste.
+ *  - `LOCKED_MODULE_INCOMPATIBLE` non si emette accanto a un
+ *    `LOCKED_ROLE_OVERFLOW`: sarebbe vero ma derivato, e soprattutto il suo
+ *    messaggio direbbe che «un altro modulo li reggerebbe», che in quel caso è
+ *    FALSO. Con undici imposti non si emette perché `LOCKED_ELEVEN_NOT_A_MODULE`
+ *    dice la stessa cosa in modo più preciso.
+ *  - i controlli sulla FORMAZIONE BLOCCATA (`LOCKED_LINEUP_ILLEGAL`,
+ *    `LOCKED_LINEUP_CONTRADICTS_CONSTRAINTS`) leggono la formazione: senza
+ *    (`LOCKED_LINEUP_MISSING`) non si emettono. Il confronto fra il modulo
+ *    imposto e quello della formazione richiede un modulo imposto valido.
+ *
+ * L'ordine è stabile e dichiarato, dal più elementare al più fine: identità
+ * degli id, poi modulo, poi capienza, poi formazione bloccata.
  */
 function checkConstraints(
   constraints: LineupConstraints,
@@ -507,16 +557,17 @@ function checkConstraints(
   currentLineup: Lineup | undefined,
   expectedPlayers: ReadonlyMap<string, PlayerLine>,
 ): ConstraintCheck {
-  const reject = (
-    code: ConstraintRejectionCode,
-    message: string,
-    playerIds: readonly string[] = [],
-  ): ConstraintCheck => ({ rejection: { code, message, playerIds }, warnings: [] });
+  const rejections: ConstraintIssue<ConstraintRejectionCode>[] = [];
+  const reject = (code: ConstraintRejectionCode, message: string, playerIds: readonly string[] = []): void => {
+    rejections.push({ code, message, playerIds });
+  };
 
-  // 1) Gli id imposti devono esistere, una volta sola.
+  // ── 1) IDENTITÀ DEGLI ID. Sconosciuti e ripetuti sono due letture diverse
+  // dello stesso elenco e si verificano entrambe: chi ne ha uno di ciascuno
+  // deve poter correggere tutt'e due in un giro solo.
   const unknown = constraints.lockedStarterIds.filter((id) => !byId.has(id));
   if (unknown.length > 0) {
-    return reject(
+    reject(
       "LOCKED_PLAYER_UNKNOWN",
       `titolari imposti che non sono in rosa: ${unknown.join(", ")}. Non si schiera chi non c'è, ` +
         "e il produttore non prova a indovinare chi si intendesse.",
@@ -530,7 +581,7 @@ function checkConstraints(
     seen.add(id);
   }
   if (duplicated.length > 0) {
-    return reject(
+    reject(
       "LOCKED_PLAYER_DUPLICATED",
       `titolari imposti ripetuti: ${duplicated.join(", ")}. Un id ripetuto non è un doppio vincolo: ` +
         "è una richiesta che non si sa leggere, e leggerla a caso sarebbe peggio che rifiutarla.",
@@ -538,9 +589,11 @@ function checkConstraints(
     );
   }
 
-  // 2) Il modulo imposto deve essere uno dei sette di §9.
-  if (constraints.lockedModule !== undefined && !MODULES.includes(constraints.lockedModule)) {
-    return reject(
+  // ── 2) IL MODULO IMPOSTO deve essere uno dei sette di §9. Non dipende da
+  // niente, e tutto ciò che parla di «moduli ammissibili» dipende da lui.
+  const moduleIsKnown = constraints.lockedModule === undefined || MODULES.includes(constraints.lockedModule);
+  if (!moduleIsKnown) {
+    reject(
       "LOCKED_MODULE_NOT_ALLOWED",
       `modulo imposto non ammesso: ${String(constraints.lockedModule)}. §9 ammette ${MODULES.join(", ")}.`,
     );
@@ -571,62 +624,78 @@ function checkConstraints(
         ]
       : [];
 
-  // 3) Formazione intera bloccata: si controlla quella, non la ricerca.
+  // ── 3) FORMAZIONE INTERA BLOCCATA: si controlla quella, non la capienza di
+  // una ricerca che non ci sarà.
   if (constraints.locked) {
     if (currentLineup === undefined) {
-      return reject(
+      // Senza formazione non c'è niente da controllare: gli altri due motivi
+      // del ramo bloccato leggerebbero un dato che non esiste.
+      reject(
         "LOCKED_LINEUP_MISSING",
         "formazione bloccata senza formazione di partenza: `constraints.locked` dice «tieni questa», " +
           "e `currentLineup` è assente. Non c'è niente da tenere, e cercarne una sarebbe l'opposto " +
           "di ciò che il vincolo chiede.",
       );
+      return { rejections, warnings };
     }
     const illegal = lineupViolations(currentLineup, expectedPlayers);
     const strangers = currentLineup.benchIds.filter((id) => !byId.has(id));
     if (illegal.length > 0 || strangers.length > 0) {
       const parts = [...illegal];
       if (strangers.length > 0) parts.push(`in panchina giocatori che non sono in rosa: ${strangers.join(", ")}`);
-      return reject(
+      reject(
         "LOCKED_LINEUP_ILLEGAL",
         `la formazione bloccata non è schierabile: ${parts.join("; ")}. Bloccata non vuol dire legale: ` +
           "consegnarla comunque farebbe credere valida una formazione che il regolamento rifiuta.",
         strangers,
       );
     }
-    if (constraints.lockedModule !== undefined && constraints.lockedModule !== currentLineup.module) {
-      return reject(
+    // Il confronto col modulo imposto vale solo se quel modulo esiste.
+    if (moduleIsKnown && constraints.lockedModule !== undefined && constraints.lockedModule !== currentLineup.module) {
+      reject(
         "LOCKED_LINEUP_CONTRADICTS_CONSTRAINTS",
         `modulo imposto ${constraints.lockedModule} ma la formazione bloccata è un ` +
           `${currentLineup.module}. I due vincoli dicono cose diverse e nessuno dei due è più vero ` +
           "dell'altro: decide il fantallenatore, non il produttore.",
       );
     }
+    // Un id sconosciuto è fuori dagli undici per definizione: dirlo sarebbe un
+    // motivo derivato da un dato che `LOCKED_PLAYER_UNKNOWN` ha già respinto.
     const eleven = new Set([currentLineup.goalkeeperId, ...currentLineup.starterIds]);
-    const outside = constraints.lockedStarterIds.filter((id) => !eleven.has(id));
+    const outside = constraints.lockedStarterIds.filter((id) => byId.has(id) && !eleven.has(id));
     if (outside.length > 0) {
-      return reject(
+      reject(
         "LOCKED_LINEUP_CONTRADICTS_CONSTRAINTS",
         `titolari imposti che non sono negli undici della formazione bloccata: ${outside.join(", ")}. ` +
           "I due vincoli si contraddicono e il produttore non sceglie quale dei due tradire.",
         outside,
       );
     }
-    return { rejection: null, warnings };
+    return { rejections, warnings };
   }
 
-  // 4) Ricerca vincolata: gli imposti devono stare in un modulo ammissibile.
+  // ── 4) CAPIENZA DELLA RICERCA VINCOLATA. Tutto ciò che segue conta i ruoli
+  // degli imposti: con un id sconosciuto o ripetuto quel conteggio non è una
+  // lettura possibile, e ogni motivo che ne uscisse sarebbe inventato.
+  if (unknown.length > 0 || duplicated.length > 0) return { rejections, warnings };
+
   if (constraints.lockedStarterIds.length > 11) {
-    return reject(
+    reject(
       "LOCKED_TOO_MANY",
       `${constraints.lockedStarterIds.length} titolari imposti: gli undici sono undici (§9).`,
       constraints.lockedStarterIds,
     );
   }
+
   const lockedByRole: Record<Role, string[]> = { P: [], D: [], C: [], A: [] };
   for (const id of constraints.lockedStarterIds) lockedByRole[(byId.get(id) as PlayerForecast).role].push(id);
 
+  // Un `LOCKED_ROLE_OVERFLOW` per RUOLO: chi ha sbagliato in due reparti li
+  // vede tutt'e due, invece di scoprire il secondo dopo aver corretto il primo.
+  let anyOverflow = false;
   if (lockedByRole.P.length > 1) {
-    return reject(
+    anyOverflow = true;
+    reject(
       "LOCKED_ROLE_OVERFLOW",
       `${lockedByRole.P.length} portieri imposti: §9 ne ammette uno solo in campo.`,
       lockedByRole.P,
@@ -636,7 +705,8 @@ function checkConstraints(
     const key = role as "D" | "C" | "A";
     const max = maxStartersOfRole(key);
     if (lockedByRole[key].length > max) {
-      return reject(
+      anyOverflow = true;
+      reject(
         "LOCKED_ROLE_OVERFLOW",
         `${lockedByRole[key].length} ${ROLE_LABEL[key]} imposti: nessuno dei sette moduli di §9 ne ` +
           `schiera più di ${max}. Il vincolo è impossibile con qualunque modulo, non solo con quello scelto.`,
@@ -645,21 +715,17 @@ function checkConstraints(
     }
   }
 
+  // I due motivi che seguono leggono l'insieme dei moduli ammissibili: senza un
+  // modulo imposto valido quell'insieme non esiste.
+  if (!moduleIsKnown) return { rejections, warnings };
   const admissible = constraints.lockedModule === undefined ? MODULES : [constraints.lockedModule];
-  const fits = (module: Module): boolean => {
-    const shape = moduleShape(module);
-    return (
-      lockedByRole.D.length <= shape.defenders &&
-      lockedByRole.C.length <= shape.midfielders &&
-      lockedByRole.A.length <= shape.strikers
-    );
-  };
   const roleCensus =
     `${lockedByRole.P.length}P/${lockedByRole.D.length}D/${lockedByRole.C.length}C/${lockedByRole.A.length}A`;
 
   // Undici imposti sono già una formazione: o è un modulo ammesso, o non lo è.
+  // Sopra gli undici il conto non ha senso, e `LOCKED_TOO_MANY` l'ha già detto.
   if (constraints.lockedStarterIds.length === 11) {
-    const exact = admissible.filter((module) => {
+    const exact = admissible.some((module) => {
       const shape = moduleShape(module);
       return (
         lockedByRole.P.length === 1 &&
@@ -668,8 +734,8 @@ function checkConstraints(
         lockedByRole.A.length === shape.strikers
       );
     });
-    if (exact.length === 0) {
-      return reject(
+    if (!exact) {
+      reject(
         "LOCKED_ELEVEN_NOT_A_MODULE",
         `undici titolari imposti (${roleCensus}) che non compongono nessun modulo ammesso fra ` +
           `${admissible.join(", ")} (§9 chiede un portiere più dieci di movimento). Con undici imposti ` +
@@ -677,11 +743,23 @@ function checkConstraints(
         constraints.lockedStarterIds,
       );
     }
-    return { rejection: null, warnings };
+    return { rejections, warnings };
   }
 
+  // Accanto a un traboccamento di ruolo questo motivo sarebbe vero ma derivato,
+  // e il suo messaggio — «un altro modulo li reggerebbe» — sarebbe falso.
+  if (anyOverflow || constraints.lockedStarterIds.length > 11) return { rejections, warnings };
+
+  const fits = (module: Module): boolean => {
+    const shape = moduleShape(module);
+    return (
+      lockedByRole.D.length <= shape.defenders &&
+      lockedByRole.C.length <= shape.midfielders &&
+      lockedByRole.A.length <= shape.strikers
+    );
+  };
   if (!admissible.some(fits)) {
-    return reject(
+    reject(
       "LOCKED_MODULE_INCOMPATIBLE",
       constraints.lockedModule === undefined
         ? `i ruoli dei titolari imposti (${roleCensus}) non stanno insieme in nessuno dei sette moduli di §9.`
@@ -692,7 +770,7 @@ function checkConstraints(
     );
   }
 
-  return { rejection: null, warnings };
+  return { rejections, warnings };
 }
 
 /** La riga di giornata di chi gioca: esattamente la previsione, niente di più. */
@@ -904,14 +982,17 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
   const constraintsActive = isActive(constraints);
   const check = constraintsActive
     ? checkConstraints(constraints, byId, input.currentLineup, expectedPlayers)
-    : { rejection: null, warnings: [] as readonly ConstraintIssue<ConstraintWarningCode>[] };
+    : {
+        rejections: [] as readonly ConstraintIssue<ConstraintRejectionCode>[],
+        warnings: [] as readonly ConstraintIssue<ConstraintWarningCode>[],
+      };
   const reportOf = (optimized: boolean): ConstraintReport => ({
     applied: constraintsActive,
     optimized,
     lockedStarterIds: [...constraints.lockedStarterIds],
     lockedModule: constraints.lockedModule ?? null,
     locked: constraints.locked,
-    rejection: check.rejection,
+    rejections: check.rejections,
     warnings: check.warnings,
   });
   const constraintsLabel = constraintsActive
@@ -929,11 +1010,14 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
 
   // Un vincolo impossibile NON è una formazione impossibile: si rifiuta con il
   // suo motivo, e il motivo dice quale vincolo togliere. Nessun rilassamento.
-  if (check.rejection !== null) {
+  if (check.rejections.length > 0) {
     return {
       lineup: null,
       feasible: false,
-      reason: `vincoli non soddisfacibili [${check.rejection.code}]: ${check.rejection.message}`,
+      reason:
+        `vincoli non soddisfacibili, ${check.rejections.length} motivo/i ` +
+        `[${check.rejections.map((r) => r.code).join(", ")}]: ` +
+        check.rejections.map((r) => r.message).join(" "),
       pointForecast: { lineup: null, outcome: null },
       estimate: emptyEstimate(method, usedSeed),
       evaluated: 0,

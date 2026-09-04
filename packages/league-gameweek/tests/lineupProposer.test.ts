@@ -1312,7 +1312,7 @@ describe("vincoli assenti: il produttore è quello di prima, alla virgola", () =
     expect(neutri).toEqual(senza);
     expect(senza.constraints.applied).toBe(false);
     expect(senza.constraints.optimized).toBe(true);
-    expect(senza.constraints.rejection).toBeNull();
+    expect(senza.constraints.rejections).toEqual([]);
     expect(senza.constraints.warnings).toEqual([]);
     expect(senza.reason).not.toContain("vincoli");
   });
@@ -1373,7 +1373,7 @@ describe("`locked: true` — nessuna ricerca, e l'esito lo dichiara", () => {
     const p = propose(smallSquad(), { lockedStarterIds: [], locked: true });
     expect(p.feasible).toBe(false);
     expect(p.lineup).toBeNull();
-    expect(p.constraints.rejection?.code).toBe("LOCKED_LINEUP_MISSING");
+    expect(p.constraints.rejections[0]?.code).toBe("LOCKED_LINEUP_MISSING");
     expect(p.reason).toContain("LOCKED_LINEUP_MISSING");
   });
 
@@ -1387,8 +1387,8 @@ describe("`locked: true` — nessuna ricerca, e l'esito lo dichiara", () => {
     };
     const p = propose(smallSquad(), { lockedStarterIds: [], locked: true }, illegale);
     expect(p.feasible).toBe(false);
-    expect(p.constraints.rejection?.code).toBe("LOCKED_LINEUP_ILLEGAL");
-    expect(p.constraints.rejection?.message).toMatch(/difensori/);
+    expect(p.constraints.rejections[0]?.code).toBe("LOCKED_LINEUP_ILLEGAL");
+    expect(p.constraints.rejections[0]?.message).toMatch(/difensori/);
   });
 
   it("una panchina con giocatori che non sono in rosa si rifiuta con lo stesso codice, e li nomina", () => {
@@ -1397,18 +1397,18 @@ describe("`locked: true` — nessuna ricerca, e l'esito lo dichiara", () => {
       { lockedStarterIds: [], locked: true },
       { ...SMALL_442, benchIds: ["P2", "A3", "Xignoto"] },
     );
-    expect(p.constraints.rejection?.code).toBe("LOCKED_LINEUP_ILLEGAL");
-    expect(p.constraints.rejection?.playerIds).toEqual(["Xignoto"]);
+    expect(p.constraints.rejections[0]?.code).toBe("LOCKED_LINEUP_ILLEGAL");
+    expect(p.constraints.rejections[0]?.playerIds).toEqual(["Xignoto"]);
   });
 
   it("formazione bloccata che contraddice gli altri vincoli: si rifiuta, non si sceglie quale tradire", () => {
     const moduloDiverso = propose(smallSquad(), { lockedStarterIds: [], lockedModule: "352", locked: true }, SMALL_442);
-    expect(moduloDiverso.constraints.rejection?.code).toBe("LOCKED_LINEUP_CONTRADICTS_CONSTRAINTS");
-    expect(moduloDiverso.constraints.rejection?.message).toMatch(/352/);
+    expect(moduloDiverso.constraints.rejections[0]?.code).toBe("LOCKED_LINEUP_CONTRADICTS_CONSTRAINTS");
+    expect(moduloDiverso.constraints.rejections[0]?.message).toMatch(/352/);
 
     const fuoriDagliUndici = propose(smallSquad(), { lockedStarterIds: ["A3"], locked: true }, SMALL_442);
-    expect(fuoriDagliUndici.constraints.rejection?.code).toBe("LOCKED_LINEUP_CONTRADICTS_CONSTRAINTS");
-    expect(fuoriDagliUndici.constraints.rejection?.playerIds).toEqual(["A3"]);
+    expect(fuoriDagliUndici.constraints.rejections[0]?.code).toBe("LOCKED_LINEUP_CONTRADICTS_CONSTRAINTS");
+    expect(fuoriDagliUndici.constraints.rejections[0]?.playerIds).toEqual(["A3"]);
   });
 });
 
@@ -1429,8 +1429,8 @@ describe("`lockedModule` — si valuta SOLO quel modulo", () => {
   it("un modulo che §9 non ammette si rifiuta: `LOCKED_MODULE_NOT_ALLOWED`", () => {
     const p = propose(smallSquad(), { lockedStarterIds: [], lockedModule: "4231" as Module, locked: false });
     expect(p.feasible).toBe(false);
-    expect(p.constraints.rejection?.code).toBe("LOCKED_MODULE_NOT_ALLOWED");
-    expect(p.constraints.rejection?.message).toMatch(/4231/);
+    expect(p.constraints.rejections[0]?.code).toBe("LOCKED_MODULE_NOT_ALLOWED");
+    expect(p.constraints.rejections[0]?.message).toMatch(/4231/);
   });
 
   it("un modulo imposto che la rosa non regge resta un rifiuto dichiarato, non un ripiego su un altro modulo", () => {
@@ -1462,7 +1462,7 @@ describe("`lockedStarterIds` — nessuna mossa del vicinato può toglierli", () 
     expect(vincolata.reason).toContain("può valere meno della migliore senza vincoli");
     expect(vincolata.constraints.applied).toBe(true);
     expect(vincolata.constraints.lockedStarterIds).toEqual(["A3"]);
-    expect(vincolata.constraints.rejection).toBeNull();
+    expect(vincolata.constraints.rejections).toEqual([]);
   });
 
   it("il vincolo tiene su TUTTE le mosse: portiere imposto, e nessun cambio modulo lo toglie", () => {
@@ -1492,32 +1492,32 @@ describe("infattibilità dichiarata: ogni caso ha il SUO motivo, e nessuno si ri
     const p = propose(smallSquad(), { lockedStarterIds: ["D1", "Xfantasma"], locked: false });
     expect(p.feasible).toBe(false);
     expect(p.lineup).toBeNull();
-    expect(p.constraints.rejection?.code).toBe("LOCKED_PLAYER_UNKNOWN");
-    expect(p.constraints.rejection?.playerIds).toEqual(["Xfantasma"]);
+    expect(p.constraints.rejections[0]?.code).toBe("LOCKED_PLAYER_UNKNOWN");
+    expect(p.constraints.rejections[0]?.playerIds).toEqual(["Xfantasma"]);
   });
 
   it("un imposto ripetuto: `LOCKED_PLAYER_DUPLICATED`", () => {
     const p = propose(smallSquad(), { lockedStarterIds: ["D1", "C1", "D1"], locked: false });
-    expect(p.constraints.rejection?.code).toBe("LOCKED_PLAYER_DUPLICATED");
-    expect(p.constraints.rejection?.playerIds).toEqual(["D1"]);
+    expect(p.constraints.rejections[0]?.code).toBe("LOCKED_PLAYER_DUPLICATED");
+    expect(p.constraints.rejections[0]?.playerIds).toEqual(["D1"]);
   });
 
   it("più di undici imposti: `LOCKED_TOO_MANY`", () => {
     const dodici = ["P1", "D1", "D2", "D3", "D4", "C1", "C2", "C3", "C4", "A1", "A2", "A3"];
     const p = propose(fullRoster(), { lockedStarterIds: dodici, locked: false });
-    expect(p.constraints.rejection?.code).toBe("LOCKED_TOO_MANY");
+    expect(p.constraints.rejections[0]?.code).toBe("LOCKED_TOO_MANY");
   });
 
   it("due portieri imposti: `LOCKED_ROLE_OVERFLOW` — §9 ne ammette uno solo", () => {
     const p = propose(smallSquad(), { lockedStarterIds: ["P1", "P2"], locked: false });
-    expect(p.constraints.rejection?.code).toBe("LOCKED_ROLE_OVERFLOW");
-    expect(p.constraints.rejection?.playerIds).toEqual(["P1", "P2"]);
+    expect(p.constraints.rejections[0]?.code).toBe("LOCKED_ROLE_OVERFLOW");
+    expect(p.constraints.rejections[0]?.playerIds).toEqual(["P1", "P2"]);
   });
 
   it("sei difensori imposti: `LOCKED_ROLE_OVERFLOW`, perché NESSUN modulo ne schiera più di cinque", () => {
     const p = propose(fullRoster(), { lockedStarterIds: ["D1", "D2", "D3", "D4", "D5", "D6"], locked: false });
-    expect(p.constraints.rejection?.code).toBe("LOCKED_ROLE_OVERFLOW");
-    expect(p.constraints.rejection?.message).toMatch(/nessuno dei sette moduli/);
+    expect(p.constraints.rejections[0]?.code).toBe("LOCKED_ROLE_OVERFLOW");
+    expect(p.constraints.rejections[0]?.message).toMatch(/nessuno dei sette moduli/);
   });
 
   it("cinque difensori con il 4-4-2 imposto: `LOCKED_MODULE_INCOMPATIBLE` — il modulo è a sua volta un vincolo", () => {
@@ -1526,12 +1526,12 @@ describe("infattibilità dichiarata: ogni caso ha il SUO motivo, e nessuno si ri
       lockedModule: "442",
       locked: false,
     });
-    expect(p.constraints.rejection?.code).toBe("LOCKED_MODULE_INCOMPATIBLE");
-    expect(p.constraints.rejection?.message).toMatch(/442/);
+    expect(p.constraints.rejections[0]?.code).toBe("LOCKED_MODULE_INCOMPATIBLE");
+    expect(p.constraints.rejections[0]?.message).toMatch(/442/);
     // Il rifiuto ammette che un altro modulo li reggerebbe, e spiega perché non
     // lo usa: cambiare modulo per salvare i giocatori sarebbe tradire un vincolo
     // per salvarne un altro.
-    expect(p.constraints.rejection?.message).toMatch(/non ne cambia uno per salvare l'altro/);
+    expect(p.constraints.rejections[0]?.message).toMatch(/non ne cambia uno per salvare l'altro/);
   });
 
   it("cinque difensori e tre attaccanti, senza modulo imposto: `LOCKED_MODULE_INCOMPATIBLE`", () => {
@@ -1541,16 +1541,16 @@ describe("infattibilità dichiarata: ogni caso ha il SUO motivo, e nessuno si ri
       lockedStarterIds: ["D1", "D2", "D3", "D4", "D5", "A1", "A2", "A3"],
       locked: false,
     });
-    expect(p.constraints.rejection?.code).toBe("LOCKED_MODULE_INCOMPATIBLE");
-    expect(p.constraints.rejection?.message).toMatch(/nessuno dei sette moduli/);
+    expect(p.constraints.rejections[0]?.code).toBe("LOCKED_MODULE_INCOMPATIBLE");
+    expect(p.constraints.rejections[0]?.message).toMatch(/nessuno dei sette moduli/);
   });
 
   it("undici imposti che non compongono un modulo: `LOCKED_ELEVEN_NOT_A_MODULE`", () => {
     // Undici di movimento senza portiere: §9 chiede un portiere più dieci.
     const undici = ["D1", "D2", "D3", "D4", "C1", "C2", "C3", "C4", "A1", "A2", "A3"];
     const p = propose(fullRoster(), { lockedStarterIds: undici, locked: false });
-    expect(p.constraints.rejection?.code).toBe("LOCKED_ELEVEN_NOT_A_MODULE");
-    expect(p.constraints.rejection?.message).toMatch(/0P\/4D\/4C\/3A/);
+    expect(p.constraints.rejections[0]?.code).toBe("LOCKED_ELEVEN_NOT_A_MODULE");
+    expect(p.constraints.rejections[0]?.message).toMatch(/0P\/4D\/4C\/3A/);
   });
 
   it("undici imposti che SONO un modulo: si schierano esattamente quelli", () => {
@@ -1572,7 +1572,7 @@ describe("modulo imposto e giocatori imposti, insieme", () => {
     expect(p.feasible).toBe(true);
     expect(p.lineup!.module).toBe("433");
     for (const id of ["A1", "A2", "A3"]) expect(p.lineup!.starterIds).toContain(id);
-    expect(p.constraints.rejection).toBeNull();
+    expect(p.constraints.rejections).toEqual([]);
     expect(p.reason).toContain("modulo imposto 433");
     expect(p.reason).toContain("titolari imposti A1, A2, A3");
   });
@@ -1585,12 +1585,12 @@ describe("modulo imposto e giocatori imposti, insieme", () => {
     });
     expect(p.feasible).toBe(false);
     expect(p.lineup).toBeNull();
-    expect(p.constraints.rejection?.code).toBe("LOCKED_MODULE_INCOMPATIBLE");
-    expect(p.constraints.rejection?.message).toMatch(/0P\/0D\/0C\/3A/);
+    expect(p.constraints.rejections[0]?.code).toBe("LOCKED_MODULE_INCOMPATIBLE");
+    expect(p.constraints.rejections[0]?.message).toMatch(/0P\/0D\/0C\/3A/);
     // Il 4-3-3 li reggerebbe — l'ha appena fatto — e il produttore NON ci
     // ripiega: cambiare modulo per salvare i giocatori sarebbe tradire un
     // vincolo per salvarne un altro.
-    expect(p.constraints.rejection?.message).toMatch(/non ne cambia uno per salvare l'altro/);
+    expect(p.constraints.rejections[0]?.message).toMatch(/non ne cambia uno per salvare l'altro/);
   });
 });
 
@@ -1637,7 +1637,7 @@ describe("un imposto che non gioca mai è una scelta che costa, non un'infattibi
     const p = propose(rosa, NEVER_PLAYS_CONSTRAINTS);
 
     expect(p.feasible).toBe(true);
-    expect(p.constraints.rejection).toBeNull();
+    expect(p.constraints.rejections).toEqual([]);
     expect(p.lineup!.starterIds).toContain("Dfermo");
     expect(p.constraints.warnings).toHaveLength(1);
     expect(p.constraints.warnings[0]!.code).toBe("LOCKED_PLAYER_NEVER_PLAYS");
@@ -1662,7 +1662,7 @@ describe("un imposto che non gioca mai è una scelta che costa, non un'infattibi
     const p = propose(neverPlaysLockedSquad(), NEVER_PLAYS_CONSTRAINTS);
     expect(p.lineup).not.toBeNull();
     expect(p.feasible).toBe(true);
-    expect(p.constraints.rejection).toBeNull();
+    expect(p.constraints.rejections).toEqual([]);
     expect(p.constraints.warnings.map((w) => w.code)).toEqual(["LOCKED_PLAYER_NEVER_PLAYS"]);
   });
 });
@@ -1678,5 +1678,129 @@ describe("il contratto dei vincoli si controlla a runtime, non solo a compilazio
     expect(() =>
       propose(smallSquad(), { lockedStarterIds: "D1", locked: false } as unknown as LineupConstraints),
     ).toThrow(/array di id/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 13. IL REFERTO DEI RIFIUTI È UNA LISTA — e contiene solo motivi veri.
+//     Con un motivo per volta chi corregge a mano gioca a colpire le talpe;
+//     con un motivo inventato crede di dover correggere ciò che va bene.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** I codici del referto, nell'ordine in cui il produttore li dichiara. */
+const codici = (p: LineupProposal): readonly string[] => p.constraints.rejections.map((r) => r.code);
+
+describe("tutti i motivi in una volta sola", () => {
+  it("id ripetuto e modulo inammissibile sono due errori indipendenti: si vedono entrambi", () => {
+    const p = propose(smallSquad(), {
+      lockedStarterIds: ["D1", "C1", "D1"],
+      lockedModule: "4231" as Module,
+      locked: false,
+    });
+    expect(p.feasible).toBe(false);
+    expect(codici(p)).toEqual(["LOCKED_PLAYER_DUPLICATED", "LOCKED_MODULE_NOT_ALLOWED"]);
+    // Il motivo di ciascuno resta leggibile per conto suo, e il riepilogo li
+    // nomina tutti: chi legge `reason` non deve indovinare quanti erano.
+    expect(p.reason).toContain("2 motivo/i");
+    for (const codice of codici(p)) expect(p.reason).toContain(codice);
+  });
+
+  it("due reparti in eccesso danno due `LOCKED_ROLE_OVERFLOW`, uno per reparto", () => {
+    const p = propose(fullRoster(), {
+      lockedStarterIds: ["P1", "P2", "D1", "D2", "D3", "D4", "D5", "D6"],
+      locked: false,
+    });
+    expect(codici(p)).toEqual(["LOCKED_ROLE_OVERFLOW", "LOCKED_ROLE_OVERFLOW"]);
+    expect(p.constraints.rejections[0]!.playerIds).toEqual(["P1", "P2"]);
+    expect(p.constraints.rejections[1]!.playerIds).toEqual(["D1", "D2", "D3", "D4", "D5", "D6"]);
+  });
+
+  it("formazione bloccata illegale E in contraddizione col modulo imposto: due motivi", () => {
+    const illegale: Lineup = {
+      module: "442",
+      goalkeeperId: "P1",
+      starterIds: ["D1", "D2", "D3", "C1", "C2", "C3", "C4", "A1", "A2", "A3"],
+      benchIds: ["P2", "D4"],
+    };
+    const p = propose(smallSquad(), { lockedStarterIds: [], lockedModule: "352", locked: true }, illegale);
+    expect(codici(p)).toEqual(["LOCKED_LINEUP_ILLEGAL", "LOCKED_LINEUP_CONTRADICTS_CONSTRAINTS"]);
+  });
+
+  it("l'ordine è stabile: due chiamate identiche danno lo stesso referto", () => {
+    const vincoli: LineupConstraints = {
+      lockedStarterIds: ["P1", "P2", "D1", "D2", "D3", "D4", "D5", "D6"],
+      locked: false,
+    };
+    expect(propose(fullRoster(), vincoli).constraints).toEqual(propose(fullRoster(), vincoli).constraints);
+  });
+});
+
+describe("nessun motivo derivato da un dato che un altro motivo ha già invalidato", () => {
+  it("con un id sconosciuto i conteggi per ruolo NON si fanno: sei difensori non diventano un traboccamento", () => {
+    // Senza `Xfantasma` questi stessi id darebbero `LOCKED_ROLE_OVERFLOW`. Con
+    // lui, i ruoli degli imposti non sono una lettura possibile — uno degli
+    // imposti non ha ruolo — e un traboccamento contato su una lista rotta
+    // sarebbe un motivo inventato.
+    const conFantasma = propose(fullRoster(), {
+      lockedStarterIds: ["D1", "D2", "D3", "D4", "D5", "D6", "Xfantasma"],
+      locked: false,
+    });
+    expect(codici(conFantasma)).toEqual(["LOCKED_PLAYER_UNKNOWN"]);
+
+    const senzaFantasma = propose(fullRoster(), {
+      lockedStarterIds: ["D1", "D2", "D3", "D4", "D5", "D6"],
+      locked: false,
+    });
+    expect(codici(senzaFantasma)).toEqual(["LOCKED_ROLE_OVERFLOW"]);
+  });
+
+  it("con un id ripetuto i conteggi per ruolo NON si fanno: la richiesta non si sa leggere", () => {
+    const p = propose(fullRoster(), {
+      lockedStarterIds: ["D1", "D2", "D3", "D4", "D5", "D6", "D6"],
+      locked: false,
+    });
+    expect(codici(p)).toEqual(["LOCKED_PLAYER_DUPLICATED"]);
+  });
+
+  it("col modulo inammissibile NON si dichiara l'incompatibilità: l'insieme dei moduli ammissibili non esiste", () => {
+    const p = propose(fullRoster(), {
+      lockedStarterIds: ["D1", "D2", "D3", "D4", "D5"],
+      lockedModule: "4231" as Module,
+      locked: false,
+    });
+    expect(codici(p)).toEqual(["LOCKED_MODULE_NOT_ALLOWED"]);
+    // Gli stessi cinque difensori col 4-4-2 — un modulo che esiste — danno
+    // invece l'incompatibilità: è la validità del modulo a fare la differenza.
+    const conModuloVero = propose(fullRoster(), {
+      lockedStarterIds: ["D1", "D2", "D3", "D4", "D5"],
+      lockedModule: "442",
+      locked: false,
+    });
+    expect(codici(conModuloVero)).toEqual(["LOCKED_MODULE_INCOMPATIBLE"]);
+  });
+
+  it("accanto a un traboccamento NON si dichiara l'incompatibilità: il suo messaggio sarebbe falso", () => {
+    // Sei difensori col 4-4-2: il traboccamento è vero, e l'incompatibilità
+    // direbbe «un altro modulo li reggerebbe» — che qui è FALSO, perché
+    // nessuno dei sette ne schiera sei.
+    const p = propose(fullRoster(), {
+      lockedStarterIds: ["D1", "D2", "D3", "D4", "D5", "D6"],
+      lockedModule: "442",
+      locked: false,
+    });
+    expect(codici(p)).toEqual(["LOCKED_ROLE_OVERFLOW"]);
+    expect(p.reason).not.toContain("reggerebbe");
+  });
+
+  it("senza formazione di partenza NON si dichiara nient'altro del ramo bloccato", () => {
+    // `LOCKED_LINEUP_ILLEGAL` e `LOCKED_LINEUP_CONTRADICTS_CONSTRAINTS`
+    // leggerebbero una formazione che non c'è, modulo imposto compreso.
+    const p = propose(smallSquad(), { lockedStarterIds: ["A3"], lockedModule: "352", locked: true });
+    expect(codici(p)).toEqual(["LOCKED_LINEUP_MISSING"]);
+  });
+
+  it("un imposto sconosciuto non diventa «fuori dagli undici» della formazione bloccata", () => {
+    const p = propose(smallSquad(), { lockedStarterIds: ["Xfantasma"], locked: true }, SMALL_442);
+    expect(codici(p)).toEqual(["LOCKED_PLAYER_UNKNOWN"]);
   });
 });
