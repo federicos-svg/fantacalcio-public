@@ -1083,36 +1083,24 @@ const bootSchedaDrafts = loadSchedaDrafts(browserStorage);
 // riga lo dice senza allarmare: la contabilità dell'asta non è toccata.
 const bootInterestFlags = loadInterestFlags(browserStorage);
 
-// LA LEGA, CHIESTA UNA VOLTA AL BOOT.
+// LA LEGA, CHIESTA UNA VOLTA AL BOOT — ma **dopo** che la prima pagina è stata
+// decisa, e la distinzione non è di stile.
 //
-// La porta viene collegata **subito**, e la richiesta parte con lei: da questo
-// istante lo stato non è più «porta non collegata» — che descrive una build
-// senza layer privato — ma «la lega non ha ancora risposto», che è ciò che sta
-// succedendo davvero mentre la pagina si disegna la prima volta.
+// La porta si collega nel blocco di avvio in fondo al file, non qui. Se si
+// collegasse prima di questa riga, lo stato al boot diventerebbe «la lega non ha
+// ancora risposto» invece di «porta non collegata», e `decideInitialScreen`
+// aprirebbe il sito sulla Formazione **sempre**: la richiesta non può essere
+// arrivata nel momento in cui la prima pagina va a schermo. Sarebbe un
+// cambiamento di prodotto — quale schermata apre il sito — ottenuto per effetto
+// collaterale, e per giunta deciso su un dato che non c'è ancora.
 //
-// PERCHÉ LA SCHERMATA INIZIALE SI DECIDE DUE VOLTE. `decideInitialScreen` è una
-// funzione della risposta della lega, e con un canale vero quella risposta non
-// esiste ancora quando la prima pagina va a schermo. Applicarla una sola volta,
-// al boot, significherebbe deciderla **sempre** su «non ha ancora risposto»:
-// la regola di prodotto che c'è già verrebbe svuotata in silenzio. Quindi la si
-// riapplica quando la lettura arriva, e **solo se Pico non ha ancora cambiato
-// pagina da sé**: una navigazione sua non viene mai annullata da un dato che
-// arriva dopo.
+// Quindi: il boot resta quello di prima, e la regola di prodotto che c'è già si
+// riapplica **quando la lettura arriva davvero**, e solo se Pico non ha ancora
+// cambiato pagina da sé — una sua navigazione non viene mai annullata da un dato
+// che arriva dopo.
 //
 // I vincoli salvati si rileggono comunque — sono di Pico, non della lega — e un
 // archivio illeggibile riparte VUOTO con una riga che lo dice, mai a metà.
-const letturaCanaleLega = avviaCanaleDaDeposito({
-  fetchImpl: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init),
-  alCambio: () => {
-    state.lineupChannel = readLineupChannelState();
-    if (state.screen === schermoDecisoAlBoot) {
-      const scelto = decideInitialScreen(state.lineupChannel);
-      state.screen = scelto;
-      schermoDecisoAlBoot = scelto;
-    }
-    render();
-  },
-});
 const bootLineupChannel = readLineupChannelState();
 // La schermata che la regola di prodotto ha scelto **finora**: serve a
 // riconoscere una navigazione di Pico da una pagina che nessuno ha ancora
@@ -9011,9 +8999,37 @@ function renderVoidConfirm(): HTMLElement {
 render();
 void autoLoadListonePool();
 void autoLoadExpertSchede();
-// La lettura della lega è già partita insieme alla porta, molto più su: qui si
-// dichiara soltanto che il suo esito non va atteso da nessuno.
-void letturaCanaleLega;
+
+// LA LEGA — la porta si collega qui, a prima pagina già decisa (il perché sta
+// accanto a `bootLineupChannel`). Da questo istante lo stato non è più «porta
+// non collegata» — che descrive una build senza layer privato — ma «la lega non
+// ha ancora risposto», che è ciò che sta succedendo davvero: si aggiorna subito
+// e si ridisegna, così chi apre la Formazione in questo secondo legge la verità
+// invece di un messaggio che riguarda un'altra build.
+void avviaCanaleDaDeposito({
+  fetchImpl: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init),
+  alCambio: () => {
+    state.lineupChannel = readLineupChannelState();
+    // LA PAGINA SI RIDECIDE SOLO SE LA LEGA È STATA LETTA DAVVERO, e mai su una
+    // pagina che Pico ha già scelto da sé.
+    //
+    // `decideInitialScreen` manda sulla Formazione anche un canale che non
+    // risponde — è una scelta di Pico, e serve a non lasciare un canale rotto
+    // dietro una schermata che funziona. Ma quella regola decide **quale pagina
+    // APRE il sito**: applicarla di nuovo a lettura fallita significherebbe
+    // portare via Pico dalla pagina che sta usando per annunciargli un guasto,
+    // qualche secondo dopo che il sito si è aperto. Il guasto lo dichiara la
+    // Formazione quando ci va, e la barra è sempre lì.
+    if (state.lineupChannel.kind === "letto" && state.screen === schermoDecisoAlBoot) {
+      const scelto = decideInitialScreen(state.lineupChannel);
+      state.screen = scelto;
+      schermoDecisoAlBoot = scelto;
+    }
+    render();
+  },
+});
+state.lineupChannel = readLineupChannelState();
+render();
 
 window.addEventListener("offline", () => {
   state.offline = true;

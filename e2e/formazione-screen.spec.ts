@@ -5,15 +5,20 @@ import { gotoScreen, installSyntheticNetworkGuard } from "./helpers.js";
 // LA PAGINA FORMAZIONE, VISTA DAL BROWSER.
 //
 // Che cosa questa suite può misurare e che cosa no, detto prima per non far
-// credere il contrario a chi la legge. Il core pubblico non ha nessuna porta
-// verso la lega — è la regola di confine, non una mancanza di questa schermata
-// — quindi il build che Playwright guida può mostrare UN solo stato del canale:
-// «porta non collegata». È esattamente lo stato più importante da sorvegliare
-// qui, perché è quello in cui la pagina potrebbe mentire mostrando una griglia
-// vuota; i tre stati dell'invio e gli altri stati del canale sono provati senza
-// browser, dove le porte si possono alimentare con fixture sintetiche
-// (packages/league-channel-contract/tests/lineupCoachSurface.test.ts,
-// src/formazioneChannel.test.ts).
+// credere il contrario a chi la legge. La porta di lettura ora è collegata — a
+// `/api/formazione`, un percorso dello stesso sito che il layer PRIVATO serve —
+// quindi il build che Playwright guida la interroga davvero e riceve un `404`,
+// perché qui quel percorso non esiste. Lo stato osservabile è quindi «la lega
+// non ha risposto», ed è lo stato più importante da sorvegliare: è quello in cui
+// la pagina potrebbe mentire mostrando una griglia vuota.
+//
+// **La riga che questa suite difende è cambiata di causa, non di sostanza.**
+// Prima diceva «questa versione del sito non ha il canale»; ora dice «ho
+// chiesto e non mi hanno risposto», che è la verità di questo build. Gli altri
+// stati del canale — letto, illeggibile, giornata sbagliata — e i tre stati
+// dell'invio sono provati senza browser, dove le porte si alimentano con
+// fixture sintetiche (`packages/league-channel-contract/tests/*`,
+// `src/formazioneCanaleRemoto.test.ts`, `src/formazioneLettura.test.ts`).
 
 test("Formazione è la prima voce della barra e la navigazione funziona", async ({ page, context }) => {
   const externalRequests: string[] = [];
@@ -41,7 +46,7 @@ test("Formazione è la prima voce della barra e la navigazione funziona", async 
   expect(externalRequests).toEqual([]);
 });
 
-test("quando la lega non è collegata la pagina lo dice, e non mostra nessuna formazione", async ({
+test("quando la lega non risponde la pagina lo dice, e non mostra nessuna formazione", async ({
   page,
   context,
 }) => {
@@ -55,8 +60,17 @@ test("quando la lega non è collegata la pagina lo dice, e non mostra nessuna fo
   // ancora schierato», che è una conclusione precisa e falsa.
   const avviso = page.locator("#formazione-stato-ignoto");
   await expect(avviso).toBeVisible();
-  await expect(avviso).toContainText("non è collegato");
+  // «HO CHIESTO E NON MI HANNO RISPOSTO», non «qui il canale non c'è»: sono due
+  // stati diversi con due rimedi diversi, e da quando la porta è collegata
+  // questo build è nel primo. Il dettaglio porta il codice che il percorso ha
+  // restituito, perché senza di lui «non ha risposto» non si diagnostica.
+  await expect(avviso).toContainText("La lega non ha risposto");
+  await expect(avviso).toContainText("404");
   await expect(avviso).toHaveAttribute("role", "alert");
+
+  // E NESSUNA FASCIA DEL MOMENTO DELLA LETTURA: non c'è niente da datare, e una
+  // riga «letta mai» sopra il nulla aggiungerebbe rumore a un messaggio chiaro.
+  await expect(page.locator("#formazione-momento-lettura")).toHaveCount(0);
 
   await expect(page.locator("[id^='formazione-competizione-']")).toHaveCount(0);
   await expect(page.locator("[id^='formazione-salva-']")).toHaveCount(0);
