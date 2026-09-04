@@ -1,6 +1,12 @@
 // IL CONTRATTO PRE-PARTITA — che cosa una pagina di stampa sportiva espone,
 // detto in tipi e funzioni pure, senza sapere da dove viene.
 //
+// IL PARSER STA QUI, non dentro un nodo di workflow: `parseMatchPage` è una
+// funzione pura — un testo entra, un esito esce — e i casi che contano sono
+// test, a partire da quello che conta di più: la struttura cambiata sotto di
+// noi, in cui il parser si ferma e lo dichiara invece di restituire mezza
+// formazione. Chi va a prendere la pagina e deposita il raw resta nel privato.
+//
 // COSA C'È QUI DENTRO: la provenienza obbligatoria di ogni osservazione (fonte,
 // momento della lettura, giornata e da dove viene il suo numero); il campo che
 // sa dire le due assenze; la pagina di una partita con probabili, formazioni
@@ -88,6 +94,8 @@ export {
   type ObservedTeamLineup,
   type SnapshotSide,
 } from "./matchPage.js";
+
+export { PARSE_STOP_CODES, parseMatchPage, type ParseRequest } from "./parseMatchPage.js";
 
 export {
   goalDifferenceCheck,
