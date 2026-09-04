@@ -13,7 +13,7 @@
 // Non c'è modello, non c'è prezzo, non c'è output direttivo: c'è l'aritmetica di
 // §9, §10, §13, §14, §15, §19, §20, §21, §22 applicata a numeri di qualcun altro.
 //
-// ── LE QUATTRO DICHIARAZIONI CHE NON SONO REGOLE DI LEGA ─────────────────────
+// ── LE CINQUE DICHIARAZIONI CHE NON SONO REGOLE DI LEGA ──────────────────────
 //
 // 1) SEMPLIFICAZIONE DELLO SCENARIO. Uno scenario assegna gioca/non-gioca a ogni
 //    giocatore delle due rose (Bernoulli indipendenti con `voteProbability`).
@@ -21,6 +21,10 @@
 //    `baseVote:null, fantasyScore:null, cards:"none", otherBonusMalus:0` — che
 //    `resolveNoVote` manda in sostituzione (§13 `sv_clean: must_be_replaced`) e
 //    che, se scoperto, conta come assente (§13 `office_reserve: prohibited`).
+//    Un titolare IMPOSTO con `voteProbability = 0` è, dentro questa
+//    semplificazione, un senza voto puro in OGNI scenario: non è un caso
+//    impossibile, è un caso costoso, e la dichiarazione 5) dice perché si
+//    accetta invece di rifiutarlo.
 //    QUESTA PREVISIONE NON SA RAPPRESENTARE ALTRO: un SV con bonus (che resta in
 //    campo a 6 più il bonus), un ammonito senza voto (che resta in campo a 5) o
 //    un espulso (4) non hanno posto nel contratto `PlayerForecast`. È una
@@ -54,6 +58,11 @@
 //    ce l'ha» — non esiste più: è diventato un fatto verificato da un test.
 //    I portieri di riserva stanno in panchina come tutti gli altri: §13 dice che
 //    «il portiere non ha una regola propria».
+//    CON `locked: true` NIENTE DI TUTTO QUESTO SI APPLICA: la panchina è quella
+//    che arriva, nell'ordine in cui arriva, e non viene né riordinata né
+//    valutata. Un ordine «migliorato» dentro una formazione che il
+//    fantallenatore ha dichiarato immodificabile sarebbe una modifica non
+//    richiesta, e per giunta invisibile.
 //
 // 3) ORDINE DEI TITOLARI. Anche questo è dichiarato e non regolamentare: ruolo
 //    (D, poi C, poi A) e dentro il ruolo `expected.fantasyScore` decrescente, poi
@@ -61,6 +70,10 @@
 //    decide SOLO quale SV dello stesso ruolo viene coperto per primo, e siccome
 //    due SV valgono zero entrambi e il sostituto è lo stesso, non muove il
 //    punteggio: serve a rendere l'output riproducibile, non a scegliere.
+//    Anche qui `locked: true` sospende tutto: l'ordine dei titolari consegnato
+//    resta quello. E i titolari IMPOSTI non hanno un ordine privilegiato: sono
+//    ordinati come gli altri, perché il vincolo dice CHI gioca, non in che
+//    posizione compare nell'elenco.
 //
 // 4) LA RIGA ATTESA È MODALE, E IL BONUS ATTESO SI DICHIARA. `expected` non è
 //    una media: è la riga che il previsore ritiene più probabile — il vincolo G
@@ -76,6 +89,27 @@
 //    modulo non inventa la differenza, la dichiara chi produce la previsione.
 //    Non è una regola di lega: è il contratto di questo produttore.
 //
+// 5) I VINCOLI SONO VOLONTÀ DICHIARATA, NON INFORMAZIONE — E NON SI DISCUTONO.
+//    `LineupConstraints` non porta un dato sul mondo: porta ciò che il
+//    fantallenatore ha DECISO. Un giocatore spuntato è in campo perché lui
+//    vuole che ci sia, non perché il produttore stimi che convenga; un modulo
+//    imposto è il suo modulo, non il migliore; `locked: true` è la sua
+//    formazione, non una proposta. Questo produttore quindi non li valuta, non
+//    li pesa, non li confronta con alternative migliori: li rispetta
+//    INTERAMENTE, oppure RIFIUTA dicendo quale vincolo è impossibile e perché
+//    (`ConstraintRejectionCode`, uno per fattispecie). Non c'è una terza via, e
+//    in particolare non c'è il rilassamento silenzioso: togliere un vincolo per
+//    far tornare i conti produrrebbe una formazione plausibile in cui manca un
+//    giocatore che il fantallenatore crede di aver messo in campo. È il modo
+//    peggiore di sbagliare, perché non si vede.
+//    UN VINCOLO COSTOSO NON È UN VINCOLO IMPOSSIBILE, e i due casi non si
+//    confondono. Un imposto con `voteProbability = 0` vale un senza voto in
+//    ogni scenario e la proposta ne esce peggiore: è una scelta legittima che
+//    costa, si accetta, si schiera, e si avverte con `LOCKED_PLAYER_NEVER_PLAYS`
+//    — un avvertimento, non un rifiuto. Più in generale la proposta vincolata
+//    può valere MENO di quella libera, e quando vale meno lo dice invece di
+//    correggersi: quel meno è il prezzo della volontà, non un difetto.
+//
 // ── PERCHÉ DUE LIVELLI E NON UNO ─────────────────────────────────────────────
 //
 // Tier 1 è la formazione a previsione puntuale: tutti giocano al valore atteso e
@@ -86,6 +120,8 @@
 // ascent. Non pretende l'ottimo globale, e non lo dichiara: parte da un punto
 // che a incertezza nulla È l'ottimo, e da lì migliora solo su mosse che
 // migliorano strettamente.
+// Con `locked: true` non c'è nessuno dei due livelli: non si cerca, si valuta
+// la formazione data e la si consegna, con `constraints.optimized = false`.
 //
 // NESSUNA FORMULA PARALLELA: ogni scenario passa per `simulateGameweek`. Una
 // seconda aritmetica del punteggio, anche solo per «andare più veloce», è
@@ -151,6 +187,80 @@ export interface OpponentForecast {
   readonly players: readonly PlayerForecast[];
 }
 
+/**
+ * I VINCOLI DEL FANTALLENATORE. Volontà dichiarata, non informazione:
+ * dichiarazione 5) in testa al file. Il produttore li rispetta interamente
+ * oppure rifiuta con un codice; non ne rilassa mai uno per far tornare i conti.
+ */
+export interface LineupConstraints {
+  /** Giocatori che devono essere titolari. Ordine irrilevante. */
+  readonly lockedStarterIds: readonly string[];
+  /** Modulo imposto. Assente = la ricerca sceglie. */
+  readonly lockedModule?: Module;
+  /** Formazione intera bloccata: nessuna ricerca, si tiene quella data. */
+  readonly locked: boolean;
+}
+
+/**
+ * I motivi per cui una richiesta vincolata si rifiuta. Uno per fattispecie, mai
+ * un motivo generico: chi legge deve sapere QUALE vincolo è impossibile, perché
+ * è l'unico modo che ha di scegliere quale togliere.
+ */
+export type ConstraintRejectionCode =
+  /** Un id imposto che non è in rosa. */
+  | "LOCKED_PLAYER_UNKNOWN"
+  /** Lo stesso id imposto due volte. */
+  | "LOCKED_PLAYER_DUPLICATED"
+  /** Il modulo imposto non è uno dei sette ammessi (§9). */
+  | "LOCKED_MODULE_NOT_ALLOWED"
+  /** Più di undici imposti: gli undici sono undici. */
+  | "LOCKED_TOO_MANY"
+  /** Imposti di un ruolo oltre il massimo che QUALUNQUE modulo ammette. */
+  | "LOCKED_ROLE_OVERFLOW"
+  /** Nessun modulo ammissibile regge insieme i ruoli imposti. */
+  | "LOCKED_MODULE_INCOMPATIBLE"
+  /** Undici imposti che non compongono un modulo ammesso. */
+  | "LOCKED_ELEVEN_NOT_A_MODULE"
+  /** `locked: true` senza la formazione da tenere. */
+  | "LOCKED_LINEUP_MISSING"
+  /** `locked: true` con una formazione che il regolamento non ammette. */
+  | "LOCKED_LINEUP_ILLEGAL"
+  /** `locked: true` con una formazione che contraddice gli altri vincoli. */
+  | "LOCKED_LINEUP_CONTRADICTS_CONSTRAINTS";
+
+/**
+ * Quel che il produttore accetta ma segnala. Un avvertimento NON è un rifiuto:
+ * dichiarazione 5) — un vincolo costoso resta un vincolo legittimo.
+ */
+export type ConstraintWarningCode =
+  /** Un imposto con `voteProbability = 0`: senza voto in ogni scenario. */
+  | "LOCKED_PLAYER_NEVER_PLAYS";
+
+export interface ConstraintIssue<Code extends string> {
+  readonly code: Code;
+  /** Il motivo in italiano, leggibile senza conoscere il codice. */
+  readonly message: string;
+  /** I giocatori coinvolti, se il motivo ne nomina qualcuno. */
+  readonly playerIds: readonly string[];
+}
+
+/** Che cosa ha fatto il produttore dei vincoli ricevuti. */
+export interface ConstraintReport {
+  /** `true` se almeno un vincolo era attivo. */
+  readonly applied: boolean;
+  /**
+   * `false` SOLO con `locked: true`: la formazione consegnata è quella data, e
+   * NON è stata ottimizzata. La stessa cosa è scritta in `reason`.
+   */
+  readonly optimized: boolean;
+  readonly lockedStarterIds: readonly string[];
+  readonly lockedModule: Module | null;
+  readonly locked: boolean;
+  /** Il motivo del rifiuto, o `null` se i vincoli erano soddisfacibili. */
+  readonly rejection: ConstraintIssue<ConstraintRejectionCode> | null;
+  readonly warnings: readonly ConstraintIssue<ConstraintWarningCode>[];
+}
+
 export interface LineupProposalInput {
   readonly squad: readonly PlayerForecast[];
   readonly opponent: OpponentForecast;
@@ -159,6 +269,20 @@ export interface LineupProposalInput {
   readonly scenarioBudget?: number;
   /** Seme del PRNG usato SOLO se si campiona (default `DEFAULT_SEED`). */
   readonly seed?: number;
+  /**
+   * I vincoli del fantallenatore. Assente = nessun vincolo, e il produttore si
+   * comporta esattamente come prima che i vincoli esistessero.
+   */
+  readonly constraints?: LineupConstraints;
+  /**
+   * La formazione di partenza — quella che il fantallenatore ha già in mano.
+   * Serve SOLO a `constraints.locked: true`, che la restituisce così com'è;
+   * altrove è ignorata, perché la ricerca parte dalla previsione puntuale e non
+   * da una formazione precedente. Con `locked: true` e senza questa formazione
+   * non c'è niente da tenere, e il produttore rifiuta con
+   * `LOCKED_LINEUP_MISSING` invece di cercarne una di nascosto.
+   */
+  readonly currentLineup?: Lineup;
 }
 
 export interface LineupProposal {
@@ -198,6 +322,8 @@ export interface LineupProposal {
   /** Formazioni valutate in totale (Tier 1 + Tier 2). */
   readonly evaluated: number;
   readonly objectiveLabel: string;
+  /** Che cosa il produttore ha fatto dei vincoli: rifiuti, avvertimenti, esito. */
+  readonly constraints: ConstraintReport;
   readonly leagueRuleVersion: LeagueRuleVersion;
 }
 
@@ -312,6 +438,261 @@ function assertInput(input: LineupProposalInput): void {
   if (violations.length > 0) {
     throw new Error(`la formazione avversaria assunta non è legale: ${violations.join("; ")}`);
   }
+
+  // I VINCOLI SI CONTROLLANO SU DUE PIANI DIVERSI, E LA DIFFERENZA CONTA.
+  // Qui si controlla solo che l'oggetto ABBIA la forma del contratto: un
+  // `lockedStarterIds` che non è un array o un `locked` che non è un booleano
+  // sono un errore di chi chiama, e si lanciano come tutti gli altri errori di
+  // contratto. Che i vincoli siano SODDISFACIBILI è un'altra domanda — la fa
+  // `checkConstraints`, e la sua risposta negativa è un rifiuto dichiarato nel
+  // risultato, non un'eccezione: un vincolo impossibile è una scelta legittima
+  // del fantallenatore che non si può esaudire, non un bug del chiamante.
+  const constraints = input.constraints;
+  if (constraints !== undefined) {
+    if (!Array.isArray(constraints.lockedStarterIds)) {
+      throw new Error("constraints.lockedStarterIds deve essere un array di id (vuoto se non ci sono imposti)");
+    }
+    for (const id of constraints.lockedStarterIds) {
+      if (typeof id !== "string" || id.length === 0) {
+        throw new Error(`constraints.lockedStarterIds: id mancante o non valido (${String(id)})`);
+      }
+    }
+    if (typeof constraints.locked !== "boolean") {
+      throw new Error(
+        "constraints.locked è obbligatorio ed è un booleano: «non dichiarato» non è «non bloccata». " +
+          "Una formazione che il fantallenatore crede bloccata e che invece viene riottimizzata è " +
+          "esattamente il danno che questo contratto esiste per evitare.",
+      );
+    }
+  }
+}
+
+/** Il massimo che i sette moduli ammessi concedono a un ruolo di movimento. */
+function maxStartersOfRole(role: "D" | "C" | "A"): number {
+  let max = 0;
+  for (const module of MODULES) {
+    const shape = moduleShape(module);
+    const n = role === "D" ? shape.defenders : role === "C" ? shape.midfielders : shape.strikers;
+    if (n > max) max = n;
+  }
+  return max;
+}
+
+const ROLE_LABEL: Record<Role, string> = { P: "portieri", D: "difensori", C: "centrocampisti", A: "attaccanti" };
+
+/** I vincoli neutri: quelli che non chiedono niente. */
+const NO_CONSTRAINTS: LineupConstraints = { lockedStarterIds: [], locked: false };
+
+function isActive(c: LineupConstraints): boolean {
+  return c.locked || c.lockedModule !== undefined || c.lockedStarterIds.length > 0;
+}
+
+interface ConstraintCheck {
+  readonly rejection: ConstraintIssue<ConstraintRejectionCode> | null;
+  readonly warnings: readonly ConstraintIssue<ConstraintWarningCode>[];
+}
+
+/**
+ * I VINCOLI SI DICHIARANO IMPOSSIBILI, NON SI RILASSANO.
+ *
+ * Ogni fattispecie ha il suo codice, e l'ordine dei controlli va dal più
+ * elementare al più fine: prima «questo id non esiste», poi «questi ruoli non
+ * stanno in nessun modulo». Restituire il primo motivo vero invece di una lista
+ * è una scelta: un rifiuto che elenca cinque conseguenze di uno stesso errore
+ * non aiuta a capire quale vincolo togliere.
+ */
+function checkConstraints(
+  constraints: LineupConstraints,
+  byId: ReadonlyMap<string, PlayerForecast>,
+  currentLineup: Lineup | undefined,
+  expectedPlayers: ReadonlyMap<string, PlayerLine>,
+): ConstraintCheck {
+  const reject = (
+    code: ConstraintRejectionCode,
+    message: string,
+    playerIds: readonly string[] = [],
+  ): ConstraintCheck => ({ rejection: { code, message, playerIds }, warnings: [] });
+
+  // 1) Gli id imposti devono esistere, una volta sola.
+  const unknown = constraints.lockedStarterIds.filter((id) => !byId.has(id));
+  if (unknown.length > 0) {
+    return reject(
+      "LOCKED_PLAYER_UNKNOWN",
+      `titolari imposti che non sono in rosa: ${unknown.join(", ")}. Non si schiera chi non c'è, ` +
+        "e il produttore non prova a indovinare chi si intendesse.",
+      unknown,
+    );
+  }
+  const seen = new Set<string>();
+  const duplicated: string[] = [];
+  for (const id of constraints.lockedStarterIds) {
+    if (seen.has(id) && !duplicated.includes(id)) duplicated.push(id);
+    seen.add(id);
+  }
+  if (duplicated.length > 0) {
+    return reject(
+      "LOCKED_PLAYER_DUPLICATED",
+      `titolari imposti ripetuti: ${duplicated.join(", ")}. Un id ripetuto non è un doppio vincolo: ` +
+        "è una richiesta che non si sa leggere, e leggerla a caso sarebbe peggio che rifiutarla.",
+      duplicated,
+    );
+  }
+
+  // 2) Il modulo imposto deve essere uno dei sette di §9.
+  if (constraints.lockedModule !== undefined && !MODULES.includes(constraints.lockedModule)) {
+    return reject(
+      "LOCKED_MODULE_NOT_ALLOWED",
+      `modulo imposto non ammesso: ${String(constraints.lockedModule)}. §9 ammette ${MODULES.join(", ")}.`,
+    );
+  }
+
+  // Gli avvertimenti si calcolano sull'insieme di chi finisce IN CAMPO per
+  // volontà: gli imposti, oppure — con `locked: true` — tutti gli undici dati.
+  const willBeFielded =
+    constraints.locked && currentLineup !== undefined
+      ? [currentLineup.goalkeeperId, ...currentLineup.starterIds]
+      : constraints.lockedStarterIds;
+  const neverPlaying = willBeFielded.filter((id) => {
+    const f = byId.get(id);
+    return f !== undefined && neverPlays(f);
+  });
+  const warnings: ConstraintIssue<ConstraintWarningCode>[] =
+    neverPlaying.length > 0
+      ? [
+          {
+            code: "LOCKED_PLAYER_NEVER_PLAYS",
+            message:
+              `imposti in campo con probabilità di voto zero: ${neverPlaying.join(", ")}. ` +
+              "Non è un vincolo impossibile: è un senza voto in ogni scenario, che §13 manda in " +
+              "sostituzione e che, se scoperto, conta come assente. La proposta ne esce peggiore, " +
+              "e questo è il prezzo dichiarato della scelta, non un errore da correggere.",
+            playerIds: neverPlaying,
+          },
+        ]
+      : [];
+
+  // 3) Formazione intera bloccata: si controlla quella, non la ricerca.
+  if (constraints.locked) {
+    if (currentLineup === undefined) {
+      return reject(
+        "LOCKED_LINEUP_MISSING",
+        "formazione bloccata senza formazione di partenza: `constraints.locked` dice «tieni questa», " +
+          "e `currentLineup` è assente. Non c'è niente da tenere, e cercarne una sarebbe l'opposto " +
+          "di ciò che il vincolo chiede.",
+      );
+    }
+    const illegal = lineupViolations(currentLineup, expectedPlayers);
+    const strangers = currentLineup.benchIds.filter((id) => !byId.has(id));
+    if (illegal.length > 0 || strangers.length > 0) {
+      const parts = [...illegal];
+      if (strangers.length > 0) parts.push(`in panchina giocatori che non sono in rosa: ${strangers.join(", ")}`);
+      return reject(
+        "LOCKED_LINEUP_ILLEGAL",
+        `la formazione bloccata non è schierabile: ${parts.join("; ")}. Bloccata non vuol dire legale: ` +
+          "consegnarla comunque farebbe credere valida una formazione che il regolamento rifiuta.",
+        strangers,
+      );
+    }
+    if (constraints.lockedModule !== undefined && constraints.lockedModule !== currentLineup.module) {
+      return reject(
+        "LOCKED_LINEUP_CONTRADICTS_CONSTRAINTS",
+        `modulo imposto ${constraints.lockedModule} ma la formazione bloccata è un ` +
+          `${currentLineup.module}. I due vincoli dicono cose diverse e nessuno dei due è più vero ` +
+          "dell'altro: decide il fantallenatore, non il produttore.",
+      );
+    }
+    const eleven = new Set([currentLineup.goalkeeperId, ...currentLineup.starterIds]);
+    const outside = constraints.lockedStarterIds.filter((id) => !eleven.has(id));
+    if (outside.length > 0) {
+      return reject(
+        "LOCKED_LINEUP_CONTRADICTS_CONSTRAINTS",
+        `titolari imposti che non sono negli undici della formazione bloccata: ${outside.join(", ")}. ` +
+          "I due vincoli si contraddicono e il produttore non sceglie quale dei due tradire.",
+        outside,
+      );
+    }
+    return { rejection: null, warnings };
+  }
+
+  // 4) Ricerca vincolata: gli imposti devono stare in un modulo ammissibile.
+  if (constraints.lockedStarterIds.length > 11) {
+    return reject(
+      "LOCKED_TOO_MANY",
+      `${constraints.lockedStarterIds.length} titolari imposti: gli undici sono undici (§9).`,
+      constraints.lockedStarterIds,
+    );
+  }
+  const lockedByRole: Record<Role, string[]> = { P: [], D: [], C: [], A: [] };
+  for (const id of constraints.lockedStarterIds) lockedByRole[(byId.get(id) as PlayerForecast).role].push(id);
+
+  if (lockedByRole.P.length > 1) {
+    return reject(
+      "LOCKED_ROLE_OVERFLOW",
+      `${lockedByRole.P.length} portieri imposti: §9 ne ammette uno solo in campo.`,
+      lockedByRole.P,
+    );
+  }
+  for (const role of OUTFIELD_ROLES) {
+    const key = role as "D" | "C" | "A";
+    const max = maxStartersOfRole(key);
+    if (lockedByRole[key].length > max) {
+      return reject(
+        "LOCKED_ROLE_OVERFLOW",
+        `${lockedByRole[key].length} ${ROLE_LABEL[key]} imposti: nessuno dei sette moduli di §9 ne ` +
+          `schiera più di ${max}. Il vincolo è impossibile con qualunque modulo, non solo con quello scelto.`,
+        lockedByRole[key],
+      );
+    }
+  }
+
+  const admissible = constraints.lockedModule === undefined ? MODULES : [constraints.lockedModule];
+  const fits = (module: Module): boolean => {
+    const shape = moduleShape(module);
+    return (
+      lockedByRole.D.length <= shape.defenders &&
+      lockedByRole.C.length <= shape.midfielders &&
+      lockedByRole.A.length <= shape.strikers
+    );
+  };
+  const roleCensus =
+    `${lockedByRole.P.length}P/${lockedByRole.D.length}D/${lockedByRole.C.length}C/${lockedByRole.A.length}A`;
+
+  // Undici imposti sono già una formazione: o è un modulo ammesso, o non lo è.
+  if (constraints.lockedStarterIds.length === 11) {
+    const exact = admissible.filter((module) => {
+      const shape = moduleShape(module);
+      return (
+        lockedByRole.P.length === 1 &&
+        lockedByRole.D.length === shape.defenders &&
+        lockedByRole.C.length === shape.midfielders &&
+        lockedByRole.A.length === shape.strikers
+      );
+    });
+    if (exact.length === 0) {
+      return reject(
+        "LOCKED_ELEVEN_NOT_A_MODULE",
+        `undici titolari imposti (${roleCensus}) che non compongono nessun modulo ammesso fra ` +
+          `${admissible.join(", ")} (§9 chiede un portiere più dieci di movimento). Con undici imposti ` +
+          "non resta un solo posto libero: o i ruoli sono già un modulo, o il vincolo non si può esaudire.",
+        constraints.lockedStarterIds,
+      );
+    }
+    return { rejection: null, warnings };
+  }
+
+  if (!admissible.some(fits)) {
+    return reject(
+      "LOCKED_MODULE_INCOMPATIBLE",
+      constraints.lockedModule === undefined
+        ? `i ruoli dei titolari imposti (${roleCensus}) non stanno insieme in nessuno dei sette moduli di §9.`
+        : `i ruoli dei titolari imposti (${roleCensus}) non stanno nel modulo imposto ` +
+          `${constraints.lockedModule}. Un altro modulo li reggerebbe, ma il modulo è a sua volta un ` +
+          "vincolo: il produttore non ne cambia uno per salvare l'altro.",
+      constraints.lockedStarterIds,
+    );
+  }
+
+  return { rejection: null, warnings };
 }
 
 /** La riga di giornata di chi gioca: esattamente la previsione, niente di più. */
@@ -425,6 +806,70 @@ function compareValuations(a: Valuation, b: Valuation): number {
   return a.expectedGoalDifference - b.expectedGoalDifference;
 }
 
+/**
+ * La stima di UNA formazione sugli scenari già costruiti. Sta fuori da
+ * `proposeLineup` perché serve anche alla formazione bloccata, che di ricerca
+ * non ne fa: il numero deve venire dalla stessa aritmetica in tutti e due i
+ * casi, altrimenti «bloccata» e «proposta» non sarebbero confrontabili.
+ */
+function valuationOf(
+  lineup: Lineup,
+  theirLineup: Lineup,
+  context: GameweekContext,
+  scenarios: readonly Scenario[],
+): Valuation {
+  let expectedLeaguePoints = 0;
+  let expectedOurTotal = 0;
+  let expectedGoalDifference = 0;
+  let win = 0;
+  let draw = 0;
+  let loss = 0;
+  let fullyTabulated = true;
+  let allResolved = true;
+  for (const scenario of scenarios) {
+    const outcome = simulateGameweek({ ourLineup: lineup, theirLineup, players: scenario.players, context });
+    expectedLeaguePoints += scenario.weight * leaguePointsOf(outcome, LEAGUE_POINTS).value;
+    expectedOurTotal += scenario.weight * outcome.ours.total;
+    expectedGoalDifference += scenario.weight * (outcome.ourGoals - outcome.theirGoals);
+    if (outcome.ourGoals > outcome.theirGoals) win += scenario.weight;
+    else if (outcome.ourGoals === outcome.theirGoals) draw += scenario.weight;
+    else loss += scenario.weight;
+    if (!outcome.fullyTabulated) fullyTabulated = false;
+    if (!outcome.resolved) allResolved = false;
+  }
+  return {
+    expectedLeaguePoints,
+    expectedOurTotal,
+    expectedGoalDifference,
+    winProbability: win,
+    drawProbability: draw,
+    lossProbability: loss,
+    fullyTabulated,
+    allResolved,
+  };
+}
+
+/**
+ * Nessuna formazione, nessuno scenario valutato: gli attesi sono zeri
+ * DICHIARATI, non una stima. `method` e `seed` dicono comunque che cosa si
+ * SAREBBE usato, perché dipendono solo dagli input.
+ */
+function emptyEstimate(method: "exact" | "sampled", seed: number | null): LineupProposal["estimate"] {
+  return {
+    method,
+    scenarios: 0,
+    seed,
+    expectedLeaguePoints: 0,
+    winProbability: 0,
+    drawProbability: 0,
+    lossProbability: 0,
+    expectedOurTotal: 0,
+    fullyTabulated: true,
+    allResolved: true,
+    refinementCapReached: false,
+  };
+}
+
 export function proposeLineup(input: LineupProposalInput): LineupProposal {
   assertInput(input);
 
@@ -439,7 +884,8 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
   const everyone: readonly PlayerForecast[] = [...squad, ...opponent.players];
 
   // ── Righe attese: la previsione puntuale, dove tutti giocano al valore atteso
-  // tranne chi ha p = 0, che è un senza voto e quindi non può essere titolare.
+  // tranne chi ha p = 0, che è un senza voto e quindi non può essere titolare —
+  // a meno che il fantallenatore lo IMPONGA (dichiarazione 5).
   const expectedPlayers = new Map<string, PlayerLine>();
   for (const f of everyone) {
     expectedPlayers.set(f.id, f.voteProbability > 0 ? expectedLine(f) : absentLine(f));
@@ -452,38 +898,118 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
   const method: "exact" | "sampled" = exact ? "exact" : "sampled";
   const usedSeed = exact ? null : requestedSeed;
 
+  // ── VINCOLI. Assenti, tutto quel che segue è identico a prima che
+  // esistessero: `NO_CONSTRAINTS` non è un default con effetti, è il nulla.
+  const constraints = input.constraints ?? NO_CONSTRAINTS;
+  const constraintsActive = isActive(constraints);
+  const check = constraintsActive
+    ? checkConstraints(constraints, byId, input.currentLineup, expectedPlayers)
+    : { rejection: null, warnings: [] as readonly ConstraintIssue<ConstraintWarningCode>[] };
+  const reportOf = (optimized: boolean): ConstraintReport => ({
+    applied: constraintsActive,
+    optimized,
+    lockedStarterIds: [...constraints.lockedStarterIds],
+    lockedModule: constraints.lockedModule ?? null,
+    locked: constraints.locked,
+    rejection: check.rejection,
+    warnings: check.warnings,
+  });
+  const constraintsLabel = constraintsActive
+    ? "vincoli del fantallenatore: " +
+      [
+        constraints.locked ? "formazione intera bloccata" : null,
+        constraints.lockedModule !== undefined ? `modulo imposto ${constraints.lockedModule}` : null,
+        constraints.lockedStarterIds.length > 0
+          ? `titolari imposti ${[...constraints.lockedStarterIds].sort().join(", ")}`
+          : null,
+      ]
+        .filter((part): part is string => part !== null)
+        .join("; ")
+    : "";
+
+  // Un vincolo impossibile NON è una formazione impossibile: si rifiuta con il
+  // suo motivo, e il motivo dice quale vincolo togliere. Nessun rilassamento.
+  if (check.rejection !== null) {
+    return {
+      lineup: null,
+      feasible: false,
+      reason: `vincoli non soddisfacibili [${check.rejection.code}]: ${check.rejection.message}`,
+      pointForecast: { lineup: null, outcome: null },
+      estimate: emptyEstimate(method, usedSeed),
+      evaluated: 0,
+      objectiveLabel,
+      constraints: reportOf(false),
+      leagueRuleVersion: LEAGUE_RULE_VERSION,
+    };
+  }
+
+  // ── FORMAZIONE INTERA BLOCCATA — non si cerca, si valuta e si consegna.
+  if (constraints.locked) {
+    const locked = input.currentLineup as Lineup;
+    const scenarios = buildScenarios(everyone, uncertain, exact, scenarioBudget, requestedSeed, expectedPlayers);
+    const value = valuationOf(locked, opponent.lineup, context, scenarios);
+    const outcome = simulateGameweek({
+      ourLineup: locked,
+      theirLineup: opponent.lineup,
+      players: expectedPlayers,
+      context,
+    });
+    return {
+      lineup: locked,
+      feasible: true,
+      reason:
+        "FORMAZIONE BLOCCATA: NESSUNA RICERCA E NESSUNA OTTIMIZZAZIONE. La formazione consegnata è " +
+        `quella ricevuta, valutata su ${scenarios.length} scenari (${method}) soltanto per dirne i ` +
+        `numeri; ${constraintsLabel}` +
+        (check.warnings.length > 0 ? `; AVVERTIMENTI: ${check.warnings.map((w) => w.code).join(", ")}` : ""),
+      pointForecast: { lineup: locked, outcome },
+      estimate: {
+        method,
+        scenarios: scenarios.length,
+        seed: usedSeed,
+        expectedLeaguePoints: value.expectedLeaguePoints,
+        winProbability: value.winProbability,
+        drawProbability: value.drawProbability,
+        lossProbability: value.lossProbability,
+        expectedOurTotal: value.expectedOurTotal,
+        fullyTabulated: value.fullyTabulated,
+        allResolved: value.allResolved,
+        refinementCapReached: false,
+      },
+      evaluated: 1,
+      objectiveLabel,
+      constraints: reportOf(false),
+      leagueRuleVersion: LEAGUE_RULE_VERSION,
+    };
+  }
+
+  const lockedIds: ReadonlySet<string> = new Set(constraints.lockedStarterIds);
+
   // ── TIER 1 — previsione puntuale, con l'ottimizzatore esatto a voti noti.
+  // Gli imposti entrano come `mustStart`, il modulo imposto come `onlyModule`:
+  // senza vincoli i due argomenti sono `undefined` e la chiamata è quella di
+  // sempre.
   const tierOne = bestLineupExPost({
     squad: expectedSquadLines,
     theirLineup: opponent.lineup,
     players: expectedPlayers,
     context,
+    onlyModule: constraints.lockedModule,
+    mustStart: lockedIds.size > 0 ? [...constraints.lockedStarterIds] : undefined,
   });
 
   if (!tierOne.feasible || tierOne.lineup === null) {
     return {
       lineup: null,
       feasible: false,
-      reason: `nessuna formazione proponibile a previsione puntuale: ${tierOne.reason}`,
+      reason:
+        `nessuna formazione proponibile a previsione puntuale: ${tierOne.reason}` +
+        (constraintsActive ? ` (${constraintsLabel})` : ""),
       pointForecast: { lineup: null, outcome: null },
-      estimate: {
-        method,
-        // Nessuna formazione, nessuno scenario valutato: gli attesi sotto sono
-        // zeri dichiarati, non una stima. `method` e `seed` dicono comunque che
-        // cosa si SAREBBE usato, perché dipendono solo dagli input.
-        scenarios: 0,
-        seed: usedSeed,
-        expectedLeaguePoints: 0,
-        winProbability: 0,
-        drawProbability: 0,
-        lossProbability: 0,
-        expectedOurTotal: 0,
-        fullyTabulated: true,
-        allResolved: true,
-        refinementCapReached: false,
-      },
+      estimate: emptyEstimate(method, usedSeed),
       evaluated: tierOne.evaluated,
       objectiveLabel,
+      constraints: reportOf(true),
       leagueRuleVersion: LEAGUE_RULE_VERSION,
     };
   }
@@ -516,40 +1042,7 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
 
   const valueOf = (lineup: Lineup): Valuation => {
     evaluated += 1;
-    let expectedLeaguePoints = 0;
-    let expectedOurTotal = 0;
-    let expectedGoalDifference = 0;
-    let win = 0;
-    let draw = 0;
-    let loss = 0;
-    let fullyTabulated = true;
-    let allResolved = true;
-    for (const scenario of scenarios) {
-      const outcome = simulateGameweek({
-        ourLineup: lineup,
-        theirLineup: opponent.lineup,
-        players: scenario.players,
-        context,
-      });
-      expectedLeaguePoints += scenario.weight * leaguePointsOf(outcome, LEAGUE_POINTS).value;
-      expectedOurTotal += scenario.weight * outcome.ours.total;
-      expectedGoalDifference += scenario.weight * (outcome.ourGoals - outcome.theirGoals);
-      if (outcome.ourGoals > outcome.theirGoals) win += scenario.weight;
-      else if (outcome.ourGoals === outcome.theirGoals) draw += scenario.weight;
-      else loss += scenario.weight;
-      if (!outcome.fullyTabulated) fullyTabulated = false;
-      if (!outcome.resolved) allResolved = false;
-    }
-    return {
-      expectedLeaguePoints,
-      expectedOurTotal,
-      expectedGoalDifference,
-      winProbability: win,
-      drawProbability: draw,
-      lossProbability: loss,
-      fullyTabulated,
-      allResolved,
-    };
+    return valuationOf(lineup, opponent.lineup, context, scenarios);
   };
 
   const startPlan: LineupPlan = {
@@ -586,7 +1079,7 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
       break;
     }
     let bestMove: { plan: LineupPlan; lineup: Lineup; value: Valuation } | null = null;
-    for (const plan of neighbours(current, squad, byId)) {
+    for (const plan of neighbours(current, squad, byId, lockedIds, constraints.lockedModule)) {
       const lineup = buildLineup(plan);
       const value = valueOf(lineup);
       if (bestMove === null) {
@@ -615,9 +1108,31 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
     );
   }
 
+  // I VINCOLI SI VERIFICANO SUL RISULTATO, NON SOLO SULL'INTENZIONE. Se un
+  // imposto non è fra gli undici consegnati, un ramo della ricerca l'ha perso:
+  // è un bug di questo file, e consegnare comunque significherebbe far credere
+  // schierato un giocatore che non c'è — il danno esatto che 5) descrive.
+  if (lockedIds.size > 0 || constraints.lockedModule !== undefined) {
+    const fielded = new Set([currentLineup.goalkeeperId, ...currentLineup.starterIds]);
+    const lost = [...lockedIds].filter((id) => !fielded.has(id));
+    if (lost.length > 0 || (constraints.lockedModule !== undefined && currentLineup.module !== constraints.lockedModule)) {
+      throw new Error(
+        "bug del produttore: la ricerca ha violato un vincolo dichiarato " +
+          `(imposti persi: ${lost.length > 0 ? lost.join(", ") : "nessuno"}; ` +
+          `modulo atteso ${String(constraints.lockedModule)}, ottenuto ${currentLineup.module}). ` +
+          "Un vincolo si rispetta o si rifiuta: non si perde per strada.",
+      );
+    }
+  }
+
   const reason =
     `previsione puntuale con l'ottimizzatore esatto (${tierOne.reason}), poi raffinamento hill climbing ` +
     `su ${scenarios.length} scenari (${method}) con ${iterations} mossa/e accettata/e; criterio: ${objectiveLabel}` +
+    (constraintsActive
+      ? `; ${constraintsLabel}, rispettati per intero e mai messi in discussione dalla ricerca: la ` +
+        "proposta è la migliore CHE LI RISPETTA, e può valere meno della migliore senza vincoli"
+      : "") +
+    (check.warnings.length > 0 ? `; AVVERTIMENTI: ${check.warnings.map((w) => w.code).join(", ")}` : "") +
     (capReached ? `; TETTO DI ${MAX_REFINEMENT_ITERATIONS} ITERAZIONI RAGGIUNTO: il raffinamento non è convergente` : "");
 
   return {
@@ -640,6 +1155,7 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
     },
     evaluated,
     objectiveLabel,
+    constraints: reportOf(true),
     leagueRuleVersion: LEAGUE_RULE_VERSION,
   };
 }
@@ -677,11 +1193,22 @@ function tieBreakKey(lineup: Lineup): string {
  * invariato l'ordine relativo di tutti quelli che possono entrare. Sarebbero
  * mosse identiche all'originale pagate al prezzo pieno di una valutazione su
  * tutti gli scenari — e terrebbero in vita il limite che 2) dichiara chiuso.
+ *
+ * I VINCOLI ENTRANO QUI, NON SOLO NEL PUNTO DI PARTENZA. Un imposto messo
+ * titolare all'inizio e poi rimovibile da una mossa (a), (b) o (c) non è un
+ * vincolo: è un suggerimento che la ricerca scarta appena trova mezzo punto in
+ * più — ed è quel mezzo punto a renderlo probabile, non improbabile. Perciò
+ * `lockedIds` toglie dal vicinato ogni mossa che sposti un imposto, e
+ * `lockedModule` toglie in blocco le mosse (c). Il vicinato risultante non
+ * contiene NESSUNA formazione che violi un vincolo: la garanzia è strutturale,
+ * non un controllo a valle che si potrebbe dimenticare.
  */
 function neighbours(
   current: LineupPlan,
   squad: readonly PlayerForecast[],
   byId: ReadonlyMap<string, PlayerForecast>,
+  lockedIds: ReadonlySet<string>,
+  lockedModule: Module | undefined,
 ): LineupPlan[] {
   const out: LineupPlan[] = [];
   const startersSet = new Set(current.starterIds);
@@ -692,6 +1219,7 @@ function neighbours(
 
   // (a) scambi di movimento, stesso ruolo.
   for (const starterId of current.starterIds) {
+    if (lockedIds.has(starterId)) continue; // un imposto non esce: 5).
     const starter = byId.get(starterId) as PlayerForecast;
     for (const candidate of squad) {
       if (inLineup.has(candidate.id) || candidate.role !== starter.role) continue;
@@ -710,8 +1238,8 @@ function neighbours(
     }
   }
 
-  // (b) scambio del portiere.
-  for (const candidate of squad) {
+  // (b) scambio del portiere — impossibile se il portiere è imposto.
+  for (const candidate of lockedIds.has(current.keeperId) ? [] : squad) {
     if (candidate.role !== "P" || candidate.id === current.keeperId || startersSet.has(candidate.id)) continue;
     if (neverPlays(candidate)) continue; // stessa ragione di (a).
     out.push({
@@ -722,10 +1250,10 @@ function neighbours(
     });
   }
 
-  // (c) cambio modulo.
-  for (const module of MODULES) {
+  // (c) cambio modulo — non esiste se il modulo è imposto.
+  for (const module of lockedModule === undefined ? MODULES : []) {
     if (module === current.module) continue;
-    const plan = replan(current, module, squad, byId);
+    const plan = replan(current, module, squad, byId, lockedIds);
     if (plan !== null) out.push(plan);
   }
 
@@ -754,12 +1282,18 @@ function neighbours(
   return out;
 }
 
-/** Riscrive i titolari per un modulo diverso. `null` se la rosa non lo consente. */
+/**
+ * Riscrive i titolari per un modulo diverso. `null` se la rosa non lo consente
+ * — o se i titolari IMPOSTI non ci stanno: un modulo che chiede meno difensori
+ * di quanti ne sono imposti non è un modulo praticabile, e si scarta invece di
+ * togliere l'imposto in eccesso.
+ */
 function replan(
   current: LineupPlan,
   module: Module,
   squad: readonly PlayerForecast[],
   byId: ReadonlyMap<string, PlayerForecast>,
+  lockedIds: ReadonlySet<string>,
 ): LineupPlan | null {
   const shape = moduleShape(module);
   const wanted: Record<"D" | "C" | "A", number> = {
@@ -776,9 +1310,14 @@ function replan(
       .filter((f) => f.role === role);
     const target = wanted[key];
     if (startersOfRole.length >= target) {
-      // Ne servono meno: si tolgono i più bassi per punteggio atteso.
-      const ordered = [...startersOfRole].sort(compareByExpectedAsc);
-      const dropped = new Set(ordered.slice(0, startersOfRole.length - target).map((f) => f.id));
+      // Ne servono meno: si tolgono i più bassi per punteggio atteso, MAI un
+      // imposto. Se i soli imposti già superano il posto disponibile, questo
+      // modulo non è praticabile e la mossa (c) non esiste.
+      const removable = startersOfRole.filter((f) => !lockedIds.has(f.id));
+      const toDrop = startersOfRole.length - target;
+      if (removable.length < toDrop) return null;
+      const ordered = [...removable].sort(compareByExpectedAsc);
+      const dropped = new Set(ordered.slice(0, toDrop).map((f) => f.id));
       for (const f of startersOfRole) if (!dropped.has(f.id)) kept.push(f.id);
     } else {
       for (const f of startersOfRole) kept.push(f.id);

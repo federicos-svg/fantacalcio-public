@@ -102,6 +102,17 @@ export function bestLineupExPost(input: {
   /** Limita la ricerca a un modulo solo; assente = tutti e sette. */
   readonly onlyModule?: Module;
   /**
+   * Giocatori che DEVONO essere schierati — portiere o movimento. Assente o
+   * vuoto: la ricerca è quella di sempre, bit a bit.
+   *
+   * Un imposto entra anche SENZA VOTO. Non è un'incoerenza con la regola qui
+   * sopra («chi sceglie ex-post non schiera mai un giocatore senza voto»):
+   * quella descrive che cosa SCEGLIE questa funzione, mentre un imposto non è
+   * una sua scelta, è una volontà di chi schiera. Questa funzione la rispetta,
+   * oppure dichiara che il modulo non la regge — non la rilassa.
+   */
+  readonly mustStart?: readonly string[];
+  /**
    * I punti di lega dichiarati. `null` (o assente) = non dichiarati: si ordina
    * su differenza goal e poi punteggio, con l'etichetta a vista.
    */
@@ -117,33 +128,80 @@ export function bestLineupExPost(input: {
   const byRole = (role: Role): PlayerLine[] => withVote.filter((line) => line.role === role);
   const modules = input.onlyModule === undefined ? MODULES : [input.onlyModule];
 
+  // Titolari imposti: l'insieme vuoto lascia ogni pool identico a `byRole`, e
+  // quindi lascia la ricerca identica a quella di sempre.
+  const mustStartIds = new Set(input.mustStart ?? []);
+  const squadIds = new Set(squad.map((line) => line.id));
+  for (const id of mustStartIds) {
+    if (!squadIds.has(id)) {
+      throw new Error(`mustStart: ${id} non è in rosa. Chi impone un titolare deve averlo fra le righe passate.`);
+    }
+  }
+  /** Gli imposti di un ruolo, con o senza voto: la volontà non si filtra. */
+  const forcedByRole = (role: Role): PlayerLine[] =>
+    squad.filter((line) => mustStartIds.has(line.id) && line.role === role);
+  /** I liberi di un ruolo: quelli con voto che nessuno ha imposto. */
+  const freeByRole = (role: Role): PlayerLine[] => byRole(role).filter((line) => !mustStartIds.has(line.id));
+
   let best: { lineup: Lineup; outcome: GameweekOutcome } | null = null;
   let evaluated = 0;
   const shortfalls: string[] = [];
 
+  const OUTFIELD: readonly ("D" | "C" | "A")[] = ["D", "C", "A"];
+
   for (const module of modules) {
     const shape = moduleShape(module);
-    const keepers = byRole("P");
-    const defenders = byRole("D");
-    const midfielders = byRole("C");
-    const strikers = byRole("A");
-    if (
-      keepers.length < 1 ||
-      defenders.length < shape.defenders ||
-      midfielders.length < shape.midfielders ||
-      strikers.length < shape.strikers
-    ) {
+    const forcedKeepers = forcedByRole("P");
+    if (forcedKeepers.length > 1) {
+      shortfalls.push(`${module}: ${forcedKeepers.length} portieri imposti, il modulo ne chiede uno`);
+      continue;
+    }
+    const keepers = forcedKeepers.length === 1 ? forcedKeepers : byRole("P");
+    const wanted: Record<"D" | "C" | "A", number> = {
+      D: shape.defenders,
+      C: shape.midfielders,
+      A: shape.strikers,
+    };
+    const forcedOf: Record<"D" | "C" | "A", PlayerLine[]> = {
+      D: forcedByRole("D"),
+      C: forcedByRole("C"),
+      A: forcedByRole("A"),
+    };
+    const freeOf: Record<"D" | "C" | "A", PlayerLine[]> = {
+      D: freeByRole("D"),
+      C: freeByRole("C"),
+      A: freeByRole("A"),
+    };
+    let blocked = false;
+    for (const role of OUTFIELD) {
+      if (forcedOf[role].length > wanted[role]) {
+        shortfalls.push(`${module}: ${forcedOf[role].length} ${role} imposti, il modulo ne chiede ${wanted[role]}`);
+        blocked = true;
+        break;
+      }
+      if (freeOf[role].length < wanted[role] - forcedOf[role].length) {
+        shortfalls.push(`${module}: giocatori con voto insufficienti per il modulo`);
+        blocked = true;
+        break;
+      }
+    }
+    if (blocked) continue;
+    if (keepers.length < 1) {
       shortfalls.push(`${module}: giocatori con voto insufficienti per il modulo`);
       continue;
     }
 
-    for (const keeper of keepers) {
-      // Massimizzazione separata per ruolo: ogni combinazione viene valutata
-      // dentro una formazione completa, così il punteggio è sempre quello vero
-      // del simulatore e non una somma parallela che potrebbe divergere.
-      const pick = (candidates: readonly PlayerLine[], size: number): PlayerLine[][] =>
-        combinations(candidates, size);
+    // Massimizzazione separata per ruolo: ogni combinazione viene valutata
+    // dentro una formazione completa, così il punteggio è sempre quello vero
+    // del simulatore e non una somma parallela che potrebbe divergere. Gli
+    // imposti occupano i loro posti e la ricerca combina solo il resto.
+    const pick = (role: "D" | "C" | "A"): PlayerLine[][] =>
+      combinations(freeOf[role], wanted[role] - forcedOf[role].length).map((rest) => [...forcedOf[role], ...rest]);
+    const picksD = pick("D");
+    const picksC = pick("C");
+    const picksA = pick("A");
 
+    for (const keeper of keepers) {
       let bestForKeeper: { lineup: Lineup; outcome: GameweekOutcome } | null = null;
       const evaluate = (d: PlayerLine[], c: PlayerLine[], a: PlayerLine[]): GameweekOutcome => {
         const starters = [...d, ...c, ...a];
@@ -191,12 +249,12 @@ export function bestLineupExPost(input: {
       // controesempio: mezzo punto di differenza sul massimo. Il test
       // `non esiste una rosa in cui la forza bruta batta l'algoritmo` percorre
       // ora un campionario di rose invece di una sola.
-      const refC = pick(midfielders, shape.midfielders)[0]!;
-      const refA = pick(strikers, shape.strikers)[0]!;
+      const refC = picksC[0]!;
+      const refA = picksA[0]!;
 
-      let bestD = pick(defenders, shape.defenders)[0]!;
+      let bestD = picksD[0]!;
       let bestDTotal = -Infinity;
-      for (const d of pick(defenders, shape.defenders)) {
+      for (const d of picksD) {
         const total = evaluate(d, refC, refA).ours.total;
         if (total > bestDTotal) {
           bestDTotal = total;
@@ -205,7 +263,7 @@ export function bestLineupExPost(input: {
       }
       let bestA = refA;
       let bestATotal = -Infinity;
-      for (const a of pick(strikers, shape.strikers)) {
+      for (const a of picksA) {
         const total = evaluate(bestD, refC, a).ours.total;
         if (total > bestATotal) {
           bestATotal = total;
@@ -214,7 +272,7 @@ export function bestLineupExPost(input: {
       }
       let bestC = refC;
       let bestCValue = -Infinity;
-      for (const c of pick(midfielders, shape.midfielders)) {
+      for (const c of picksC) {
         const value = valueOf(evaluate(bestD, c, bestA));
         if (value > bestCValue) {
           bestCValue = value;
