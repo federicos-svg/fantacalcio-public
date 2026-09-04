@@ -200,6 +200,13 @@ const FORMAZIONE_SURFACE: readonly string[] = [
   // nessuna porta collegata. Entra in elenco perché nomina i tipi del
   // contratto — è una riga in diff, come ogni altra porta di questo elenco.
   "src/formazioneProva.ts",
+  // L'adattatore che collega la porta di lettura a un percorso dello stesso
+  // sito: nessun host, nessuna credenziale, solo la traduzione fail-closed del
+  // deposito nei tipi di questo contratto.
+  "src/formazioneCanaleRemoto.ts",
+  // La costruzione, pura e provabile, della fascia che dichiara quando ogni
+  // pezzo è stato letto e con chi si gioca.
+  "src/formazioneLettura.ts",
   // La schermata.
   "src/ui/formazione.ts",
   // La shell: barra, schermata iniziale, salvataggio.
@@ -228,8 +235,8 @@ describe("il contratto di osservazione resta fuori dal prodotto d'asta", () => {
     for (const relative of FORMAZIONE_SURFACE) {
       expect(statSync(join(REPO_ROOT, relative)).isFile(), relative).toBe(true);
     }
-    // Nessuna radice, nessun prefisso: cinque file e basta.
-    expect(FORMAZIONE_SURFACE).toHaveLength(5);
+    // Nessuna radice, nessun prefisso: sette file e basta.
+    expect(FORMAZIONE_SURFACE).toHaveLength(7);
     for (const relative of FORMAZIONE_SURFACE) {
       expect(relative.endsWith(".ts")).toBe(true);
     }

@@ -1,0 +1,82 @@
+{
+  "_nota": "FIXTURE SINTETICA. Nessun dato reale: identificativi inventati (t-*, c-*, g-*), nessun nome di giocatore vero, nessuna squadra reale, nessun identificativo di piattaforma. È la forma che il layer privato scrive nel deposito e che il core pubblico legge da /api/formazione. Ogni pezzo porta il proprio momento di lettura: formazione e stato della giornata si rileggono spesso, rose e calendario di rado, e le due età sono legittimamente diverse.",
+  "format": "LEAGUE-CHANNEL-OBSERVATION@1",
+  "observations": {
+    "lineup": { "readAt": "2026-09-04T17:40:00.000Z", "seriesMatchday": 3 },
+    "roster": { "readAt": "2026-09-04T06:00:00.000Z", "seriesMatchday": 3 },
+    "settings": { "readAt": "2026-09-04T06:00:00.000Z", "seriesMatchday": 3 },
+    "leagueTeams": { "readAt": "2026-09-04T06:00:00.000Z", "seriesMatchday": 3 },
+    "calendar": { "readAt": "2026-09-04T06:00:00.000Z", "seriesMatchday": 3 }
+  },
+  "roster": {
+    "teamId": "t-io",
+    "players": [
+      { "id": "g-p1", "role": "P", "name": "Portiere Uno" },
+      { "id": "g-d1", "role": "D", "name": "Difensore Uno" },
+      { "id": "g-d2", "role": "D", "name": "Difensore Due" },
+      { "id": "g-d3", "role": "D", "name": "Difensore Tre" },
+      { "id": "g-c1", "role": "C", "name": "Centrocampista Uno" },
+      { "id": "g-c2", "role": "C", "name": "Centrocampista Due" },
+      { "id": "g-c3", "role": "C", "name": "Centrocampista Tre" },
+      { "id": "g-c4", "role": "C", "name": "Centrocampista Quattro" },
+      { "id": "g-c5", "role": "C", "name": "Centrocampista Cinque" },
+      { "id": "g-a1", "role": "A", "name": "Attaccante Uno" },
+      { "id": "g-a2", "role": "A", "name": "Attaccante Due" },
+      { "id": "g-a3", "role": "A", "name": "Attaccante Tre", "availability": "in_dubbio" }
+    ]
+  },
+  "settings": {
+    "allowedModules": ["352", "433"],
+    "maxSubstitutions": 3
+  },
+  "competitions": [
+    {
+      "competitionId": "c-campionato",
+      "name": "Campionato di lega",
+      "kind": "campionato",
+      "startDay": 3,
+      "lineupSeriesMatchday": 3,
+      "lineupCompetitionMatchday": 1,
+      "lineup": {
+        "competitionId": "c-campionato",
+        "module": "352",
+        "goalkeeperId": "g-p1",
+        "starterIds": ["g-d1", "g-d2", "g-d3", "g-c1", "g-c2", "g-c3", "g-c4", "g-c5", "g-a1", "g-a2"],
+        "benchIds": ["g-a3"],
+        "flags": { "hidden": false, "allCompetitions": false }
+      }
+    },
+    {
+      "competitionId": "c-coppa",
+      "name": "Coppa di Lega",
+      "kind": "coppa",
+      "startDay": 7,
+      "unavailableReason": "la coppa comincia alla 7ª giornata di Serie A: adesso non c'è nessuna formazione da schierare"
+    }
+  ],
+  "leagueTeams": {
+    "_nota": "Le rose delle altre squadre sono `null`, cioè NON LETTE: la lettura che le procurerebbe non è mai stata osservata sulla piattaforma, quindi non viene fatta. `null` non è una rosa vuota.",
+    "teams": [
+      { "teamId": "t-io", "name": "La mia squadra", "roster": null },
+      { "teamId": "t-avv", "name": "Squadra avversaria", "roster": null }
+    ]
+  },
+  "calendar": {
+    "teamId": "t-io",
+    "competitions": [
+      {
+        "competition": { "competitionId": "c-campionato", "name": "Campionato di lega", "kind": "campionato" },
+        "fixtures": [
+          {
+            "competitionId": "c-campionato",
+            "matchday": 1,
+            "opponentTeamId": "t-avv",
+            "venue": "casa",
+            "kickoffAt": "2026-09-06T16:00:00.000Z",
+            "deadlineAt": "2026-09-06T15:00:00.000Z"
+          }
+        ]
+      }
+    ]
+  }
+}

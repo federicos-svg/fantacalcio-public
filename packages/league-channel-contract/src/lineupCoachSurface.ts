@@ -44,10 +44,12 @@ import type {
   ConstraintWarningCode,
   LineupConstraints,
 } from "../../league-gameweek/src/lineupProposer.js";
-import type { ObservedCompetition } from "./calendar.js";
+import type { ObservedCalendar, ObservedCompetition } from "./calendar.js";
+import type { ObservedLeagueTeams } from "./leagueRoster.js";
 import type { ObservedLeagueSettings } from "./leagueSettings.js";
 import type { DraftLegality, LineupPlace } from "./lineupDraft.js";
 import { draftLegality, isLineupModified, placeOf } from "./lineupDraft.js";
+import type { ObservedParts } from "./lineupObservation.js";
 import type {
   LineupDifference,
   LineupSubmission,
@@ -108,6 +110,20 @@ export type ChannelUnknownCause =
   | "risposta_assente"
   /** La porta ha risposto qualcosa che non si è potuto leggere. */
   | "risposta_illeggibile"
+  /**
+   * La lettura c'è ed è leggibile, ma la formazione che porta è di una GIORNATA
+   * DIVERSA da quella che la lega dichiara. Non è un guasto del canale: è una
+   * lettura vecchia, o della partita sbagliata, e mostrarla sarebbe l'errore
+   * peggiore che questa schermata possa fare. Il perché della doppia guardia, e
+   * le due scale in cui la giornata si dichiara: `./lineupObservation.ts`.
+   */
+  | "giornata_non_corrispondente"
+  /**
+   * La lettura non dichiara la giornata — manca almeno uno dei quattro numeri
+   * del confronto. Non è «coincide»: è «non si è potuto controllare», e le due
+   * cose non si confondono perché hanno rimedi diversi.
+   */
+  | "giornata_non_dichiarata"
   /** Non si sa quale dei tre: si dichiara l'ignoranza, non se ne sceglie uno. */
   | "non_diagnosticabile";
 
@@ -141,9 +157,32 @@ export interface ObservedCompetitionLineup {
 
 export interface LineupChannelRead {
   readonly kind: "letto";
+  /**
+   * QUANDO OGNI PEZZO è stato letto, uno per uno.
+   *
+   * **Obbligatorio, e il tipo è il punto**: un dato conservato somiglia a un
+   * dato di adesso, e l'unico modo per cui la pagina non possa dimenticarsi di
+   * dirlo è che una lettura senza i suoi momenti non sia rappresentabile. Non è
+   * un momento solo perché i pezzi non hanno la stessa età: formazione e stato
+   * della giornata si rileggono spesso, rose e calendario di rado, e un istante
+   * unico in cima mentirebbe su tutto ciò che non l'ha prodotto. Prosa e regole:
+   * `./lineupObservation.ts`.
+   */
+  readonly observations: ObservedParts;
   readonly roster: ObservedTeam;
   readonly settings: ObservedLeagueSettings;
   readonly competitions: readonly ObservedCompetitionLineup[];
+  /**
+   * LE ALTRE SQUADRE DELLA LEGA. `null` = l'elenco non è stato letto — mai un
+   * elenco vuoto al suo posto, che direbbe «la lega non ha squadre».
+   */
+  readonly leagueTeams: ObservedLeagueTeams | null;
+  /**
+   * IL CALENDARIO OSSERVATO, da cui si ricava l'avversario di giornata con
+   * `opponentForMatchday`. `null` = non letto, e allora l'avversario non si
+   * mostra invece di essere indovinato.
+   */
+  readonly calendar: ObservedCalendar | null;
 }
 
 /** Ciò che la porta di lettura restituisce. */
@@ -731,6 +770,10 @@ const AVVISI: Readonly<Record<ChannelUnknownCause, string>> = {
     "La lega non ha risposto: la tua squadra e la tua formazione non sono state lette. Questa pagina non mostra una formazione perché non ne conosce nessuna, non perché tu non abbia schierato.",
   risposta_illeggibile:
     "La lega ha risposto qualcosa che non si è riusciti a leggere: la tua squadra e la tua formazione restano ignote. Nessuna formazione viene mostrata, perché mostrarne una vuota direbbe una cosa falsa.",
+  giornata_non_corrispondente:
+    "La formazione letta è di una giornata diversa da quella che la lega dichiara adesso: non è la formazione di questa giornata. Non viene mostrata, perché mostrarla qui la farebbe sembrare quella di oggi — ed è l'errore che costa una giornata intera.",
+  giornata_non_dichiarata:
+    "La lettura non dice a quale giornata appartiene la formazione, e senza quel dato non si può stabilire se sia quella di oggi. Non viene mostrata: «non si è potuto controllare» non è «va bene».",
   non_diagnosticabile:
     "Non si riesce a sapere come sta la tua squadra in questo momento, e non si riesce nemmeno a dire perché. Nessuna formazione viene mostrata: quello che c'è da sapere è che non si sa.",
 };
@@ -739,6 +782,8 @@ const TITOLI: Readonly<Record<ChannelUnknownCause, string>> = {
   porta_non_collegata: "CANALE DELLA LEGA NON COLLEGATO",
   risposta_assente: "LA LEGA NON HA RISPOSTO",
   risposta_illeggibile: "RISPOSTA DELLA LEGA NON LEGGIBILE",
+  giornata_non_corrispondente: "FORMAZIONE DI UN'ALTRA GIORNATA",
+  giornata_non_dichiarata: "GIORNATA DELLA FORMAZIONE NON DICHIARATA",
   non_diagnosticabile: "STATO DELLA SQUADRA IGNOTO",
 };
 

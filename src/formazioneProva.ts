@@ -116,6 +116,33 @@ export const PROVA_COMPETITION_ID = "prova-campionato";
 /** La giornata della prova: un numero qualunque, purché intero e positivo. */
 export const PROVA_GIORNATA = 5;
 
+/**
+ * QUANDO la squadra di esempio è stata «letta»: una data **fissa e inventata**,
+ * come ogni altro dato di questa squadra.
+ *
+ * Non è l'ora corrente, ed è una scelta, non una svista: il momento della
+ * lettura serve a distinguere una formazione di adesso da una conservata, e
+ * darne uno appena aggiornato a una squadra finta significherebbe insegnare a
+ * quella riga a mentire proprio nel posto in cui la si impara a leggere.
+ */
+export const PROVA_LETTA_IL = "2026-01-01T12:00:00.000Z";
+
+/** Il momento della prova, nella forma in cui il contratto lo pretende. */
+const MOMENTO_PROVA = { readAt: PROVA_LETTA_IL, seriesMatchday: PROVA_GIORNATA } as const;
+
+/** L'id della squadra di esempio: lo stesso che porta `PROVA_ROSA`. */
+export const PROVA_SQUADRA_ID = `${PROVA_PREFISSO_ID}Squadra`;
+
+/** L'avversario di esempio: un id inventato, con la targa della prova in testa. */
+export const PROVA_AVVERSARIO_ID = `${PROVA_PREFISSO_ID}Avversario`;
+
+/** La competizione della prova, una sola volta e usata ovunque. */
+const PROVA_COMPETIZIONE = {
+  competitionId: PROVA_COMPETITION_ID,
+  name: "Campionato di esempio",
+  kind: "campionato",
+} as const;
+
 function id(ruolo: string, numero: number): string {
   return `${PROVA_PREFISSO_ID}${ruolo}-${numero}`;
 }
@@ -140,7 +167,7 @@ function id(ruolo: string, numero: number): string {
  * si vede meglio con tutti e due sotto gli occhi.
  */
 export const PROVA_ROSA: ObservedTeam = {
-  teamId: `${PROVA_PREFISSO_ID}Squadra`,
+  teamId: PROVA_SQUADRA_ID,
   players: [
     { id: id("Portiere", 1), role: "P", availability: "disponibile" },
     { id: id("Difensore", 1), role: "D", availability: "disponibile" },
@@ -230,19 +257,55 @@ export const PROVA_IMPOSTAZIONI: ObservedLeagueSettings = {
 export function provaChannelState(): LineupChannelState {
   return {
     kind: "letto",
+    // ANCHE LA PROVA HA UN MOMENTO, e non è quello di adesso: `PROVA_LETTA_IL` è
+    // una data fissa e dichiarata, come tutto il resto di questa squadra. Darle
+    // l'ora corrente la farebbe sembrare una lettura appena avvenuta — cioè
+    // proprio la confusione che il momento della lettura esiste per impedire —
+    // e la riga «letta …» sopra la formazione lo dirà a voce alta insieme alla
+    // fascia che dichiara la prova.
+    observations: {
+      lineup: MOMENTO_PROVA,
+      roster: MOMENTO_PROVA,
+      settings: MOMENTO_PROVA,
+      leagueTeams: MOMENTO_PROVA,
+      calendar: MOMENTO_PROVA,
+    },
     roster: PROVA_ROSA,
     settings: PROVA_IMPOSTAZIONI,
     competitions: [
       {
-        competition: {
-          competitionId: PROVA_COMPETITION_ID,
-          name: "Campionato di esempio",
-          kind: "campionato",
-        },
+        competition: PROVA_COMPETIZIONE,
         matchday: PROVA_GIORNATA,
         state: { kind: "letta", lineup: PROVA_FORMAZIONE },
       },
     ],
+    // L'AVVERSARIO C'È ANCHE NELLA PROVA, e la sua rosa NO. È la coppia di stati
+    // che si incontra più spesso nel prodotto vero — la lega dice con chi si
+    // gioca molto prima di lasciar vedere la rosa altrui — e la prova esiste per
+    // far vedere come la pagina la dichiara: «avversario noto, rosa non letta»,
+    // che non è «avversario senza giocatori».
+    leagueTeams: {
+      teams: [
+        { teamId: PROVA_SQUADRA_ID, name: "La tua squadra di esempio", roster: PROVA_ROSA },
+        { teamId: PROVA_AVVERSARIO_ID, name: "Avversario di esempio", roster: null },
+      ],
+    },
+    calendar: {
+      teamId: PROVA_SQUADRA_ID,
+      competitions: [
+        {
+          competition: PROVA_COMPETIZIONE,
+          fixtures: [
+            {
+              competitionId: PROVA_COMPETITION_ID,
+              matchday: PROVA_GIORNATA,
+              opponentTeamId: PROVA_AVVERSARIO_ID,
+              venue: "casa",
+            },
+          ],
+        },
+      ],
+    },
   };
 }
 

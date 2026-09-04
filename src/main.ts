@@ -230,6 +230,12 @@ import {
   readLineupChannelState,
   submitLineup,
 } from "./formazioneChannel.js";
+// IL CANALE, COLLEGATO A UN PERCORSO DELLO STESSO SITO. Nessun host, nessuna
+// credenziale, nessuna piattaforma nominata: chi sta dietro `/api/formazione` è
+// il layer privato, e il core pubblico non sa altro che il percorso. La prosa
+// intera sta in testa a ./formazioneCanaleRemoto.ts.
+import { avviaCanaleDaDeposito } from "./formazioneCanaleRemoto.js";
+import { costruisciLettura } from "./formazioneLettura.js";
 import {
   formazioneConstraintsNotice,
   loadFormazioneConstraints,
@@ -1077,12 +1083,41 @@ const bootSchedaDrafts = loadSchedaDrafts(browserStorage);
 // riga lo dice senza allarmare: la contabilità dell'asta non è toccata.
 const bootInterestFlags = loadInterestFlags(browserStorage);
 
-// LA LEGA, CHIESTA UNA VOLTA AL BOOT. Nel core pubblico la porta non è
-// collegata e la risposta è «porta non collegata», che è la verità e non un
-// errore: la pagina Formazione lo dichiara al posto della squadra. I vincoli
-// salvati si rileggono comunque — sono di Pico, non della lega — e un archivio
-// illeggibile riparte VUOTO con una riga che lo dice, mai a metà.
+// LA LEGA, CHIESTA UNA VOLTA AL BOOT.
+//
+// La porta viene collegata **subito**, e la richiesta parte con lei: da questo
+// istante lo stato non è più «porta non collegata» — che descrive una build
+// senza layer privato — ma «la lega non ha ancora risposto», che è ciò che sta
+// succedendo davvero mentre la pagina si disegna la prima volta.
+//
+// PERCHÉ LA SCHERMATA INIZIALE SI DECIDE DUE VOLTE. `decideInitialScreen` è una
+// funzione della risposta della lega, e con un canale vero quella risposta non
+// esiste ancora quando la prima pagina va a schermo. Applicarla una sola volta,
+// al boot, significherebbe deciderla **sempre** su «non ha ancora risposto»:
+// la regola di prodotto che c'è già verrebbe svuotata in silenzio. Quindi la si
+// riapplica quando la lettura arriva, e **solo se Pico non ha ancora cambiato
+// pagina da sé**: una navigazione sua non viene mai annullata da un dato che
+// arriva dopo.
+//
+// I vincoli salvati si rileggono comunque — sono di Pico, non della lega — e un
+// archivio illeggibile riparte VUOTO con una riga che lo dice, mai a metà.
+const letturaCanaleLega = avviaCanaleDaDeposito({
+  fetchImpl: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init),
+  alCambio: () => {
+    state.lineupChannel = readLineupChannelState();
+    if (state.screen === schermoDecisoAlBoot) {
+      const scelto = decideInitialScreen(state.lineupChannel);
+      state.screen = scelto;
+      schermoDecisoAlBoot = scelto;
+    }
+    render();
+  },
+});
 const bootLineupChannel = readLineupChannelState();
+// La schermata che la regola di prodotto ha scelto **finora**: serve a
+// riconoscere una navigazione di Pico da una pagina che nessuno ha ancora
+// toccato, quando la lettura arriva.
+let schermoDecisoAlBoot: Screen = decideInitialScreen(bootLineupChannel);
 const bootFormazioneConstraints = loadFormazioneConstraints(browserStorage);
 
 function interestFlagsBootNotice(
@@ -1110,7 +1145,7 @@ const state: AppState = {
   // sull'Asta; rosa piena apre sulla Formazione anche quando la formazione non
   // c'è ancora; un canale che non risponde apre sulla Formazione con l'avviso
   // al posto della squadra.
-  screen: decideInitialScreen(bootLineupChannel),
+  screen: schermoDecisoAlBoot,
   lineupChannel: bootLineupChannel,
   lineupConstraints: new Map(bootFormazioneConstraints.byCompetition),
   lineupDrafts: new Map(),
@@ -3751,6 +3786,10 @@ function renderFormazione(): HTMLElement {
       onEntra: entraInProva,
       onEsci: esciDallaProva,
     },
+    // QUANDO OGNI PEZZO È STATO LETTO, e con chi si gioca. L'orologio si legge
+    // qui — al momento del disegno — e non dentro il contratto: è l'unico punto
+    // dell'applicazione in cui «adesso» significa davvero adesso.
+    costruisciLettura(channel, new Date().toISOString()),
   );
 }
 
@@ -8972,6 +9011,9 @@ function renderVoidConfirm(): HTMLElement {
 render();
 void autoLoadListonePool();
 void autoLoadExpertSchede();
+// La lettura della lega è già partita insieme alla porta, molto più su: qui si
+// dichiara soltanto che il suo esito non va atteso da nessuno.
+void letturaCanaleLega;
 
 window.addEventListener("offline", () => {
   state.offline = true;

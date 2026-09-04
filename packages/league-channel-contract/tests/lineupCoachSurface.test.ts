@@ -27,6 +27,8 @@ import type { ObservedLineup } from "../src/lineupSubmission.js";
 import { rejectedOutcome, notAttemptedOutcome, outcomeFromReadBack } from "../src/lineupSubmission.js";
 import { CAMPIONATO, COPPA, FORMAZIONE, ROSA, SETTINGS_IN_ACCORDO } from "./fixtures.js";
 
+const MOMENTO = { readAt: "2026-09-04T18:00:00.000Z", seriesMatchday: 3 } as const;
+
 // LA PAGINA FORMAZIONE, INTERROGATA SENZA BROWSER.
 //
 // Tutto ciò che questa schermata decide è qui dentro, e qui dentro si prova:
@@ -45,7 +47,21 @@ function letto(
   competitions: readonly ObservedCompetitionLineup[],
   roster: ObservedTeam = ROSA,
 ): LineupChannelState {
-  return { kind: "letto", roster, settings: SETTINGS_IN_ACCORDO, competitions };
+  return {
+    kind: "letto",
+    observations: {
+      lineup: MOMENTO,
+      roster: MOMENTO,
+      settings: MOMENTO,
+      leagueTeams: null,
+      calendar: null,
+    },
+    leagueTeams: null,
+    calendar: null,
+    roster,
+    settings: SETTINGS_IN_ACCORDO,
+    competitions,
+  };
 }
 
 function sconosciuto(cause: ChannelUnknownCause, detail = ""): LineupChannelState {
@@ -255,6 +271,15 @@ describe("la formazione che si vede: quella letta, o la modifica non ancora invi
     const ristretta = buildFormazioneView(
       {
         kind: "letto",
+        observations: {
+          lineup: MOMENTO,
+          roster: MOMENTO,
+          settings: MOMENTO,
+          leagueTeams: null,
+          calendar: null,
+        },
+        leagueTeams: null,
+        calendar: null,
         roster: ROSA,
         settings: { ...soloDue, allowedModules: ["352", "433"] },
         competitions: [campionato({ kind: "letta", lineup: FORMAZIONE })],
@@ -270,6 +295,15 @@ describe("la formazione che si vede: quella letta, o la modifica non ancora invi
     const competizione = buildFormazioneView(
       {
         kind: "letto",
+        observations: {
+          lineup: MOMENTO,
+          roster: MOMENTO,
+          settings: MOMENTO,
+          leagueTeams: null,
+          calendar: null,
+        },
+        leagueTeams: null,
+        calendar: null,
         roster: ROSA,
         settings: senzaModuli,
         competitions: [campionato({ kind: "letta", lineup: FORMAZIONE })],
@@ -348,6 +382,15 @@ describe("perché il salvataggio non si offre, detto prima di premere", () => {
     const competizione = buildFormazioneView(
       {
         kind: "letto",
+        observations: {
+          lineup: MOMENTO,
+          roster: MOMENTO,
+          settings: MOMENTO,
+          leagueTeams: null,
+          calendar: null,
+        },
+        leagueTeams: null,
+        calendar: null,
         roster: ROSA,
         settings: { ...SETTINGS_IN_ACCORDO, allowedModules: ["442"] },
         competitions: [campionato({ kind: "letta", lineup: FORMAZIONE })],

@@ -14,6 +14,8 @@ import type {
   ObservedLineup,
 } from "../packages/league-channel-contract/src/index.js";
 
+const MOMENTO = { readAt: "2026-09-04T18:00:00.000Z", seriesMatchday: 3 } as const;
+
 // LE DUE PORTE, E I MODI IN CUI POSSONO NON RISPONDERE.
 //
 // Nel core pubblico nessuna delle due è collegata: la prima cosa che questi
@@ -41,6 +43,15 @@ const INVIO_SINTETICO: LineupSubmission = {
 
 const LETTO: LineupChannelState = {
   kind: "letto",
+  observations: {
+    lineup: MOMENTO,
+    roster: MOMENTO,
+    settings: MOMENTO,
+    leagueTeams: null,
+    calendar: null,
+  },
+  leagueTeams: null,
+  calendar: null,
   roster: { teamId: "t1", players: [{ id: "p1", role: "P" }] },
   settings: {},
   competitions: [],
@@ -58,6 +69,15 @@ const VINCOLI = new Map<string, LineupConstraints>([
 
 const LETTO_CON_COMPETIZIONE: LineupChannelState = {
   kind: "letto",
+  observations: {
+    lineup: MOMENTO,
+    roster: MOMENTO,
+    settings: MOMENTO,
+    leagueTeams: null,
+    calendar: null,
+  },
+  leagueTeams: null,
+  calendar: null,
   roster: { teamId: "t1", players: [{ id: "p1", role: "P" }] },
   settings: {},
   competitions: [

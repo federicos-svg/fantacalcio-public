@@ -20,6 +20,17 @@
 // lì da nessuno.
 
 import type { Role } from "../../league-gameweek/src/gameweekSimulator.js";
+
+/**
+ * Il ruolo, ri-esportato da qui.
+ *
+ * Come `Module` in `lineupCoachSurface.ts`, e per la stessa ragione: la pagina
+ * Formazione ha bisogno del tipo e **non deve imparare una seconda strada** per
+ * arrivarci. La guardia gemella (`packages/league-gameweek/tests/isolation.test.ts`)
+ * vieta a `src/` di nominare il contratto di giornata; senza questa
+ * ri-esportazione l'unico modo di tipizzare un ruolo sarebbe violarla.
+ */
+export type { Role };
 import type { PlayerForecast } from "../../league-gameweek/src/lineupProposer.js";
 
 /**

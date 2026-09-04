@@ -40,6 +40,8 @@ import {
 } from "../packages/league-channel-contract/src/index.js";
 import type { StorageLike } from "./logRecovery.js";
 
+const MOMENTO = { readAt: "2026-09-04T18:00:00.000Z", seriesMatchday: 3 } as const;
+
 // LA PROVA CON UNA SQUADRA DI ESEMPIO, misurata dove si può misurare: funzioni
 // pure, senza browser. Questa suite sorveglia le cose che rendono la prova
 // accettabile invece che pericolosa — il marchio nel dato, la porta chiusa dei
@@ -66,6 +68,15 @@ function vincoli(parziale: Partial<LineupConstraints> = {}): LineupConstraints {
 
 const CANALE_LETTO_VERO: LineupChannelState = {
   kind: "letto",
+  observations: {
+    lineup: MOMENTO,
+    roster: MOMENTO,
+    settings: MOMENTO,
+    leagueTeams: null,
+    calendar: null,
+  },
+  leagueTeams: null,
+  calendar: null,
   roster: { teamId: "t1", players: [{ id: "p1", role: "P" }] },
   settings: {},
   competitions: [],
