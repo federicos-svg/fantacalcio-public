@@ -150,3 +150,88 @@ export function readSourceShape(
     saysProbable: saysProbable.value,
   });
 }
+
+/**
+ * UNA TABELLA COMPILATA, IN GENERALE — famiglie di chiavi e modi di dire.
+ *
+ * `SourceShape` qui sopra descrive la pagina di una partita. Le altre pagine
+ * hanno le loro famiglie — la classifica dodici, il calendario otto — e ognuna,
+ * quando le serve, i suoi **modi di dire**: come una fonte scrive «effettiva»,
+ * come scrive «lista completa», come scrive «vittoria». Quello che non cambia è
+ * la regola — **niente nomi di fonte qui dentro** — e quindi il generico è un
+ * tipo con due parametri, non un tipo con dentro l'unione di tutti i nomi.
+ *
+ * `wordings` non sono chiavi ma **testi che la fonte scrive**, da riconoscere
+ * per capire che cosa sta dichiarando. Arrivano da fuori come le chiavi, e per
+ * la stessa ragione.
+ */
+export interface ShapeTable<Family extends string, Wording extends string> {
+  readonly structuredBlocks: readonly RegExp[];
+  readonly keys: Readonly<Record<Family, RegExp>>;
+  readonly wordings: Readonly<Record<Wording, RegExp>>;
+}
+
+/**
+ * Legge una tabella qualunque, con la stessa severità di `readSourceShape`.
+ *
+ * Fail-closed su tutto: una famiglia assente, un modo di dire assente,
+ * un'espressione vuota, una che non compila, zero modi di estrarre il blocco
+ * strutturato. Nessuna di queste situazioni ha un ripiego, perché ogni ripiego
+ * sarebbe una supposizione sulla forma della fonte fatta dal pezzo di codice che
+ * quella forma non la conosce.
+ *
+ * `at` porta **il nome della famiglia**, mai un indice: chi legge il motivo non
+ * ha davanti la tabella e deve capire che cosa aggiungerci.
+ *
+ * NON RIUSA `readSourceShape` E NON LO SOSTITUISCE. Le due funzioni fanno la
+ * stessa cosa su elenchi diversi, e per ora convivono: rifare `readSourceShape`
+ * sopra questa avrebbe toccato righe che un'altra correzione sta cambiando, e
+ * fra una correzione di difetti e una riorganizzazione passa prima la
+ * correzione. Debito dichiarato, da chiudere quando quella sarà entrata.
+ */
+export function readShapeTable<Family extends string, Wording extends string>(
+  candidate: unknown,
+  families: readonly Family[],
+  wordings: readonly Wording[],
+  at: readonly string[],
+): ReadOutcome<ShapeTable<Family, Wording>> {
+  const record = readRecord(candidate, at);
+  if (!isRead(record)) return carryFailure(record);
+
+  const rawBlocks = record.value["structuredBlocks"];
+  if (!Array.isArray(rawBlocks) || rawBlocks.length === 0) {
+    return shapeNotRecognised<ShapeTable<Family, Wording>>(
+      "serve almeno un modo di estrarre il blocco di dati strutturati",
+      [...at, "structuredBlocks"],
+    );
+  }
+  const blocks: RegExp[] = [];
+  for (let i = 0; i < rawBlocks.length; i += 1) {
+    const compiled = compile(rawBlocks[i], [...at, "structuredBlocks", String(i)]);
+    if (!isRead(compiled)) return carryFailure(compiled);
+    blocks.push(compiled.value);
+  }
+
+  const rawKeys = readRecord(record.value["keys"], [...at, "keys"]);
+  if (!isRead(rawKeys)) return carryFailure(rawKeys);
+
+  const keys: Partial<Record<Family, RegExp>> = {};
+  for (const family of families) {
+    const compiled = compile(rawKeys.value[family], [...at, "keys", family]);
+    if (!isRead(compiled)) return carryFailure(compiled);
+    keys[family] = compiled.value;
+  }
+
+  const said: Partial<Record<Wording, RegExp>> = {};
+  for (const wording of wordings) {
+    const compiled = compile(record.value[wording], [...at, wording]);
+    if (!isRead(compiled)) return carryFailure(compiled);
+    said[wording] = compiled.value;
+  }
+
+  return read({
+    structuredBlocks: blocks,
+    keys: keys as Readonly<Record<Family, RegExp>>,
+    wordings: said as Readonly<Record<Wording, RegExp>>,
+  });
+}
