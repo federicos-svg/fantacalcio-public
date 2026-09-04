@@ -15,6 +15,7 @@ import {
   cupScoringShape,
   resolveKnockoutQualification,
 } from "../src/calendar.js";
+import { homeFieldBonus } from "../../league-gameweek/src/leagueGameweek.js";
 
 /** Squadre sintetiche: id opachi inventati qui, come tutto il resto. */
 const CASA = "t1";
@@ -146,6 +147,155 @@ describe("secondo criterio: la somma dei punteggi fantacalcio (Pico, 2026-09-04)
       qualifiedTeamId: CASA,
       code: "somma_punteggi_fantacalcio",
     });
+  });
+});
+
+// Uno scontro con i punti del mini girone in parità (3 a 3: una vittoria per
+// parte), così che a decidere sia sempre il secondo criterio. I punteggi base
+// sono **senza** fattore campo; `bonusCampo: true` aggiunge il +2 di §14 a chi
+// gioca in casa, gara per gara e solo dove §14 lo prevede — cioè esattamente
+// ciò che la piattaforma esporrebbe.
+const BASE = {
+  andataCasa: 70.5,
+  andataOspite: 68.0,
+  ritornoCasa: 66.0,
+  ritornoOspite: 69.5,
+} as const;
+
+function scontro(
+  mdAndata: number,
+  mdRitorno: number,
+  opzioni: { readonly bonusCampo: boolean; readonly casaAndata: typeof CASA | typeof OSPITE },
+): readonly [ObservedKnockoutLeg, ObservedKnockoutLeg] {
+  const bonus = (matchday: number, squadraDiCasa: string, squadra: string): number =>
+    opzioni.bonusCampo && squadraDiCasa === squadra ? homeFieldBonus(matchday) : 0;
+  const casaRitorno = opzioni.casaAndata === CASA ? OSPITE : CASA;
+  return [
+    gara(
+      mdAndata,
+      "andata",
+      {
+        goals: 2,
+        fantasyPoints: BASE.andataCasa + bonus(mdAndata, opzioni.casaAndata, CASA),
+      },
+      {
+        goals: 1,
+        fantasyPoints: BASE.andataOspite + bonus(mdAndata, opzioni.casaAndata, OSPITE),
+      },
+    ),
+    gara(
+      mdRitorno,
+      "ritorno",
+      { goals: 0, fantasyPoints: BASE.ritornoCasa + bonus(mdRitorno, casaRitorno, CASA) },
+      { goals: 1, fantasyPoints: BASE.ritornoOspite + bonus(mdRitorno, casaRitorno, OSPITE) },
+    ),
+  ];
+}
+
+describe("il bonus campo di §14 si annulla, tranne a cavallo del limite", () => {
+  it("la soglia si chiede all'autorità, non si trascrive", () => {
+    // Le giornate 24 e 28 stanno dalla stessa parte del limite; la 28 e la 32
+    // no. Il test lo verifica con la stessa funzione che usa il contratto,
+    // invece di ribattere il numero 29 a mano.
+    expect(homeFieldBonus(24)).toBe(homeFieldBonus(28));
+    expect(homeFieldBonus(28)).not.toBe(homeFieldBonus(32));
+    expect(homeFieldBonus(32)).toBe(homeFieldBonus(35));
+  });
+
+  it("caso normale: stesso scontro con e senza bonus campo, stesso vincitore", () => {
+    // Le due gare hanno il campo invertito, quindi ciascuna squadra incassa il
+    // +2 una volta sola: la DIFFERENZA fra le due somme non si muove, ed è la
+    // differenza a decidere.
+    const senza = resolveKnockoutQualification(
+      ...scontro(24, 28, { bonusCampo: false, casaAndata: CASA }),
+    );
+    const con = resolveKnockoutQualification(
+      ...scontro(24, 28, { bonusCampo: true, casaAndata: CASA }),
+    );
+
+    expect(senza).toMatchObject({
+      decided: true,
+      qualifiedTeamId: OSPITE,
+      code: "somma_punteggi_fantacalcio",
+    });
+    expect(con).toMatchObject({
+      decided: true,
+      qualifiedTeamId: OSPITE,
+      code: "somma_punteggi_fantacalcio",
+    });
+
+    // E lo stesso a parti invertite: chi gioca in casa per primo non conta.
+    const conAltroVerso = resolveKnockoutQualification(
+      ...scontro(24, 28, { bonusCampo: true, casaAndata: OSPITE }),
+    );
+    expect(conAltroVerso).toMatchObject({ decided: true, qualifiedTeamId: OSPITE });
+
+    // L'annullamento in chiaro, sui numeri: +2 a testa lascia la differenza
+    // dov'era.
+    const deltaSenza =
+      BASE.andataCasa + BASE.ritornoCasa - (BASE.andataOspite + BASE.ritornoOspite);
+    const deltaCon =
+      BASE.andataCasa + 2 + BASE.ritornoCasa - (BASE.andataOspite + (BASE.ritornoOspite + 2));
+    expect(deltaCon).toBe(deltaSenza);
+  });
+
+  it("controllo: anche due gare entrambe oltre il limite restano decidibili", () => {
+    // Dalla 29ª in poi il bonus non c'è per nessuno: le due gare stanno dalla
+    // stessa parte del limite e la somma è confrontabile. Il calendario
+    // osservato prevale sulle attese di §23, quindi un turno lì è possibile.
+    const esito = resolveKnockoutQualification(
+      ...scontro(32, 35, { bonusCampo: true, casaAndata: CASA }),
+    );
+    expect(esito).toMatchObject({
+      decided: true,
+      qualifiedTeamId: OSPITE,
+      code: "somma_punteggi_fantacalcio",
+    });
+  });
+
+  it("a cavallo del limite: non decidibile, in entrambi i versi", () => {
+    // Giornate 28 e 32: il +2 entra in una sola delle due somme. Con la prima
+    // squadra in casa all'andata il vincitore si ROVESCIA rispetto al conto
+    // senza bonus; con l'altra il vincitore resta ma il margine triplica. In
+    // nessuno dei due casi il criterio è dichiarato: si rifiuta.
+    for (const casaAndata of [CASA, OSPITE] as const) {
+      const esito = resolveKnockoutQualification(
+        ...scontro(28, 32, { bonusCampo: true, casaAndata }),
+      );
+      expect(esito.code).toBe("cavallo_del_campo_neutro_non_dichiarato");
+      if (!esito.decided) expect(esito.message).toContain("§14");
+      nessunaSquadra(esito);
+    }
+  });
+
+  it("a cavallo del limite ma già deciso dal mini girone: il turno si decide lo stesso", () => {
+    // Il primo criterio viene dai goal, non dai punteggi: il fattore campo non
+    // c'entra nulla, e fermarsi qui sarebbe inventare un limite che nessuno ha
+    // posto.
+    const esito = resolveKnockoutQualification(
+      gara(28, "andata", { goals: 3, fantasyPoints: 82.5 }, { goals: 0, fantasyPoints: 60 }),
+      gara(32, "ritorno", { goals: 1, fantasyPoints: 70 }, { goals: 1, fantasyPoints: 69.5 }),
+    );
+    expect(esito).toMatchObject({
+      decided: true,
+      qualifiedTeamId: CASA,
+      code: "punti_mini_girone",
+    });
+  });
+
+  it("il rifiuto a cavallo non si confonde con gli altri due di decisione mancante", () => {
+    const cavallo = resolveKnockoutQualification(
+      ...scontro(28, 32, { bonusCampo: true, casaAndata: CASA }),
+    );
+    const pari = resolveKnockoutQualification(
+      andata({ goals: 1, fantasyPoints: 66.5 }, { goals: 1, fantasyPoints: 66.5 }),
+      ritorno({ goals: 2, fantasyPoints: 72 }, { goals: 2, fantasyPoints: 72 }),
+    );
+    const girone = resolveKnockoutQualification(
+      { ...andata({ goals: 1, fantasyPoints: 70 }, { goals: 1, fantasyPoints: 70 }), cupPhase: "girone" },
+      { ...ritorno({ goals: 1, fantasyPoints: 70 }, { goals: 1, fantasyPoints: 70 }), cupPhase: "girone" },
+    );
+    expect(new Set([cavallo.code, pari.code, girone.code]).size).toBe(3);
   });
 });
 

@@ -41,16 +41,55 @@
 // (§22 applicato a ciascuna delle due gare, §23), poi — solo a parità — la
 // somma dei punteggi fantacalcio delle due gare.
 //
+// CHE COSA SIA UN «PUNTO FANTACALCIO» — **interpretazione dell'Executive,
+// 2026-09-04, dichiarata e contestabile.** «Punti fantacalcio di una gara»
+// significa il **punteggio finale della squadra in quella gara**: quello
+// comprensivo dei modificatori (§9 modulo, §19 difesa, §20 centrocampo, §21
+// attacco) e di tutto ciò che il regolamento fa entrare nel totale — il numero
+// che compare accanto alla squadra a fine giornata. Il «lordo senza
+// modificatori» non è un numero che esista da qualche parte, quindi non può
+// essere ciò che Pico intendeva.
+//
+// **Non è una decisione di prodotto**, ed è per questo che non è stata portata
+// a Pico: è il significato che l'espressione ha già nel gioco, cioè
+// un'interpretazione del testo di una decisione presa, non una regola nuova.
+// Le scelte tecniche le fa l'Executive e le dichiara come proprie: questa è una
+// di quelle, e chi non è d'accordo la contesta qui. Sul piano del codice ha una
+// conseguenza sola: `fantasyPoints` è il punteggio **dichiarato**
+// dall'osservazione, e questa funzione non aggiunge né toglie nulla.
+//
 // **CIÒ CHE RESTA INDECISO È INDECISO PERCHÉ NESSUNO L'HA DECISO**, non perché
-// manchi codice: la parità che sopravvive *anche* alla somma dei punteggi
-// fantacalcio, e la parità nel **girone da quattro** (§23,
-// `cup_group_ranking_criteria: UNSPECIFIED`), su cui la decisione del
-// 2026-09-04 non dice nulla — parla delle «due partite» di un doppio confronto,
-// e un girone da quattro non ne ha due. I rifiuti che li riguardano non vanno
-// «aggiustati»: si sbloccano con una nuova dichiarazione di Pico registrata in
-// `docs/data/LEAGUE_RULES.md` §23, non con un criterio dedotto qui. Dettaglio,
-// codici e confini: la prosa davanti a `resolveKnockoutQualification`.
+// manchi codice. Tre casi:
+//  - la parità che sopravvive *anche* alla somma dei punteggi fantacalcio;
+//  - la parità nel **girone da quattro** (§23,
+//    `cup_group_ranking_criteria: UNSPECIFIED`), su cui la decisione del
+//    2026-09-04 non dice nulla — parla delle «due partite» di un doppio
+//    confronto, e un girone da quattro non ne ha due;
+//  - lo scontro **a cavallo del limite di §14**, spiegato qui sotto.
+//
+// **IL BONUS CAMPO DI §14 SI ANNULLA — TRANNE A CAVALLO DELLA 28ª.** Nel caso
+// normale la preoccupazione non morde: le due gare hanno il campo invertito,
+// quindi ciascuna squadra incassa il +2 **una volta sola** nella somma, e la
+// differenza fra le due somme è identica con o senza. Vale in entrambi i versi
+// e anche quando **nessuna** delle due gare ha il bonus (entrambe dalla 29ª in
+// poi): ciò che conta è che le due gare stiano **dalla stessa parte** del
+// limite. Non si annulla quando lo scontro è a cavallo — andata entro la 28ª,
+// ritorno dalla 29ª: lì il +2 entra in **una sola** delle due somme, e a
+// riceverlo è chi ha giocato in casa per primo. Col calendario di coppa (§23:
+// 5, 8, 11, 14, 17, 20, 24, 28, 32) il caso è **concreto**, non teorico: la
+// coppia **28 e 32** lo produce, ed è la finale — dove però non c'è un doppio
+// confronto — oltre a qualsiasi turno che il calendario osservato spostasse a
+// cavallo. Che cosa decida in quel caso Pico non l'ha detto, quindi è il terzo
+// rifiuto per decisione mancante e non una correzione applicata d'ufficio:
+// togliere il +2 «per simmetria» sarebbe inventare il criterio invece di
+// chiederlo.
+//
+// Nessuno di questi tre rifiuti va «aggiustato»: si sbloccano con una nuova
+// dichiarazione di Pico registrata in `docs/data/LEAGUE_RULES.md` §23, non con
+// un criterio dedotto qui. Dettaglio, codici e confini: la prosa davanti a
+// `resolveKnockoutQualification`.
 
+import { homeFieldBonus } from "../../league-gameweek/src/leagueGameweek.js";
 import type { GameweekContext } from "../../league-gameweek/src/gameweekSimulator.js";
 
 /** Dove si gioca, dal nostro punto di vista. */
@@ -255,7 +294,7 @@ export const KNOCKOUT_IS_MINI_GROUP = true as const;
  *     (Pico, 2026-09-04);
  *  3. a parità anche lì, **non decidibile**.
  *
- * **CHE COSA RESTA INDECISO — e non è un limite tecnico.** I due rifiuti che
+ * **CHE COSA RESTA INDECISO — e non è un limite tecnico.** I tre rifiuti che
  * restano non sono un pezzo di codice mancante, sono una **decisione mancante**:
  *  - `parita_dopo_punteggi_fantacalcio` — che cosa succede se *anche* la somma
  *    dei punteggi fantacalcio è pari: Pico non l'ha detto, e §23 rinvia per
@@ -264,9 +303,18 @@ export const KNOCKOUT_IS_MINI_GROUP = true as const;
  *  - `girone_da_quattro_non_dichiarato` — il criterio di parità della **fase a
  *    gironi** (§23, `cup_group_ranking_criteria: UNSPECIFIED`), che la decisione
  *    del 2026-09-04 **non** tocca: parla delle «due partite» di un doppio
- *    confronto, e il girone da quattro non ne ha due.
+ *    confronto, e il girone da quattro non ne ha due;
+ *  - `cavallo_del_campo_neutro_non_dichiarato` — lo scontro **a cavallo del
+ *    limite di §14**, dove il +2 entra in una sola delle due somme e a
+ *    incassarlo è chi ha giocato in casa per primo. Fuori da quel caso il bonus
+ *    campo **si annulla** e la somma è confrontabile senza alcuna correzione
+ *    (vedi la prosa in testa al file); dentro, il criterio di parità non è
+ *    dichiarato per quel caso e la decisione è di Pico. Questo rifiuto si
+ *    incontra **solo al secondo criterio**: se il mini girone ha già deciso il
+ *    turno, il fattore campo non c'entra nulla — i punti vengono dai goal — e
+ *    fermarsi lì sarebbe inventare un limite che nessuno ha posto.
  *
- * Chi incontra uno di questi due rifiuti **non deve aggiustarlo**: non c'è
+ * Chi incontra uno di questi tre rifiuti **non deve aggiustarlo**: non c'è
  * niente da riparare qui dentro. Estenderli per analogia — riusare il criterio
  * dell'eliminazione nel girone, o inventare un terzo criterio dopo il secondo —
  * sarebbe un'imputazione su un esito eliminatorio, cioè il posto peggiore dove
@@ -283,12 +331,13 @@ export const KNOCKOUT_IS_MINI_GROUP = true as const;
 export type KnockoutDecisionCode = "punti_mini_girone" | "somma_punteggi_fantacalcio";
 
 /**
- * I tre modi di non decidere, tenuti distinti di proposito: i primi due sono
- * decisioni che Pico non ha preso, il terzo è una lettura che non basta.
+ * I quattro modi di non decidere, tenuti distinti di proposito: i primi tre
+ * sono decisioni che Pico non ha preso, il quarto è una lettura che non basta.
  */
 export type KnockoutRefusalCode =
   | "parita_dopo_punteggi_fantacalcio"
   | "girone_da_quattro_non_dichiarato"
+  | "cavallo_del_campo_neutro_non_dichiarato"
   | "osservazione_incompleta";
 
 /** Il turno è deciso: passa questa squadra, per questo motivo. */
@@ -328,9 +377,11 @@ export interface ObservedKnockoutSide {
    */
   readonly goals?: number;
   /**
-   * Punteggio fantacalcio della gara, **così come la piattaforma lo espone** —
-   * il punteggio finale della formazione, non un pezzo da ricomporre qui.
-   * Nessun modificatore viene aggiunto o tolto in questa funzione.
+   * Punteggio fantacalcio della gara: il **punteggio finale della squadra**,
+   * modificatori compresi (§9, §19, §20, §21), così come la piattaforma lo
+   * espone — non un pezzo da ricomporre qui. È l'interpretazione dichiarata
+   * dall'Executive il 2026-09-04, in testa al file. Nessun modificatore viene
+   * aggiunto o tolto in questa funzione, il +2 di §14 compreso.
    */
   readonly fantasyPoints?: number;
 }
@@ -438,6 +489,18 @@ export function resolveKnockoutQualification(
       code: "punti_mini_girone",
       message: `${vincente} passa con ${Math.max(puntiA, puntiB)} punti contro ${Math.min(puntiA, puntiB)} nel mini girone di due squadre (§22 3/1/0 su ciascuna delle due gare, §23)`,
     };
+  }
+
+  // Prima del criterio 2, e solo qui: le due somme sono confrontabili soltanto
+  // se le gare stanno dalla stessa parte del limite di §14. La soglia non è
+  // trascritta, si chiede all'autorità che la possiede (`homeFieldBonus`): due
+  // gare con lo stesso bonus lo vedono annullarsi, due gare con bonus diverso
+  // no. Al criterio 1 questo controllo non serve — i punti vengono dai goal.
+  if (homeFieldBonus(gara1.matchday) !== homeFieldBonus(gara2.matchday)) {
+    return rifiuto(
+      "cavallo_del_campo_neutro_non_dichiarato",
+      `lo scontro è a cavallo del limite del fattore campo (§14): la giornata ${gara1.matchday} e la giornata ${gara2.matchday} non hanno lo stesso bonus campo, quindi il +2 entra in una sola delle due somme e a incassarlo è chi ha giocato in casa per primo — che cosa decida la parità in questo caso non è dichiarato, ed è una decisione di Pico`,
+    );
   }
 
   // Criterio 2 — la somma dei punteggi fantacalcio (Pico, 2026-09-04). Il
