@@ -34,6 +34,29 @@ alias, mai un accostamento indovinato), `NESSUNA_CORRISPONDENZA`,
 `CORRISPONDENZA_AMBIGUA` (più di un candidato: **non si sceglie**). La giornata
 è valorizzata **solo** in `RISOLTO`.
 
+## Perché il criterio di selezione sta qui, e non nel privato
+
+Il criterio che riconosce un topic di partita — **nessun marcatore di altro
+perimetro, una coppia di squadre, un orario** — è pubblico, ed è una **scelta
+dell'Executive, contestabile**, presa sapendo che pubblicare un criterio di
+riconoscimento è pubblicare un pezzo del nostro metodo.
+
+La ragione: due nomi di squadra più un orario è un **ragionamento generico** su
+come si riconosce un topic di partita, non un'impronta di una fonte
+particolare. Non dice quale forum leggiamo, non contiene nomi di contenitori,
+di classi o di percorsi di quella fonte, e il suo **valore di prova è alto** —
+è la regola su cui poggiano i casi limite provati qui, incluso il titolo che
+somiglia a un topic di partita e non lo è.
+
+Diverso è l'elenco dei **nomi interni di una pagina**: quello identifica la
+fonte, e infatti host, marcatore di rango e marcatore di altro perimetro sono
+**iniettati** dal chiamante e non compaiono in nessun sorgente di questo
+pacchetto — `tests/purity.test.ts` fallisce se qualcuno ce li rimette.
+
+Se un giorno il criterio diventasse riconoscibile come impronta di una fonte
+specifica, si sposta dietro un'iniezione come gli altri: è una decisione da
+riprendere, non una regola chiusa per sempre.
+
 ## Il ruolo si verifica, non si presume
 
 Tre classi, non due: `staff_verificato`, `comunita`, `non_verificabile`. «Non lo
