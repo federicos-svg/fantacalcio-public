@@ -123,13 +123,39 @@ Chi sta a valle guarda quei campi e decide quanto pesarli. Qui non si decide.
   `roleInherited: false` e classe di ruolo `non_verificabile`: il ruolo
   verificato di chi cita **non copre** ciò che ha detto un altro.
 
-### L'ordine è quello osservato, non quello dichiarato
+### L'ordine dei post si verifica, non si assume
 
-I segnali si ordinano sull'ordine in cui il chiamante consegna i post — l'ordine
-osservato sulla pagina. Le date dei post viaggiano **accanto** ai segnali e non
-vengono mai interpretate né confrontate: vengono dalla fonte con un fuso che su
-questo perimetro non è stato verificato (§"Che cosa NON è stato osservato", 7),
-e ordinare su di esse sarebbe ordinare su un'assunzione.
+`RIVISTO` e `SMENTITA_DICHIARATA` sono affermazioni **sul tempo**: se «più
+recente» venisse dall'ordine di un array — che è una scelta di chi lo costruisce,
+non una misura — sarebbero fabbricate. Quindi `verifyPostOrder` guarda che cosa i
+post portano davvero addosso:
+
+1. **indice di pagina** (`pageOffset` + `positionInPage`, quando ogni post li ha):
+   base **primaria**, perché è la struttura osservata e non dipende da nessun fuso;
+2. **istante dichiarato**: usato solo se **ogni** post ha una data in forma
+   canonica, tutte con lo **stesso** scostamento e la stessa larghezza — a quella
+   condizione il confronto lessicografico è un confronto cronologico corretto, e
+   non serve nessun orologio. Scostamenti diversi **non si normalizzano**: il fuso
+   di questo perimetro non è mai stato verificato (§"Che cosa NON è stato
+   osservato", 7), e normalizzarlo sarebbe inventarlo;
+3. **niente di confrontabile**: l'ordine non è verificabile.
+
+Quando ci sono entrambe, la seconda **controlla** la prima. Due osservazioni
+indipendenti che si contraddicono non si mediano e non si scelgono:
+
+- ordine **non monotono** — istanti in contrasto con le pagine, o post consegnati
+  fuori sequenza → **si rifiuta**, `ORDINE_NON_MONOTONO`, fail-closed: nessun
+  segnale, nessuna relazione, il motivo scritto;
+- ordine **non verificabile** → i segnali **escono lo stesso**, perché sono stati
+  detti, ma `RIVISTO` e `SMENTITA_DICHIARATA` **non vengono prodotte**; le coppie
+  lasciate senza relazione temporale sono contate in `pairsWithoutOrder`, non
+  nascoste. `OPPOSTI` resta, perché «dato titolare» e «dato fuori» non possono
+  valere insieme a prescindere da quale sia venuto prima;
+- **dentro un post** l'ordine è quello del testo, e quello si vede sempre.
+
+Per la stessa ragione i due lati di una contraddizione si chiamano `first` e
+`second`, non «prima» e «dopo»: `first` precede `second` solo quando `span` è
+`STESSO_POST` o `POST_SUCCESSIVO`, e `temporal` lo dice.
 
 ### Il lessico è un ingresso, non una costante
 
@@ -146,13 +172,14 @@ Non c'è nessun elenco di riserva, nessun valore per difetto, nessun tentativo
 fixture delle prove usano lettere greche, non parole di calcio: anche una prova
 sta nel repository pubblico.
 
-Per la stessa ragione il giro di `runParser` **non** conta i segnali: il lessico
-non gli arriva, e non deve arrivargli di nascosto. `readPostSignals` e
-`readTopicSignals` sono funzioni che il chiamante compone quando ha il lessico —
-`readTopicSignals` restituisce anche le sue misure (conteggi per tipo, forma,
-voce, soggetto, classe di ruolo, relazione di contraddizione), tutte con le
-chiavi in ordine alfabetico e mai per valore, perché un ordinamento per
-risultato è già una classifica.
+`runParser` legge i segnali quando riceve il lessico in `signalLexicon`, e non
+altrimenti: senza, il blocco dei segnali del referto dichiara `LESSICO_ASSENTE`
+senza guardare un carattere di testo. Il **referto** ne porta solo conteggi —
+esiti, stati dell'ordine, tipi, forme, voci, soggetti, classi di ruolo, relazioni
+di contraddizione — con le chiavi in ordine alfabetico e mai per valore, perché
+un ordinamento per risultato è già una classifica; i **termini** che hanno
+prodotto ogni segnale, che sono il lessico privato del chiamante, restano
+nell'**estratto** insieme a nomi e testo.
 
 ## Che cosa esce
 

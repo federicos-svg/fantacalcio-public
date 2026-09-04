@@ -12,6 +12,13 @@
 // partita sono effimeri, e analizzare byte che nessuno ha depositato produce un
 // risultato che domani nessuno può più rifare né smentire.
 
+import {
+  missingLexiconFamilies,
+  readTopicSignals,
+  SIGNALS_VERSION,
+  type SignalLexicon,
+  type TopicSignalReading,
+} from "./lineupSignals.js";
 import { linkTopicToMatch } from "./matchLink.js";
 import { readMatchKey } from "./title.js";
 import { parseTopicPage } from "./topicPage.js";
@@ -42,6 +49,14 @@ export interface DepositedPage {
 }
 
 export interface RunOptions extends RoleVerificationOptions {
+  /**
+   * Il lessico dei segnali di formazione, **iniettato**: le parole con cui una
+   * fonte dice titolare, in dubbio, fuori, smentito sono la forma di quella
+   * fonte, e non stanno nel core pubblico. Senza, il giro legge tutto il resto e
+   * il blocco dei segnali dichiara `LESSICO_ASSENTE`: non c'è nessun elenco di
+   * riserva, e nessuna parola arriva di nascosto.
+   */
+  readonly signalLexicon?: SignalLexicon;
   readonly calendar?: readonly CalendarFixture[];
   readonly aliases?: TeamAliases;
   readonly windowDays?: number;
@@ -71,6 +86,12 @@ export interface TopicExtract {
     readonly complete: boolean | null;
   };
   readonly posts: readonly TopicPost[];
+  /**
+   * I segnali di formazione del topic. Sta **nell'estratto** e non nel referto
+   * perché porta il termine che ha prodotto ogni segnale, cioè il lessico
+   * privato del chiamante: nel referto ne escono solo i conteggi.
+   */
+  readonly signals: TopicSignalReading;
   readonly observedAtEpochMs: number | null;
 }
 
@@ -94,6 +115,30 @@ export interface RunReport {
   readonly shortFingerprints: readonly string[];
   readonly calendarFixtures: number;
   readonly aliases: number;
+  /** Solo forme e conteggi dei segnali: mai un termine, mai un nome, mai un testo. */
+  readonly signals: {
+    readonly signalsVersion: typeof SIGNALS_VERSION;
+    readonly lexiconProvided: boolean;
+    readonly missingFamilies: readonly string[];
+    /** Esito della lettura dei segnali, topic per topic. */
+    readonly outcomes: Readonly<Record<string, number>>;
+    /** Stato della verifica dell'ordine dei post, topic per topic. */
+    readonly orderStates: Readonly<Record<string, number>>;
+    readonly total: number;
+    readonly byKind: Readonly<Record<string, number>>;
+    readonly byForm: Readonly<Record<string, number>>;
+    readonly byVoice: Readonly<Record<string, number>>;
+    readonly bySubject: Readonly<Record<string, number>>;
+    readonly byRoleClass: Readonly<Record<string, number>>;
+    readonly fromUnverifiedRole: number;
+    readonly contradictionsByRelation: Readonly<Record<string, number>>;
+    readonly pairsWithoutOrder: number;
+    readonly playersWithChangedStance: number;
+    readonly postsSilent: number;
+    readonly postsSilenceNotProvable: number;
+    /** Questo pacchetto non pesa i segnali e non li ordina per qualità. */
+    readonly weighted: false;
+  };
 }
 
 export interface RunResult {
@@ -120,6 +165,30 @@ interface Accumulator {
   posts: TopicPost[];
   seenPostIds: Set<string>;
   observedAtEpochMs: number | null;
+}
+
+/** Conta le occorrenze di ogni etichetta. Chiavi in ordine alfabetico, mai per valore. */
+function tally(labels: readonly string[]): Record<string, number> {
+  return merge(labels.map((label) => ({ [label]: 1 })));
+}
+
+/** Somma conteggi omonimi. Chiavi in ordine alfabetico: un ordine per valore sarebbe una classifica. */
+function merge(parts: readonly Readonly<Record<string, number>>[]): Record<string, number> {
+  const total: Record<string, number> = {};
+  for (const part of parts) {
+    for (const [key, value] of Object.entries(part)) {
+      total[key] = (total[key] ?? 0) + value;
+    }
+  }
+  const sorted: Record<string, number> = {};
+  for (const key of Object.keys(total).sort((a, b) => a.localeCompare(b))) {
+    sorted[key] = total[key] as number;
+  }
+  return sorted;
+}
+
+function sum<T>(items: readonly T[], value: (item: T) => number): number {
+  return items.reduce((carried, item) => carried + value(item), 0);
 }
 
 export function runParser(pages: readonly DepositedPage[], options: RunOptions): RunResult {
@@ -198,6 +267,9 @@ export function runParser(pages: readonly DepositedPage[], options: RunOptions):
   const links: Record<string, number> = {};
   const titleShapes: string[] = [];
   const extracts: TopicExtract[] = [];
+  const signalReadings: TopicSignalReading[] = [];
+  const lexicon = options.signalLexicon;
+  const lexiconMissing = missingLexiconFamilies(lexicon);
   let topicsWithoutPosts = 0;
   let incomplete = 0;
   let unknownPagination = 0;
@@ -224,6 +296,12 @@ export function runParser(pages: readonly DepositedPage[], options: RunOptions):
     }`;
     if (!titleShapes.includes(shape)) titleShapes.push(shape);
 
+    // Il lessico è un ingresso obbligatorio: se non arriva, la lettura si ferma
+    // e lo dice — `readTopicSignals` risponde `LESSICO_ASSENTE` senza guardare
+    // un solo carattere di testo.
+    const signals = readTopicSignals(topic.posts, lexicon as SignalLexicon);
+    signalReadings.push(signals);
+
     extracts.push({
       topicId: topic.topicId,
       canonicalUrl: topic.canonicalUrl,
@@ -237,6 +315,7 @@ export function runParser(pages: readonly DepositedPage[], options: RunOptions):
         complete,
       },
       posts: topic.posts,
+      signals,
       observedAtEpochMs: topic.observedAtEpochMs,
     });
   }
@@ -268,6 +347,37 @@ export function runParser(pages: readonly DepositedPage[], options: RunOptions):
     shortFingerprints: fingerprints,
     calendarFixtures: calendar.length,
     aliases: Object.keys(aliases).length,
+    signals: {
+      signalsVersion: SIGNALS_VERSION,
+      lexiconProvided: lexicon !== undefined,
+      missingFamilies: lexiconMissing,
+      outcomes: tally(signalReadings.map((reading) => reading.outcome)),
+      orderStates: tally(signalReadings.map((reading) => reading.order.state)),
+      total: sum(signalReadings, (reading) => reading.measures.signals),
+      byKind: merge(signalReadings.map((reading) => reading.measures.byKind)),
+      byForm: merge(signalReadings.map((reading) => reading.measures.byForm)),
+      byVoice: merge(signalReadings.map((reading) => reading.measures.byVoice)),
+      bySubject: merge(signalReadings.map((reading) => reading.measures.bySubject)),
+      byRoleClass: merge(signalReadings.map((reading) => reading.measures.byRoleClass)),
+      fromUnverifiedRole: sum(
+        signalReadings,
+        (reading) => reading.measures.signalsFromUnverifiedRole,
+      ),
+      contradictionsByRelation: merge(
+        signalReadings.map((reading) => reading.measures.contradictionsByRelation),
+      ),
+      pairsWithoutOrder: sum(signalReadings, (reading) => reading.measures.pairsWithoutOrder),
+      playersWithChangedStance: sum(
+        signalReadings,
+        (reading) => reading.measures.playersWithChangedStance,
+      ),
+      postsSilent: sum(signalReadings, (reading) => reading.measures.postsSilent),
+      postsSilenceNotProvable: sum(
+        signalReadings,
+        (reading) => reading.measures.postsSilenceNotProvable,
+      ),
+      weighted: false,
+    },
   };
 
   const extract =

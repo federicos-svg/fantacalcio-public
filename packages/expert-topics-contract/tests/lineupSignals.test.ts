@@ -6,12 +6,15 @@ import {
   readPostSignals,
   readTopicSignals,
   SIGNALS_VERSION,
+  verifyPostOrder,
   type SignalLexicon,
 } from "../src/lineupSignals.js";
+import { runParser } from "../src/run.js";
 import type { TopicPost } from "../src/types.js";
 import {
   lexiconWithoutOutFamily,
   roleOptions,
+  SEP_4_1200_MS,
   signalPost,
   signalsPage,
   syntheticLexicon,
@@ -27,8 +30,19 @@ import {
 const lexicon = syntheticLexicon as unknown as SignalLexicon;
 const incompleteLexicon = lexiconWithoutOutFamily as unknown as SignalLexicon;
 
+// I post arrivano con il loro indice di pagina: senza, l'ordine non sarebbe
+// verificabile e le relazioni temporali non verrebbero prodotte affatto — che è
+// esattamente il caso provato in «l'ordine si verifica, non si assume».
 function postsOf(...posts: readonly string[]): readonly TopicPost[] {
-  return parseTopicPage(signalsPage(posts), roleOptions).posts;
+  return parseTopicPage(signalsPage(posts), { ...roleOptions, pageOffset: 0 }).posts;
+}
+
+/** Gli stessi post, senza indice di pagina e senza istanti confrontabili. */
+function postsWithoutOrder(...posts: readonly string[]): readonly TopicPost[] {
+  return parseTopicPage(signalsPage(posts), roleOptions).posts.map((post) => ({
+    ...post,
+    publishedAt: null,
+  }));
 }
 
 describe("segnale chiaro", () => {
@@ -101,11 +115,11 @@ describe("smentita successiva", () => {
     expect(contradiction?.relation).toBe("SMENTITA_DICHIARATA");
     expect(contradiction?.span).toBe("POST_SUCCESSIVO");
     expect(contradiction?.bothRetained).toBe(true);
-    expect(contradiction?.earlier.postId).toBe("2201");
-    expect(contradiction?.later.postId).toBe("2202");
+    expect(contradiction?.first.postId).toBe("2201");
+    expect(contradiction?.second.postId).toBe("2202");
     // Le date dichiarate viaggiano accanto ai segnali e non vengono interpretate.
-    expect(contradiction?.earlier.publishedAt).toBe("2026-09-04T09:00:00+02:00");
-    expect(contradiction?.later.publishedAt).toBe("2026-09-04T18:00:00+02:00");
+    expect(contradiction?.first.publishedAt).toBe("2026-09-04T09:00:00+02:00");
+    expect(contradiction?.second.publishedAt).toBe("2026-09-04T18:00:00+02:00");
   });
 
   it("la traccia mostra il cambio di idea, e non esiste un campo «ultimo»", () => {
@@ -258,8 +272,8 @@ describe("autore con ruolo non verificato", () => {
     const reading = readTopicSignals(posts, lexicon);
     expect(reading.signals).toHaveLength(2);
     expect(reading.contradictions[0]?.relation).toBe("OPPOSTI");
-    expect(reading.contradictions[0]?.earlier.roleVerified).toBe(true);
-    expect(reading.contradictions[0]?.later.roleVerified).toBe(false);
+    expect(reading.contradictions[0]?.first.roleVerified).toBe(true);
+    expect(reading.contradictions[0]?.second.roleVerified).toBe(false);
   });
 });
 
@@ -326,5 +340,156 @@ describe("la lettura è deterministica", () => {
       signalPost({ postId: "2902", staff: false, quote: "Iota eta delta.", body: "Theta zeta." }),
     );
     expect(readTopicSignals(posts, lexicon)).toEqual(readTopicSignals(posts, lexicon));
+  });
+});
+
+describe("l'ordine si verifica, non si assume", () => {
+  it("con indice di pagina e istanti concordi l'ordine è verificato e confrontato", () => {
+    const posts = postsOf(
+      signalPost({ postId: "3001", staff: true, body: "Theta gamma.", at: "2026-09-04T09:00:00+02:00" }),
+      signalPost({ postId: "3002", staff: true, body: "Theta zeta.", at: "2026-09-04T18:00:00+02:00" }),
+    );
+    const order = verifyPostOrder(posts);
+    expect(order.verdict.basis).toBe("indice_di_pagina");
+    expect(order.verdict.state).toBe("VERIFICATO");
+    expect(order.verdict.crossChecked).toBe(true);
+    expect(order.verdict.comparisons).toBe(1);
+    expect(readTopicSignals(posts, lexicon).contradictions[0]?.temporal).toBe(true);
+  });
+
+  it("se gli istanti contraddicono l'ordine di pagina si rifiuta, non si sceglie", () => {
+    const posts = postsOf(
+      signalPost({ postId: "3011", staff: true, body: "Theta gamma.", at: "2026-09-04T18:00:00+02:00" }),
+      signalPost({ postId: "3012", staff: true, body: "Theta zeta.", at: "2026-09-04T09:00:00+02:00" }),
+    );
+    const reading = readTopicSignals(posts, lexicon);
+
+    expect(reading.order.state).toBe("NON_MONOTONO");
+    expect(reading.order.crossChecked).toBe(true);
+    expect(reading.outcome).toBe("ORDINE_NON_MONOTONO");
+    // Fail-closed: non si producono relazioni temporali su una sequenza che si contraddice.
+    expect(reading.signals).toHaveLength(0);
+    expect(reading.contradictions).toHaveLength(0);
+    expect(reading.readings).toHaveLength(0);
+    expect(reading.measures.posts).toBe(2);
+  });
+
+  it("post consegnati fuori sequenza sono un rifiuto, non un riordino silenzioso", () => {
+    const inOrder = postsOf(
+      signalPost({ postId: "3021", staff: true, body: "Theta gamma." }),
+      signalPost({ postId: "3022", staff: true, body: "Theta zeta." }),
+    );
+    const shuffled = [inOrder[1] as TopicPost, inOrder[0] as TopicPost];
+    const reading = readTopicSignals(shuffled, lexicon);
+    expect(reading.order.state).toBe("NON_MONOTONO");
+    expect(reading.outcome).toBe("ORDINE_NON_MONOTONO");
+    expect(reading.signals).toHaveLength(0);
+  });
+
+  it("senza niente di confrontabile non si producono relazioni temporali, e lo si dichiara", () => {
+    const posts = postsWithoutOrder(
+      signalPost({ postId: "3031", staff: true, body: "Theta gamma." }),
+      signalPost({ postId: "3032", staff: true, body: "Theta zeta." }),
+    );
+    const reading = readTopicSignals(posts, lexicon);
+
+    expect(reading.order.basis).toBe("nessuna");
+    expect(reading.order.state).toBe("NON_VERIFICABILE");
+    // I segnali escono lo stesso: sono stati detti.
+    expect(reading.signals).toHaveLength(2);
+    expect(reading.outcome).toBe("SEGNALI");
+    // Ma la smentita non diventa una relazione temporale inventata dall'array.
+    expect(reading.contradictions).toHaveLength(0);
+    expect(reading.measures.pairsWithoutOrder).toBe(1);
+    expect(reading.traces[0]?.stanceChanged).toBe(false);
+  });
+
+  it("senza ordine verificato `OPPOSTI` resta, perché non è un'affermazione sul tempo", () => {
+    const posts = postsWithoutOrder(
+      signalPost({ postId: "3041", staff: true, body: "Theta gamma." }),
+      signalPost({ postId: "3042", staff: true, body: "Theta gamma spenta." }),
+    );
+    const reading = readTopicSignals(posts, lexicon);
+
+    expect(reading.contradictions).toHaveLength(1);
+    expect(reading.contradictions[0]?.relation).toBe("OPPOSTI");
+    expect(reading.contradictions[0]?.span).toBe("ORDINE_NON_VERIFICATO");
+    expect(reading.contradictions[0]?.temporal).toBe(false);
+    expect(reading.contradictions[0]?.bothRetained).toBe(true);
+  });
+
+  it("dentro un post l'ordine è quello del testo, e vale anche senza ordine di pagina", () => {
+    const posts = postsWithoutOrder(
+      signalPost({ postId: "3051", staff: true, body: "Theta gamma. Theta zeta." }),
+    );
+    const reading = readTopicSignals(posts, lexicon);
+    expect(reading.contradictions[0]?.relation).toBe("SMENTITA_DICHIARATA");
+    expect(reading.contradictions[0]?.span).toBe("STESSO_POST");
+    expect(reading.contradictions[0]?.temporal).toBe(true);
+  });
+
+  it("gli istanti valgono solo a parità di scostamento: fusi diversi non si normalizzano", () => {
+    const mixed = postsWithoutOrder(
+      signalPost({ postId: "3061", staff: true, body: "Theta gamma." }),
+      signalPost({ postId: "3062", staff: true, body: "Theta zeta." }),
+    ).map((post, index) => ({
+      ...post,
+      publishedAt: index === 0 ? "2026-09-04T09:00:00+02:00" : "2026-09-04T08:00:00Z",
+    }));
+    expect(verifyPostOrder(mixed).verdict.basis).toBe("nessuna");
+
+    const same = mixed.map((post, index) => ({
+      ...post,
+      publishedAt: index === 0 ? "2026-09-04T09:00:00+02:00" : "2026-09-04T10:00:00+02:00",
+    }));
+    const verdict = verifyPostOrder(same).verdict;
+    expect(verdict.basis).toBe("istante_dichiarato");
+    expect(verdict.state).toBe("VERIFICATO");
+  });
+});
+
+describe("il giro completo legge i segnali, e il lessico resta un ingresso", () => {
+  const page = {
+    raw: signalsPage([
+      signalPost({ postId: "4001", staff: true, body: "Theta gamma.", at: "2026-09-04T09:00:00+02:00" }),
+      signalPost({ postId: "4002", staff: false, body: "Theta gamma spenta.", at: "2026-09-04T18:00:00+02:00" }),
+    ]),
+    topicId: "999001",
+    canonicalUrl: "/topic",
+    pageOffset: 0,
+    declaredPages: 1,
+    fingerprint: "0123456789ab",
+    depositConfirmed: true,
+    observedAtEpochMs: SEP_4_1200_MS,
+  } as const;
+
+  it("col lessico il referto conta i segnali, e non ne riporta il testo", () => {
+    const result = runParser([page], { ...roleOptions, signalLexicon: lexicon });
+    const block = result.report.signals;
+
+    expect(block.lexiconProvided).toBe(true);
+    expect(block.missingFamilies).toEqual([]);
+    expect(block.total).toBe(2);
+    expect(block.byKind).toEqual({ DATO_FUORI: 1, DATO_TITOLARE: 1 });
+    expect(block.contradictionsByRelation).toEqual({ OPPOSTI: 1 });
+    expect(block.orderStates).toEqual({ VERIFICATO: 1 });
+    expect(block.fromUnverifiedRole).toBe(1);
+    expect(block.weighted).toBe(false);
+    // Il referto non porta né i termini né i nomi: quelli stanno nell'estratto.
+    expect(JSON.stringify(block)).not.toContain("gamma");
+    expect(JSON.stringify(block)).not.toContain("g-1");
+
+    const extract = result.extract?.topics[0]?.signals;
+    expect(extract?.outcome).toBe("SEGNALI");
+    expect(extract?.signals[0]?.matchedTerm).toBe("gamma");
+    expect(extract?.traces[0]?.entries).toHaveLength(2);
+  });
+
+  it("senza lessico il giro non tenta niente, e lo dice", () => {
+    const result = runParser([page], roleOptions);
+    expect(result.report.signals.lexiconProvided).toBe(false);
+    expect(result.report.signals.outcomes).toEqual({ LESSICO_ASSENTE: 1 });
+    expect(result.report.signals.total).toBe(0);
+    expect(result.extract?.topics[0]?.signals.signals).toHaveLength(0);
   });
 });

@@ -44,6 +44,19 @@
 //     ruolo di chi è citato non passa a chi cita. Il contratto lo dice già in
 //     `Quote`; qui viene rispettato.
 //
+//  5. **L'ordine dei post si verifica, non si assume.** L'ordine di un array è
+//     una scelta di chi lo costruisce, non una misura: se `readTopicSignals` lo
+//     prendesse per buono, «più recente» sarebbe una parola fabbricata, e con
+//     essa sarebbero fabbricate `RIVISTO` e `SMENTITA_DICHIARATA` — cioè proprio
+//     le relazioni per cui questa parte esiste. Quindi si guarda che cosa i post
+//     portano addosso (indice di pagina, istanti in forma canonica), si controlla
+//     che sia monotono, e dove le due misure si contraddicono **si rifiuta**
+//     (`ORDINE_NON_MONOTONO`) invece di produrre relazioni temporali false. Dove
+//     non c'è niente di confrontabile i segnali escono lo stesso, ma **senza**
+//     relazioni temporali, e il verdetto lo dichiara. Chi userà queste funzioni
+//     fra sei mesi non leggerà il referto: leggerà la firma, e il controllo deve
+//     stare nel codice.
+//
 // PERCHÉ IL LESSICO È UN INGRESSO E NON UNA COSTANTE. Le parole con cui una
 // fonte dice «titolare», «in dubbio», «fuori», «smentito» sono **la forma di
 // quella fonte**: un elenco di parole scritto qui dentro sarebbe una
@@ -61,10 +74,11 @@
 // e diacritici tolti) invece di espressioni regolari compilate dal dato del
 // chiamante; la vittoria del **termine più lungo** quando due famiglie si
 // sovrappongono sugli stessi caratteri; **un solo segnale per famiglia e per
-// proposizione**; l'ordine dei segnali preso dall'ordine in cui il chiamante
-// consegna i post, e non dalle date dichiarate — che viaggiano accanto e non
-// vengono interpretate, perché una data letta dalla fonte porta un fuso che
-// questo perimetro non ha mai verificato.
+// proposizione**; l'indice di pagina come base **primaria** dell'ordine, con gli
+// istanti dichiarati usati per **controllarlo** e mai per normalizzarlo, perché
+// una data letta dalla fonte porta un fuso che questo perimetro non ha mai
+// verificato; il rifiuto — invece del silenzio o di un aggiustamento — quando le
+// due misure dell'ordine si contraddicono.
 
 import type { AuthorRole, Quote, TopicPost } from "./types.js";
 
@@ -207,17 +221,71 @@ export type ContradictionRelation =
   | "SMENTITA_DICHIARATA";
 
 /** Dove sta la contraddizione: dentro un post, o fra due post. */
-export type ContradictionSpan = "STESSO_POST" | "POST_SUCCESSIVO";
+export type ContradictionSpan =
+  /** Dentro un post: l'ordine è quello del testo, ed è sempre verificabile. */
+  | "STESSO_POST"
+  /** Fra due post, con l'ordine verificato: `first` è davvero il precedente. */
+  | "POST_SUCCESSIVO"
+  /** Fra due post di cui **non si sa** quale venga prima. Nessuna relazione temporale. */
+  | "ORDINE_NON_VERIFICATO";
 
-/** Una contraddizione **dichiarata**: nessuno dei due segnali viene tolto. */
+/**
+ * Una contraddizione **dichiarata**: nessuno dei due segnali viene tolto.
+ *
+ * I due lati si chiamano `first` e `second`, non «prima» e «dopo», perché il
+ * loro nome non deve promettere più di quanto sia stato verificato: `first`
+ * precede `second` **solo** quando `span` è `STESSO_POST` o `POST_SUCCESSIVO`.
+ * Con `ORDINE_NON_VERIFICATO` sono solo i due lati di un'incompatibilità, e le
+ * relazioni che sarebbero temporali — `RIVISTO`, `SMENTITA_DICHIARATA` — non
+ * vengono prodotte affatto.
+ */
 export interface SignalContradiction {
   readonly playerId: string;
   readonly relation: ContradictionRelation;
   readonly span: ContradictionSpan;
-  readonly earlier: SignalRef;
-  readonly later: SignalRef;
+  /** Vero solo se `first` precede `second` per un ordine **verificato**. */
+  readonly temporal: boolean;
+  readonly first: SignalRef;
+  readonly second: SignalRef;
   /** Entrambi restano leggibili: la contraddizione si dichiara, non si risolve. */
   readonly bothRetained: true;
+}
+
+/** Su che cosa poggia l'ordine dei post. Vocabolario chiuso. */
+export type OrderBasis =
+  /** Pagina depositata e posizione nella pagina: la struttura osservata. */
+  | "indice_di_pagina"
+  /** Istanti dichiarati dalla fonte, **tutti** nella stessa forma e con lo stesso scostamento. */
+  | "istante_dichiarato"
+  /** Niente di confrontabile: l'ordine dell'array non è una misura. */
+  | "nessuna";
+
+export type OrderState =
+  /** Verificato: i post arrivano in ordine non decrescente sulla base dichiarata. */
+  | "VERIFICATO"
+  /** L'ordine osservato si contraddice: rifiutato, non aggiustato. */
+  | "NON_MONOTONO"
+  /** Non c'è niente da verificare: nessuna relazione temporale verrà prodotta. */
+  | "NON_VERIFICABILE";
+
+/**
+ * Il verdetto sull'ordine dei post. **L'ordine si verifica, non si assume.**
+ *
+ * L'ordine di un array è una scelta di chi lo costruisce, non una misura: se
+ * `readTopicSignals` lo prendesse per buono, «più recente» sarebbe una parola
+ * fabbricata e con essa sarebbero fabbricate `RIVISTO` e `SMENTITA_DICHIARATA`
+ * — cioè proprio le relazioni per cui questa parte esiste. Chi legge la firma
+ * fra sei mesi non leggerà il referto: quindi il controllo sta nel codice.
+ */
+export interface OrderVerdict {
+  readonly basis: OrderBasis;
+  readonly state: OrderState;
+  /** Vero quando la base primaria è stata **confrontata** con la seconda misura disponibile. */
+  readonly crossChecked: boolean;
+  readonly postsOrdered: number;
+  /** Quante coppie di post consecutivi sono state confrontate. */
+  readonly comparisons: number;
+  readonly reason: string;
 }
 
 /**
@@ -278,12 +346,26 @@ export interface SignalMeasures {
   readonly signalsFromUnverifiedRole: number;
   readonly contradictionsByRelation: Readonly<Record<string, number>>;
   readonly playersWithChangedStance: number;
+  /**
+   * Coppie di segnali incompatibili fra post di cui non si sa quale venga
+   * prima: la relazione temporale **non** è stata prodotta, e il fatto è
+   * contato qui invece di sparire.
+   */
+  readonly pairsWithoutOrder: number;
   /** Questo pacchetto non pesa e non ordina per qualità. */
   readonly weighted: false;
 }
 
+/** Esito della lettura di un topic: quello di un post, più il rifiuto sull'ordine. */
+export type TopicSignalOutcome =
+  | PostSignalOutcome
+  /** I post arrivano in un ordine che si contraddice: rifiutato, fail-closed. */
+  | "ORDINE_NON_MONOTONO";
+
 export interface TopicSignalReading {
-  readonly outcome: PostSignalOutcome;
+  readonly outcome: TopicSignalOutcome;
+  /** Che cosa è stato verificato dell'ordine, e su che cosa. */
+  readonly order: OrderVerdict;
   readonly missingFamilies: readonly string[];
   readonly readings: readonly PostSignalReading[];
   readonly signals: readonly LineupSignal[];
@@ -624,7 +706,9 @@ export function readPostSignals(
     outcome,
     missingFamilies: [],
     signals,
-    contradictions: contradictionsAmong(signals),
+    // Dentro un post l'ordine è quello del testo: sempre verificabile, e
+    // infatti nessun rango serve a stabilirlo.
+    contradictions: contradictionsAmong(signals, null).contradictions,
     clausesRead,
     quotesRead: post.quotes.length,
     attenuatorsDeclared: lexicon.attenuators.length > 0,
@@ -632,8 +716,16 @@ export function readPostSignals(
 }
 
 // ---------------------------------------------------------------------------
-// Contraddizioni: si dichiarano, non si risolvono.
+// Ordine dei post, e contraddizioni: si verificano e si dichiarano.
 // ---------------------------------------------------------------------------
+
+/**
+ * Forma canonica di un istante. Nessun orologio, nessuna costruzione di date:
+ * si guarda **la forma**, e si confronta come testo. Vale come confronto
+ * cronologico solo a parità di scostamento e di larghezza — condizione che
+ * `canonicalInstants` verifica, invece di darla per buona.
+ */
+const CANONICAL_INSTANT = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?)(Z|[+-]\d{2}:\d{2})$/;
 
 /**
  * Che rapporto c'è fra due affermazioni sullo stesso giocatore. Matrice chiusa:
@@ -668,6 +760,185 @@ function compareSignals(a: LineupSignal, b: LineupSignal): number {
 }
 
 /**
+ * L'ORDINE DEI POST SI VERIFICA, NON SI ASSUME.
+ *
+ * Un array è ordinato da chi lo costruisce: prenderne l'ordine per buono
+ * significherebbe che «più recente» è una parola fabbricata, e con essa lo
+ * sarebbero `RIVISTO` e `SMENTITA_DICHIARATA`. Qui si guarda che cosa i post
+ * portano davvero addosso, in quest'ordine di preferenza:
+ *
+ *  1. **indice di pagina** — `pageOffset` e `positionInPage`, quando ogni post
+ *     li ha: è la struttura osservata sulla pagina, non un'interpretazione. È la
+ *     base primaria perché non dipende da nessun fuso;
+ *  2. **istante dichiarato** — solo se **ogni** post ha una data in forma
+ *     canonica, tutte con lo **stesso** scostamento e la **stessa** larghezza:
+ *     a quella condizione il confronto lessicografico è un confronto
+ *     cronologico corretto e non serve nessun orologio. Scostamenti diversi non
+ *     si normalizzano: il fuso di questo perimetro non è mai stato verificato
+ *     (README §"Che cosa NON è stato osservato", 7), e normalizzarlo sarebbe
+ *     inventarlo;
+ *  3. **niente** — e allora nessuna relazione temporale viene prodotta.
+ *
+ * Quando **entrambe** le misure ci sono, la seconda **controlla** la prima: due
+ * osservazioni indipendenti che si contraddicono non si mediano e non si
+ * scelgono, si rifiutano (`NON_MONOTONO`).
+ */
+function canonicalInstants(posts: readonly TopicPost[]): string[] | null {
+  const keys: string[] = [];
+  let offset: string | null = null;
+  let width: number | null = null;
+  for (const post of posts) {
+    if (post.publishedAt === null) return null;
+    const match = CANONICAL_INSTANT.exec(post.publishedAt);
+    if (match === null) return null;
+    const local = match[1] as string;
+    const suffix = match[2] as string;
+    if (offset === null) offset = suffix;
+    else if (offset !== suffix) return null;
+    if (width === null) width = local.length;
+    else if (width !== local.length) return null;
+    keys.push(local);
+  }
+  return keys;
+}
+
+function pageIndices(posts: readonly TopicPost[]): string[] | null {
+  const keys: string[] = [];
+  for (const post of posts) {
+    if (post.pageOffset === null) return null;
+    keys.push(`${padded(post.pageOffset)}:${padded(post.positionInPage)}`);
+  }
+  return keys;
+}
+
+/** Zero-padding a larghezza fissa: rende il confronto lessicografico un confronto numerico. */
+function padded(value: number): string {
+  const sign = value < 0 ? "-" : "0";
+  const digits = `${Math.abs(Math.trunc(value))}`;
+  return `${sign}${"0".repeat(Math.max(0, 12 - digits.length))}${digits}`;
+}
+
+function nonDecreasing(keys: readonly string[]): boolean {
+  for (let i = 1; i < keys.length; i += 1) {
+    if ((keys[i] as string) < (keys[i - 1] as string)) return false;
+  }
+  return true;
+}
+
+/** Rango per post: chiavi uguali = rango uguale, cioè «non si sa quale venga prima». */
+function ranksOf(posts: readonly TopicPost[], keys: readonly string[]): Map<string, string> {
+  const ranks = new Map<string, string>();
+  posts.forEach((post, index) => {
+    const key = keys[index];
+    if (key !== undefined && !ranks.has(post.postId)) ranks.set(post.postId, key);
+  });
+  return ranks;
+}
+
+export interface VerifiedOrder {
+  readonly verdict: OrderVerdict;
+  /** `null` quando non c'è niente su cui ordinare. */
+  readonly ranks: ReadonlyMap<string, string> | null;
+}
+
+/** Verifica l'ordine dei post così come il chiamante li consegna. */
+export function verifyPostOrder(posts: readonly TopicPost[]): VerifiedOrder {
+  const comparisons = Math.max(0, posts.length - 1);
+  const byPage = pageIndices(posts);
+  const byInstant = canonicalInstants(posts);
+
+  if (byPage !== null) {
+    if (!nonDecreasing(byPage)) {
+      return {
+        verdict: {
+          basis: "indice_di_pagina",
+          state: "NON_MONOTONO",
+          crossChecked: byInstant !== null,
+          postsOrdered: posts.length,
+          comparisons,
+          reason: "i post non arrivano in ordine di pagina e posizione",
+        },
+        ranks: null,
+      };
+    }
+    if (byInstant !== null && !nonDecreasing(byInstant)) {
+      return {
+        verdict: {
+          basis: "indice_di_pagina",
+          state: "NON_MONOTONO",
+          crossChecked: true,
+          postsOrdered: posts.length,
+          comparisons,
+          reason: "gli istanti dichiarati contraddicono l'ordine di pagina",
+        },
+        ranks: null,
+      };
+    }
+    return {
+      verdict: {
+        basis: "indice_di_pagina",
+        state: "VERIFICATO",
+        crossChecked: byInstant !== null,
+        postsOrdered: posts.length,
+        comparisons,
+        reason:
+          byInstant === null
+            ? "ordine di pagina non decrescente"
+            : "ordine di pagina non decrescente, confermato dagli istanti dichiarati",
+      },
+      ranks: ranksOf(posts, byPage),
+    };
+  }
+
+  if (byInstant !== null) {
+    if (!nonDecreasing(byInstant)) {
+      return {
+        verdict: {
+          basis: "istante_dichiarato",
+          state: "NON_MONOTONO",
+          crossChecked: false,
+          postsOrdered: posts.length,
+          comparisons,
+          reason: "gli istanti dichiarati non arrivano in ordine non decrescente",
+        },
+        ranks: null,
+      };
+    }
+    return {
+      verdict: {
+        basis: "istante_dichiarato",
+        state: "VERIFICATO",
+        crossChecked: false,
+        postsOrdered: posts.length,
+        comparisons,
+        reason: "istanti in forma canonica, stesso scostamento, ordine non decrescente",
+      },
+      ranks: ranksOf(posts, byInstant),
+    };
+  }
+
+  return {
+    verdict: {
+      basis: "nessuna",
+      state: "NON_VERIFICABILE",
+      crossChecked: false,
+      postsOrdered: posts.length,
+      comparisons,
+      reason:
+        "nessun indice di pagina su tutti i post e nessun insieme di istanti confrontabili: l'ordine dell'array non è una misura",
+    },
+    ranks: null,
+  };
+}
+
+/** Che cosa esce dal confronto delle coppie: le contraddizioni e ciò che non si è potuto dire. */
+export interface ContradictionSet {
+  readonly contradictions: readonly SignalContradiction[];
+  /** Coppie incompatibili lasciate senza relazione temporale, perché l'ordine non è verificato. */
+  readonly pairsWithoutOrder: number;
+}
+
+/**
  * Le contraddizioni fra un insieme di segnali, giocatore per giocatore.
  *
  * **Nessun segnale viene tolto.** Il segnale più recente non sostituisce il
@@ -676,10 +947,18 @@ function compareSignals(a: LineupSignal, b: LineupSignal): number {
  * versione. I segnali senza soggetto risolto non entrano nelle coppie — non si
  * sa di chi parlino — ma non spariscono: `readTopicSignals` li elenca in
  * `unattributed`.
+ *
+ * `ranks` porta l'ordine **verificato** dei post. Dove quell'ordine non c'è:
+ * `OPPOSTI` resta — dato titolare e dato fuori non possono valere insieme, e
+ * questo non dipende da quale sia venuto prima — mentre `RIVISTO` e
+ * `SMENTITA_DICHIARATA`, che sono affermazioni sul tempo, **non vengono
+ * prodotte**: la coppia finisce in `pairsWithoutOrder`, contata e non nascosta.
+ * Meglio nessuna relazione che una relazione inventata dall'ordine di un array.
  */
 export function contradictionsAmong(
   signals: readonly LineupSignal[],
-): readonly SignalContradiction[] {
+  ranks: ReadonlyMap<string, string> | null,
+): ContradictionSet {
   const ordered = [...signals].sort(compareSignals);
   const byPlayer = new Map<string, LineupSignal[]>();
   for (const signal of ordered) {
@@ -689,33 +968,55 @@ export function contradictionsAmong(
     else list.push(signal);
   }
   const found: SignalContradiction[] = [];
+  let pairsWithoutOrder = 0;
   const players = [...byPlayer.keys()].sort((a, b) => a.localeCompare(b));
   for (const playerId of players) {
     const list = byPlayer.get(playerId) ?? [];
     for (let i = 0; i < list.length; i += 1) {
       for (let j = i + 1; j < list.length && found.length < 500; j += 1) {
-        const earlier = list[i] as LineupSignal;
-        const later = list[j] as LineupSignal;
-        const relation = contradictionBetween(earlier.kind, later.kind);
+        const first = list[i] as LineupSignal;
+        const second = list[j] as LineupSignal;
+        const relation = contradictionBetween(first.kind, second.kind);
         if (relation === null) continue;
+
+        const samePost = first.postId === second.postId;
+        const firstRank = ranks?.get(first.postId);
+        const secondRank = ranks?.get(second.postId);
+        const strictlyBefore =
+          firstRank !== undefined && secondRank !== undefined && firstRank < secondRank;
+        // Dentro un post l'ordine è quello del testo, e quello si vede sempre.
+        const ordinata = samePost || strictlyBefore;
+
+        if (!ordinata && relation !== "OPPOSTI") {
+          pairsWithoutOrder += 1;
+          continue;
+        }
         found.push({
           playerId,
           relation,
-          span: earlier.postId === later.postId ? "STESSO_POST" : "POST_SUCCESSIVO",
-          earlier: refOf(earlier),
-          later: refOf(later),
+          span: samePost
+            ? "STESSO_POST"
+            : ordinata
+              ? "POST_SUCCESSIVO"
+              : "ORDINE_NON_VERIFICATO",
+          temporal: ordinata,
+          first: refOf(first),
+          second: refOf(second),
           bothRetained: true,
         });
       }
     }
   }
-  return found;
+  return { contradictions: found, pairsWithoutOrder };
 }
 
 /** Le tracce per giocatore: tutto ciò che è stato detto, in ordine osservato. */
-export function traceSignals(signals: readonly LineupSignal[]): readonly PlayerSignalTrace[] {
+export function traceSignals(
+  signals: readonly LineupSignal[],
+  ranks: ReadonlyMap<string, string> | null,
+): readonly PlayerSignalTrace[] {
   const ordered = [...signals].sort(compareSignals);
-  const contradictions = contradictionsAmong(ordered);
+  const { contradictions } = contradictionsAmong(ordered, ranks);
   const players = [
     ...new Set(
       ordered.filter((signal) => signal.playerId !== null).map((signal) => signal.playerId as string),
@@ -759,17 +1060,51 @@ function countBy<T>(items: readonly T[], key: (item: T) => string): Record<strin
  * Legge i segnali di un topic: i post **nell'ordine in cui il chiamante li
  * consegna**, che è l'ordine osservato sulla pagina.
  */
+/**
+ * Legge i segnali di un topic.
+ *
+ * **L'ordine si verifica prima di leggere.** `verifyPostOrder` guarda che cosa
+ * i post portano addosso — indice di pagina, istanti in forma canonica — e dice
+ * se l'ordine in cui arrivano è sostenuto da una misura. Da lì:
+ *
+ *  - ordine `NON_MONOTONO` (le due osservazioni si contraddicono, o i post
+ *    arrivano fuori sequenza): **si rifiuta**, `ORDINE_NON_MONOTONO`,
+ *    fail-closed. Produrre relazioni temporali su una sequenza che si
+ *    contraddice significherebbe fabbricarle;
+ *  - ordine `NON_VERIFICABILE`: i segnali **escono lo stesso** — sono stati
+ *    detti — ma senza `RIVISTO` né `SMENTITA_DICHIARATA`, e il verdetto lo
+ *    dichiara. Meglio nessuna relazione che una relazione inventata;
+ *  - ordine `VERIFICATO`: tutto come sopra, e le relazioni temporali si
+ *    producono perché adesso poggiano su qualcosa.
+ */
 export function readTopicSignals(
   posts: readonly TopicPost[],
   lexicon: SignalLexicon,
 ): TopicSignalReading {
   const missing = missingLexiconFamilies(lexicon);
+  const order = verifyPostOrder(posts);
+
+  if (order.verdict.state === "NON_MONOTONO") {
+    return {
+      outcome: "ORDINE_NON_MONOTONO",
+      order: order.verdict,
+      missingFamilies: missing,
+      readings: [],
+      signals: [],
+      traces: [],
+      contradictions: [],
+      unattributed: [],
+      measures: emptyMeasures(posts.length),
+      signalsVersion: SIGNALS_VERSION,
+    };
+  }
+
   const readings = posts.map((post, index) => readPostSignals(post, lexicon, index));
   const signals = readings.flatMap((reading) => reading.signals).sort(compareSignals);
-  const traces = traceSignals(signals);
-  const contradictions = contradictionsAmong(signals);
+  const traces = traceSignals(signals, order.ranks);
+  const { contradictions, pairsWithoutOrder } = contradictionsAmong(signals, order.ranks);
 
-  const outcome: PostSignalOutcome = missing.includes("lessico")
+  const outcome: TopicSignalOutcome = missing.includes("lessico")
     ? "LESSICO_ASSENTE"
     : missing.length > 0
       ? "LESSICO_INCOMPLETO"
@@ -795,12 +1130,14 @@ export function readTopicSignals(
     signalsFromUnverifiedRole: signals.filter((signal) => !signal.evidence.roleVerified).length,
     contradictionsByRelation: countBy(contradictions, (item) => item.relation),
     playersWithChangedStance: traces.filter((trace) => trace.stanceChanged).length,
+    pairsWithoutOrder,
     weighted: false,
   };
 
   return {
     outcome,
-    missingFamilies: missing.includes("lessico") || missing.length > 0 ? missing : [],
+    order: order.verdict,
+    missingFamilies: missing,
     readings,
     signals,
     traces,
@@ -808,5 +1145,26 @@ export function readTopicSignals(
     unattributed: signals.filter((signal) => signal.playerId === null).map(refOf),
     measures,
     signalsVersion: SIGNALS_VERSION,
+  };
+}
+
+/** Misure a zero: il rifiuto sull'ordine non conta niente che non abbia letto. */
+function emptyMeasures(posts: number): SignalMeasures {
+  return {
+    posts,
+    postsWithSignals: 0,
+    postsSilent: 0,
+    postsSilenceNotProvable: 0,
+    signals: 0,
+    byKind: {},
+    byForm: {},
+    byVoice: {},
+    bySubject: {},
+    byRoleClass: {},
+    signalsFromUnverifiedRole: 0,
+    contradictionsByRelation: {},
+    playersWithChangedStance: 0,
+    pairsWithoutOrder: 0,
+    weighted: false,
   };
 }
