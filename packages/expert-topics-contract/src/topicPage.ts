@@ -297,54 +297,101 @@ function quoteMarkers(html: string): QuoteMarker[] {
   return markers.sort((a, b) => a.index - b.index);
 }
 
+/** Chi è citato, letto dalla riga di attribuzione della citazione. */
+function citationOf(ownHtml: string): { quotedAuthor: string; quotedPostId: string } {
+  const cite = /<cite\b[^>]*>([\s\S]{0,400}?)<\/cite>/i.exec(ownHtml);
+  if (cite === null) return { quotedAuthor: "", quotedPostId: "" };
+  const quotedAuthor = textOf(cite[1] ?? "")
+    .replace(/\s*ha\s+scritto\s*:?\s*$/i, "")
+    .replace(/\s*wrote\s*:?\s*$/i, "")
+    .trim();
+  let quotedPostId = "";
+  for (const anchor of anchorsIn(cite[1] ?? "")) {
+    const decoded = decodeEntities(anchor.href);
+    const anchored = /#p(\d+)\s*$/.exec(decoded);
+    if (anchored !== null) {
+      quotedPostId = anchored[1] as string;
+      break;
+    }
+    const param = paramOf(decoded, "p");
+    if (param !== null && /^\d+$/.test(param)) {
+      quotedPostId = param;
+      break;
+    }
+  }
+  return { quotedAuthor, quotedPostId };
+}
+
+/** Frame di una citazione aperta e non ancora chiusa. */
+interface QuoteFrame {
+  readonly slot: number;
+  readonly depth: number;
+  cursor: number;
+  readonly pieces: string[];
+}
+
 /**
  * L'annidamento si conserva perché è l'unica cosa che dice **chi ha detto che
  * cosa**. Il ruolo dell'autore citato non passa mai al post che cita.
+ *
+ * Il testo **proprio** di ogni citazione si raccoglie per intervallo, con una
+ * pila: la regione di una citazione va dalla sua apertura alla chiusura che le
+ * corrisponde, meno le regioni delle citazioni annidate dentro di lei. Una sola
+ * espressione regolare non greedy chiuderebbe sulla prima `</blockquote>` — che
+ * in una citazione annidata è quella **interna** — e taglierebbe via la parte
+ * di citazione che segue l'annidamento, cioè proprio le parole che l'autore
+ * citato ha aggiunto dopo aver citato a sua volta.
  */
 function quotesOf(postHtml: string): { quotes: Quote[]; maxDepth: number } {
-  const quotes: Quote[] = [];
-  let depth = 0;
+  const markers = quoteMarkers(postHtml);
+  const own: string[] = [];
+  const depths: number[] = [];
+  const stack: QuoteFrame[] = [];
   let maxDepth = 0;
-  for (const marker of quoteMarkers(postHtml)) {
-    if (!marker.opening) {
-      if (depth > 0) depth -= 1;
+  for (const marker of markers) {
+    const parent = stack[stack.length - 1];
+    if (marker.opening) {
+      if (parent !== undefined) {
+        parent.pieces.push(postHtml.slice(parent.cursor, marker.index));
+        parent.cursor = marker.index;
+      }
+      const depth = stack.length + 1;
+      if (depth > maxDepth) maxDepth = depth;
+      const slot = own.length;
+      own.push("");
+      depths.push(depth);
+      stack.push({ slot, depth, cursor: marker.end, pieces: [] });
       continue;
     }
-    depth += 1;
-    if (depth > maxDepth) maxDepth = depth;
-    const tail = postHtml.slice(marker.end, marker.end + 1500);
-    const nextQuote = tail.search(/<blockquote\b|<\/blockquote>/i);
-    const zone = nextQuote === -1 ? tail : tail.slice(0, nextQuote);
-    const cite = /<cite\b[^>]*>([\s\S]{0,400}?)<\/cite>/i.exec(zone);
-    let quotedAuthor = "";
-    let quotedPostId = "";
-    if (cite !== null) {
-      quotedAuthor = textOf(cite[1] ?? "")
-        .replace(/\s*ha\s+scritto\s*:?\s*$/i, "")
-        .replace(/\s*wrote\s*:?\s*$/i, "")
-        .trim();
-      for (const anchor of anchorsIn(cite[1] ?? "")) {
-        const decoded = decodeEntities(anchor.href);
-        const anchored = /#p(\d+)\s*$/.exec(decoded);
-        if (anchored !== null) {
-          quotedPostId = anchored[1] as string;
-          break;
-        }
-        const param = paramOf(decoded, "p");
-        if (param !== null && /^\d+$/.test(param)) {
-          quotedPostId = param;
-          break;
-        }
-      }
-    }
-    quotes.push({
-      depth,
-      quotedAuthor,
-      quotedPostId,
-      quotedAuthorRecognised: quotedAuthor !== "",
-      roleInherited: false,
-    });
+    // Chiusura senza apertura: si ignora invece di far scivolare la profondità
+    // su una citazione che non è mai cominciata.
+    if (parent === undefined) continue;
+    parent.pieces.push(postHtml.slice(parent.cursor, marker.index));
+    own[parent.slot] = parent.pieces.join(" ");
+    stack.pop();
+    const grandparent = stack[stack.length - 1];
+    if (grandparent !== undefined) grandparent.cursor = marker.end;
   }
+  // Citazione aperta e mai chiusa: la sua regione arriva fino in fondo al post.
+  // Mai si presume che il resto appartenga a chi scrive.
+  for (let i = stack.length - 1; i >= 0; i -= 1) {
+    const frame = stack[i] as QuoteFrame;
+    frame.pieces.push(postHtml.slice(frame.cursor));
+    own[frame.slot] = frame.pieces.join(" ");
+  }
+
+  const quotes: Quote[] = own.map((ownHtml, index) => {
+    const cited = citationOf(ownHtml);
+    const withoutCite = ownHtml.replace(/<cite\b[\s\S]{0,600}?<\/cite>/i, " ");
+    return {
+      depth: depths[index] ?? 1,
+      quotedAuthor: cited.quotedAuthor,
+      quotedPostId: cited.quotedPostId,
+      quotedAuthorRecognised: cited.quotedAuthor !== "",
+      text: textOf(withoutCite),
+      roleInherited: false,
+    };
+  });
   return { quotes, maxDepth };
 }
 

@@ -11,4 +11,5 @@ export * from "./types.js";
 export * from "./title.js";
 export * from "./matchLink.js";
 export * from "./topicPage.js";
+export * from "./lineupSignals.js";
 export * from "./run.js";

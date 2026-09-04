@@ -103,6 +103,82 @@ export const SEP_5_2045_MS = Date.UTC(2026, 8, 5, 18, 45); // 20:45 Europe/Rome
 export const SEP_4_1200_MS = Date.UTC(2026, 8, 4, 10, 0); // osservazione sintetica
 export const NOV_5_2045_MS = Date.UTC(2026, 10, 5, 19, 45); // due mesi dopo
 
+// ---------------------------------------------------------------------------
+// SEGNALI DI FORMAZIONE — lessico e pagine **sintetici**.
+//
+// Il lessico vero di una fonte è un dato privato: scriverlo qui, anche solo in
+// una prova, pubblicherebbe come parla la fonte che leggiamo. Quindi le parole
+// di prova non sono parole di calcio: sono lettere greche, come «Alfa Calcio» e
+// «Beta Sporting». Servono a esercitare la meccanica — confini di parola,
+// sovrapposizione fra famiglie, attenuazione, citazioni — non a somigliare a
+// niente di reale.
+// ---------------------------------------------------------------------------
+
+/** Lessico sintetico completo. Nessuna di queste parole significa qualcosa. */
+export const syntheticLexicon = {
+  terms: {
+    titolare: ["gamma"],
+    in_dubbio: ["delta"],
+    // Contiene «gamma»: serve a provare che sugli stessi caratteri vince il
+    // termine più lungo, e che non si fabbrica una contraddizione inesistente.
+    fuori: ["gamma spenta"],
+    smentita: ["zeta"],
+  },
+  attenuators: ["eta"],
+  players: [
+    { playerId: "g-1", forms: ["Theta"] },
+    { playerId: "g-2", forms: ["Iota", "Òmicron"] },
+  ],
+} as const;
+
+/** Lo stesso lessico senza una famiglia: serve a provare che il parser non tenta niente. */
+export const lexiconWithoutOutFamily = {
+  ...syntheticLexicon,
+  terms: { ...syntheticLexicon.terms, fuori: [] },
+} as const;
+
+export interface SignalPostOptions {
+  readonly postId: string;
+  readonly body: string;
+  readonly staff?: boolean;
+  readonly authorBlock?: boolean;
+  readonly quote?: string;
+  readonly quotedAuthor?: string;
+  readonly at?: string;
+}
+
+/** Un post sintetico costruito attorno a un corpo e, se serve, a una citazione. */
+export function signalPost(options: SignalPostOptions): string {
+  const staff = options.staff ?? false;
+  const withAuthorBlock = options.authorBlock ?? true;
+  const at = options.at ?? "2026-09-04T09:00:00+02:00";
+  const profile = withAuthorBlock
+    ? [
+        '  <dl class="postprofile">',
+        `    <dt><a class="username" href="./memberlist.php?mode=viewprofile&amp;u=21">autore-${options.postId}</a></dt>`,
+        staff ? '    <dd><img src="./images/ranks/rankstaff.png" alt=""></dd>' : "",
+        "  </dl>",
+      ].join("")
+    : "";
+  const quoted =
+    options.quote === undefined
+      ? ""
+      : `<blockquote><cite>${options.quotedAuthor ?? "autore-citato"} ha scritto:</cite>${options.quote}</blockquote>`;
+  return [
+    `<div id="p${options.postId}" class="post has-profile bg1">`,
+    profile,
+    '  <div class="postbody">',
+    `    <p class="author"><time datetime="${at}">data sintetica</time></p>`,
+    `    <div class="content">${quoted}${options.body}</div>`,
+    "  </div>",
+    "</div>",
+  ].join("");
+}
+
+/** Pagina sintetica di soli post da segnale, nell'ordine in cui li si passa. */
+export const signalsPage = (posts: readonly string[]): string =>
+  topicPage({ posts: posts.join("") });
+
 export const syntheticCalendar = [
   {
     matchday: 3,

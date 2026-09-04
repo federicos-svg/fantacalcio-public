@@ -76,6 +76,84 @@ esperto dai conteggi.
 - Il **ruolo di chi è citato non passa mai a chi cita**, e l'annidamento delle
   citazioni si conserva perché è l'unica cosa che dice chi ha detto che cosa.
 
+## I segnali di formazione — perché la fonte è stata autorizzata
+
+`src/lineupSignals.ts` legge da un post le affermazioni di formazione: un
+giocatore **dato titolare**, **in dubbio**, **dato fuori**, oppure una
+**smentita** di una notizia precedente. Quattro tipi, vocabolario chiuso.
+
+Il testo di un post **non è un dato strutturato**: ogni estrazione da testo
+libero è un'inferenza, e una inferenza che si presentasse come un fatto sarebbe
+peggio di nessuna estrazione. Per questo il pacchetto **misura e dichiara**, come
+fa `packages/source-reliability` con l'accordo fra fonti, e **non pesa niente**:
+nessun punteggio, nessuna fiducia, nessun ordinamento per qualità. Ogni segnale
+esce con
+
+- il **grado della sua evidenza** — forma dell'enunciato (`affermata` /
+  `attenuata`, col termine che l'attenua), soggetto (`risolto` / `ambiguo` /
+  `non_identificato`, con quanti candidati e a quale ampiezza è stato trovato),
+  classe di ruolo dell'autore e se quel ruolo è verificato. È un insieme di
+  fatti messi accanto, non un ordinale: `alto/medio/basso` sarebbe già un peso;
+- **da quale parte del post viene** — corpo dell'autore o citazione, con
+  profondità e indice della citazione, periodo, proposizione e posizione del
+  termine.
+
+Chi sta a valle guarda quei campi e decide quanto pesarli. Qui non si decide.
+
+### Le quattro regole
+
+- **Il silenzio non è un'assenza di informazione sul giocatore.** Un post senza
+  segnali riconoscibili non produce segnali: è `SILENZIO`, non un errore, ed è
+  un fatto diverso da «detto fuori». Il silenzio si dichiara **solo se il testo
+  è stato davvero letto**: corpo del post non riconosciuto →
+  `SILENZIO_NON_DIMOSTRABILE`, che non autorizza nessuna conclusione.
+- **Una contraddizione non cancella niente.** Un segnale più recente che
+  contraddice uno precedente **non lo sostituisce**: restano entrambi, ciascuno
+  col proprio momento, e la contraddizione è dichiarata — `OPPOSTI` (titolare e
+  fuori), `RIVISTO` (una certezza e un dubbio), `SMENTITA_DICHIARATA` — con
+  `span` che dice se sta dentro un post o fra due post. In questo modulo **non
+  esiste un campo «ultimo segnale»**: esisterebbe per essere letto da solo, e
+  chi legge deve poter vedere che l'esperto ha cambiato idea.
+- **Il ruolo si verifica, non si presume.** Un segnale da autore con ruolo non
+  verificato è **valido** ed esce, **marcato** (`roleVerified: false`, con la
+  classe accanto): mai scartato in silenzio — sarebbe inventare un silenzio —
+  mai promosso.
+- **Una citazione non trasferisce il ruolo.** Le parole dentro una citazione
+  producono segnali, perché sono state dette, ma con `voice: "citazione"`,
+  `roleInherited: false` e classe di ruolo `non_verificabile`: il ruolo
+  verificato di chi cita **non copre** ciò che ha detto un altro.
+
+### L'ordine è quello osservato, non quello dichiarato
+
+I segnali si ordinano sull'ordine in cui il chiamante consegna i post — l'ordine
+osservato sulla pagina. Le date dei post viaggiano **accanto** ai segnali e non
+vengono mai interpretate né confrontate: vengono dalla fonte con un fuso che su
+questo perimetro non è stato verificato (§"Che cosa NON è stato osservato", 7),
+e ordinare su di esse sarebbe ordinare su un'assunzione.
+
+### Il lessico è un ingresso, non una costante
+
+Le parole con cui una fonte dice «titolare», «in dubbio», «fuori», «smentito»
+sono **la forma di quella fonte**: un elenco di parole nel sorgente sarebbe una
+descrizione della fonte pubblicata nel core — la stessa ragione per cui la
+tabella delle chiavi di un'altra fonte è già stata spostata fuori dal parser che
+la usa. Anche i **nomi dei giocatori** arrivano da fuori, per la stessa ragione
+per cui arriva da fuori la tabella di alias delle squadre.
+
+Non c'è nessun elenco di riserva, nessun valore per difetto, nessun tentativo
+«alla cieca» su parole plausibili: **senza lessico il parser non tenta niente**
+(`LESSICO_ASSENTE`, `LESSICO_INCOMPLETO`, con la famiglia mancante nominata). Le
+fixture delle prove usano lettere greche, non parole di calcio: anche una prova
+sta nel repository pubblico.
+
+Per la stessa ragione il giro di `runParser` **non** conta i segnali: il lessico
+non gli arriva, e non deve arrivargli di nascosto. `readPostSignals` e
+`readTopicSignals` sono funzioni che il chiamante compone quando ha il lessico —
+`readTopicSignals` restituisce anche le sue misure (conteggi per tipo, forma,
+voce, soggetto, classe di ruolo, relazione di contraddizione), tutte con le
+chiavi in ordine alfabetico e mai per valore, perché un ordinamento per
+risultato è già una classifica.
+
 ## Che cosa esce
 
 - Il **referto**: solo forme e conteggi — esiti, topic, post, ruoli per classe,
