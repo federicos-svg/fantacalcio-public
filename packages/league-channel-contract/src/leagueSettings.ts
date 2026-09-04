@@ -27,6 +27,14 @@
 // quel campo non lo espone.
 
 import type { Module } from "../../league-gameweek/src/leagueGameweek.js";
+import type { FANTAVOTO_TARIFF } from "../../appeal-index/src/fantavoto.js";
+
+/**
+ * Gli eventi della tariffa di §12, presi dall'unica dichiarazione che il core
+ * pubblico possiede — `FANTAVOTO_TARIFF` — invece che riscritti a mano: un
+ * evento aggiunto là entra qui senza che nessuno se ne ricordi.
+ */
+export type BonusMalusEvent = keyof typeof FANTAVOTO_TARIFF;
 
 /**
  * Una fascia osservata del modificatore difesa (§19): media minima inclusa e
@@ -35,6 +43,25 @@ import type { Module } from "../../league-gameweek/src/leagueGameweek.js";
 export interface ObservedDefenceBand {
   readonly minAverage: number;
   readonly bonus: number;
+}
+
+/**
+ * Una riga osservata della tabella del modificatore attacco (§21): voto base
+ * tabulato e bonus. Il regolamento tabula punti discreti e vieta di
+ * interpolare, quindi è una tabella, non una fascia.
+ */
+export interface ObservedAttackBonusRow {
+  readonly vote: number;
+  readonly bonus: number;
+}
+
+/**
+ * Una riga osservata della scala del modificatore centrocampo (§20):
+ * differenza fra le somme dei voti base e delta assegnato a chi ha di più.
+ */
+export interface ObservedMidfieldRow {
+  readonly difference: number;
+  readonly delta: number;
 }
 
 /**
@@ -72,6 +99,22 @@ export interface ObservedScoringSettings {
   /** Riserva d'ufficio: il regolamento la vieta. */
   readonly officeReserveAllowed?: boolean;
 
+  // §12 — tariffa bonus/malus, e §12-bis la platea del gol subito.
+  /**
+   * Punti per evento, evento per evento. Le chiavi sono quelle della tariffa
+   * del core pubblico (`FANTAVOTO_TARIFF`): mappa **parziale**, un evento
+   * assente è «non osservato» e non zero.
+   */
+  readonly bonusMalusTariff?: Readonly<Partial<Record<BonusMalusEvent, number>>>;
+  /** Punti per gol subito (§12-bis: -1). */
+  readonly goalConcededMalusPerGoal?: number;
+  /**
+   * A CHI si applica il malus del gol subito. §12-bis lo chiude sul solo
+   * portiere, scartando esplicitamente «a tutta la difesa»: è una platea, non
+   * un dettaglio, e cambia ogni punteggio di giornata.
+   */
+  readonly goalConcededMalusRoles?: readonly string[];
+
   // §13 — senza voto.
   readonly noVoteBonusMalusBase?: number;
   readonly noVoteBookedPreset?: number;
@@ -100,6 +143,11 @@ export interface ObservedScoringSettings {
   // §20 — modificatore centrocampo.
   readonly midfieldFictitiousVote?: number;
   readonly midfieldMaxDelta?: number;
+  /**
+   * La scala delle differenze, riga per riga. Il tetto (`>= 7.0 -> 3.5`) è una
+   * riga come le altre; il fondo (`< 2.0 -> 0`) non lo è e non compare.
+   */
+  readonly midfieldTable?: readonly ObservedMidfieldRow[];
 
   // §21 — modificatore attacco.
   readonly attackSufficientVote?: number;
@@ -107,6 +155,8 @@ export interface ObservedScoringSettings {
   readonly attackMaxFromVote?: number;
   /** `true` se un qualunque bonus esclude l'attaccante, come vuole §21. */
   readonly attackExcludesAnyBonus?: boolean;
+  /** La tabella voto -> bonus, riga per riga, tetto compreso. */
+  readonly attackTable?: readonly ObservedAttackBonusRow[];
 
   // §22 — punti di classifica.
   readonly pointsWin?: number;
@@ -239,6 +289,19 @@ function validateScoringSettings(
     for (const [module, value] of Object.entries(observed.moduleModifier)) {
       if (value !== undefined && !Number.isFinite(value)) {
         problems.push(`${prefix}moduleModifier.${module}: valore non finito`);
+      }
+    }
+  }
+
+  for (const [label, rows] of [
+    ["attackTable", observed.attackTable],
+    ["midfieldTable", observed.midfieldTable],
+  ] as const) {
+    if (rows === undefined) continue;
+    for (const [index, row] of rows.entries()) {
+      const values = Object.values(row);
+      if (values.some((value) => !Number.isFinite(value))) {
+        problems.push(`${prefix}${label}[${index}]: valore non finito`);
       }
     }
   }

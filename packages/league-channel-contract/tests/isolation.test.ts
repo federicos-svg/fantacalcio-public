@@ -24,6 +24,13 @@ import { join } from "node:path";
 //
 // Fail-closed sull'estensione, come la gemella: un `.js` messo in una di queste
 // radici importerebbe il pacchetto esattamente come un `.ts`.
+//
+// RESIDUO DICHIARATO, e non chiuso qui. Queste due guardie sorvegliano una
+// direzione sola: chi importa la Fase 2. **Nessuna guardia vieta il contrario**
+// — a `league-channel-contract/src` di importare `packages/engine` o `src/`.
+// Oggi la direzione è pulita: questo pacchetto importa `league-gameweek` e, per
+// le sole costanti di regolamento di §12, `appeal-index/src/fantavoto.js`.
+// Il giorno in cui servisse impedirlo, la guardia va scritta qui e non altrove.
 
 const REPO_ROOT = new URL("../../../", import.meta.url).pathname;
 const WATCHED_EXTENSIONS = /\.(ts|tsx|js|jsx|mjs|cjs)$/;

@@ -110,15 +110,29 @@ describe("il contratto di giornata resta fuori dal prodotto d'asta", () => {
     }
   });
 
-  it("l'esenzione della Fase 2 è chiusa a due pacchetti, e il secondo è sorvegliato altrove", () => {
+  it("l'esenzione della Fase 2 è chiusa a due pacchetti, ciascuno con una guardia VIVA", () => {
     // Un terzo nome in questa lista sarebbe un'esenzione senza guardia gemella,
     // cioè la strada per cui il motore d'asta tornerebbe a vedere la Fase 2
     // passando da un tramite non sorvegliato.
     expect(PHASE_TWO_PACKAGES).toEqual(["league-gameweek", "league-channel-contract"]);
+
+    // NON BASTA CHE IL FILE ESISTA. La prima versione controllava solo
+    // `statSync(...).isFile()`: svuotare la guardia gemella — cancellarne il
+    // corpo, lasciando il file — non avrebbe fatto fallire niente, e
+    // l'esenzione concessa qui sopra sarebbe diventata un buco vero mentre il
+    // test continuava a passare. Quindi si guarda dentro: la guardia deve
+    // calcolarsi le radici, camminare su `packages/`, dichiarare il pacchetto
+    // che sorveglia e pretendere che la lista dei trasgressori sia vuota.
     for (const name of PHASE_TWO_PACKAGES) {
-      expect(
-        statSync(join(REPO_ROOT, "packages", name, "tests", "isolation.test.ts")).isFile(),
-      ).toBe(true);
+      const path = join(REPO_ROOT, "packages", name, "tests", "isolation.test.ts");
+      expect(statSync(path).isFile()).toBe(true);
+      const guard = readFileSync(path, "utf8");
+      expect(guard).toMatch(/function isolatedRoots\(\)/);
+      expect(guard).toMatch(/readdirSync\(join\(REPO_ROOT, "packages"\)\)/);
+      expect(guard).toMatch(/expect\(offenders\)\.toEqual\(\[\]\)/);
+      // Dichiara quale pacchetto sorveglia: una guardia che non nomina il
+      // proprio bersaglio non è la guardia di quel bersaglio.
+      expect(guard).toContain(name);
     }
   });
 });

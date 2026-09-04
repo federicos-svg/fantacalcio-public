@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { defenceModifier } from "../../league-gameweek/src/leagueGameweek.js";
 import {
+  MIDFIELD_MAX_DELTA,
+  defenceModifier,
+} from "../../league-gameweek/src/leagueGameweek.js";
+import { FANTAVOTO_TARIFF } from "../../appeal-index/src/fantavoto.js";
+import {
+  EXPECTED_ATTACK_TABLE,
   EXPECTED_DEFENCE_BANDS,
+  EXPECTED_MIDFIELD_TABLE,
   reconcileWithLeagueRules,
   reconciledFieldNames,
 } from "../src/ruleReconciliation.js";
+import type { ObservedDefenceBand } from "../src/leagueSettings.js";
 import { validateObservedLeagueSettings } from "../src/leagueSettings.js";
 import { SETTINGS_IN_ACCORDO } from "./fixtures.js";
 
@@ -16,7 +23,22 @@ describe("riconciliazione col regolamento", () => {
     expect(outcome.notObserved).toEqual([]);
     expect(outcome.agreements).toHaveLength(reconciledFieldNames().length);
     expect(outcome.safeToPlay).toBe(true);
+    expect(outcome.essentialNotObserved).toBe(0);
     expect(outcome.leagueRuleVersion).toBe("2026_27_v1");
+  });
+
+  it("safeToPlay non basta da solo: su una lettura vuota è true e il contatore lo dice", () => {
+    // «Nessuno ha smentito il regolamento» non è «la piattaforma conferma il
+    // regolamento». Il booleano da solo confonderebbe i due, e il contatore è
+    // la metà mancante della risposta.
+    const outcome = reconcileWithLeagueRules({});
+    expect(outcome.agreements).toEqual([]);
+    expect(outcome.divergences).toEqual([]);
+    expect(outcome.safeToPlay).toBe(true);
+    expect(outcome.essentialNotObserved).toBeGreaterThan(0);
+    expect(outcome.essentialNotObserved).toBe(
+      outcome.notObserved.filter((entry) => entry.impact === "punteggio").length,
+    );
   });
 
   it("una divergenza sul modificatore modulo mette safeToPlay a false", () => {
@@ -107,6 +129,83 @@ describe("riconciliazione col regolamento", () => {
     expect(outcome.safeToPlay).toBe(false);
     expect(outcome.divergences).toHaveLength(1);
     expect(outcome.divergences[0]?.observed).toBe(3.501);
+  });
+
+  it("la tabella del modificatore attacco alterata di un gradino blocca (§21)", () => {
+    // 7.0 vale +1: dichiararlo +1,5 sposterebbe ogni scelta d'attacco.
+    const alterata = EXPECTED_ATTACK_TABLE.map((row) =>
+      row.vote === 7.0 ? { vote: 7.0, bonus: 1.5 } : row,
+    );
+    const outcome = reconcileWithLeagueRules({ ...SETTINGS_IN_ACCORDO, attackTable: alterata });
+    expect(outcome.safeToPlay).toBe(false);
+    expect(outcome.divergences.map((d) => d.field)).toEqual(["attackTable"]);
+    expect(outcome.divergences[0]?.impact).toBe("punteggio");
+  });
+
+  it("la scala del modificatore centrocampo alterata di un gradino blocca (§20)", () => {
+    const alterata = EXPECTED_MIDFIELD_TABLE.map((row) =>
+      row.difference === 4.0 ? { difference: 4.0, delta: 2.5 } : row,
+    );
+    const outcome = reconcileWithLeagueRules({ ...SETTINGS_IN_ACCORDO, midfieldTable: alterata });
+    expect(outcome.safeToPlay).toBe(false);
+    expect(outcome.divergences.map((d) => d.field)).toEqual(["midfieldTable"]);
+  });
+
+  it("le due tabelle attese sono derivate dall'autorità, non ricopiate", () => {
+    // Il tetto della scala di §20 è l'unico numero trascritto: se fosse
+    // sbagliato, l'ultima riga derivata non porterebbe il delta massimo.
+    expect(EXPECTED_ATTACK_TABLE).toEqual([
+      { vote: 6.0, bonus: 0 },
+      { vote: 6.5, bonus: 0.5 },
+      { vote: 7.0, bonus: 1 },
+      { vote: 7.5, bonus: 1.5 },
+      { vote: 8.0, bonus: 2 },
+    ]);
+    expect(EXPECTED_MIDFIELD_TABLE).toHaveLength(11);
+    expect(EXPECTED_MIDFIELD_TABLE.at(-1)).toEqual({ difference: 7.0, delta: MIDFIELD_MAX_DELTA });
+  });
+
+  it("la tariffa di §12 e la platea di §12-bis sono confrontate contro le costanti del core", () => {
+    // La leva di punteggio più grande del regolamento: senza queste righe, un
+    // gol dichiarato +4 sarebbe passato come «tutto in accordo».
+    const outcome = reconcileWithLeagueRules({
+      ...SETTINGS_IN_ACCORDO,
+      bonusMalusTariff: { ...SETTINGS_IN_ACCORDO.bonusMalusTariff, Gf: 4 },
+      goalConcededMalusRoles: ["P", "D"],
+    });
+    expect(outcome.safeToPlay).toBe(false);
+    expect(outcome.divergences).toEqual([
+      {
+        field: "bonusMalusTariff.Gf",
+        section: "§12",
+        impact: "punteggio",
+        expected: FANTAVOTO_TARIFF.Gf,
+        observed: 4,
+      },
+      {
+        field: "goalConcededMalusRoles",
+        section: "§12-bis",
+        impact: "punteggio",
+        expected: ["P"],
+        observed: ["P", "D"],
+      },
+    ]);
+  });
+
+  it("un insieme con valori scritti come testo diverge, non concorda", () => {
+    // Una chiave costruita per interpolazione avrebbe detto «uguale»: il buco
+    // stava proprio dove il pacchetto esiste per non averne. Il confronto è
+    // fail-closed sul tipo, e non dipende dal fatto che il chiamante abbia
+    // chiamato prima il validatore.
+    const testuali = [
+      { minAverage: "7", bonus: "6" },
+      { minAverage: "6.5", bonus: "3" },
+      { minAverage: "6", bonus: "1" },
+    ] as unknown as readonly ObservedDefenceBand[];
+
+    const outcome = reconcileWithLeagueRules({ ...SETTINGS_IN_ACCORDO, defenceBands: testuali });
+    expect(outcome.safeToPlay).toBe(false);
+    expect(outcome.divergences.map((d) => d.field)).toEqual(["defenceBands"]);
   });
 
   it("le fasce dichiarate di §19 dicono quel che dice defenceModifier, ai bordi", () => {

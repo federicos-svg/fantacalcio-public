@@ -183,17 +183,27 @@ export function expectedCupPhase(matchday: number): ObservedCupPhase | null {
 }
 
 /**
- * FORMA DI PUNTEGGIO DI UNA FASE (§23, dichiarazione di Pico).
+ * FORMA DI PUNTEGGIO DI UNA FASE DI COPPA (§23).
  *
- * - `punti_3_1_0` — **girone** ed **eliminazione diretta**. Nei gironi valgono
- *   gli stessi punti del campionato; l'eliminazione diretta è un **mini girone
- *   di due squadre andata e ritorno**, quindi l'esito del turno si legge sul
- *   complesso delle due gare con gli stessi punti. Le due gare restano due
- *   giornate distinte, ciascuna col suo campo e il suo §14.
- * - `gara_secca` — la **finale**, che è fuori dal mini girone.
+ * **Da dove viene questo numero, perché la domanda è già stata fatta una
+ * volta.** Non è un travaso dei 3/1/0 di §22 sulla coppa per analogia col
+ * campionato — §22 è la classifica del campionato e la coppa aveva
+ * `head_to_head_table_algorithm: UNSPECIFIED`. Viene da una **dichiarazione di
+ * Pico del 2026-09-03**, testuale: «Durante i gironi di coppa ci sono i
+ * punteggi 3/1/0 mentre alle eliminazioni dirette funziona come alle
+ * eliminazioni delle coppe ovvero un mini girone di due squadre che si
+ * affrontano andata e ritorno», registrata in `docs/data/LEAGUE_RULES.md` §23 e
+ * nel record di `docs/DECISIONS.md`.
  *
- * Le regole di punteggio della singola giornata non cambiano mai: cambia solo
- * come si legge il turno.
+ * - `punti_3_1_0` — **girone**: i punti sono quelli dichiarati per i gironi di
+ *   coppa. E **eliminazione diretta**, ma per una ragione sua: il turno **è un
+ *   mini girone di due squadre** andata e ritorno, quindi si legge come un
+ *   girone perché lo è, non perché somigli al campionato.
+ * - `gara_secca` — la **finale**, che sta fuori dal mini girone.
+ *
+ * Le regole di punteggio della singola giornata non cambiano mai fra le due
+ * competizioni: cambia solo come si legge il turno. Le due gare di un turno
+ * restano due giornate distinte, ciascuna col suo campo e il suo §14.
  */
 export type CupScoringShape = "punti_3_1_0" | "gara_secca";
 
