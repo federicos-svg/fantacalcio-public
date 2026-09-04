@@ -166,18 +166,73 @@ describe("il contratto di osservazione non si lega ad altro del prodotto d'asta"
   });
 });
 
+/**
+ * LA PAGINA FORMAZIONE — l'unica porta aperta in questa guardia, e il perché.
+ *
+ * Pico ha chiesto (2026-09-04) che il sito abbia una pagina Formazione, prima
+ * di Asta nella barra, e che sia la pagina iniziale quando la formazione si può
+ * davvero schierare. È una richiesta di prodotto, e sposta il confine che
+ * questa guardia difendeva: il contratto di osservazione non è più solo un
+ * pezzo di Fase 2 tenuto da parte, è ciò che quella schermata consuma.
+ *
+ * L'apertura è un ELENCO CHIUSO DI FILE, non una radice né un prefisso, per tre
+ * ragioni che si vedono solo se le si scrive:
+ *
+ *  1. un elenco di file rende ogni nuova porta una riga in diff — chi la apre
+ *     lo fa esplicitamente e chi rivede la vede, mentre un prefisso come
+ *     `src/ui/` avrebbe ammesso in silenzio ogni file futuro;
+ *  2. la catena a valle resta chiusa. La guardia gemella
+ *     (`packages/league-gameweek/tests/isolation.test.ts`) vieta a `src/` di
+ *     nominare il contratto di giornata, e nessuno di questi quattro file lo
+ *     nomina: quello che serve alla pagina — i moduli di §9 — arriva
+ *     ri-esportato da `lineupCoachSurface.ts`, che è dentro questo pacchetto e
+ *     ha già il permesso di importarlo. La UI non impara una seconda strada;
+ *  3. il resto del prodotto d'asta resta esattamente dove stava: il motore, gli
+ *     altri pacchetti e ogni altro file della UI continuano a non poter
+ *     toccare questo contratto, e il test qui sotto lo prova su casi costruiti.
+ */
+const FORMAZIONE_SURFACE: readonly string[] = [
+  // La porta di lettura e quella di invio: due tipi, nessuna rete.
+  "src/formazioneChannel.ts",
+  // I vincoli salvati fra una sessione e l'altra.
+  "src/formazioneConstraints.ts",
+  // La schermata.
+  "src/ui/formazione.ts",
+  // La shell: barra, schermata iniziale, salvataggio.
+  "src/main.ts",
+];
+
 describe("il contratto di osservazione resta fuori dal prodotto d'asta", () => {
-  it("nessun file fuori dal pacchetto importa league-channel-contract", () => {
+  it("nessun file fuori dal pacchetto importa league-channel-contract, salvo la pagina Formazione", () => {
     const offenders: string[] = [];
     for (const root of isolatedRoots()) {
       for (const file of sourceFiles(root)) {
+        const relative = file.slice(REPO_ROOT.length);
+        if (FORMAZIONE_SURFACE.includes(relative)) continue;
         const src = readFileSync(file, "utf8");
         if (/league-channel-contract|leagueChannelContract/.test(src)) {
-          offenders.push(file.slice(REPO_ROOT.length));
+          offenders.push(relative);
         }
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  it("l'elenco dei file ammessi è chiuso, vivo, e non copre nient'altro", () => {
+    // Un file in elenco che non esiste più è un permesso appeso nel vuoto: si
+    // toglie quando si toglie il file, non «prima o poi».
+    for (const relative of FORMAZIONE_SURFACE) {
+      expect(statSync(join(REPO_ROOT, relative)).isFile(), relative).toBe(true);
+    }
+    // Nessuna radice, nessun prefisso: quattro file e basta.
+    expect(FORMAZIONE_SURFACE).toHaveLength(4);
+    for (const relative of FORMAZIONE_SURFACE) {
+      expect(relative.endsWith(".ts")).toBe(true);
+    }
+    // E il vicino di casa NON è ammesso: la guardia continua a fermare un file
+    // della UI che non sia in elenco, che è il caso per cui esiste.
+    expect(FORMAZIONE_SURFACE).not.toContain("src/ui/views.ts");
+    expect(FORMAZIONE_SURFACE).not.toContain("src/ui/listone.ts");
   });
 
   it("le radici sorvegliate si calcolano da sole e includono league-gameweek", () => {

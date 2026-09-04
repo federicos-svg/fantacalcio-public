@@ -169,7 +169,7 @@ export async function evictDataAssetFromServiceWorkerCache(
  */
 export async function gotoScreen(
   page: Page,
-  label: "Asta" | "Rose" | "Impostazioni",
+  label: "Formazione" | "Asta" | "Rose" | "Impostazioni",
 ): Promise<void> {
   await page.locator("nav").getByText(label, { exact: true }).click();
 }

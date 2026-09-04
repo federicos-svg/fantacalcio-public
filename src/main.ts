@@ -190,6 +190,39 @@ import {
   readQuarantinedConfirmations,
   type LoadConfirmationsResult,
 } from "./confirmationsStore.js";
+// ── LA PAGINA FORMAZIONE ──────────────────────────────────────────────────────
+// Il contratto di osservazione della lega — tipi puri e funzioni pure, nessuna
+// rete: `docs/PUBLIC_PRIVATE_BOUNDARY.md` tiene fuori dal core pubblico host,
+// endpoint e credenziali, e questa schermata non ne nomina nessuno. Le due
+// porte (leggere la lega, mandarle la formazione) sono dichiarate in
+// ./formazioneChannel.js e nel core pubblico NON sono collegate: la pagina lo
+// dichiara invece di fingere dati.
+import {
+  buildFormazioneView,
+  decideInitialScreen,
+  prepareSubmission,
+  setLockedModule,
+  submissionUiState,
+  toggleLocked,
+  toggleLockedStarter,
+  NIENTE_DA_INVIARE,
+  NO_LINEUP_CONSTRAINTS,
+  type LineupConstraints,
+  type LineupChannelState,
+  type Module,
+  type SubmissionViolation,
+} from "../packages/league-channel-contract/src/index.js";
+import {
+  lineupProducerReports,
+  readLineupChannelState,
+  submitLineup,
+} from "./formazioneChannel.js";
+import {
+  formazioneConstraintsNotice,
+  loadFormazioneConstraints,
+  saveFormazioneConstraints,
+} from "./formazioneConstraints.js";
+import { renderFormazioneScreen, type FormazioneSaveState } from "./ui/formazione.js";
 import { renderClubBadge } from "./ui/serieA.js";
 import { activateAccessibleDialog } from "./ui/accessibleDialog.js";
 import {
@@ -357,7 +390,9 @@ const FANTA_TEAM_IDS: readonly string[] = [
 const KEY_POOL = "fac_pool";
 
 // ── App state ──────────────────────────────────────────────────────────────────
-type Screen = "asta" | "rose" | "impostazioni";
+// FORMAZIONE È LA PRIMA, e non solo nella barra: quando la lega risponde e la
+// rosa non è vuota è anche la schermata che apre il sito (decideInitialScreen).
+type Screen = "formazione" | "asta" | "rose" | "impostazioni";
 type Moment = "chiamata" | "asta";
 
 interface CallState {
@@ -503,6 +538,21 @@ type ConfirmationsRecoveryState =
 
 interface AppState {
   screen: Screen;
+  /**
+   * LO STATO DEL CANALE DELLA LEGA, come l'ultima lettura l'ha riferito.
+   *
+   * È stato dell'app e non un valore ricalcolato a ogni render per una ragione
+   * precisa: `readLineupChannelState()` interroga una porta che nel prodotto
+   * reale parla con l'esterno, e chiamarla a ogni tasto premuto la
+   * trasformerebbe in un ciclo. Si rilegge al boot e dopo un salvataggio.
+   */
+  lineupChannel: LineupChannelState;
+  /** I vincoli della formazione, per competizione. Persistiti in locale. */
+  lineupConstraints: Map<string, LineupConstraints>;
+  /** Perché l'archivio dei vincoli non è al sicuro. Vuoto è lo stato normale. */
+  lineupConstraintsNotice: string;
+  /** L'esito dell'ultimo «Salva»: quale competizione, e i tre stati dell'invio. */
+  formazioneSave: FormazioneSaveState;
   moment: Moment;
   log: AuctionEvent[];
   recovery: RecoveryState;
@@ -948,6 +998,14 @@ const bootSchedaDrafts = loadSchedaDrafts(browserStorage);
 // riga lo dice senza allarmare: la contabilità dell'asta non è toccata.
 const bootInterestFlags = loadInterestFlags(browserStorage);
 
+// LA LEGA, CHIESTA UNA VOLTA AL BOOT. Nel core pubblico la porta non è
+// collegata e la risposta è «porta non collegata», che è la verità e non un
+// errore: la pagina Formazione lo dichiara al posto della squadra. I vincoli
+// salvati si rileggono comunque — sono di Pico, non della lega — e un archivio
+// illeggibile riparte VUOTO con una riga che lo dice, mai a metà.
+const bootLineupChannel = readLineupChannelState();
+const bootFormazioneConstraints = loadFormazioneConstraints(browserStorage);
+
 function interestFlagsBootNotice(
   result: ReturnType<typeof loadInterestFlags>,
 ): string {
@@ -967,7 +1025,17 @@ function interestFlagsBootNotice(
 }
 
 const state: AppState = {
-  screen: "asta",
+  // LA PAGINA INIZIALE NON È UNA COSTANTE: è una funzione dello stato del
+  // canale di lega (decideInitialScreen, e la prosa che lo motiva sta accanto
+  // alla funzione). Rosa vuota — prima dell'asta, o a stagione finita — apre
+  // sull'Asta; rosa piena apre sulla Formazione anche quando la formazione non
+  // c'è ancora; un canale che non risponde apre sulla Formazione con l'avviso
+  // al posto della squadra.
+  screen: decideInitialScreen(bootLineupChannel),
+  lineupChannel: bootLineupChannel,
+  lineupConstraints: new Map(bootFormazioneConstraints.byCompetition),
+  lineupConstraintsNotice: formazioneConstraintsNotice(bootFormazioneConstraints.status),
+  formazioneSave: { competitionId: null, state: NIENTE_DA_INVIARE, blocking: [], warnings: [] },
   moment: "chiamata",
   log: bootLogEvents,
   recovery: recoveryFromLoadResult(bootLog),
@@ -2465,7 +2533,9 @@ function render(): void {
     );
   }
 
-  if (state.screen === "rose") {
+  if (state.screen === "formazione") {
+    wrapper.appendChild(renderFormazione());
+  } else if (state.screen === "rose") {
     const roseState = deriveAuctionState();
     wrapper.appendChild(
       renderRoseScreen(
@@ -3034,7 +3104,174 @@ function scrollToTop(): void {
   window.scrollTo(0, 0);
 }
 
-// ── Header — persistent nav across the 3 shell screens ───────────────────────
+// ── I GESTI DELLA PAGINA FORMAZIONE ──────────────────────────────────────────
+//
+// Tre comandi che scrivono un vincolo, e un «Salva» che non mente. Tutti e
+// quattro passano di qui e nessuno di loro deriva niente: il modello della
+// schermata lo costruisce `buildFormazioneView` nel contratto di osservazione,
+// la legalità dell'invio la giudica `validateSubmissionAgainstSettings`, e
+// questa shell si limita a tenere lo stato, a persistere i vincoli e a
+// riportare il fuoco dove era.
+
+function competitionConstraints(competitionId: string): LineupConstraints {
+  return state.lineupConstraints.get(competitionId) ?? NO_LINEUP_CONSTRAINTS;
+}
+
+/**
+ * Applica un vincolo e lo persiste. Se la scrittura non tiene lo si DICE: un
+ * vincolo che sembra salvato e sparisce al reload è una preferenza persa in
+ * silenzio, e su una formazione una preferenza persa vale una giornata.
+ */
+function applyLineupConstraints(
+  competitionId: string,
+  next: LineupConstraints,
+  focusId: string,
+): void {
+  state.lineupConstraints.set(competitionId, next);
+  const persisted = saveFormazioneConstraints(browserStorage, state.lineupConstraints);
+  state.lineupConstraintsNotice = persisted
+    ? ""
+    : "I vincoli appena messi non sono stati scritti nell'archivio locale: valgono per questa sessione e " +
+      "non saranno qui al prossimo avvio.";
+  render();
+  focusAfterRender(focusId);
+}
+
+/** Lo stato «da inviare» con la sua ragione: nulla è partito, e si dice perché. */
+function formazioneNonInviata(
+  competitionId: string,
+  reason: string,
+  blocking: readonly SubmissionViolation[] = [],
+  warnings: readonly SubmissionViolation[] = [],
+): void {
+  state.formazioneSave = {
+    competitionId,
+    state: { kind: "da_inviare", reason },
+    blocking,
+    warnings,
+  };
+  render();
+  focusAfterRender("formazione-stato-invio-etichetta");
+}
+
+/**
+ * «SALVA» — e qui l'onestà è tutto il valore della schermata.
+ *
+ * Premere Salva non scrive sulla piattaforma da questa schermata: il core
+ * pubblico non parla con nessuno. Produce un invio VALIDATO e lo consegna alla
+ * porta d'invio; ciò che si mostra dopo è quello che la porta ha risposto,
+ * tradotto nei tre stati di `submissionUiState` — da inviare, inviato e
+ * confermato, inviato ed esito ignoto. Nessuna scorciatoia dice «salvato»
+ * quando nulla è partito.
+ */
+function saveFormazione(competitionId: string): void {
+  const channel = state.lineupChannel;
+  if (channel.kind !== "letto") {
+    formazioneNonInviata(
+      competitionId,
+      "la squadra non è stata letta: non c'è nessuna formazione da mandare",
+    );
+    return;
+  }
+  const observed = channel.competitions.find(
+    (candidate) => candidate.competition.competitionId === competitionId,
+  );
+  if (observed === undefined) {
+    formazioneNonInviata(competitionId, "questa competizione non risulta fra quelle lette");
+    return;
+  }
+  if (observed.state.kind === "non_disponibile") {
+    formazioneNonInviata(competitionId, `formazione non disponibile: ${observed.state.reason}`);
+    return;
+  }
+  const lineup = observed.state.lineup;
+  if (lineup === null) {
+    formazioneNonInviata(
+      competitionId,
+      "la lega non riporta nessuna formazione per questa partita: non c'è niente da mandare",
+    );
+    return;
+  }
+  if (observed.matchday === null) {
+    formazioneNonInviata(
+      competitionId,
+      "la giornata non è nota: un invio senza giornata finirebbe su una partita che nessuno ha scelto",
+    );
+    return;
+  }
+
+  const constraints = competitionConstraints(competitionId);
+  const produttore = lineupProducerReports(channel, state.lineupConstraints).reports.get(competitionId);
+  const preparation = prepareSubmission({
+    matchday: observed.matchday,
+    competitionId,
+    lineup,
+    roster: channel.roster,
+    settings: channel.settings,
+    constraints,
+    ...(produttore === undefined ? {} : { producerReport: produttore }),
+  });
+  if (!preparation.ok) {
+    formazioneNonInviata(
+      competitionId,
+      preparation.reason,
+      preparation.blocking,
+      preparation.warnings,
+    );
+    return;
+  }
+
+  const attempt = submitLineup(preparation.submission);
+  state.formazioneSave = {
+    competitionId,
+    state: submissionUiState(attempt),
+    blocking: [],
+    warnings: preparation.warnings,
+  };
+  // Dopo un invio la lega può non essere più quella di prima: si rilegge invece
+  // di continuare a mostrare lo stato con cui si era arrivati qui.
+  state.lineupChannel = readLineupChannelState();
+  render();
+  focusAfterRender("formazione-stato-invio-etichetta");
+}
+
+function renderFormazione(): HTMLElement {
+  // Il produttore, quando c'è, dice PERCHÉ i vincoli non si possono rispettare,
+  // e i suoi motivi si mostrano tutti insieme a quelli che questa pagina sa
+  // provare da sé. Quando non c'è, non si finge di averlo interrogato; quando
+  // c'è e non risponde, lo si dice — è un'informazione diversa.
+  const produttore = lineupProducerReports(state.lineupChannel, state.lineupConstraints);
+  const view = buildFormazioneView(state.lineupChannel, state.lineupConstraints, produttore.reports);
+  const avviso = [state.lineupConstraintsNotice, produttore.failure].filter((riga) => riga.length > 0);
+  return renderFormazioneScreen(
+    view,
+    {
+      onToggleLockedStarter: (competitionId, playerId) =>
+        applyLineupConstraints(
+          competitionId,
+          toggleLockedStarter(competitionConstraints(competitionId), playerId),
+          `formazione-spunta-${competitionId}-${playerId}`,
+        ),
+      onSetLockedModule: (competitionId, module: Module | null) =>
+        applyLineupConstraints(
+          competitionId,
+          setLockedModule(competitionConstraints(competitionId), module),
+          `formazione-modulo-${competitionId}`,
+        ),
+      onToggleLocked: (competitionId) =>
+        applyLineupConstraints(
+          competitionId,
+          toggleLocked(competitionConstraints(competitionId)),
+          `formazione-blindata-${competitionId}`,
+        ),
+      onSave: (competitionId) => saveFormazione(competitionId),
+    },
+    state.formazioneSave,
+    avviso.join(" "),
+  );
+}
+
+// ── Header — persistent nav across the 4 shell screens ───────────────────────
 function renderHeader(): HTMLElement {
   const header = document.createElement("div");
   header.className = "topbar";
@@ -3047,6 +3284,8 @@ function renderHeader(): HTMLElement {
   nav.style.cssText = `display:flex;gap:20px;font-size:13px;`;
 
   const items: Array<{ label: string; screen: Screen }> = [
+    // Prima di Asta, come Pico ha chiesto: la giornata viene prima del mercato.
+    { label: "Formazione", screen: "formazione" },
     { label: "Asta", screen: "asta" },
     { label: "Rose", screen: "rose" },
     { label: "Impostazioni", screen: "impostazioni" },

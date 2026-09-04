@@ -45,6 +45,31 @@
   flex: none;
 }
 
+/* QUATTRO VOCI NON STANNO IN 390px SU UNA RIGA SOLA, e la barra non deve
+   provarci.
+   Da quando esiste la schermata Formazione (prima voce, src/main.ts
+   renderHeader) la barra porta quattro etichette invece di tre: misurate a
+   390px, insieme al marchio, sforano la larghezza utile e farebbero scorrere
+   di lato TUTTA la pagina — la stessa cosa che una dozzina di spec E2E
+   sorveglia su ogni schermata («senza scorrimento laterale»).
+   Si sceglie di mandare la barra a capo, non di nascondere una voce né di
+   troncare il marchio: una voce nascosta è una schermata irraggiungibile dal
+   telefono, e un marchio troncato somiglia a un difetto. Sopra i 560px la
+   barra resta esattamente com'era — una riga, 44px — quindi desktop e tablet
+   non cambiano di un pixel. */
+@media (max-width: 560px) {
+  .topbar {
+    height: auto;
+    min-height: 44px;
+    padding: 5px 14px;
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .topbar nav {
+    gap: 14px !important;
+  }
+}
+
 /* Shared "centered, max-width page column" shape between the Asta and Rose
    screens — padding/gap/flex genuinely differ between the two today
    (Asta: 20px/24px padding, 18px gap; Rose: 18px/24px padding, 12px gap,

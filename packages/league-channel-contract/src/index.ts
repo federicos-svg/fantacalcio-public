@@ -10,3 +10,4 @@ export * from "./roster.js";
 export * from "./calendar.js";
 export * from "./lineupSubmission.js";
 export * from "./submissionLegality.js";
+export * from "./lineupCoachSurface.js";
