@@ -183,7 +183,7 @@ describe("il contratto di osservazione non si lega ad altro del prodotto d'asta"
  *     `src/ui/` avrebbe ammesso in silenzio ogni file futuro;
  *  2. la catena a valle resta chiusa. La guardia gemella
  *     (`packages/league-gameweek/tests/isolation.test.ts`) vieta a `src/` di
- *     nominare il contratto di giornata, e nessuno di questi quattro file lo
+ *     nominare il contratto di giornata, e nessuno dei file in elenco lo
  *     nomina: quello che serve alla pagina — i moduli di §9 — arriva
  *     ri-esportato da `lineupCoachSurface.ts`, che è dentro questo pacchetto e
  *     ha già il permesso di importarlo. La UI non impara una seconda strada;
@@ -196,6 +196,10 @@ const FORMAZIONE_SURFACE: readonly string[] = [
   "src/formazioneChannel.ts",
   // I vincoli salvati fra una sessione e l'altra.
   "src/formazioneConstraints.ts",
+  // La squadra di esempio della modalità dimostrativa: fixture sintetica,
+  // nessuna porta collegata. Entra in elenco perché nomina i tipi del
+  // contratto — è una riga in diff, come ogni altra porta di questo elenco.
+  "src/formazioneProva.ts",
   // La schermata.
   "src/ui/formazione.ts",
   // La shell: barra, schermata iniziale, salvataggio.
@@ -224,8 +228,8 @@ describe("il contratto di osservazione resta fuori dal prodotto d'asta", () => {
     for (const relative of FORMAZIONE_SURFACE) {
       expect(statSync(join(REPO_ROOT, relative)).isFile(), relative).toBe(true);
     }
-    // Nessuna radice, nessun prefisso: quattro file e basta.
-    expect(FORMAZIONE_SURFACE).toHaveLength(4);
+    // Nessuna radice, nessun prefisso: cinque file e basta.
+    expect(FORMAZIONE_SURFACE).toHaveLength(5);
     for (const relative of FORMAZIONE_SURFACE) {
       expect(relative.endsWith(".ts")).toBe(true);
     }

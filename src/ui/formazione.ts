@@ -25,6 +25,13 @@
 // falsa: chi apre il sito deve capire che il problema è la lettura, non la sua
 // formazione.
 //
+// LA PROVA CON UNA SQUADRA DI ESEMPIO non incrina niente di tutto questo, ed è
+// costruita perché non possa. Non si accende da sola; quando è accesa il
+// marchio sta NEL CORPO della pagina — in testa, in coda, sul titolo di ogni
+// competizione e dentro ogni identificativo di giocatore — e non si può
+// chiudere. Un ritaglio di questa schermata non può passare per la formazione
+// di nessuno, e il salvataggio in prova non dice mai «inviato».
+//
 // ACCESSIBILITÀ, come nelle altre schermate: bottoni veri e caselle vere (mai
 // un `div` con un `click`), etichette legate al controllo, `aria-*` sui gruppi,
 // e il fuoco che resta dove era — `render()` ricostruisce l'albero a ogni clic,
@@ -45,6 +52,16 @@ import type {
   SubmissionViolation,
 } from "../../packages/league-channel-contract/src/index.js";
 import { MODULES, saveBlockers } from "../../packages/league-channel-contract/src/index.js";
+import {
+  PROVA_ESITO_SALVATAGGIO,
+  PROVA_ETICHETTA_SALVATAGGIO,
+  PROVA_INVITO,
+  PROVA_NON_PERSISTITA,
+  PROVA_SPIEGAZIONE,
+  PROVA_TESTO_COMANDO,
+  PROVA_TESTO_USCITA,
+  PROVA_TITOLO,
+} from "../formazioneProva.js";
 
 /** I gesti della schermata. Nessuno di loro tocca la rete: li serve la shell. */
 export interface FormazioneHandlers {
@@ -99,6 +116,31 @@ export const NESSUNA_MODIFICA_IN_SOSPESO: FormazioneEditState = {
   competitionId: null,
   conflict: null,
   refusal: "",
+};
+
+/**
+ * LA PROVA CON UNA SQUADRA DI ESEMPIO, per quel che ne deve sapere la pagina:
+ * se è accesa, come si accende, come si spegne.
+ *
+ * `attiva` non è una preferenza letta da qui: la decide la shell chiamando
+ * `modalitaProvaAttiva`, che con una squadra vera letta risponde sempre `false`.
+ * Questa struttura la riceve già decisa, così non esiste un secondo posto in cui
+ * quella regola possa essere applicata a metà.
+ */
+export interface FormazioneProva {
+  readonly attiva: boolean;
+  /** `true` quando l'archivio locale non ha tenuto l'accensione: lo si dice. */
+  readonly nonPersistita: boolean;
+  readonly onEntra: () => void;
+  readonly onEsci: () => void;
+}
+
+/** Nessuna prova: lo stato normale, e quello che la pagina aveva prima. */
+export const NESSUNA_PROVA: FormazioneProva = {
+  attiva: false,
+  nonPersistita: false,
+  onEntra: () => undefined,
+  onEsci: () => undefined,
 };
 
 const ROLE_LABEL: Readonly<Record<string, string>> = { P: "Portiere", D: "Difensore", C: "Centrocampista", A: "Attaccante" };
@@ -175,6 +217,74 @@ function renderUnknownNotice(view: FormazioneView): HTMLElement {
   return panel;
 }
 
+/**
+ * IL MARCHIO DELLA PROVA — nel corpo della pagina, e non richiudibile.
+ *
+ * Non è un avviso che si congeda: non ha nessun comando che lo tolga, e finché
+ * la prova è accesa viene disegnato due volte, in testa e in coda alla pagina,
+ * perché un ritaglio dello schermo non possa mostrare una formazione senza
+ * mostrare anche che è finta. L'unico bottone che porta è quello che spegne la
+ * prova, cioè che toglie i dati insieme al marchio — mai il marchio da solo.
+ *
+ * `role="alert"` in testa e `role="status"` in coda: è la stessa informazione
+ * detta due volte, e farla annunciare due volte ai lettori di schermo sarebbe
+ * rumore. Il primo è quello che deve interrompere.
+ */
+function renderProvaMarchio(prova: FormazioneProva, posizione: "testa" | "coda"): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = posizione === "testa" ? "formazione-prova-marchio" : "formazione-prova-marchio-coda";
+  panel.className = "panel";
+  panel.dataset.prova = "attiva";
+  panel.setAttribute("role", posizione === "testa" ? "alert" : "status");
+  panel.setAttribute("aria-label", PROVA_TITOLO);
+  panel.style.cssText = `border:2px dashed ${C.textAccent};display:flex;flex-direction:column;gap:10px;`;
+
+  const title = sectionTitle(PROVA_TITOLO);
+  title.style.cssText = `color:${C.textAccent};`;
+  panel.appendChild(title);
+  panel.appendChild(paragraph(PROVA_SPIEGAZIONE, `color:${C.textPrimary};`));
+  if (prova.nonPersistita) {
+    panel.appendChild(paragraph(PROVA_NON_PERSISTITA, `color:${C.textDim};font-size:12px;`));
+  }
+
+  if (posizione === "testa") {
+    panel.appendChild(
+      commandButton(
+        "formazione-prova-esci",
+        PROVA_TESTO_USCITA,
+        "Esci dalla prova e torna a quello che la lega riporta",
+        false,
+        prova.onEsci,
+      ),
+    );
+  }
+  return panel;
+}
+
+/**
+ * L'INVITO A PROVARE, accanto all'avviso e mai al posto suo.
+ *
+ * Chi non lo tocca continua a vedere esattamente la pagina di prima: nessun
+ * dato finto compare finché qualcuno non lo chiede, ed è la prima delle quattro
+ * difese descritte in `src/formazioneProva.ts`.
+ */
+function renderProvaInvito(prova: FormazioneProva): HTMLElement {
+  const box = document.createElement("div");
+  box.id = "formazione-prova-invito";
+  box.style.cssText = `border:1px solid ${C.border};border-radius:8px;padding:10px 14px;display:flex;flex-direction:column;gap:10px;`;
+  box.appendChild(paragraph(PROVA_INVITO, `color:${C.textSec};`));
+  box.appendChild(
+    commandButton(
+      "formazione-prova-entra",
+      PROVA_TESTO_COMANDO,
+      PROVA_TESTO_COMANDO,
+      false,
+      prova.onEntra,
+    ),
+  );
+  return box;
+}
+
 /** L'elenco delle violazioni, quando ce ne sono. Testo, non colore soltanto. */
 function renderViolations(
   id: string,
@@ -217,13 +327,21 @@ function renderDifferences(differences: readonly LineupDifference[]): HTMLElemen
  * il contrario è il difetto peggiore che questa pagina possa avere — chi legge
  * crederebbe di essere schierato e non lo è.
  */
-function renderSubmissionState(save: FormazioneSaveState): HTMLElement {
+function renderSubmissionState(save: FormazioneSaveState, prova: boolean): HTMLElement {
+  // IN PROVA IL SALVATAGGIO NON FINGE, E NEMMENO IL SUO CONTRARIO. L'etichetta
+  // della prova si usa solo sullo stato in cui nulla è partito — l'unico che la
+  // shell produce in prova, perché la porta d'invio non viene chiamata affatto.
+  // Se un giorno arrivasse qui uno stato «inviato», dirgli «prova» sarebbe la
+  // stessa bugia girata dall'altra parte: si tiene l'etichetta vera.
+  const inProva = prova && save.state.kind === "da_inviare";
   const box = document.createElement("div");
   box.id = "formazione-stato-invio";
   box.dataset.stato = save.state.kind;
+  if (inProva) box.dataset.prova = "attiva";
   box.setAttribute("role", "status");
-  const colore =
-    save.state.kind === "inviato_confermato"
+  const colore = inProva
+    ? C.textAccent
+    : save.state.kind === "inviato_confermato"
       ? C.green
       : save.state.kind === "inviato_esito_ignoto"
         ? C.stopRed
@@ -233,13 +351,15 @@ function renderSubmissionState(save: FormazioneSaveState): HTMLElement {
   const etichetta = document.createElement("div");
   etichetta.id = "formazione-stato-invio-etichetta";
   etichetta.style.cssText = `font-size:12px;font-weight:800;letter-spacing:0.06em;color:${colore};`;
-  etichetta.textContent =
-    save.state.kind === "inviato_confermato"
+  etichetta.textContent = inProva
+    ? PROVA_ETICHETTA_SALVATAGGIO
+    : save.state.kind === "inviato_confermato"
       ? "INVIATA E CONFERMATA DALLA PIATTAFORMA"
       : save.state.kind === "inviato_esito_ignoto"
         ? "INVIATA, ESITO IGNOTO"
         : "DA INVIARE — NULLA È PARTITO";
   box.appendChild(etichetta);
+  if (inProva) box.appendChild(paragraph(PROVA_ESITO_SALVATAGGIO, `color:${C.textPrimary};`));
   box.appendChild(paragraph(save.state.reason, `color:${C.textMid};`));
 
   if (save.state.kind === "inviato_esito_ignoto") {
@@ -865,15 +985,28 @@ function renderCompetition(
   handlers: FormazioneHandlers,
   save: FormazioneSaveState,
   edit: FormazioneEditState,
+  prova: boolean,
 ): HTMLElement {
   const panel = document.createElement("section");
   panel.className = "panel";
   panel.id = `formazione-competizione-${competition.competitionId}`;
-  panel.setAttribute("aria-label", `Formazione — ${competition.label}`);
+  panel.setAttribute(
+    "aria-label",
+    prova
+      ? `${PROVA_TITOLO} — ${competition.label}`
+      : `Formazione — ${competition.label}`,
+  );
+  if (prova) panel.dataset.prova = "attiva";
   panel.style.cssText = `display:flex;flex-direction:column;gap:12px;`;
 
   const giornata = competition.matchday === null ? "giornata non nota" : `giornata ${competition.matchday}`;
-  panel.appendChild(sectionTitle(`${competition.label.toUpperCase()} — ${giornata.toUpperCase()}`));
+  // IL MARCHIO ANCHE SUL TITOLO. La cornice in testa alla pagina si può perdere
+  // scorrendo; il titolo del riquadro sta attaccato alla formazione che marca.
+  panel.appendChild(
+    sectionTitle(
+      `${prova ? `${PROVA_TITOLO} — ` : ""}${competition.label.toUpperCase()} — ${giornata.toUpperCase()}`,
+    ),
+  );
 
   // NON DISPONIBILE È UNO STATO, NON UN VUOTO. La coppa non ancora cominciata
   // non produce una seconda formazione vuota che sembri modificabile: produce
@@ -1086,7 +1219,7 @@ function renderCompetition(
   }
 
   if (save.competitionId === competition.competitionId) {
-    panel.appendChild(renderSubmissionState(save));
+    panel.appendChild(renderSubmissionState(save, prova));
   }
 
   return panel;
@@ -1105,11 +1238,17 @@ export function renderFormazioneScreen(
   save: FormazioneSaveState,
   edit: FormazioneEditState = NESSUNA_MODIFICA_IN_SOSPESO,
   notice = "",
+  prova: FormazioneProva = NESSUNA_PROVA,
 ): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "screen-container";
   wrap.id = "formazione-screen";
   wrap.style.cssText = `flex:1;padding:18px 24px;gap:14px;`;
+  if (prova.attiva) wrap.dataset.prova = "attiva";
+
+  // PRIMA DI TUTTO IL RESTO, e prima di qualunque formazione: se quello che si
+  // sta per leggere è una squadra di esempio, lo si legge per primo.
+  if (prova.attiva) wrap.appendChild(renderProvaMarchio(prova, "testa"));
 
   if (notice.length > 0) {
     const riga = document.createElement("div");
@@ -1122,6 +1261,10 @@ export function renderFormazioneScreen(
 
   if (!view.known) {
     wrap.appendChild(renderUnknownNotice(view));
+    // L'invito sta SOTTO l'avviso e non al posto suo: la verità sul canale
+    // resta la prima cosa che si legge, e la prova è ciò che si può fare
+    // intanto. Con la prova già accesa non si offre di riaccenderla.
+    if (!prova.attiva) wrap.appendChild(renderProvaInvito(prova));
     return wrap;
   }
 
@@ -1136,7 +1279,8 @@ export function renderFormazioneScreen(
   }
 
   for (const competition of view.competitions) {
-    wrap.appendChild(renderCompetition(competition, handlers, save, edit));
+    wrap.appendChild(renderCompetition(competition, handlers, save, edit, prova.attiva));
   }
+  if (prova.attiva) wrap.appendChild(renderProvaMarchio(prova, "coda"));
   return wrap;
 }

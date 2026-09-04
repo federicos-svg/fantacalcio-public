@@ -235,6 +235,18 @@ import {
   loadFormazioneConstraints,
   saveFormazioneConstraints,
 } from "./formazioneConstraints.js";
+// LA PROVA CON UNA SQUADRA DI ESEMPIO. Nessuna porta viene collegata: la shell
+// sostituisce lo stato del canale con un valore sintetico soltanto quando
+// `modalitaProvaAttiva` glielo concede, e quella risponde `false` ogni volta che
+// una squadra vera è stata letta. Il perché sta in testa a ./formazioneProva.ts.
+import {
+  caricaModalitaProva,
+  modalitaProvaAttiva,
+  provaChannelState,
+  PROVA_COMPETITION_ID,
+  provaProducerReports,
+  salvaModalitaProva,
+} from "./formazioneProva.js";
 import {
   renderFormazioneScreen,
   NESSUNA_MODIFICA_IN_SOSPESO,
@@ -592,6 +604,28 @@ interface AppState {
   lineupDrafts: Map<string, ObservedLineup>;
   /** Perché l'archivio dei vincoli non è al sicuro. Vuoto è lo stato normale. */
   lineupConstraintsNotice: string;
+  /**
+   * LA PROVA CON UNA SQUADRA DI ESEMPIO — richiesta, non ancora concessa.
+   *
+   * È ciò che chi guarda ha CHIESTO, qui o in una visita precedente. Se sia
+   * anche attiva non lo dice questo campo: lo decide `modalitaProvaAttiva`
+   * contro lo stato del canale, e con una squadra vera letta la risposta è
+   * sempre `false`. I due valori sono tenuti distinti di proposito: un solo
+   * booleano «attiva» sarebbe una copia della regola, e le copie divergono.
+   */
+  formazioneProvaRichiesta: boolean;
+  /** `true` quando l'archivio locale non ha tenuto l'accensione della prova. */
+  formazioneProvaNonPersistita: boolean;
+  /**
+   * I VINCOLI E LE MODIFICHE DELLA PROVA, in due mappe loro e SOLO IN MEMORIA.
+   *
+   * Non si mescolano con quelli veri e non si scrivono da nessuna parte: una
+   * spunta messa su una squadra inventata non deve poter riapparire fra le
+   * spunte della squadra di Pico, e nemmeno il contrario. Due mappe separate lo
+   * rendono impossibile per costruzione, non per attenzione di chi scrive.
+   */
+  lineupProvaConstraints: Map<string, LineupConstraints>;
+  lineupProvaDrafts: Map<string, ObservedLineup>;
   /** Il conflitto in attesa di una decisione, e l'ultima mossa rifiutata. */
   formazioneEdit: FormazioneEditState;
   /** La modifica che aspetta la decisione sul conflitto. `null` è la norma. */
@@ -1081,6 +1115,12 @@ const state: AppState = {
   lineupConstraints: new Map(bootFormazioneConstraints.byCompetition),
   lineupDrafts: new Map(),
   lineupConstraintsNotice: formazioneConstraintsNotice(bootFormazioneConstraints.status),
+  // La prova rilegge la sua sola accensione, fail-closed a spenta: un archivio
+  // storto non fa comparire dati finti a nessuno che non li abbia chiesti.
+  formazioneProvaRichiesta: caricaModalitaProva(browserStorage),
+  formazioneProvaNonPersistita: false,
+  lineupProvaConstraints: new Map(),
+  lineupProvaDrafts: new Map(),
   formazioneEdit: NESSUNA_MODIFICA_IN_SOSPESO,
   formazionePendingEdit: null,
   formazioneSave: { competitionId: null, state: NIENTE_DA_INVIARE, blocking: [], warnings: [] },
@@ -3161,8 +3201,81 @@ function scrollToTop(): void {
 // questa shell si limita a tenere lo stato, a persistere i vincoli e a
 // riportare il fuoco dove era.
 
+/* ── LA PROVA, E LE TRE COSE CHE SOSTITUISCE ─────────────────────────────────
+ *
+ * Quando la prova è attiva la pagina lavora su un canale sintetico, su vincoli
+ * suoi e su modifiche sue. Tutto il resto della schermata — le mosse, i
+ * conflitti, la legalità, la validazione del salvataggio — è lo stesso codice
+ * di sempre, e non sa nemmeno di essere in prova: è ciò che rende la prova una
+ * prova e non una seconda schermata che somiglia alla prima.
+ *
+ * `provaAttiva()` interroga la regola a ogni chiamata invece di tenere un
+ * booleano: se il canale diventasse leggibile a metà sessione, la prova si
+ * spegne da sé al primo gesto, senza che nessuno debba ricordarsene.
+ */
+function provaAttiva(): boolean {
+  return modalitaProvaAttiva(state.formazioneProvaRichiesta, state.lineupChannel);
+}
+
+/** Lo stato del canale su cui la pagina sta lavorando adesso. */
+function canaleCorrente(): LineupChannelState {
+  return provaAttiva() ? provaChannelState() : state.lineupChannel;
+}
+
+/** I vincoli su cui la pagina sta lavorando adesso: quelli veri, o quelli della prova. */
+function vincoliCorrenti(): Map<string, LineupConstraints> {
+  return provaAttiva() ? state.lineupProvaConstraints : state.lineupConstraints;
+}
+
+/** Le modifiche non inviate su cui la pagina sta lavorando adesso. */
+function bozzeCorrenti(): Map<string, ObservedLineup> {
+  return provaAttiva() ? state.lineupProvaDrafts : state.lineupDrafts;
+}
+
 function competitionConstraints(competitionId: string): LineupConstraints {
-  return state.lineupConstraints.get(competitionId) ?? NO_LINEUP_CONSTRAINTS;
+  return vincoliCorrenti().get(competitionId) ?? NO_LINEUP_CONSTRAINTS;
+}
+
+/**
+ * ENTRARE E USCIRE DALLA PROVA, e in tutti e due i casi si riparte puliti.
+ *
+ * L'esito dell'ultimo salvataggio, il conflitto aperto e l'ultima mossa
+ * rifiutata riguardano la formazione su cui sono nati: lasciarli a schermo
+ * dopo il passaggio li appoggerebbe sull'altra, che è la confusione che questa
+ * pagina esiste per non produrre. Uscendo, i vincoli e le modifiche della prova
+ * si buttano: erano di una squadra che non esiste.
+ */
+function azzeraStatoFormazione(): void {
+  state.formazioneEdit = NESSUNA_MODIFICA_IN_SOSPESO;
+  state.formazionePendingEdit = null;
+  state.formazioneSave = {
+    competitionId: null,
+    state: NIENTE_DA_INVIARE,
+    blocking: [],
+    warnings: [],
+  };
+}
+
+function entraInProva(): void {
+  state.formazioneProvaRichiesta = true;
+  state.formazioneProvaNonPersistita = !salvaModalitaProva(browserStorage, true);
+  azzeraStatoFormazione();
+  render();
+  focusAfterRender("formazione-prova-esci");
+}
+
+function esciDallaProva(): void {
+  state.formazioneProvaRichiesta = false;
+  state.lineupProvaConstraints.clear();
+  state.lineupProvaDrafts.clear();
+  // Uscendo non resta nessuna cornice su cui dire che la scrittura non ha
+  // tenuto, e non serve: se non tiene, al prossimo avvio la prova riparte
+  // accesa — marchiata come sempre, e a un clic dall'essere spenta di nuovo.
+  salvaModalitaProva(browserStorage, false);
+  state.formazioneProvaNonPersistita = false;
+  azzeraStatoFormazione();
+  render();
+  focusAfterRender("formazione-prova-entra");
 }
 
 /**
@@ -3175,6 +3288,14 @@ function competitionConstraints(competitionId: string): LineupConstraints {
  * `render()` per un gesto solo farebbero saltare il fuoco a metà strada.
  */
 function persistLineupConstraints(competitionId: string, next: LineupConstraints): void {
+  // IN PROVA NON SI SCRIVE NIENTE, ed è il punto in cui la separazione dei due
+  // archivi smette di essere un'intenzione e diventa un fatto: una spunta messa
+  // su una squadra inventata non tocca `fac_formazione_vincoli`, quindi non può
+  // riapparire fra le spunte vere nemmeno per sbaglio.
+  if (provaAttiva()) {
+    state.lineupProvaConstraints.set(competitionId, next);
+    return;
+  }
   state.lineupConstraints.set(competitionId, next);
   const persisted = saveFormazioneConstraints(browserStorage, state.lineupConstraints);
   state.lineupConstraintsNotice = persisted
@@ -3207,7 +3328,7 @@ function applyLineupConstraints(
 function observedCompetition(
   competitionId: string,
 ): { readonly matchday: number | null; readonly lineup: ObservedLineup | null } | null {
-  const channel = state.lineupChannel;
+  const channel = canaleCorrente();
   if (channel.kind !== "letto") return null;
   const observed = channel.competitions.find(
     (candidate) => candidate.competition.competitionId === competitionId,
@@ -3220,7 +3341,7 @@ function observedCompetition(
 function shownLineup(competitionId: string): ObservedLineup | null {
   const observed = observedCompetition(competitionId);
   if (observed === null || observed.lineup === null) return null;
-  const draft = state.lineupDrafts.get(competitionId);
+  const draft = bozzeCorrenti().get(competitionId);
   return draft !== undefined && draft.competitionId === competitionId ? draft : observed.lineup;
 }
 
@@ -3241,7 +3362,7 @@ function applyLineupEdit(competitionId: string, edit: LineupEdit, focusId: strin
     mossaRifiutata(competitionId, edit.reason);
     return;
   }
-  state.lineupDrafts.set(competitionId, edit.lineup);
+  bozzeCorrenti().set(competitionId, edit.lineup);
   state.formazioneEdit = NESSUNA_MODIFICA_IN_SOSPESO;
   state.formazionePendingEdit = null;
   render();
@@ -3271,7 +3392,7 @@ function lineupModificabile(competitionId: string): ObservedLineup | null {
  * ri-esportazione qui non servirebbe che ad aprire una seconda strada.
  */
 function ruoliDellaRosa(competitionId: string): ReturnType<typeof rolesByPlayerId> | null {
-  const channel = state.lineupChannel;
+  const channel = canaleCorrente();
   if (channel.kind !== "letto") {
     mossaRifiutata(competitionId, "la squadra non è stata letta: non c'è nessuna rosa da spostare");
     return null;
@@ -3389,7 +3510,7 @@ function cambiaOpzione(competitionId: string, flag: keyof LineupFlags, value: bo
  * lettura ha riferito. Una modifica non inviata non ha nessun'altra casa.
  */
 function annullaModifiche(competitionId: string): void {
-  state.lineupDrafts.delete(competitionId);
+  bozzeCorrenti().delete(competitionId);
   state.formazioneEdit = NESSUNA_MODIFICA_IN_SOSPESO;
   state.formazionePendingEdit = null;
   render();
@@ -3474,7 +3595,7 @@ function formazioneNonInviata(
  * quando nulla è partito.
  */
 function saveFormazione(competitionId: string): void {
-  const channel = state.lineupChannel;
+  const channel = canaleCorrente();
   if (channel.kind !== "letto") {
     formazioneNonInviata(
       competitionId,
@@ -3514,7 +3635,9 @@ function saveFormazione(competitionId: string): void {
   }
 
   const constraints = competitionConstraints(competitionId);
-  const produttore = lineupProducerReports(channel, state.lineupConstraints).reports.get(competitionId);
+  const produttore = provaAttiva()
+    ? provaProducerReports(vincoliCorrenti(), lineup).get(competitionId)
+    : lineupProducerReports(channel, state.lineupConstraints).reports.get(competitionId);
   const preparation = prepareSubmission({
     matchday: observed.matchday,
     competitionId,
@@ -3529,6 +3652,22 @@ function saveFormazione(competitionId: string): void {
       competitionId,
       preparation.reason,
       preparation.blocking,
+      preparation.warnings,
+    );
+    return;
+  }
+
+  // IN PROVA LA VALIDAZIONE GIRA E L'INVIO NON PARTE — e non parte per davvero:
+  // la porta d'invio non viene nemmeno chiamata, quindi non esiste una risposta
+  // da tradurre e non c'è modo che ne esca uno stato «inviato». Ciò che si
+  // mostra è l'esito della validazione più la dichiarazione che nulla è andato
+  // da nessuna parte, che è esattamente quello che è successo.
+  if (provaAttiva()) {
+    formazioneNonInviata(
+      competitionId,
+      "la formazione di esempio ha passato la validazione, e non è stata mandata a nessuno: " +
+        "questa è una prova, e il canale della lega resta scollegato.",
+      [],
       preparation.warnings,
     );
     return;
@@ -3553,14 +3692,23 @@ function renderFormazione(): HTMLElement {
   // e i suoi motivi si mostrano tutti insieme a quelli che questa pagina sa
   // provare da sé. Quando non c'è, non si finge di averlo interrogato; quando
   // c'è e non risponde, lo si dice — è un'informazione diversa.
-  const produttore = lineupProducerReports(state.lineupChannel, state.lineupConstraints);
-  const view = buildFormazioneView(
-    state.lineupChannel,
-    state.lineupConstraints,
-    produttore.reports,
-    state.lineupDrafts,
+  const prova = provaAttiva();
+  const channel = canaleCorrente();
+  const constraints = vincoliCorrenti();
+  const drafts = bozzeCorrenti();
+  // In prova i motivi del produttore li dà la squadra di esempio, con la stessa
+  // regola del produttore vero (./formazioneProva.ts): senza di lui
+  // l'avvertimento su chi non scende in campo non si vedrebbe mai, ed è uno dei
+  // comportamenti che la prova esiste per mostrare.
+  const produttore = prova
+    ? { reports: provaProducerReports(constraints, shownLineup(PROVA_COMPETITION_ID)), failure: "" }
+    : lineupProducerReports(channel, constraints);
+  const view = buildFormazioneView(channel, constraints, produttore.reports, drafts);
+  // L'avviso sull'archivio dei vincoli riguarda le spunte VERE: sopra una
+  // squadra di esempio, che non ne scrive nessuna, sarebbe fuori posto.
+  const avviso = [prova ? "" : state.lineupConstraintsNotice, produttore.failure].filter(
+    (riga) => riga.length > 0,
   );
-  const avviso = [state.lineupConstraintsNotice, produttore.failure].filter((riga) => riga.length > 0);
   return renderFormazioneScreen(
     view,
     {
@@ -3597,6 +3745,12 @@ function renderFormazione(): HTMLElement {
     state.formazioneSave,
     state.formazioneEdit,
     avviso.join(" "),
+    {
+      attiva: prova,
+      nonPersistita: state.formazioneProvaNonPersistita,
+      onEntra: entraInProva,
+      onEsci: esciDallaProva,
+    },
   );
 }
 
