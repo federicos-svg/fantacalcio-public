@@ -6,8 +6,16 @@
 // derivazione, nessun default, nessun testo inventato sopra un dato mancante.
 // La ragione è la stessa che governa la pagina: le decisioni che contano —
 // quale schermata aprire, quali vincoli valgono ancora, che cosa significa
-// «salvato» — sono funzioni pure verificate senza browser, e una funzione di
-// render che ne rifacesse una pezzo per pezzo produrrebbe una seconda verità.
+// «salvato», perché il salvataggio non si offre — sono funzioni pure verificate
+// senza browser, e una funzione di render che ne rifacesse una pezzo per pezzo
+// produrrebbe una seconda verità.
+//
+// MODIFICARE E VINCOLARE SONO DUE COSE DIVERSE, e la pagina le tiene separate a
+// vista: sopra i comandi che cambiano la formazione di questa giornata, sotto le
+// spunte e i blocchi che valgono per quella che verrà. Quando le due si
+// contraddicono la pagina non esegue in silenzio e non blocca senza spiegare:
+// mostra il vincolo contraddetto e offre di toglierlo, perché sono due volontà
+// della stessa persona e la contraddizione la scioglie lei.
 //
 // L'AVVISO PRENDE IL POSTO DELLA SQUADRA. Quando lo stato del canale non è noto
 // il modello non porta nessuna competizione, quindi qui non c'è niente da
@@ -20,18 +28,23 @@
 // ACCESSIBILITÀ, come nelle altre schermate: bottoni veri e caselle vere (mai
 // un `div` con un `click`), etichette legate al controllo, `aria-*` sui gruppi,
 // e il fuoco che resta dove era — `render()` ricostruisce l'albero a ogni clic,
-// quindi ogni controllo ha un `id` stabile su cui la shell riporta il fuoco.
+// quindi ogni controllo ha un `id` stabile su cui la shell riporta il fuoco. Un
+// comando che non si può usare resta VISIBILE e disabilitato, non sparisce: una
+// riga che perde i suoi bottoni non dice a nessuno perché li ha persi.
 
 import { C, escHtml } from "./theme.js";
 import type {
+  ConstraintConflict,
   FormazioneCompetitionView,
+  FormazionePlayerRow,
   FormazioneView,
   LineupDifference,
+  LineupFlags,
   Module,
   SubmissionUiState,
   SubmissionViolation,
 } from "../../packages/league-channel-contract/src/index.js";
-import { MODULES } from "../../packages/league-channel-contract/src/index.js";
+import { MODULES, saveBlockers } from "../../packages/league-channel-contract/src/index.js";
 
 /** I gesti della schermata. Nessuno di loro tocca la rete: li serve la shell. */
 export interface FormazioneHandlers {
@@ -39,6 +52,22 @@ export interface FormazioneHandlers {
   readonly onSetLockedModule: (competitionId: string, module: Module | null) => void;
   readonly onToggleLocked: (competitionId: string) => void;
   readonly onSave: (competitionId: string) => void;
+  /** Porta un giocatore fra i titolari: dalla panchina o da fuori dai convocati. */
+  readonly onMoveToStarters: (competitionId: string, playerId: string) => void;
+  /** Manda un giocatore in panchina, in fondo. */
+  readonly onMoveToBench: (competitionId: string, playerId: string) => void;
+  /** Toglie un giocatore dai convocati. */
+  readonly onMoveOutside: (competitionId: string, playerId: string) => void;
+  /** Riordina la panchina di un posto: chi entra prima e chi entra dopo. */
+  readonly onMoveBench: (competitionId: string, playerId: string, direction: "su" | "giu") => void;
+  /** Cambia il modulo con cui la formazione è schierata. */
+  readonly onSetModule: (competitionId: string, module: Module) => void;
+  /** Accende o spegne una delle due opzioni della formazione. */
+  readonly onSetFlag: (competitionId: string, flag: keyof LineupFlags, value: boolean) => void;
+  /** Riporta la formazione a com'è stata letta dalla piattaforma. */
+  readonly onResetLineup: (competitionId: string) => void;
+  /** Scioglie il conflitto: `true` toglie il vincolo ed esegue, `false` lascia tutto. */
+  readonly onResolveConflict: (competitionId: string, removeConstraint: boolean) => void;
 }
 
 /** Ciò che la shell sa e il modello non porta: l'esito dell'ultimo salvataggio. */
@@ -48,6 +77,29 @@ export interface FormazioneSaveState {
   readonly blocking: readonly SubmissionViolation[];
   readonly warnings: readonly SubmissionViolation[];
 }
+
+/**
+ * Ciò che la shell sa sulla modifica in corso: il conflitto che aspetta una
+ * decisione, e l'ultima mossa rifiutata.
+ *
+ * Sono due cose diverse e non si mescolano. Un CONFLITTO è una domanda aperta —
+ * il vincolo dice una cosa, la mossa un'altra, e finché non si risponde non
+ * succede niente. Un RIFIUTO è una mossa che non esisteva (il portiere che
+ * lascia la porta vuota, il primo di panchina che sale ancora): è già successo,
+ * e si dice perché.
+ */
+export interface FormazioneEditState {
+  readonly competitionId: string | null;
+  readonly conflict: ConstraintConflict | null;
+  /** Il motivo dell'ultima mossa rifiutata. Vuoto è la norma. */
+  readonly refusal: string;
+}
+
+export const NESSUNA_MODIFICA_IN_SOSPESO: FormazioneEditState = {
+  competitionId: null,
+  conflict: null,
+  refusal: "",
+};
 
 const ROLE_LABEL: Readonly<Record<string, string>> = { P: "Portiere", D: "Difensore", C: "Centrocampista", A: "Attaccante" };
 
@@ -63,6 +115,35 @@ function paragraph(text: string, extraCss = ""): HTMLElement {
   p.style.cssText = `font-size:13px;line-height:1.55;color:${C.textMid};margin:0;${extraCss}`;
   p.textContent = text;
   return p;
+}
+
+function smallHeading(text: string, color: string): HTMLElement {
+  const heading = document.createElement("div");
+  heading.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.06em;color:${color};`;
+  heading.textContent = text;
+  return heading;
+}
+
+/** Un bottone di comando: sempre a schermo, disabilitato quando non si può usare. */
+function commandButton(
+  id: string,
+  text: string,
+  ariaLabel: string,
+  disabled: boolean,
+  onClick: () => void,
+): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.id = id;
+  button.className = "btn";
+  button.textContent = text;
+  button.setAttribute("aria-label", ariaLabel);
+  button.disabled = disabled;
+  // DISABILITATO E VISIBILMENTE TALE: il colore non basta da solo, ma qui il
+  // bottone resta anche non premibile e i lettori di schermo lo annunciano.
+  button.style.cssText = `font-size:11px;padding:2px 8px;${disabled ? "opacity:0.45;" : ""}`;
+  if (!disabled) button.addEventListener("click", onClick);
+  return button;
 }
 
 /**
@@ -105,10 +186,7 @@ function renderViolations(
   const wrap = document.createElement("div");
   wrap.id = id;
   wrap.style.cssText = `display:flex;flex-direction:column;gap:4px;`;
-  const heading = document.createElement("div");
-  heading.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.06em;color:${color};`;
-  heading.textContent = label;
-  wrap.appendChild(heading);
+  wrap.appendChild(smallHeading(label, color));
   const list = document.createElement("ul");
   list.style.cssText = `margin:0;padding-left:18px;font-size:12px;line-height:1.5;color:${C.textMid};`;
   list.innerHTML = violations
@@ -187,7 +265,187 @@ function renderSubmissionState(save: FormazioneSaveState): HTMLElement {
   return box;
 }
 
-/** Il selettore del modulo, con l'interruttore «modulo bloccato» accanto. */
+/**
+ * COME LETTA, OPPURE MODIFICATA E NON ANCORA MANDATA — e il gesto solo che
+ * riporta indietro.
+ *
+ * È la riga che questa pagina non può permettersi di non avere: le due
+ * formazioni si assomigliano, e credere di guardare quella schierata mentre si
+ * guarda una modifica mai inviata vale una giornata.
+ */
+function renderDraftState(
+  competition: FormazioneCompetitionView,
+  handlers: FormazioneHandlers,
+): HTMLElement {
+  const box = document.createElement("div");
+  box.id = `formazione-modifica-${competition.competitionId}`;
+  box.dataset.modificata = competition.modified ? "si" : "no";
+  box.setAttribute("role", "status");
+  const colore = competition.modified ? C.textAccent : C.textSec;
+  box.style.cssText = `border:1px solid ${colore};border-radius:8px;padding:10px 14px;display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;`;
+
+  const etichetta = document.createElement("div");
+  etichetta.id = `formazione-modifica-etichetta-${competition.competitionId}`;
+  etichetta.style.cssText = `font-size:12px;font-weight:800;letter-spacing:0.06em;color:${colore};`;
+  etichetta.textContent = competition.modified
+    ? "MODIFICATA — NON ANCORA INVIATA"
+    : "COME LETTA DALLA PIATTAFORMA";
+  box.appendChild(etichetta);
+
+  box.appendChild(
+    paragraph(
+      competition.modified
+        ? "Quello che vedi non è quello che la piattaforma riporta: finché non premi Salva, là c'è ancora la formazione di prima."
+        : "Quello che vedi è quello che la piattaforma riporta adesso.",
+      `flex:1 1 240px;color:${C.textMid};`,
+    ),
+  );
+
+  box.appendChild(
+    commandButton(
+      `formazione-annulla-${competition.competitionId}`,
+      "Annulla le modifiche",
+      `Annulla le modifiche e torna alla formazione letta — ${competition.label}`,
+      !competition.modified,
+      () => handlers.onResetLineup(competition.competitionId),
+    ),
+  );
+  return box;
+}
+
+/**
+ * IL MODULO CON CUI SI SCHIERA, e le due opzioni della formazione.
+ *
+ * L'ELENCO DEI MODULI VIENE DALLA LEGA, non da una costante di questo file: se
+ * la lega non lo dichiara la pagina lo DICE e non offre una lista, perché una
+ * lista inventata qui produrrebbe un invio respinto là — e chi ha scelto non
+ * saprebbe nemmeno di aver scelto fra opzioni mai osservate.
+ */
+function renderLineupControls(
+  competition: FormazioneCompetitionView,
+  handlers: FormazioneHandlers,
+): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.id = `formazione-comandi-${competition.competitionId}`;
+  wrap.style.cssText = `display:flex;flex-direction:column;gap:10px;border:1px solid ${C.border};border-radius:8px;padding:10px 14px;`;
+  wrap.appendChild(smallHeading("LA FORMAZIONE DI QUESTA GIORNATA", C.textSec));
+
+  const riga = document.createElement("div");
+  riga.style.cssText = `display:flex;flex-wrap:wrap;align-items:center;gap:12px;`;
+
+  const lineup = competition.lineup;
+  const allowed = competition.allowedModules;
+  const selectId = `formazione-modulo-schierato-${competition.competitionId}`;
+
+  if (allowed === null) {
+    riga.appendChild(
+      paragraph(
+        `Schierata con «${lineup === null ? "—" : lineup.module}». La lega non ha dichiarato quali moduli ammette: ` +
+          "da qui il modulo non si cambia, perché l'unica lista possibile sarebbe inventata.",
+        `color:${C.textAccent};`,
+      ),
+    );
+    riga.id = `formazione-moduli-non-dichiarati-${competition.competitionId}`;
+    wrap.appendChild(riga);
+  } else {
+    const label = document.createElement("label");
+    label.setAttribute("for", selectId);
+    label.style.cssText = `font-size:12px;font-weight:700;letter-spacing:0.05em;color:${C.textSec};`;
+    label.textContent = "MODULO SCHIERATO";
+    riga.appendChild(label);
+
+    const select = document.createElement("select");
+    select.id = selectId;
+    select.disabled = !competition.editable || lineup === null;
+    select.style.cssText = `background:${C.panelInner};color:${C.textPrimary};border:1px solid ${C.border};border-radius:6px;padding:5px 8px;font-size:13px;`;
+
+    // Il modulo con cui si è schierati adesso resta selezionabile anche se la
+    // lega non lo dichiara più: nasconderlo mostrerebbe una tendina che dice
+    // una cosa diversa dalla formazione che le sta accanto. Che sia fuori
+    // elenco lo dice la violazione bloccante, non un'opzione che sparisce.
+    const opzioni = [...allowed];
+    if (lineup !== null && !opzioni.includes(lineup.module)) opzioni.unshift(lineup.module);
+    for (const module of opzioni) {
+      const option = document.createElement("option");
+      option.value = module;
+      option.textContent =
+        allowed.includes(module) ? module : `${module} (non più dichiarato dalla lega)`;
+      select.appendChild(option);
+    }
+    if (lineup !== null) select.value = lineup.module;
+    select.addEventListener("change", () => {
+      handlers.onSetModule(competition.competitionId, select.value as Module);
+    });
+    riga.appendChild(select);
+    riga.appendChild(
+      paragraph(
+        `moduli dichiarati dalla lega: ${allowed.join(", ")}`,
+        `font-size:12px;color:${C.textDim};`,
+      ),
+    );
+    wrap.appendChild(riga);
+  }
+
+  wrap.appendChild(
+    renderFlag(
+      competition,
+      handlers,
+      "hidden",
+      `formazione-nascosta-${competition.competitionId}`,
+      "Formazione nascosta",
+      "Gli avversari non vedono chi hai schierato finché la formazione non si chiude.",
+    ),
+  );
+  wrap.appendChild(
+    renderFlag(
+      competition,
+      handlers,
+      "allCompetitions",
+      `formazione-tutte-competizioni-${competition.competitionId}`,
+      "Vale per tutte le competizioni",
+      "La piattaforma usa questa formazione anche per l'altra partita di giornata. Resta però " +
+        "calcolata contro un avversario solo: l'effetto sull'altra si vede rileggendo quella formazione.",
+    ),
+  );
+  return wrap;
+}
+
+/** Una delle due opzioni, con scritto accanto che cosa fa davvero. */
+function renderFlag(
+  competition: FormazioneCompetitionView,
+  handlers: FormazioneHandlers,
+  flag: keyof LineupFlags,
+  id: string,
+  label: string,
+  spiegazione: string,
+): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.style.cssText = `display:flex;align-items:flex-start;gap:8px;`;
+
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.id = id;
+  input.checked = competition.lineup !== null && competition.lineup.flags[flag];
+  input.disabled = !competition.editable || competition.lineup === null;
+  input.style.cssText = "margin-top:3px;";
+  input.addEventListener("change", () =>
+    handlers.onSetFlag(competition.competitionId, flag, input.checked),
+  );
+  wrap.appendChild(input);
+
+  const testo = document.createElement("div");
+  const etichetta = document.createElement("label");
+  etichetta.setAttribute("for", id);
+  etichetta.style.cssText = `font-size:13px;color:${C.textPrimary};display:block;`;
+  etichetta.textContent = label;
+  testo.appendChild(etichetta);
+  testo.appendChild(paragraph(spiegazione, `font-size:12px;color:${C.textDim};margin-top:2px;`));
+  wrap.appendChild(testo);
+
+  return wrap;
+}
+
+/** Il selettore del modulo BLOCCATO, con l'interruttore «blindata» accanto. */
 function renderModuleControl(
   competition: FormazioneCompetitionView,
   handlers: FormazioneHandlers,
@@ -210,7 +468,11 @@ function renderModuleControl(
   nessuno.value = "";
   nessuno.textContent = "nessun blocco";
   select.appendChild(nessuno);
-  for (const module of MODULES) {
+  // Quando la lega dichiara i moduli si blocca solo fra quelli: bloccarne uno
+  // che la lega non ammette sarebbe una preferenza destinata alla quarantena.
+  // Quando non li dichiara restano i sette di §9, che sono il regolamento e non
+  // una lista scritta a mano qui.
+  for (const module of competition.allowedModules ?? MODULES) {
     const option = document.createElement("option");
     option.value = module;
     option.textContent = module;
@@ -263,68 +525,321 @@ function renderLockControl(
   return wrap;
 }
 
-/** La rosa con la spunta «questo lo voglio in campo» su ogni riga. */
-function renderPlayers(
+/**
+ * IL CONFLITTO FRA UNA MODIFICA E UN VINCOLO, con la decisione in mano a chi ha
+ * messo il vincolo.
+ *
+ * Due bottoni e nessuna scorciatoia: né eseguire in silenzio calpestando la
+ * spunta, né rifiutare senza dire quale spunta ha rifiutato.
+ */
+function renderConflict(
   competition: FormazioneCompetitionView,
+  conflict: ConstraintConflict,
   handlers: FormazioneHandlers,
 ): HTMLElement {
-  const group = document.createElement("div");
-  group.id = `formazione-rosa-${competition.competitionId}`;
-  group.setAttribute("role", "group");
-  group.setAttribute("aria-label", `Giocatori da tenere in campo — ${competition.label}`);
-  group.style.cssText = `display:flex;flex-direction:column;gap:4px;`;
+  const box = document.createElement("div");
+  box.id = `formazione-conflitto-${competition.competitionId}`;
+  box.dataset.conflitto = conflict.kind;
+  box.setAttribute("role", "alert");
+  box.style.cssText = `border:1px solid ${C.textAccent};border-radius:8px;padding:10px 14px;display:flex;flex-direction:column;gap:8px;`;
+  box.appendChild(smallHeading("QUESTA MODIFICA CONTRADDICE UN VINCOLO CHE HAI MESSO", C.textAccent));
+  box.appendChild(paragraph(conflict.message, `color:${C.textPrimary};`));
+  box.appendChild(paragraph(`Se procedi: ${conflict.ifRemoved}.`, `color:${C.textMid};`));
 
-  // IL MOTIVO ACCANTO A CIÒ CHE LO CAUSA. Un elenco di codici in fondo alla
-  // pagina obbliga chi legge a ricostruire da sé quale spunta ha creato quale
-  // problema; qui il codice compare anche sulla riga del giocatore che lo porta.
-  const codiciPerGiocatore = new Map<string, string[]>();
-  for (const issue of [...competition.issues.rejections, ...competition.issues.warnings]) {
-    for (const playerId of issue.playerIds) {
-      const elenco = codiciPerGiocatore.get(playerId) ?? [];
-      if (!elenco.includes(issue.code)) elenco.push(issue.code);
-      codiciPerGiocatore.set(playerId, elenco);
-    }
+  const comandi = document.createElement("div");
+  comandi.style.cssText = `display:flex;flex-wrap:wrap;gap:10px;`;
+  comandi.appendChild(
+    commandButton(
+      `formazione-conflitto-procedi-${competition.competitionId}`,
+      "Togli il vincolo e procedi",
+      `Togli il vincolo e applica la modifica — ${competition.label}`,
+      false,
+      () => handlers.onResolveConflict(competition.competitionId, true),
+    ),
+  );
+  comandi.appendChild(
+    commandButton(
+      `formazione-conflitto-lascia-${competition.competitionId}`,
+      "Lascia tutto com'è",
+      `Tieni il vincolo e annulla la modifica — ${competition.label}`,
+      false,
+      () => handlers.onResolveConflict(competition.competitionId, false),
+    ),
+  );
+  box.appendChild(comandi);
+  return box;
+}
+
+/**
+ * LA LEGALITÀ DI CIÒ CHE SI VEDE, adesso e non al salvataggio.
+ *
+ * Tutte le violazioni insieme, mai una alla volta: correggere e riprovare a
+ * ripetizione è il difetto che questa validazione esiste per evitare.
+ */
+function renderLegality(competition: FormazioneCompetitionView): HTMLElement | null {
+  if (competition.lineup === null) return null;
+  const legality = competition.legality;
+  const box = document.createElement("div");
+  box.id = `formazione-legalita-${competition.competitionId}`;
+  box.dataset.esito = legality.kind;
+
+  if (legality.kind === "non_verificabile") {
+    box.setAttribute("role", "alert");
+    box.style.cssText = `border:1px solid ${C.stopRedDark};border-radius:8px;padding:8px 12px;`;
+    box.appendChild(smallHeading("LEGALITÀ NON VERIFICABILE DA QUI", C.stopRed));
+    box.appendChild(paragraph(legality.reason, `color:${C.textMid};margin-top:4px;`));
+    return box;
   }
 
-  for (const player of competition.players) {
-    const row = document.createElement("div");
-    row.className = "formazione-riga";
-    row.style.cssText = `display:flex;align-items:center;gap:10px;padding:4px 6px;border-radius:6px;background:${player.starter ? C.panelInner : "transparent"};`;
+  if (legality.blocking.length === 0 && legality.warnings.length === 0) {
+    box.setAttribute("role", "status");
+    box.style.cssText = `border:1px solid ${C.border};border-radius:8px;padding:8px 12px;`;
+    box.appendChild(smallHeading("LEGALE PER TUTTO CIÒ CHE SI È POTUTO VERIFICARE", C.green));
+    return box;
+  }
 
-    const id = `formazione-spunta-${competition.competitionId}-${player.id}`;
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.id = id;
-    input.checked = player.locked;
-    input.disabled = !competition.editable;
-    input.addEventListener("change", () =>
-      handlers.onToggleLockedStarter(competition.competitionId, player.id),
-    );
-    row.appendChild(input);
+  box.setAttribute("role", legality.blocking.length > 0 ? "alert" : "status");
+  box.style.cssText = `border:1px solid ${legality.blocking.length > 0 ? C.stopRedDark : C.border};border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;gap:8px;`;
+  const bloccanti = renderViolations(
+    `formazione-legalita-bloccanti-${competition.competitionId}`,
+    "COSÌ NON SI PUÒ MANDARE",
+    legality.blocking,
+    C.stopRed,
+  );
+  if (bloccanti !== null) box.appendChild(bloccanti);
+  const avvisi = renderViolations(
+    `formazione-legalita-avvertimenti-${competition.competitionId}`,
+    "CIÒ CHE NON SI È POTUTO VERIFICARE — NON FERMA NIENTE",
+    legality.warnings,
+    C.textAccent,
+  );
+  if (avvisi !== null) box.appendChild(avvisi);
+  return box;
+}
 
-    const label = document.createElement("label");
-    label.setAttribute("for", id);
-    label.style.cssText = `font-size:13px;color:${C.textPrimary};display:flex;gap:8px;align-items:baseline;`;
-    const ruolo = ROLE_LABEL[player.role] ?? player.role;
-    const stato = player.starter ? "in campo" : "in panchina o fuori";
-    const disponibilita = player.availability === undefined ? "" : ` · ${player.availability}`;
-    label.innerHTML =
-      `<strong style="font-family:${C.mono};">${escHtml(player.id)}</strong>` +
-      `<span style="color:${C.textDim};font-size:12px;">${escHtml(ruolo)} · ${escHtml(stato)}${escHtml(disponibilita)}</span>`;
-    row.appendChild(label);
-
-    const codici = codiciPerGiocatore.get(player.id) ?? [];
-    if (codici.length > 0) {
-      const nota = document.createElement("span");
-      nota.className = "formazione-riga__motivo";
-      nota.style.cssText = `font-size:11px;font-family:${C.mono};color:${C.stopRed};`;
-      nota.textContent = codici.join(" ");
-      row.appendChild(nota);
+/** I codici che nominano ogni giocatore, per metterli sulla riga giusta. */
+function codesByPlayer(competition: FormazioneCompetitionView): ReadonlyMap<string, string[]> {
+  const map = new Map<string, string[]>();
+  const push = (playerId: string, code: string): void => {
+    const elenco = map.get(playerId) ?? [];
+    if (!elenco.includes(code)) elenco.push(code);
+    map.set(playerId, elenco);
+  };
+  for (const issue of [...competition.issues.rejections, ...competition.issues.warnings]) {
+    for (const playerId of issue.playerIds) push(playerId, issue.code);
+  }
+  // Le violazioni dell'invio nominano il giocatore dentro il messaggio, non in
+  // un campo: si mette il codice sulla riga di chi compare nel testo, che è
+  // l'unico legame che il contratto espone e non uno inventato qui.
+  if (competition.legality.kind === "verificata") {
+    for (const violation of [...competition.legality.blocking, ...competition.legality.warnings]) {
+      for (const player of competition.players) {
+        if (violation.message.includes(`«${player.id}»`)) push(player.id, violation.code);
+      }
     }
+  }
+  return map;
+}
 
-    group.appendChild(row);
+/** Una riga di giocatore: la spunta, chi è, i motivi, e i comandi del posto. */
+function renderPlayerRow(
+  competition: FormazioneCompetitionView,
+  player: FormazionePlayerRow,
+  handlers: FormazioneHandlers,
+  codes: ReadonlyMap<string, string[]>,
+  benchLength: number,
+): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "formazione-riga";
+  row.dataset.posto = player.place;
+  row.style.cssText = `display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:4px 6px;border-radius:6px;background:${player.starter ? C.panelInner : "transparent"};`;
+
+  const id = `formazione-spunta-${competition.competitionId}-${player.id}`;
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.id = id;
+  input.checked = player.locked;
+  input.disabled = !competition.editable;
+  input.addEventListener("change", () =>
+    handlers.onToggleLockedStarter(competition.competitionId, player.id),
+  );
+  row.appendChild(input);
+
+  if (player.place === "panchina" && player.benchOrder !== null) {
+    const ordine = document.createElement("span");
+    ordine.className = "formazione-riga__ordine";
+    ordine.style.cssText = `font-size:12px;font-weight:700;font-family:${C.mono};color:${C.textAccent};min-width:22px;`;
+    ordine.textContent = `${player.benchOrder}º`;
+    ordine.setAttribute("aria-label", `${player.benchOrder}º a entrare`);
+    row.appendChild(ordine);
+  }
+
+  const label = document.createElement("label");
+  label.setAttribute("for", id);
+  label.style.cssText = `font-size:13px;color:${C.textPrimary};display:flex;gap:8px;align-items:baseline;flex:1 1 200px;`;
+  const ruolo = ROLE_LABEL[player.role] ?? player.role;
+  const stato =
+    player.place === "porta"
+      ? "in porta"
+      : player.place === "titolare"
+        ? "in campo"
+        : player.place === "panchina"
+          ? "in panchina"
+          : "fuori dai convocati";
+  const disponibilita = player.availability === undefined ? "" : ` · ${player.availability}`;
+  label.innerHTML =
+    `<strong style="font-family:${C.mono};">${escHtml(player.id)}</strong>` +
+    `<span style="color:${C.textDim};font-size:12px;">${escHtml(ruolo)} · ${escHtml(stato)}${escHtml(disponibilita)}</span>`;
+  row.appendChild(label);
+
+  const codici = codes.get(player.id) ?? [];
+  if (codici.length > 0) {
+    const nota = document.createElement("span");
+    nota.className = "formazione-riga__motivo";
+    nota.style.cssText = `font-size:11px;font-family:${C.mono};color:${C.stopRed};`;
+    nota.textContent = codici.join(" ");
+    row.appendChild(nota);
+  }
+
+  const comandi = document.createElement("div");
+  comandi.style.cssText = `display:flex;flex-wrap:wrap;gap:6px;margin-left:auto;`;
+  const spento = !competition.editable;
+  const prefisso = `formazione-${competition.competitionId}-${player.id}`;
+
+  if (player.place === "porta") {
+    // Il portiere non lascia la porta vuota: il comando resta, disabilitato, e
+    // accanto c'è scritto che cosa serve perché diventi possibile.
+    comandi.appendChild(
+      commandButton(
+        `${prefisso}-in-panchina`,
+        "In panchina",
+        `Manda «${player.id}» in panchina`,
+        true,
+        () => undefined,
+      ),
+    );
+    const nota = document.createElement("span");
+    nota.style.cssText = `font-size:11px;color:${C.textDim};`;
+    nota.textContent = "esce quando entra un altro portiere";
+    comandi.appendChild(nota);
+  } else if (player.place === "titolare") {
+    comandi.appendChild(
+      commandButton(
+        `${prefisso}-in-panchina`,
+        "In panchina",
+        `Manda «${player.id}» in panchina`,
+        spento,
+        () => handlers.onMoveToBench(competition.competitionId, player.id),
+      ),
+    );
+  } else if (player.place === "panchina") {
+    comandi.appendChild(
+      commandButton(
+        `${prefisso}-in-campo`,
+        "In campo",
+        `Porta «${player.id}» fra i titolari`,
+        spento,
+        () => handlers.onMoveToStarters(competition.competitionId, player.id),
+      ),
+    );
+    comandi.appendChild(
+      commandButton(
+        `${prefisso}-panchina-su`,
+        "Su",
+        `«${player.id}» entra prima`,
+        spento || player.benchOrder === 1,
+        () => handlers.onMoveBench(competition.competitionId, player.id, "su"),
+      ),
+    );
+    comandi.appendChild(
+      commandButton(
+        `${prefisso}-panchina-giu`,
+        "Giù",
+        `«${player.id}» entra dopo`,
+        spento || player.benchOrder === benchLength,
+        () => handlers.onMoveBench(competition.competitionId, player.id, "giu"),
+      ),
+    );
+    comandi.appendChild(
+      commandButton(
+        `${prefisso}-fuori`,
+        "Fuori",
+        `Togli «${player.id}» dai convocati`,
+        spento,
+        () => handlers.onMoveOutside(competition.competitionId, player.id),
+      ),
+    );
+  } else {
+    comandi.appendChild(
+      commandButton(
+        `${prefisso}-in-campo`,
+        "In campo",
+        `Porta «${player.id}» fra i titolari`,
+        spento,
+        () => handlers.onMoveToStarters(competition.competitionId, player.id),
+      ),
+    );
+    comandi.appendChild(
+      commandButton(
+        `${prefisso}-in-panchina`,
+        "In panchina",
+        `Porta «${player.id}» in panchina`,
+        spento,
+        () => handlers.onMoveToBench(competition.competitionId, player.id),
+      ),
+    );
+  }
+  row.appendChild(comandi);
+
+  return row;
+}
+
+/** Un gruppo di righe: i titolari, la panchina, chi non è convocato. */
+function renderGroup(
+  competition: FormazioneCompetitionView,
+  handlers: FormazioneHandlers,
+  codes: ReadonlyMap<string, string[]>,
+  suffisso: string,
+  titolo: string,
+  nota: string,
+  righe: readonly FormazionePlayerRow[],
+): HTMLElement {
+  const group = document.createElement("div");
+  group.id = `formazione-${suffisso}-${competition.competitionId}`;
+  group.setAttribute("role", "group");
+  group.setAttribute("aria-label", `${titolo} — ${competition.label}`);
+  group.style.cssText = `display:flex;flex-direction:column;gap:4px;`;
+  group.appendChild(smallHeading(titolo.toUpperCase(), C.textSec));
+  if (nota.length > 0) {
+    group.appendChild(paragraph(nota, `font-size:12px;color:${C.textDim};`));
+  }
+  if (righe.length === 0) {
+    group.appendChild(paragraph("nessuno", `font-size:12px;color:${C.textDim};`));
+    return group;
+  }
+  for (const player of righe) {
+    group.appendChild(
+      renderPlayerRow(competition, player, handlers, codes, competition.bench.length),
+    );
   }
   return group;
+}
+
+/** La rosa intera con la sola spunta, quando non c'è nessuna formazione da modificare. */
+function renderRosterOnly(
+  competition: FormazioneCompetitionView,
+  handlers: FormazioneHandlers,
+  codes: ReadonlyMap<string, string[]>,
+): HTMLElement {
+  return renderGroup(
+    competition,
+    handlers,
+    codes,
+    "rosa",
+    "Rosa",
+    "Le spunte dicono chi vuoi in campo e restano anche se non salvi adesso.",
+    competition.players,
+  );
 }
 
 /** I vincoli salvati che oggi non valgono più: si vedono, non si scartano. */
@@ -334,10 +849,7 @@ function renderQuarantine(competition: FormazioneCompetitionView): HTMLElement |
   box.id = `formazione-quarantena-${competition.competitionId}`;
   box.setAttribute("role", "alert");
   box.style.cssText = `border:1px solid ${C.stopRedDark};border-radius:8px;padding:8px 12px;`;
-  const heading = document.createElement("div");
-  heading.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.06em;color:${C.stopRed};`;
-  heading.textContent = "VINCOLI MESSI DA PARTE";
-  box.appendChild(heading);
+  box.appendChild(smallHeading("VINCOLI MESSI DA PARTE", C.stopRed));
   const list = document.createElement("ul");
   list.style.cssText = `margin:4px 0 0;padding-left:18px;font-size:12px;line-height:1.5;color:${C.textMid};`;
   list.innerHTML = competition.quarantined
@@ -352,6 +864,7 @@ function renderCompetition(
   competition: FormazioneCompetitionView,
   handlers: FormazioneHandlers,
   save: FormazioneSaveState,
+  edit: FormazioneEditState,
 ): HTMLElement {
   const panel = document.createElement("section");
   panel.className = "panel";
@@ -385,7 +898,8 @@ function renderCompetition(
     panel.appendChild(
       paragraph(
         "La lega non riporta nessuna formazione schierata per questa partita. La rosa qui sotto è quella " +
-          "letta: le spunte dicono chi vuoi in campo, e restano anche se non salvi adesso.",
+          "letta: le spunte dicono chi vuoi in campo, e restano anche se non salvi adesso. Non c'è nessuna " +
+          "formazione da modificare finché la lega non ne riporta una.",
         `color:${C.textSec};`,
       ),
     );
@@ -394,14 +908,38 @@ function renderCompetition(
   if (competition.constraints.locked) {
     panel.appendChild(
       paragraph(
-        "Formazione blindata: nessun comando di questa pagina la può cambiare finché la blindatura resta accesa.",
+        "Formazione blindata: i comandi che la cambierebbero sono disabilitati e restano a vista finché " +
+          "la blindatura è accesa. Toglierla li riaccende, e quello che avevi scelto resta dov'era.",
         `color:${C.textAccent};`,
       ),
     );
   }
 
-  panel.appendChild(renderModuleControl(competition, handlers));
-  panel.appendChild(renderLockControl(competition, handlers));
+  if (competition.lineup !== null) {
+    panel.appendChild(renderDraftState(competition, handlers));
+    panel.appendChild(renderLineupControls(competition, handlers));
+  }
+
+  if (edit.competitionId === competition.competitionId && edit.conflict !== null) {
+    panel.appendChild(renderConflict(competition, edit.conflict, handlers));
+  }
+  if (edit.competitionId === competition.competitionId && edit.refusal.length > 0) {
+    const box = document.createElement("div");
+    box.id = `formazione-mossa-rifiutata-${competition.competitionId}`;
+    box.setAttribute("role", "alert");
+    box.style.cssText = `border:1px solid ${C.stopRedDark};border-radius:8px;padding:8px 12px;`;
+    box.appendChild(smallHeading("MOSSA NON ESEGUITA", C.stopRed));
+    box.appendChild(paragraph(edit.refusal, `color:${C.textMid};margin-top:4px;`));
+    panel.appendChild(box);
+  }
+
+  const vincoli = document.createElement("div");
+  vincoli.id = `formazione-vincoli-${competition.competitionId}`;
+  vincoli.style.cssText = `display:flex;flex-direction:column;gap:10px;border:1px solid ${C.border};border-radius:8px;padding:10px 14px;`;
+  vincoli.appendChild(smallHeading("I VINCOLI — VALGONO ANCHE PER LE PROSSIME GIORNATE", C.textSec));
+  vincoli.appendChild(renderModuleControl(competition, handlers));
+  vincoli.appendChild(renderLockControl(competition, handlers));
+  panel.appendChild(vincoli);
 
   const quarantena = renderQuarantine(competition);
   if (quarantena !== null) panel.appendChild(quarantena);
@@ -414,10 +952,9 @@ function renderCompetition(
     impossibile.id = `formazione-impossibile-${competition.competitionId}`;
     impossibile.setAttribute("role", "alert");
     impossibile.style.cssText = `border:1px solid ${C.stopRedDark};border-radius:8px;padding:8px 12px;`;
-    const heading = document.createElement("div");
-    heading.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.06em;color:${C.stopRed};`;
-    heading.textContent = "CON QUESTI VINCOLI LA FORMAZIONE NON SI PUÒ FARE";
-    impossibile.appendChild(heading);
+    impossibile.appendChild(
+      smallHeading("CON QUESTI VINCOLI LA FORMAZIONE NON SI PUÒ FARE", C.stopRed),
+    );
     const list = document.createElement("ul");
     list.style.cssText = `margin:4px 0 0;padding-left:18px;font-size:12px;line-height:1.5;color:${C.textMid};`;
     list.innerHTML = competition.issues.rejections
@@ -441,10 +978,7 @@ function renderCompetition(
     avvisi.id = `formazione-avvertimenti-vincoli-${competition.competitionId}`;
     avvisi.setAttribute("role", "status");
     avvisi.style.cssText = `border:1px solid ${C.border};border-radius:8px;padding:8px 12px;`;
-    const heading = document.createElement("div");
-    heading.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.06em;color:${C.textAccent};`;
-    heading.textContent = "SCELTE COSTOSE, NON ERRORI — RESTANO TUE";
-    avvisi.appendChild(heading);
+    avvisi.appendChild(smallHeading("SCELTE COSTOSE, NON ERRORI — RESTANO TUE", C.textAccent));
     const list = document.createElement("ul");
     list.style.cssText = `margin:4px 0 0;padding-left:18px;font-size:12px;line-height:1.5;color:${C.textMid};`;
     list.innerHTML = competition.issues.warnings
@@ -461,18 +995,16 @@ function renderCompetition(
   }
 
   // UNA SPUNTA CHE NON CAMBIA NIENTE È PEGGIO DI NESSUNA SPUNTA. Se la
-  // formazione in mano non rispetta un vincolo, lo si dice qui e il salvataggio
-  // si ferma: questa pagina non sa ricalcolare l'undici (il produttore vive
-  // fuori dal core pubblico), quindi non finge di averlo fatto.
+  // formazione mostrata non rispetta un vincolo, lo si dice qui e il salvataggio
+  // si ferma. Adesso la formazione si può anche modificare, quindi la strada per
+  // rispettarlo è a portata di clic: prima non c'era, e questo riquadro era un
+  // vicolo cieco.
   if (competition.unmet.length > 0) {
     const box = document.createElement("div");
     box.id = `formazione-vincoli-non-rispettati-${competition.competitionId}`;
     box.setAttribute("role", "alert");
     box.style.cssText = `border:1px solid ${C.stopRedDark};border-radius:8px;padding:8px 12px;`;
-    const heading = document.createElement("div");
-    heading.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.06em;color:${C.stopRed};`;
-    heading.textContent = "VINCOLI NON RISPETTATI DA QUESTA FORMAZIONE";
-    box.appendChild(heading);
+    box.appendChild(smallHeading("VINCOLI NON RISPETTATI DA QUESTA FORMAZIONE", C.stopRed));
     const list = document.createElement("ul");
     list.style.cssText = `margin:4px 0 0;padding-left:18px;font-size:12px;line-height:1.5;color:${C.textMid};`;
     list.innerHTML = competition.unmet.map((riga) => `<li>${escHtml(riga)}</li>`).join("");
@@ -486,17 +1018,72 @@ function renderCompetition(
     panel.appendChild(box);
   }
 
-  panel.appendChild(renderPlayers(competition, handlers));
+  const legalita = renderLegality(competition);
+  if (legalita !== null) panel.appendChild(legalita);
 
+  const codes = codesByPlayer(competition);
+  if (competition.lineup === null) {
+    panel.appendChild(renderRosterOnly(competition, handlers, codes));
+  } else {
+    panel.appendChild(
+      renderGroup(
+        competition,
+        handlers,
+        codes,
+        "titolari",
+        "In campo",
+        "Il portiere per primo, poi i dieci di movimento.",
+        competition.starters,
+      ),
+    );
+    panel.appendChild(
+      renderGroup(
+        competition,
+        handlers,
+        codes,
+        "panchina",
+        "Panchina",
+        "L'ordine conta: quando i senza voto sono più delle sostituzioni disponibili entra chi sta più " +
+          "in alto. «Su» lo fa entrare prima, «Giù» dopo.",
+        competition.bench,
+      ),
+    );
+    panel.appendChild(
+      renderGroup(
+        competition,
+        handlers,
+        codes,
+        "fuori",
+        "Fuori dai convocati",
+        "In rosa, e non schierati in questa partita.",
+        competition.outside,
+      ),
+    );
+  }
+
+  const blockers = saveBlockers(competition);
   const salva = document.createElement("button");
   salva.type = "button";
   salva.id = `formazione-salva-${competition.competitionId}`;
   salva.className = "btn";
-  salva.disabled = !competition.feasible || competition.unmet.length > 0 || competition.lineup === null;
+  salva.disabled = blockers.length > 0;
   salva.textContent = "Salva";
   salva.setAttribute("aria-describedby", "formazione-stato-invio");
   salva.addEventListener("click", () => handlers.onSave(competition.competitionId));
   panel.appendChild(salva);
+
+  // MAI UN SALVATAGGIO CHE SORPRENDE, e nemmeno un bottone spento senza motivo:
+  // se non si può salvare, il perché sta qui accanto e non dopo il clic.
+  if (blockers.length > 0) {
+    const perche = document.createElement("div");
+    perche.id = `formazione-salva-impedito-${competition.competitionId}`;
+    perche.setAttribute("role", "status");
+    perche.style.cssText = `font-size:12px;line-height:1.5;color:${C.textMid};`;
+    perche.innerHTML =
+      `<strong style="color:${C.stopRed};">Non si può salvare:</strong> ` +
+      escHtml(blockers.join("; "));
+    panel.appendChild(perche);
+  }
 
   if (save.competitionId === competition.competitionId) {
     panel.appendChild(renderSubmissionState(save));
@@ -516,6 +1103,7 @@ export function renderFormazioneScreen(
   view: FormazioneView,
   handlers: FormazioneHandlers,
   save: FormazioneSaveState,
+  edit: FormazioneEditState = NESSUNA_MODIFICA_IN_SOSPESO,
   notice = "",
 ): HTMLElement {
   const wrap = document.createElement("div");
@@ -548,7 +1136,7 @@ export function renderFormazioneScreen(
   }
 
   for (const competition of view.competitions) {
-    wrap.appendChild(renderCompetition(competition, handlers, save));
+    wrap.appendChild(renderCompetition(competition, handlers, save, edit));
   }
   return wrap;
 }

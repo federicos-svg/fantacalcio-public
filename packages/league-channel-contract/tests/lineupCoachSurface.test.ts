@@ -9,6 +9,7 @@ import {
   normalizeConstraintReport,
   prepareSubmission,
   reconcileConstraints,
+  saveBlockers,
   setLockedModule,
   submissionUiState,
   toggleLocked,
@@ -19,8 +20,10 @@ import {
   type LineupConstraints,
   type ObservedCompetitionLineup,
 } from "../src/lineupCoachSurface.js";
+import { moveBench, moveToStarters, type LineupEdit } from "../src/lineupDraft.js";
 import { rolesByPlayerId } from "../src/roster.js";
 import type { ObservedTeam } from "../src/roster.js";
+import type { ObservedLineup } from "../src/lineupSubmission.js";
 import { rejectedOutcome, notAttemptedOutcome, outcomeFromReadBack } from "../src/lineupSubmission.js";
 import { CAMPIONATO, COPPA, FORMAZIONE, ROSA, SETTINGS_IN_ACCORDO } from "./fixtures.js";
 
@@ -168,6 +171,193 @@ describe("le due formazioni", () => {
       constraints,
     );
     expect(view.competitions[0]?.editable).toBe(false);
+  });
+});
+
+describe("la formazione che si vede: quella letta, o la modifica non ancora inviata", () => {
+  const RUOLI = rolesByPlayerId(ROSA);
+  const eseguita = (edit: LineupEdit): ObservedLineup => {
+    if (!edit.ok) throw new Error(edit.reason);
+    return edit.lineup;
+  };
+  const vista = (drafts: ReadonlyMap<string, ObservedLineup>) =>
+    buildFormazioneView(
+      letto([campionato({ kind: "letta", lineup: FORMAZIONE })]),
+      new Map(),
+      undefined,
+      drafts,
+    ).competitions[0];
+
+  it("senza modifiche si guarda quella letta, e la pagina lo dice", () => {
+    const competizione = vista(new Map());
+    expect(competizione?.lineup).toEqual(FORMAZIONE);
+    expect(competizione?.readLineup).toEqual(FORMAZIONE);
+    expect(competizione?.modified).toBe(false);
+  });
+
+  it("con una modifica si guarda quella, e la formazione letta resta a portata di mano", () => {
+    const modificata = eseguita(moveBench(FORMAZIONE, "p14", "su"));
+    const competizione = vista(new Map([[CAMPIONATO.competitionId, modificata]]));
+    expect(competizione?.lineup).toEqual(modificata);
+    // «Annulla» ha dove tornare: la formazione letta non viene mai sovrascritta.
+    expect(competizione?.readLineup).toEqual(FORMAZIONE);
+    expect(competizione?.modified).toBe(true);
+  });
+
+  it("una bozza calcolata per l'ALTRA competizione non prende il posto di questa", () => {
+    const altrove: ObservedLineup = { ...FORMAZIONE, competitionId: COPPA.competitionId };
+    const competizione = vista(new Map([[CAMPIONATO.competitionId, altrove]]));
+    expect(competizione?.lineup).toEqual(FORMAZIONE);
+    expect(competizione?.modified).toBe(false);
+  });
+
+  it("i gruppi sono nell'ordine della formazione, e la panchina porta il suo ordine", () => {
+    const competizione = vista(new Map());
+    expect(competizione?.starters.map((riga) => riga.id)).toEqual([
+      FORMAZIONE.goalkeeperId,
+      ...FORMAZIONE.starterIds,
+    ]);
+    expect(competizione?.bench.map((riga) => riga.id)).toEqual([...FORMAZIONE.benchIds]);
+    expect(competizione?.bench.map((riga) => riga.benchOrder)).toEqual([1, 2, 3, 4, 5]);
+    expect(competizione?.starters[0]?.place).toBe("porta");
+    expect(competizione?.starters[1]?.place).toBe("titolare");
+    expect(competizione?.outside).toEqual([]);
+  });
+
+  it("chi resta fuori dai convocati sta in un gruppo suo, non fra i panchinari", () => {
+    const senzaP16 = eseguita(moveBench(FORMAZIONE, "p16", "su"));
+    const ridotta: ObservedLineup = { ...senzaP16, benchIds: senzaP16.benchIds.slice(0, 4) };
+    const competizione = vista(new Map([[CAMPIONATO.competitionId, ridotta]]));
+    expect(competizione?.outside.map((riga) => riga.id)).toEqual(["p15"]);
+    expect(competizione?.outside[0]?.benchOrder).toBeNull();
+  });
+
+  it("uno spostamento che rompe il modulo si vede come violazione bloccante, senza premere niente", () => {
+    const undici = eseguita(moveToStarters(FORMAZIONE, "p14", RUOLI));
+    const competizione = vista(new Map([[CAMPIONATO.competitionId, undici]]));
+    expect(competizione?.legality.kind).toBe("verificata");
+    if (competizione?.legality.kind !== "verificata") return;
+    expect(competizione.legality.blocking.map((violation) => violation.code)).toContain(
+      "titolari_numero_errato",
+    );
+    expect(saveBlockers(competizione).length).toBeGreaterThan(0);
+  });
+
+  it("i moduli offribili sono quelli che la lega dichiara, e non un elenco di questo codice", () => {
+    const dichiarati = buildFormazioneView(
+      letto([campionato({ kind: "letta", lineup: FORMAZIONE })]),
+      new Map(),
+    ).competitions[0];
+    expect(dichiarati?.allowedModules).toEqual(SETTINGS_IN_ACCORDO.allowedModules);
+    // Un modulo che la lega non dichiara non è offribile, e se fosse schierato
+    // sarebbe bloccante: le due cose si tengono insieme.
+    const { allowedModules: _tutti, ...soloDue } = SETTINGS_IN_ACCORDO;
+    const ristretta = buildFormazioneView(
+      {
+        kind: "letto",
+        roster: ROSA,
+        settings: { ...soloDue, allowedModules: ["352", "433"] },
+        competitions: [campionato({ kind: "letta", lineup: FORMAZIONE })],
+      },
+      new Map(),
+    ).competitions[0];
+    expect(ristretta?.allowedModules).toEqual(["352", "433"]);
+    expect(ristretta?.allowedModules).not.toContain("442");
+  });
+
+  it("se la lega non dichiara i moduli non se ne inventa una lista: si dichiara il vuoto", () => {
+    const { allowedModules: _ignorato, ...senzaModuli } = SETTINGS_IN_ACCORDO;
+    const competizione = buildFormazioneView(
+      {
+        kind: "letto",
+        roster: ROSA,
+        settings: senzaModuli,
+        competitions: [campionato({ kind: "letta", lineup: FORMAZIONE })],
+      },
+      new Map(),
+    ).competitions[0];
+    // `null` NON è «tutti»: è «non lo sappiamo», e la pagina lo dice.
+    expect(competizione?.allowedModules).toBeNull();
+    expect(competizione?.legality.kind).toBe("verificata");
+    if (competizione?.legality.kind !== "verificata") return;
+    expect(competizione.legality.warnings.map((violation) => violation.code)).toContain(
+      "modulo_non_verificabile",
+    );
+  });
+
+  it("una formazione blindata non si modifica, e i comandi lo sanno prima di essere premuti", () => {
+    const competizione = buildFormazioneView(
+      letto([campionato({ kind: "letta", lineup: FORMAZIONE })]),
+      new Map([[CAMPIONATO.competitionId, { lockedStarterIds: [], locked: true }]]),
+    ).competitions[0];
+    expect(competizione?.editable).toBe(false);
+  });
+
+  it("senza giornata nota la legalità non si dichiara, e il salvataggio non si offre", () => {
+    const competizione = buildFormazioneView(
+      letto([campionato({ kind: "letta", lineup: FORMAZIONE }, null)]),
+      new Map(),
+    ).competitions[0];
+    expect(competizione?.legality.kind).toBe("non_verificabile");
+    expect(saveBlockers(competizione!).join(" ")).toContain("giornata");
+  });
+});
+
+describe("perché il salvataggio non si offre, detto prima di premere", () => {
+  it("una formazione legale e senza vincoli non ha nessun impedimento", () => {
+    const competizione = buildFormazioneView(
+      letto([campionato({ kind: "letta", lineup: FORMAZIONE })]),
+      new Map(),
+    ).competitions[0];
+    expect(saveBlockers(competizione!)).toEqual([]);
+  });
+
+  it("i vincoli non rispettati, quelli impossibili e la non disponibilità sono ragioni distinte", () => {
+    const nonRispettati = buildFormazioneView(
+      letto([campionato({ kind: "letta", lineup: FORMAZIONE })]),
+      new Map([[CAMPIONATO.competitionId, { lockedStarterIds: ["p14"], locked: false }]]),
+    ).competitions[0];
+    expect(saveBlockers(nonRispettati!).join(" ")).toContain("non rispetta");
+
+    const impossibili = buildFormazioneView(
+      letto([campionato({ kind: "letta", lineup: FORMAZIONE })]),
+      new Map([
+        [
+          CAMPIONATO.competitionId,
+          { lockedStarterIds: ["p1", "p12"], locked: false },
+        ],
+      ]),
+    ).competitions[0];
+    expect(saveBlockers(impossibili!).join(" ")).toContain("non si può fare");
+
+    const nonDisponibile = buildFormazioneView(
+      letto([
+        {
+          competition: COPPA,
+          matchday: null,
+          state: { kind: "non_disponibile", reason: "la coppa non è ancora cominciata" },
+        },
+      ]),
+      new Map(),
+    ).competitions[0];
+    expect(saveBlockers(nonDisponibile!).join(" ")).toContain("non è ancora cominciata");
+  });
+
+  it("un modulo cambiato a mano fuori dall'elenco della lega impedisce il salvataggio", () => {
+    const fuoriElenco: ObservedLineup = { ...FORMAZIONE, module: "352" };
+    const competizione = buildFormazioneView(
+      {
+        kind: "letto",
+        roster: ROSA,
+        settings: { ...SETTINGS_IN_ACCORDO, allowedModules: ["442"] },
+        competitions: [campionato({ kind: "letta", lineup: FORMAZIONE })],
+      },
+      new Map(),
+      undefined,
+      new Map([[CAMPIONATO.competitionId, fuoriElenco]]),
+    ).competitions[0];
+    expect(competizione?.modified).toBe(true);
+    expect(saveBlockers(competizione!).length).toBeGreaterThan(0);
   });
 });
 
