@@ -22,14 +22,38 @@
 // dentro l'elenco dichiarato, gli id dentro la rosa quando la rosa è stata
 // passata, la panchina abbastanza lunga da coprire le sostituzioni dichiarate.
 //
+// I RUOLI ARRIVANO DA FUORI, E SOLO SE QUALCUNO LI PASSA. Un invio porta id
+// opachi e nient'altro: da solo non dice chi è difensore. Per questo la
+// composizione dei reparti — quanti D, quanti C, quanti A fra i dieci di
+// movimento, contro `moduleShape` — si verifica **solo** con `options.roles`,
+// la mappa id -> ruolo che `rolesByPlayerId` costruisce dalla rosa osservata.
+// Un undici con cinque difensori dentro un 4-4-2 si ferma qui, non sulla
+// piattaforma. Senza quella mappa la funzione non deduce nulla e lo dichiara:
+// `composizione_non_verificabile`.
+//
+// UN RUOLO MANCANTE NON SI DEDUCE, E NON SI ARROTONDA IL CONTROLLO. Se un id
+// dell'invio non compare in `roles`, è un buco dell'osservazione, non
+// un'illegalità: esce un avvertimento dedicato, e sul **reparto** di quel
+// giocatore la funzione non si pronuncia. Concretamente: un reparto viene
+// dichiarato sbagliato solo quando lo è **con certezza** — i ruoli noti sono
+// già più di quelli richiesti, oppure non bastano nemmeno assegnando ogni
+// ruolo ignoto a quel reparto. In mezzo c'è il caso indecidibile, e lì si tace.
+// La ragione è la stessa che governa tutto il file: un controllo fatto a metà
+// che si presenta come completo è peggio di un controllo assente, perché
+// produce una fiducia che nessuno ha guadagnato.
+//
 // CHE COSA NON GARANTISCE, e va detto prima che qualcuno ci conti sopra. Non
 // garantisce che la piattaforma accetti: la piattaforma è l'unica autorità su
 // sé stessa, e l'unica prova di un invio riuscito resta la rilettura
-// (`outcomeFromReadBack`). Non garantisce la **composizione per ruolo** dei
-// dieci di movimento: un invio porta id opachi, non ruoli, quindi da qui si
-// verifica quanti sono — la scomposizione del modulo, presa da `moduleShape` e
-// non riscritta — non chi è difensore e chi attaccante. Quel controllo
-// appartiene a chi la formazione la costruisce, che i ruoli ce li ha. Non
+// (`outcomeFromReadBack`). Non garantisce la composizione dei reparti quando
+// `roles` non è passata, né il reparto dei giocatori il cui ruolo non è stato
+// osservato — nei due casi lo **dichiara**, non lo suppone. Non garantisce che
+// una sostituzione sarà possibile: §10 vuole lo stesso ruolo, ma chi entra al
+// posto di chi si decide a giornata in corso, non qui. Il controllo sulla
+// giornata è **parziale per costruzione**: `ObservedLineup` porta la
+// competizione e non la giornata, quindi si verifica che quella dell'invio sia
+// intera e positiva, non che l'invio e la formazione parlino della stessa
+// giornata — un confronto che oggi non ha due valori da confrontare. E non
 // garantisce nulla sul merito: una formazione legale può essere pessima.
 //
 // PERCHÉ UN'ASSENZA PRODUCE UN AVVERTIMENTO, e non un default né un rifiuto.
@@ -67,6 +91,7 @@
 
 import type { Module } from "../../league-gameweek/src/leagueGameweek.js";
 import { MODULES, moduleShape } from "../../league-gameweek/src/leagueGameweek.js";
+import type { Role } from "../../league-gameweek/src/gameweekSimulator.js";
 import type {
   ObservedLeagueSettings,
   ObservedScoringSettings,
@@ -108,8 +133,20 @@ export const SUBMISSION_VIOLATION_CODES = {
   moduloNonVerificabile: "modulo_non_verificabile",
   /** Nessun portiere dichiarato. */
   portiereMancante: "portiere_mancante",
+  /** In porta c'è qualcuno che portiere non è. */
+  portiereRuoloErrato: "portiere_ruolo_errato",
   /** I titolari di movimento non sono quanti il modulo ne richiede. */
   titolariNumeroErrato: "titolari_numero_errato",
+  /** I difensori fra i titolari non sono quanti il modulo ne richiede. */
+  difensoriNumeroErrato: "difensori_numero_errato",
+  /** I centrocampisti fra i titolari non sono quanti il modulo ne richiede. */
+  centrocampistiNumeroErrato: "centrocampisti_numero_errato",
+  /** Gli attaccanti fra i titolari non sono quanti il modulo ne richiede. */
+  attaccantiNumeroErrato: "attaccanti_numero_errato",
+  /** Nessuna mappa dei ruoli: la composizione dei reparti non è verificabile. */
+  composizioneNonVerificabile: "composizione_non_verificabile",
+  /** Il ruolo di un id dell'invio non è stato osservato: non si deduce. */
+  ruoloNonOsservato: "ruolo_non_osservato",
   /** Lo stesso id compare più di una volta fra porta, titolari e panchina. */
   idRipetuto: "id_ripetuto",
   /** Un id dell'invio non appartiene alla rosa passata dal chiamante. */
@@ -128,6 +165,32 @@ const SEVERITY_RANK: Readonly<Record<SubmissionSeverity, number>> = {
   bloccante: 0,
   avvertimento: 1,
 };
+
+/**
+ * I ruoli per id, nelle due forme in cui è naturale averli: la mappa che
+ * `rolesByPlayerId` produce dalla rosa osservata, oppure un oggetto piano per
+ * chi arriva da JSON. Entrambe si leggono, nessuna si modifica.
+ */
+export type ObservedRoles = ReadonlyMap<string, Role> | Readonly<Record<string, Role>>;
+
+/** Ciò che il chiamante può aggiungere all'invio per farlo verificare meglio. */
+export interface SubmissionLegalityOptions {
+  /** Gli id schierabili. Senza, l'appartenenza alla rosa non si controlla. */
+  readonly rosterIds?: readonly string[];
+  /** I ruoli per id. Senza, la composizione dei reparti non si verifica. */
+  readonly roles?: ObservedRoles;
+}
+
+/**
+ * Il ruolo di un id, `undefined` se non è stato osservato. Sull'oggetto piano
+ * si guarda solo ciò che l'oggetto possiede davvero: senza `Object.hasOwn` un
+ * id come `constructor` risponderebbe qualcosa che nessuno ha osservato.
+ */
+function roleOf(roles: ObservedRoles, id: string): Role | undefined {
+  if (roles instanceof Map) return roles.get(id) as Role | undefined;
+  const record = roles as Readonly<Record<string, Role>>;
+  return Object.hasOwn(record, id) ? record[id] : undefined;
+}
 
 /**
  * Il valore di un'impostazione per la competizione dell'invio.
@@ -236,6 +299,129 @@ function submittedIds(submission: LineupSubmission): readonly string[] {
   const lineup = submission.lineup;
   const ids = lineup.goalkeeperId.length === 0 ? [] : [lineup.goalkeeperId];
   return [...ids, ...lineup.starterIds, ...lineup.benchIds];
+}
+
+/**
+ * I REPARTI CONTRO IL MODULO, e il portiere che deve essere un portiere.
+ *
+ * Un reparto si dichiara sbagliato **solo quando lo è con certezza**: o i ruoli
+ * noti sono già più di quelli richiesti, o non bastano nemmeno assegnando ogni
+ * ruolo ignoto a quel reparto. Nel mezzo il caso è indecidibile e la funzione
+ * tace sul merito, avendo già detto a voce alta — un avvertimento per id — che
+ * quei ruoli non li ha osservati.
+ */
+function compositionViolations(
+  submission: LineupSubmission,
+  roles: ObservedRoles | undefined,
+): readonly SubmissionViolation[] {
+  const lineup = submission.lineup;
+
+  if (roles === undefined) {
+    return [
+      {
+        code: SUBMISSION_VIOLATION_CODES.composizioneNonVerificabile,
+        message:
+          "i ruoli non sono stati passati: la composizione dei reparti contro il modulo " +
+          `«${String(lineup.module)}» non è verificabile da qui, e non viene supposta`,
+        severity: "avvertimento",
+        observed: false,
+      },
+    ];
+  }
+
+  const violations: SubmissionViolation[] = [];
+  const seen = new Set<string>();
+  for (const id of submittedIds(submission)) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    if (roleOf(roles, id) === undefined) {
+      violations.push({
+        code: SUBMISSION_VIOLATION_CODES.ruoloNonOsservato,
+        message:
+          `il ruolo di «${id}» non è stato osservato: non viene dedotto, e il suo reparto ` +
+          "resta fuori dal conto",
+        severity: "avvertimento",
+        observed: false,
+      });
+    }
+  }
+
+  const goalkeeperRole =
+    lineup.goalkeeperId.length === 0 ? undefined : roleOf(roles, lineup.goalkeeperId);
+  if (goalkeeperRole !== undefined && goalkeeperRole !== "P") {
+    violations.push({
+      code: SUBMISSION_VIOLATION_CODES.portiereRuoloErrato,
+      message:
+        `in porta c'è «${lineup.goalkeeperId}», che è di ruolo ${goalkeeperRole}: ` +
+        "il portiere deve essere un portiere (P)",
+      severity: "bloccante",
+      observed: true,
+    });
+  }
+
+  if (!isKnownModule(lineup.module)) return violations;
+  const shape = moduleShape(lineup.module);
+
+  const counts: Record<Role, number> = { P: 0, D: 0, C: 0, A: 0 };
+  let unknown = 0;
+  for (const id of lineup.starterIds) {
+    const role = roleOf(roles, id);
+    if (role === undefined) {
+      unknown += 1;
+      continue;
+    }
+    counts[role] += 1;
+  }
+
+  const departments = [
+    {
+      role: "D",
+      expected: shape.defenders,
+      label: "difensori",
+      code: SUBMISSION_VIOLATION_CODES.difensoriNumeroErrato,
+    },
+    {
+      role: "C",
+      expected: shape.midfielders,
+      label: "centrocampisti",
+      code: SUBMISSION_VIOLATION_CODES.centrocampistiNumeroErrato,
+    },
+    {
+      role: "A",
+      expected: shape.strikers,
+      label: "attaccanti",
+      code: SUBMISSION_VIOLATION_CODES.attaccantiNumeroErrato,
+    },
+  ] as const;
+
+  for (const department of departments) {
+    const found = counts[department.role];
+    const head =
+      `il modulo «${lineup.module}» richiede ${department.expected} ${department.label} ` +
+      `fra i titolari, l'invio ne porta ${found}`;
+    if (found > department.expected) {
+      violations.push({
+        code: department.code,
+        message: head,
+        severity: "bloccante",
+        observed: true,
+      });
+      continue;
+    }
+    if (found + unknown < department.expected) {
+      violations.push({
+        code: department.code,
+        message:
+          unknown === 0
+            ? head
+            : `${head} più ${unknown} di ruolo non osservato: non bastano comunque`,
+        severity: "bloccante",
+        observed: true,
+      });
+    }
+  }
+
+  return violations;
 }
 
 /**
@@ -387,15 +573,19 @@ function compareViolations(a: SubmissionViolation, b: SubmissionViolation): numb
  *
  * `options.rosterIds`, se passato, è l'insieme degli id schierabili: senza di
  * esso l'appartenenza alla rosa **non viene controllata e non viene finta**.
+ * `options.roles` è la mappa id -> ruolo (`rolesByPlayerId` la costruisce dalla
+ * rosa osservata): senza di essa la composizione dei reparti non viene
+ * verificata, e l'esito lo dichiara invece di tacerlo.
  */
 export function validateSubmissionAgainstSettings(
   submission: LineupSubmission,
   settings: ObservedLeagueSettings,
-  options?: { readonly rosterIds?: readonly string[] },
+  options?: SubmissionLegalityOptions,
 ): readonly SubmissionViolation[] {
   const violations: SubmissionViolation[] = [
     ...moduleViolations(submission, settings),
     ...elevenViolations(submission),
+    ...compositionViolations(submission, options?.roles),
     ...duplicateViolations(submission),
     ...rosterViolations(submission, options?.rosterIds),
     ...matchdayAndCompetitionViolations(submission),

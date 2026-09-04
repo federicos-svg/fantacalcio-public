@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { PlayerForecast } from "../../league-gameweek/src/lineupProposer.js";
-import { missingForecastIds, toForecastSkeleton } from "../src/roster.js";
+import { missingForecastIds, rolesByPlayerId, toForecastSkeleton } from "../src/roster.js";
 import { ROSA } from "./fixtures.js";
 
 describe("ossatura delle previsioni", () => {
@@ -85,6 +85,27 @@ describe("ossatura delle previsioni", () => {
       toForecastSkeleton({ teamId: "t1", players: [{ id: "p1", role: "P" }, { id: "p1", role: "D" }] }),
     ).toThrow(/id ripetuto/);
     expect(() => toForecastSkeleton({ teamId: "t1", players: [{ id: "", role: "P" }] })).toThrow(
+      /id vuoto/,
+    );
+  });
+});
+
+describe("i ruoli per id", () => {
+  it("li prende dalla rosa osservata, uno per giocatore", () => {
+    const ruoli = rolesByPlayerId(ROSA);
+    expect(ruoli.size).toBe(ROSA.players.length);
+    expect(ruoli.get("p1")).toBe("P");
+    expect(ruoli.get("p10")).toBe("A");
+    expect(ruoli.get("p99")).toBeUndefined();
+  });
+
+  it("id ripetuto e id vuoto fermano la costruzione, come per l'ossatura", () => {
+    // Un id ripetuto con due ruoli diversi produrrebbe una mappa in cui
+    // l'ultimo vince senza che nessuno lo sappia.
+    expect(() =>
+      rolesByPlayerId({ teamId: "t1", players: [{ id: "p1", role: "P" }, { id: "p1", role: "D" }] }),
+    ).toThrow(/id ripetuto/);
+    expect(() => rolesByPlayerId({ teamId: "t1", players: [{ id: "", role: "P" }] })).toThrow(
       /id vuoto/,
     );
   });

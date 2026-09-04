@@ -99,6 +99,34 @@ export function toForecastSkeleton(team: ObservedTeam): readonly ForecastSkeleto
 }
 
 /**
+ * I ruoli della rosa osservata, per id.
+ *
+ * Esiste perché un invio porta **id opachi e nient'altro**: chi vuole
+ * verificare che i dieci di movimento reggano il modulo dichiarato ha bisogno
+ * dei ruoli, e l'unico posto in cui vivono è la rosa osservata. Ricostruirla a
+ * mano dal lato del chiamante sarebbe la solita seconda dichiarazione che
+ * diverge in silenzio.
+ *
+ * Fail-closed sulle stesse due cose di `toForecastSkeleton`, e per la stessa
+ * ragione: un id vuoto non è ricostruibile, e un id ripetuto con due ruoli
+ * diversi produrrebbe una mappa in cui l'ultimo vince senza che nessuno lo
+ * sappia.
+ */
+export function rolesByPlayerId(team: ObservedTeam): ReadonlyMap<string, Role> {
+  const roles = new Map<string, Role>();
+  for (const player of team.players) {
+    if (player.id.length === 0) {
+      throw new Error("rosa osservata con un id vuoto: l'identità non è ricostruibile");
+    }
+    if (roles.has(player.id)) {
+      throw new Error(`rosa osservata con id ripetuto: ${player.id}`);
+    }
+    roles.set(player.id, player.role);
+  }
+  return roles;
+}
+
+/**
  * Gli id per cui manca ancora la previsione, dato quel che è stato prodotto
  * fuori. Su un'ossatura appena costruita li restituisce **tutti**: è il punto.
  *
