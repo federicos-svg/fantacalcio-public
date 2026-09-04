@@ -49,6 +49,23 @@ function tabella(): SourceShape {
   return esito.value;
 }
 
+/**
+ * La stessa tabella con una famiglia riscritta.
+ *
+ * Serve soprattutto per le prove sulle chiavi **non ancorate**: `readSourceShape`
+ * compila con `new RegExp(pattern, "i")` e non aggiunge ancoraggi, quindi una
+ * tabella reale può benissimo contenere `interno` invece di `^interno$` — ed è
+ * lì che nascono le ambiguità che il parser deve rifiutare.
+ */
+function tabellaCon(famiglia: keyof typeof TABELLA_SINTETICA.keys, pattern: string): SourceShape {
+  const esito = readSourceShape({
+    ...TABELLA_SINTETICA,
+    keys: { ...TABELLA_SINTETICA.keys, [famiglia]: pattern },
+  });
+  if (!isRead(esito)) throw new Error("tabella di prova non leggibile");
+  return esito.value;
+}
+
 function pagina(blocco: unknown): string {
   return (
     `<!doctype html><html><body><p>${PROSA}</p>` +
@@ -57,13 +74,32 @@ function pagina(blocco: unknown): string {
   );
 }
 
-function undici(prefisso: string): readonly Record<string, unknown>[] {
-  return Array.from({ length: 11 }, (_, i) => ({
-    etichetta: `${prefisso} ${String(i + 1)}`,
-    cifra: i + 1,
-    mansione: "CEN",
-  }));
+// LA FIXTURE DEVE POTER ESSERE POVERA QUANTO LA PAGINA PEGGIORE.
+//
+// Una fixture che dà sempre tutti i campi prova solo il ramo felice: il ramo
+// «la fonte non espone questo campo» — la distinzione per cui `field.ts`
+// esiste — non verrebbe mai eseguito, e la differenza fra «assente nella
+// fonte» e «non guardato» resterebbe una buona intenzione invece che una
+// misura. Ogni pezzo del giocatore e della squadra si può quindi togliere.
+interface OpzioniGiocatore {
+  readonly conMaglia?: boolean;
+  readonly conRuolo?: boolean;
 }
+
+function undici(prefisso: string, opzioni: OpzioniGiocatore = {}): readonly Record<string, unknown>[] {
+  return Array.from({ length: 11 }, (_, i) => {
+    const giocatore: Record<string, unknown> = { etichetta: `${prefisso} ${String(i + 1)}` };
+    if (opzioni.conMaglia !== false) giocatore["cifra"] = i + 1;
+    if (opzioni.conRuolo !== false) giocatore["mansione"] = "CEN";
+    return giocatore;
+  });
+}
+
+/**
+ * Chi si dichiara in casa. `"primo"` è la pagina normale; gli altri sono le
+ * ambiguità che il parser deve rifiutare invece di sciogliere da sé.
+ */
+type LatoCasa = "primo" | "secondo" | "entrambi" | "contraddittorio";
 
 interface OpzioniBlocco {
   readonly status?: string | null;
@@ -72,28 +108,41 @@ interface OpzioniBlocco {
   readonly matchday?: number | null;
   readonly kickoff?: string | null;
   readonly conPanchina?: boolean;
+  readonly conCambi?: boolean;
+  readonly conGuida?: boolean;
+  readonly conDisposizione?: boolean;
+  readonly conMaglia?: boolean;
+  readonly conRuolo?: boolean;
   readonly latoCasaDichiarato?: boolean;
+  readonly latoCasa?: LatoCasa;
+  /** Una chiave in più nel blocco ospite: serve alle prove sulle chiavi non ancorate. */
+  readonly extraTrasferta?: Record<string, unknown>;
 }
 
 function blocco(opzioni: OpzioniBlocco = {}): Record<string, unknown> {
+  const lato: LatoCasa = opzioni.latoCasa ?? "primo";
+  const giocatori: OpzioniGiocatore = { conMaglia: opzioni.conMaglia, conRuolo: opzioni.conRuolo };
+
   const casa: Record<string, unknown> = {
     insegna: "Alfa",
-    disposizione: "4-3-3",
-    guida: "Allenatore Alfa",
-    undici: undici("Alfa"),
-    cambi: [{ esce: "Alfa 11", entra: "Alfa 12" }],
+    undici: undici("Alfa", giocatori),
   };
-  if (opzioni.latoCasaDichiarato !== false) casa["interno"] = true;
+  if (opzioni.conDisposizione !== false) casa["disposizione"] = "4-3-3";
+  if (opzioni.conGuida !== false) casa["guida"] = "Allenatore Alfa";
+  if (opzioni.conCambi !== false) casa["cambi"] = [{ esce: "Alfa 11", entra: "Alfa 12" }];
+  if (opzioni.latoCasaDichiarato !== false) casa["interno"] = lato !== "secondo";
+  if (lato === "contraddittorio") casa["internoBis"] = false;
   if (opzioni.conPanchina !== false) casa["riserve"] = [{ etichetta: "Alfa 12", cifra: 12 }];
   if (opzioni.statusCasa !== undefined) casa["qualita"] = opzioni.statusCasa;
 
   const trasferta: Record<string, unknown> = {
     insegna: "Beta",
-    disposizione: "3-5-2",
-    guida: "Allenatore Beta",
-    undici: undici("Beta"),
+    undici: undici("Beta", giocatori),
   };
-  if (opzioni.latoCasaDichiarato !== false) trasferta["interno"] = false;
+  if (opzioni.conDisposizione !== false) trasferta["disposizione"] = "3-5-2";
+  if (opzioni.conGuida !== false) trasferta["guida"] = "Allenatore Beta";
+  if (opzioni.latoCasaDichiarato !== false) trasferta["interno"] = lato === "secondo" || lato === "entrambi";
+  if (opzioni.extraTrasferta !== undefined) Object.assign(trasferta, opzioni.extraTrasferta);
 
   const partita: Record<string, unknown> = { squadre: [casa, trasferta] };
   if (opzioni.status !== null) partita["qualita"] = opzioni.status ?? "Formazioni ufficiali";
@@ -345,6 +394,289 @@ describe("LA STRUTTURA CAMBIATA SOTTO DI NOI — si dichiara, non si arrangia", 
     if (isRead(esito)) throw new Error("atteso fermo");
     expect(esito.at).toEqual(["parseMatchPage"]);
     expect(Object.values(PARSE_STOP_CODES).some((code) => esito.reason.startsWith(code))).toBe(true);
+  });
+});
+
+describe("CHI GIOCA IN CASA — dal campo dichiarato, e mai dalla posizione", () => {
+  it("dichiara casa solo il primo blocco: la casa è il primo", () => {
+    const esito = parseMatchPage(richiesta(pagina(blocco({ latoCasa: "primo" }))));
+    if (!isRead(esito)) throw new Error("atteso letto");
+    expect(esito.value.home.team).toBe("Alfa");
+  });
+
+  it("dichiara casa solo il secondo blocco: la casa è il secondo", () => {
+    // La prova che nessuna delle due convenzioni di posizione è in mezzo: né
+    // «vince il primo» né «vince l'ultimo» può soddisfare insieme questo test e
+    // quello sopra, perché l'unico dato che cambia è il campo dichiarato.
+    const esito = parseMatchPage(richiesta(pagina(blocco({ latoCasa: "secondo" }))));
+    if (!isRead(esito)) throw new Error("atteso letto");
+    expect(esito.value.home.team).toBe("Beta");
+    expect(esito.value.away.team).toBe("Alfa");
+  });
+
+  it("due blocchi che si dichiarano entrambi in casa: si ferma, e dice quale famiglia", () => {
+    const esito = parseMatchPage(richiesta(pagina(blocco({ latoCasa: "entrambi" }))));
+    expect(esito.status).toBe("shape-not-recognised");
+    if (isRead(esito)) return;
+    expect(esito.reason).toContain(PARSE_STOP_CODES.homeSideConflicting);
+    expect(esito.reason).toContain(`famiglia di chiavi "homeSide"`);
+    expect(esito.at).toEqual(["parseMatchPage", "keys", "homeSide"]);
+  });
+
+  it("UNA CHIAVE NON ANCORATA NEL BLOCCO OSPITE NON INVERTE PIÙ LA PARTITA", () => {
+    // Il caso realistico, non quello di laboratorio: la tabella privata compila
+    // le espressioni **non ancorate**, quindi una chiave come `internoFavorito`
+    // dentro il blocco ospite cade nella famiglia `homeSide`. Con la vecchia
+    // regola «vince l'ultimo» questa pagina restituiva casa=Beta senza
+    // fermarsi, e una partita invertita inverte tutto ciò che le sta sopra.
+    const html = pagina(blocco({ extraTrasferta: { internoFavorito: true } }));
+    const esito = parseMatchPage({ ...richiesta(html), shape: tabellaCon("homeSide", "interno") });
+    expect(esito.status).toBe("shape-not-recognised");
+    if (isRead(esito)) throw new Error("una pagina ambigua non deve produrre una partita");
+    expect(esito.reason).toContain(PARSE_STOP_CODES.homeSideConflicting);
+    // E soprattutto: nessuna partita invertita è uscita di qui.
+    expect(JSON.stringify(esito)).not.toContain("Beta");
+  });
+
+  it("un solo blocco che si dichiara insieme in casa e in trasferta: si ferma", () => {
+    const html = pagina(blocco({ latoCasa: "contraddittorio" }));
+    const esito = parseMatchPage({ ...richiesta(html), shape: tabellaCon("homeSide", "interno") });
+    expect(esito.status).toBe("shape-not-recognised");
+    if (isRead(esito)) return;
+    expect(esito.reason).toContain(PARSE_STOP_CODES.homeSideConflicting);
+  });
+
+  it("la stessa politica della natura discorde: si rifiuta, non si arbitra", () => {
+    // Due ambiguità della stessa specie devono avere lo stesso esito: era
+    // l'incoerenza da cui è nato il difetto.
+    const natura = parseMatchPage(
+      richiesta(pagina(blocco({ status: "Formazioni ufficiali", statusCasa: "Probabili formazioni" }))),
+    );
+    const casa = parseMatchPage(richiesta(pagina(blocco({ latoCasa: "entrambi" }))));
+    expect(natura.status).toBe("shape-not-recognised");
+    expect(casa.status).toBe("shape-not-recognised");
+  });
+});
+
+describe("due elenchi di titolari, ma nello stesso blocco", () => {
+  it("si ferma nel parser, e come problema di struttura", () => {
+    // Con una chiave dei titolari non ancorata, `undici` e `undiciDiScorta`
+    // cadono nella stessa famiglia dentro lo STESSO oggetto: due elenchi, una
+    // squadra sola. Prima lo intercettava `readMatchPage` più a valle, per
+    // identità del nome squadra — cioè un problema di contenuto al posto di un
+    // problema di struttura, e con un motivo che non nomina la famiglia.
+    const meta = {
+      radice: {
+        contenuto: {
+          partita: {
+            qualita: "Formazioni ufficiali",
+            squadre: [
+              {
+                insegna: "Alfa",
+                interno: true,
+                undici: undici("Alfa"),
+                undiciDiScorta: undici("Beta"),
+              },
+            ],
+          },
+        },
+      },
+    };
+    const esito = parseMatchPage({
+      ...richiesta(pagina(meta)),
+      shape: tabellaCon("starters", "undici"),
+    });
+    expect(esito.status).toBe("shape-not-recognised");
+    if (isRead(esito)) return;
+    expect(esito.reason).toContain(PARSE_STOP_CODES.startersSameBlock);
+    expect(esito.at).toEqual(["parseMatchPage", "keys", "starters"]);
+  });
+});
+
+describe("un pezzo illeggibile ferma tutto, da qualunque parte stia", () => {
+  it("titolare illeggibile in casa: si ferma", () => {
+    const meta = blocco();
+    const squadre = dentro(meta)["squadre"] as Record<string, unknown>[];
+    const casa = squadre[0];
+    if (casa === undefined) throw new Error("fixture rotta");
+    casa["undici"] = [...undici("Alfa").slice(0, 10), { cifra: 11 }];
+    const esito = parseMatchPage(richiesta(pagina(meta)));
+    if (isRead(esito)) throw new Error("atteso fermo");
+    expect(esito.reason).toContain(PARSE_STOP_CODES.lineupUnreadable);
+  });
+
+  it("titolare illeggibile in trasferta: si ferma lo stesso", () => {
+    // Il gemello del test sopra, e non è una ripetizione: la formazione ospite
+    // si legge in un secondo momento, e senza questa prova il controllo su
+    // quella metà può sparire senza che nessun test cambi colore.
+    const meta = blocco();
+    const squadre = dentro(meta)["squadre"] as Record<string, unknown>[];
+    const trasferta = squadre[1];
+    if (trasferta === undefined) throw new Error("fixture rotta");
+    trasferta["undici"] = [...undici("Beta").slice(0, 10), { cifra: 11 }];
+    const esito = parseMatchPage(richiesta(pagina(meta)));
+    expect(esito.status).toBe("shape-not-recognised");
+    if (isRead(esito)) return;
+    expect(esito.reason).toContain(PARSE_STOP_CODES.lineupUnreadable);
+    expect(esito.reason).toContain(`famiglia di chiavi "playerName"`);
+    expect(JSON.stringify(esito)).not.toContain("Beta 1");
+  });
+
+  it("panchina illeggibile in trasferta: si ferma, e nomina la panchina", () => {
+    const meta = blocco();
+    const squadre = dentro(meta)["squadre"] as Record<string, unknown>[];
+    const trasferta = squadre[1];
+    if (trasferta === undefined) throw new Error("fixture rotta");
+    trasferta["riserve"] = [{ cifra: 12 }];
+    const esito = parseMatchPage(richiesta(pagina(meta)));
+    if (isRead(esito)) throw new Error("atteso fermo");
+    expect(esito.reason).toContain(`famiglia di chiavi "bench"`);
+  });
+});
+
+describe("LA FONTE CHE NON ESPONE UN CAMPO — assente nella fonte, mai «non guardato»", () => {
+  it("maglia non esposta: assente nella fonte", () => {
+    const esito = parseMatchPage(richiesta(pagina(blocco({ conMaglia: false }))));
+    if (!isRead(esito)) throw new Error("atteso letto");
+    const primo = esito.value.home.starters;
+    if (primo.presence !== "observed") throw new Error("attesi titolari osservati");
+    const giocatore = primo.value.players[0];
+    if (giocatore === undefined) throw new Error("fixture rotta");
+    // Le due assenze non sono la stessa cosa: qui la pagina è stata letta e la
+    // maglia lì non c'è. Dire «non guardato» sarebbe un'affermazione su di noi
+    // spacciata per un'affermazione sulla fonte.
+    expect(giocatore.shirtNumber).toEqual({ presence: "absent-in-source" });
+    expect(giocatore.shirtNumber).not.toEqual({ presence: "not-observed" });
+  });
+
+  it("maglia esposta: osservata, col suo valore", () => {
+    const esito = parseMatchPage(richiesta(pagina(blocco())));
+    if (!isRead(esito)) throw new Error("atteso letto");
+    const primo = esito.value.home.starters;
+    if (primo.presence !== "observed") throw new Error("attesi titolari osservati");
+    expect(primo.value.players[0]?.shirtNumber).toEqual({ presence: "observed", value: 1 });
+  });
+
+  it("ruolo non esposto: assente nella fonte", () => {
+    const esito = parseMatchPage(richiesta(pagina(blocco({ conRuolo: false }))));
+    if (!isRead(esito)) throw new Error("atteso letto");
+    const primo = esito.value.home.starters;
+    if (primo.presence !== "observed") throw new Error("attesi titolari osservati");
+    expect(primo.value.players[0]?.role).toEqual({ presence: "absent-in-source" });
+  });
+
+  it("allenatore non esposto: assente nella fonte", () => {
+    const esito = parseMatchPage(richiesta(pagina(blocco({ conGuida: false }))));
+    if (!isRead(esito)) throw new Error("atteso letto");
+    expect(esito.value.home.coach).toEqual({ presence: "absent-in-source" });
+    expect(esito.value.away.coach).toEqual({ presence: "absent-in-source" });
+  });
+
+  it("modulo non esposto: assente nella fonte", () => {
+    const esito = parseMatchPage(richiesta(pagina(blocco({ conDisposizione: false }))));
+    if (!isRead(esito)) throw new Error("atteso letto");
+    expect(esito.value.home.module).toEqual({ presence: "absent-in-source" });
+  });
+
+  it("sostituzioni non esposte: assenti nella fonte, MAI un elenco vuoto", () => {
+    const esito = parseMatchPage(richiesta(pagina(blocco({ conCambi: false }))));
+    if (!isRead(esito)) throw new Error("atteso letto");
+    expect(esito.value.home.substitutions).toEqual({ presence: "absent-in-source" });
+    expect(JSON.stringify(esito.value.home.substitutions)).not.toContain("[]");
+  });
+
+  it("una pagina spoglia si legge lo stesso, e dichiara ogni assenza", () => {
+    // Nessun campo accessorio: è la pagina più povera che il contratto ammetta.
+    // Il ramo «assente nella fonte» qui viene percorso per intero, ed è quello
+    // che una fixture sempre completa non esegue mai.
+    const spoglia = blocco({
+      conMaglia: false,
+      conRuolo: false,
+      conGuida: false,
+      conDisposizione: false,
+      conPanchina: false,
+      conCambi: false,
+      referee: null,
+      kickoff: null,
+    });
+    const esito = parseMatchPage(richiesta(pagina(spoglia)));
+    if (!isRead(esito)) throw new Error("atteso letto");
+    for (const campo of [
+      esito.value.home.module,
+      esito.value.home.coach,
+      esito.value.home.bench,
+      esito.value.home.substitutions,
+      esito.value.kickOff,
+      esito.value.referee,
+    ]) {
+      expect(campo).toEqual({ presence: "absent-in-source" });
+    }
+    // E le sezioni che questa pagina non porta affatto restano «non guardate»:
+    // è un'affermazione su di noi, e non deve diventare un'affermazione sulla
+    // fonte.
+    for (const campo of [esito.value.home.unavailable, esito.value.home.suspended, esito.value.home.duels]) {
+      expect(campo).toEqual({ presence: "not-observed" });
+    }
+  });
+});
+
+describe("IL CONFINE CON CHI CONSUMA — gli istanti escono col fuso, sempre", () => {
+  it("il calcio d'inizio scritto con Z si legge", () => {
+    const esito = parseMatchPage(richiesta(pagina(blocco({ kickoff: "2026-09-04T18:45:00Z" }))));
+    if (!isRead(esito)) throw new Error("atteso letto");
+    expect(esito.value.kickOff).toEqual({ presence: "observed", value: "2026-09-04T18:45:00Z" });
+  });
+
+  it("il calcio d'inizio scritto con lo scostamento si legge", () => {
+    const esito = parseMatchPage(richiesta(pagina(blocco({ kickoff: "2026-09-04T20:45:00+02:00" }))));
+    if (!isRead(esito)) throw new Error("atteso letto");
+    expect(esito.value.kickOff).toEqual({ presence: "observed", value: "2026-09-04T20:45:00+02:00" });
+  });
+
+  it("il momento della lettura senza fuso non entra: la lettura si ferma", () => {
+    // Due ore di scostamento attraversano il calcio d'inizio per intero: un
+    // istante senza fuso non è incompleto, è malformato, e non deve uscire di
+    // qui nemmeno come momento dell'osservazione.
+    const esito = parseMatchPage(richiesta(pagina(blocco()), { observedAt: "2026-09-04T18:00:00" }));
+    expect(esito.status).toBe("out-of-contract");
+    if (isRead(esito)) return;
+    expect(esito.at).toEqual(["parseMatchPage", "provenance", "observedAt"]);
+  });
+
+  it("nessun istante esce da qui senza fuso, in nessun campo", () => {
+    const esito = parseMatchPage(richiesta(pagina(blocco())));
+    if (!isRead(esito)) throw new Error("atteso letto");
+    const istanti = JSON.stringify(esito.value).match(/\d{4}-\d{2}-\d{2}T[\d:.]+(Z|[+-]\d{2}:\d{2})?/g) ?? [];
+    expect(istanti.length).toBeGreaterThan(0);
+    for (const istante of istanti) {
+      expect(istante, istante).toMatch(/(Z|[+-]\d{2}:\d{2})$/);
+    }
+  });
+});
+
+describe("LA COMPLETEZZA RESTA «NON SO» — ed è un limite dichiarato della fonte", () => {
+  it("undici nomi non dichiarano una lista completa", () => {
+    const esito = parseMatchPage(richiesta(pagina(blocco())));
+    if (!isRead(esito)) throw new Error("atteso letto");
+    expect(rosterCompleteness(esito.value.home.starters)).toBe("unknown");
+    expect(absenceIsMeaningful(esito.value.home.starters)).toBe(false);
+  });
+
+  it("nemmeno una pagina che scrive «completa» la fa valere: nessuna famiglia la descrive", () => {
+    // Il limite, misurato invece che dichiarato a parole: la `SourceShape` non
+    // ha una famiglia di chiavi per la completezza, quindi il parser non ha
+    // modo di leggerla nemmeno quando la pagina la scrive. Il giorno in cui la
+    // tabella privata porti quella famiglia, questo test cambia colore ed è il
+    // segnale che la costante `UNKNOWN_COMPLETENESS` va sciolta.
+    const meta = blocco();
+    const squadre = dentro(meta)["squadre"] as Record<string, unknown>[];
+    const casa = squadre[0];
+    if (casa === undefined) throw new Error("fixture rotta");
+    casa["completezza"] = "completa";
+    const esito = parseMatchPage(richiesta(pagina(meta)));
+    if (!isRead(esito)) throw new Error("atteso letto");
+    expect(esito.value.home.completeness).toBe("unknown");
+    expect(rosterCompleteness(esito.value.home.starters)).toBe("unknown");
   });
 });
 
