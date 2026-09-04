@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 
 // ISOLAMENTO DEL CONTRATTO DI OSSERVAZIONE — la guardia gemella di
 // `packages/league-gameweek/tests/isolation.test.ts`.
@@ -25,12 +25,23 @@ import { join } from "node:path";
 // Fail-closed sull'estensione, come la gemella: un `.js` messo in una di queste
 // radici importerebbe il pacchetto esattamente come un `.ts`.
 //
-// RESIDUO DICHIARATO, e non chiuso qui. Queste due guardie sorvegliano una
-// direzione sola: chi importa la Fase 2. **Nessuna guardia vieta il contrario**
-// — a `league-channel-contract/src` di importare `packages/engine` o `src/`.
-// Oggi la direzione è pulita: questo pacchetto importa `league-gameweek` e, per
-// le sole costanti di regolamento di §12, `appeal-index/src/fantavoto.js`.
-// Il giorno in cui servisse impedirlo, la guardia va scritta qui e non altrove.
+// LA SECONDA DIREZIONE, ORA ESEGUIBILE. Le guardie di sopra sorvegliano chi
+// importa la Fase 2. La direzione opposta — che cosa la Fase 2 importa — era
+// affidata a un commento, e un commento non fallisce mai: la terza guardia di
+// questo file cammina su `src/` e **ammette solo tre cose**, gli import interni
+// al pacchetto, `packages/league-gameweek/src/*` e l'unico
+// `packages/appeal-index/src/fantavoto.js`. Qualunque altro import da fuori fa
+// fallire il test dicendo file, import e ragione.
+//
+// IL DEBITO, perché chi legge sappia che non è una scelta definitiva. Le
+// costanti di §12 (tariffa bonus/malus) e §12-bis (platea del gol subito) sono
+// l'unica dichiarazione che il core pubblico ne possiede, e vivono in
+// `appeal-index` per ragioni storiche: quel pacchetto le usa per calcolare il
+// fantavoto offline, ma non ne è il proprietario naturale. La loro sede giusta
+// è una casa condivisa delle costanti di regolamento, che oggi non esiste.
+// Finché non ci si sposta, questa guardia è ciò che tiene la dipendenza a **una
+// porta sola**: un file, non un pacchetto. Il giorno in cui la casa condivisa
+// nasce, qui si cambia una riga dell'elenco e la porta si sposta con lei.
 
 const REPO_ROOT = new URL("../../../", import.meta.url).pathname;
 const WATCHED_EXTENSIONS = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
@@ -71,6 +82,89 @@ function sourceFiles(root: string): readonly string[] {
   walk(absolute);
   return out;
 }
+
+const PACKAGE_ROOT = "packages/league-channel-contract/";
+
+/**
+ * Gli unici import da fuori il pacchetto che questa guardia ammette. Elenco
+ * chiuso: un percorso in più è una riga in diff, non un effetto collaterale.
+ */
+const ALLOWED_EXTERNAL_IMPORTS: readonly RegExp[] = [
+  // Il contratto di giornata: è il pacchetto che questo consuma per mestiere.
+  /^packages\/league-gameweek\/src\/[A-Za-z0-9_]+\.js$/,
+  // UNA PORTA SOLA, e un file solo: le costanti di §12 e §12-bis. Vedi il
+  // debito dichiarato in testa al file.
+  /^packages\/appeal-index\/src\/fantavoto\.js$/,
+];
+
+/**
+ * Ogni specificatore di modulo del sorgente: `import … from "x"`, `import "x"`,
+ * `export … from "x"` e `import("x")`. Gli import di solo tipo passano di qui
+ * come gli altri — `import type … from "x"` finisce comunque su `from "x"` — e
+ * devono, perché un legame di tipo è comunque un legame di architettura.
+ */
+const MODULE_SPECIFIER = /\b(?:from|import)\s*\(?\s*["']([^"']+)["']/g;
+
+function importViolations(relativeFile: string, source: string): readonly string[] {
+  const directory = posix.dirname(relativeFile);
+  const out: string[] = [];
+  for (const match of source.matchAll(MODULE_SPECIFIER)) {
+    const specifier = match[1];
+    if (specifier === undefined) continue;
+    const reason = `${relativeFile}: import "${specifier}" — la Fase 2 non si lega ad altro del prodotto d'asta`;
+    if (!specifier.startsWith(".")) {
+      // Uno specificatore nudo è un pacchetto npm o un builtin: nessuno dei due
+      // è ammesso qui, e lasciarlo passare vanificherebbe l'elenco.
+      out.push(reason);
+      continue;
+    }
+    const resolved = posix.normalize(posix.join(directory, specifier));
+    if (resolved.startsWith(PACKAGE_ROOT)) continue;
+    if (ALLOWED_EXTERNAL_IMPORTS.some((allowed) => allowed.test(resolved))) continue;
+    out.push(reason);
+  }
+  return out;
+}
+
+describe("il contratto di osservazione non si lega ad altro del prodotto d'asta", () => {
+  it("i sorgenti importano solo il pacchetto stesso, league-gameweek e le costanti di §12", () => {
+    const offenders: string[] = [];
+    for (const file of sourceFiles(`${PACKAGE_ROOT}src`)) {
+      const relative = file.slice(REPO_ROOT.length);
+      offenders.push(...importViolations(relative, readFileSync(file, "utf8")));
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("la guardia fallisce davvero su casi costruiti, e non solo sui sorgenti di oggi", () => {
+    // Un vincolo che non è mai stato visto fallire non è un vincolo provato.
+    const file = `${PACKAGE_ROOT}src/finto.ts`;
+    const ammessi = [
+      'import type { Module } from "../../league-gameweek/src/leagueGameweek.js";',
+      'import { FANTAVOTO_TARIFF } from "../../appeal-index/src/fantavoto.js";',
+      'import { validate } from "./leagueSettings.js";',
+      'export * from "./calendar.js";',
+    ].join("\n");
+    expect(importViolations(file, ammessi)).toEqual([]);
+
+    // Motore d'asta, UI, un altro pacchetto, un file diverso dello stesso
+    // pacchetto ammesso, un pacchetto npm: tutti respinti, e con la ragione.
+    const respinti: readonly [string, string][] = [
+      ["motore", 'import type { Role } from "../../engine/src/types.js";'],
+      ["UI", 'import { x } from "../../../src/price.js";'],
+      ["altro pacchetto", 'export * from "../../opponent-profiles/src/counters.js";'],
+      ["altro file di appeal-index", 'import type { A } from "../../appeal-index/src/dataset.js";'],
+      ["pacchetto npm", 'import { z } from "zod";'],
+      ["import dinamico", 'const m = await import("../../engine/src/reduce.js");'],
+    ];
+    for (const [etichetta, sorgente] of respinti) {
+      const violazioni = importViolations(file, sorgente);
+      expect(violazioni, etichetta).toHaveLength(1);
+      expect(violazioni[0]).toContain("non si lega ad altro del prodotto d'asta");
+      expect(violazioni[0]).toContain(file);
+    }
+  });
+});
 
 describe("il contratto di osservazione resta fuori dal prodotto d'asta", () => {
   it("nessun file fuori dal pacchetto importa league-channel-contract", () => {
