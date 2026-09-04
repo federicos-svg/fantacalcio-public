@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   DEFAULT_SEED,
   LEAGUE_POINTS,
+  MAX_REFINEMENT_ITERATIONS,
+  SEED_MODULUS,
   type GameweekContext,
   type Lineup,
   type LineupConstraints,
@@ -615,6 +617,93 @@ describe("determinismo e modalità di stima", () => {
     expect(lineupViolations(b.lineup!, players)).toEqual([]);
   });
 
+  // ── IL SEME SI PROVA SU CIÒ CHE GARANTISCE, NON SU SÉ STESSO.
+  //
+  // Qui c'era `expect(proposal.estimate.seed).toBe(DEFAULT_SEED)`: la costante
+  // confrontata con la costante, cioè un'asserzione che NON PUÒ fallire — si
+  // può cambiare `DEFAULT_SEED` in qualunque altro numero e resta verde.
+  // Occupava il posto della prova vera e la faceva sembrare già scritta.
+  // Le tre righe qui sotto sono ciò che un seme deve garantire davvero.
+  it("stesso seme, stesso risultato bit a bit — anche quando il seme è dichiarato a mano", () => {
+    const conSeme = (seed: number) =>
+      proposeLineup({
+        squad: uncertainSquad(),
+        opponent: { lineup: OPP_LINEUP, players: opponentFlat() },
+        context: CONTEXT,
+        scenarioBudget: 64,
+        seed,
+      });
+    // Non «due chiamate uguali»: due chiamate uguali CON UN SEME ESPLICITO,
+    // che è il caso in cui il seme è l'unica cosa che tiene insieme i due esiti.
+    expect(conSeme(7)).toEqual(conSeme(7));
+    expect(conSeme(0)).toEqual(conSeme(0));
+    // E il seme più grande che il contratto ammette non è un caso speciale.
+    expect(conSeme(SEED_MODULUS - 1)).toEqual(conSeme(SEED_MODULUS - 1));
+  });
+
+  it("semi diversi campionano scenari diversi: la stima cambia, e il seme non è un'etichetta", () => {
+    const conSeme = (seed: number) =>
+      proposeLineup({
+        squad: uncertainSquad(),
+        opponent: { lineup: OPP_LINEUP, players: opponentFlat() },
+        context: CONTEXT,
+        scenarioBudget: 64,
+        seed,
+      });
+    // Se il seme finisse solo nel referto senza arrivare al campionamento,
+    // questi due numeri sarebbero identici e nessuno se ne accorgerebbe.
+    expect(conSeme(1).estimate.expectedLeaguePoints).not.toBe(
+      conSeme(2).estimate.expectedLeaguePoints,
+    );
+    // Su un budget più stretto la differenza arriva fino alla FORMAZIONE, non
+    // solo ai decimali: con 32 scenari il seme 7 propone un altro modulo.
+    const conBudget32 = (seed: number) =>
+      proposeLineup({
+        squad: uncertainSquad(),
+        opponent: { lineup: OPP_LINEUP, players: opponentFlat() },
+        context: CONTEXT,
+        scenarioBudget: 32,
+        seed,
+      });
+    expect(conBudget32(1).lineup!.module).toBe("541");
+    expect(conBudget32(7).lineup!.module).toBe("433");
+  });
+
+  it("omettere il seme usa QUEL seme: l'impronta del default è questa e non un'altra", () => {
+    // L'unico modo onesto di legare il VALORE di `DEFAULT_SEED` a qualcosa di
+    // osservabile: i numeri che quel seme — e solo quello — produce su questi
+    // scenari. Sono un'impronta, si rifanno girando il produttore, e cambiano
+    // se cambia il seme di default o il campionatore. Un `toBe(DEFAULT_SEED)`
+    // qui non proverebbe nulla, perché si confronterebbe con sé stesso.
+    const senzaSeme = proposeLineup({
+      squad: uncertainSquad(),
+      opponent: { lineup: OPP_LINEUP, players: opponentFlat() },
+      context: CONTEXT,
+      scenarioBudget: 64,
+    });
+    // Il seme dichiarato, pinnato al suo valore come la versione di regolamento
+    // in `leagueGameweek.test.ts`: cambiarlo è una decisione, non un refuso.
+    expect(DEFAULT_SEED).toBe(20260903);
+    expect(senzaSeme.estimate.method).toBe("sampled");
+    expect(senzaSeme.estimate.expectedLeaguePoints).toBeCloseTo(0.4375, 12);
+    expect(senzaSeme.estimate.winProbability).toBeCloseTo(0.046875, 12);
+    // E l'impronta è distinta da quella di altri semi: se coincidesse, il
+    // confronto qui sopra non distinguerebbe un default da un altro.
+    for (const seed of [1, 2, 7, 99]) {
+      const altro = proposeLineup({
+        squad: uncertainSquad(),
+        opponent: { lineup: OPP_LINEUP, players: opponentFlat() },
+        context: CONTEXT,
+        scenarioBudget: 64,
+        seed,
+      });
+      expect(altro.estimate.expectedLeaguePoints).not.toBeCloseTo(
+        senzaSeme.estimate.expectedLeaguePoints,
+        12,
+      );
+    }
+  });
+
   it("enumera esattamente quando 2^k sta nel budget, e i pesi sommano a 1", () => {
     const squad = smallSquad(); // due incerti: D4 e A3 -> 4 scenari
     const proposal = proposeLineup({
@@ -639,7 +728,12 @@ describe("determinismo e modalità di stima", () => {
     });
     expect(proposal.estimate.method).toBe("sampled");
     expect(proposal.estimate.scenarios).toBe(32);
-    expect(proposal.estimate.seed).toBe(DEFAULT_SEED);
+    // Qui il seme si è usato davvero, quindi il referto lo porta: è il contrario
+    // esatto del `null` della modalità esatta, ed è QUESTO che la riga prova.
+    // Confrontarlo con `DEFAULT_SEED` — come faceva prima — sarebbe confrontare
+    // la costante con sé stessa: il valore del seme si prova sotto, per impronta.
+    expect(proposal.estimate.seed).not.toBeNull();
+    expect(Number.isInteger(proposal.estimate.seed)).toBe(true);
     const somma =
       proposal.estimate.winProbability + proposal.estimate.drawProbability + proposal.estimate.lossProbability;
     expect(Math.abs(somma - 1)).toBeLessThan(1e-12);
@@ -1090,6 +1184,65 @@ describe("ordine della panchina: la ricerca lo sceglie sugli scenari (§10 tetto
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 9-bis-bis. IL TETTO DEL RAFFINAMENTO HA UN EFFETTO OSSERVABILE
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("il tetto di iterazioni non è un numero decorativo", () => {
+  it("una ricerca che accetta mosse e converge sotto il tetto lo dichiara: `refinementCapReached` falso e nessun TETTO nella prosa", () => {
+    // PERCHÉ QUESTA PROVA ESISTE. `MAX_REFINEMENT_ITERATIONS` si poteva portare
+    // da 50 a 1 senza che un solo test diventasse rosso: il tetto della ricerca
+    // era azzerabile in silenzio, e la proposta sarebbe peggiorata senza che
+    // nulla lo dicesse. Il campo che lo rende osservabile esiste già — è
+    // `estimate.refinementCapReached` — e non lo guardava nessuno.
+    //
+    // La fixture è quella del controesempio sulla panchina, scelta perché la
+    // ricerca lì ACCETTA una mossa: è la condizione che rende la prova non
+    // vacua. Con zero mosse accettate il ciclo esce prima di toccare il tetto,
+    // e un tetto a 1 resterebbe invisibile; con almeno una mossa accettata un
+    // tetto a 1 chiuderebbe la ricerca al giro dopo e alzerebbe la bandiera.
+    const proposal = proposeLineup({
+      squad: benchCapSquad(),
+      opponent: { lineup: OPP_LINEUP, players: opponentFlat() },
+      context: CONTEXT,
+    });
+    const mosse = Number(/con (\d+) mossa\/e accettata\/e/.exec(proposal.reason)?.[1]);
+    expect(mosse).toBe(1); // la premessa: la ricerca si è mossa davvero
+    expect(mosse).toBeLessThan(MAX_REFINEMENT_ITERATIONS);
+    expect(proposal.estimate.refinementCapReached).toBe(false);
+    expect(proposal.reason).not.toContain("TETTO");
+    // La proposta è quella convergente, non quella del primo passo: se il tetto
+    // avesse morso, la panchina sarebbe rimasta all'ordine euristico.
+    expect(proposal.lineup!.benchIds).toEqual(["Cb1", "Cb2", "Db1", "Db2", "Db3", "Cb3", "P2"]);
+
+    // CIÒ CHE QUESTA PROVA NON PROVA, detto invece che sottinteso: il ramo in
+    // cui il tetto MORDE — `refinementCapReached: true` — non è esercitato,
+    // perché il tetto non è iniettabile dall'esterno e costruire una rosa che
+    // accetti più di cinquanta mosse strettamente migliorative costerebbe più
+    // di quel che prova. Resta un ramo scoperto, dichiarato qui.
+  });
+
+  it("i due rami senza ricerca dichiarano il tetto non raggiunto, invece di lasciarlo indefinito", () => {
+    // `locked: true` non cerca, quindi il tetto non può essere stato raggiunto:
+    // il campo deve dirlo. Senza questa riga il ramo bloccato poteva alzare la
+    // bandiera e nessuno se ne sarebbe accorto.
+    const bloccata = propose(smallSquad(), { lockedStarterIds: [], locked: true }, {
+      module: "442",
+      goalkeeperId: "P1",
+      starterIds: ["D1", "D2", "D3", "D4", "C1", "C2", "C3", "C4", "A1", "A2"],
+      benchIds: ["P2", "A3"],
+    });
+    expect(bloccata.feasible).toBe(true);
+    expect(bloccata.estimate.refinementCapReached).toBe(false);
+    expect(bloccata.reason).not.toContain("TETTO");
+
+    // E il ramo del rifiuto, dove non c'è nemmeno una formazione da valutare.
+    const rifiutata = propose(smallSquad(), { lockedStarterIds: ["ignoto"], locked: false });
+    expect(rifiutata.feasible).toBe(false);
+    expect(rifiutata.estimate.refinementCapReached).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 9-ter. IL CAMBIO MODULO NON PUÒ TITOLARIZZARE CHI NON HA VOTO
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1155,6 +1308,144 @@ describe("il cambio modulo non titolarizza chi non ha mai voto", () => {
     // La formazione resta legale.
     const players = expectedMap(squad, opponent);
     expect(lineupViolations(proposal.lineup!, players)).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 9-quater. IL VICINATO È QUELLO DICHIARATO, E SI CONTA
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * PERCHÉ QUESTA PROVA ESISTE. Il test qui sopra dice, in un commento, che le
+ * mosse (a) e (b) sono «già a posto»: nessuno lo verificava. Si potevano
+ * togliere la guardia `neverPlays` da (a), quella da (b), la guardia `canMove`
+ * dalle mosse (d) e l'intera mossa «portare in testa» — quattro pezzi che il
+ * file dichiara uno per uno — e la suite restava verde. Erano quattro rami
+ * esercitati da nessuno.
+ *
+ * L'OSSERVABILE C'ERA GIÀ: `evaluated`, «formazioni valutate in totale». Con
+ * una rosa senza incertezza (uno scenario solo) Tier 2 non può migliorare
+ * l'ottimo esatto di Tier 1, quindi accetta ZERO mosse e il conto si chiude:
+ *
+ *     evaluated = evaluated(Tier 1) + 1 (la formazione di partenza) + |vicinato|
+ *
+ * e `|vicinato|` è la somma delle famiglie dichiarate in testa a `neighbours`.
+ * Contarlo a mano è l'unico modo di dire che il vicinato è QUELLO e non un
+ * altro — un vicinato più grande o più piccolo cambia il conto.
+ *
+ * LA ROSA. 2 portieri + 5 difensori + 5 centrocampisti + 3 attaccanti, tutti
+ * certi di giocare. Tier 1 sceglie il 5-3-2 con P1 in porta, i cinque
+ * difensori, C1-C3 e A1-A2; in panchina restano C4, P2, Ab1, Cb1.
+ */
+function vicinatoSquad(): PlayerForecast[] {
+  return [
+    fc("P1", "P", 6.5),
+    fc("P2", "P", 6.0),
+    fc("D1", "D", 6.5),
+    fc("D2", "D", 6.5),
+    fc("D3", "D", 6.5),
+    fc("D4", "D", 6.5),
+    fc("Db1", "D", 6.0),
+    fc("C1", "C", 6.0),
+    fc("C2", "C", 6.0),
+    fc("C3", "C", 6.0),
+    fc("C4", "C", 6.0),
+    fc("Cb1", "C", 5.5),
+    fc("A1", "A", 6.5),
+    fc("A2", "A", 6.5),
+    fc("Ab1", "A", 5.5),
+  ];
+}
+
+/** Tre giocatori che non prendono voto in nessuno scenario, uno per reparto. */
+const FANTASMI: readonly PlayerForecast[] = [
+  fc("Pghost", "P", 7.0, 7.0, 0),
+  fc("Dghost", "D", 7.0, 7.0, 0),
+  fc("Cghost", "C", 7.0, 7.0, 0),
+];
+
+/** Le formazioni valutate dalla sola ricerca di Tier 2, senza Tier 1. */
+function vicinato(squad: readonly PlayerForecast[]): number {
+  const opponent = opponentFlat();
+  const proposal = proposeLineup({
+    squad,
+    opponent: { lineup: OPP_LINEUP, players: opponent },
+    context: CONTEXT,
+  });
+  // La premessa che rende valida la sottrazione: nessuna mossa accettata,
+  // quindi un solo giro di vicinato.
+  expect(proposal.reason).toContain("con 0 mossa/e accettata/e");
+  expect(proposal.estimate.scenarios).toBe(1);
+  const players = expectedMap(squad, opponent);
+  const tierOne = bestLineupExPost({
+    squad: squad.map((f) => players.get(f.id)!),
+    theirLineup: OPP_LINEUP,
+    players,
+    context: CONTEXT,
+  });
+  return proposal.evaluated - tierOne.evaluated - 1;
+}
+
+describe("il vicinato della ricerca è esattamente quello dichiarato", () => {
+  it("le cinque famiglie di mosse si contano a mano, e il totale torna", () => {
+    const proposal = proposeLineup({
+      squad: vicinatoSquad(),
+      opponent: { lineup: OPP_LINEUP, players: opponentFlat() },
+      context: CONTEXT,
+    });
+    // La formazione di partenza, da cui dipende ogni conteggio qui sotto.
+    expect(proposal.lineup!.module).toBe("532");
+    expect(proposal.lineup!.goalkeeperId).toBe("P1");
+    expect([...proposal.lineup!.starterIds].sort()).toEqual(
+      ["A1", "A2", "C1", "C2", "C3", "D1", "D2", "D3", "D4", "Db1"],
+    );
+    expect(proposal.lineup!.benchIds).toEqual(["C4", "P2", "Ab1", "Cb1"]);
+
+    // IL CONTO A MANO, sulle famiglie dichiarate in testa a `neighbours`.
+    //
+    // (a) scambi di movimento, stesso ruolo, con un non-titolare che un voto
+    //     può prenderlo:
+    //       D: 5 titolari × 0 candidati (tutti e cinque i difensori giocano) = 0
+    //       C: 3 titolari × 2 candidati (C4, Cb1)                            = 6
+    //       A: 2 titolari × 1 candidato (Ab1)                                = 2
+    // (b) scambio del portiere: P2                                            = 1
+    // (c) cambio modulo: gli altri sei moduli sono tutti praticabili con
+    //     questa rosa (541, 451, 442, 352, 433, 343)                          = 6
+    // (d) riordino della panchina, lunga 4:
+    //       scambi adiacenti  (0,1) (1,2) (2,3)                               = 3
+    //       portare in testa  da 2 e da 3 (da 1 sarebbe lo scambio adiacente)  = 2
+    //                                                                   TOTALE 20
+    expect(vicinato(vicinatoSquad())).toBe(20);
+  });
+
+  it("chi non gioca mai non allarga il vicinato di una sola formazione", () => {
+    // L'INVARIANTE, e la ragione per cui le tre guardie esistono: un giocatore
+    // con p = 0 è senza voto in ogni scenario, quindi ogni mossa che lo tocca
+    // vale esattamente quanto la formazione di partenza — una mossa nulla
+    // pagata al prezzo pieno di una valutazione su tutti gli scenari.
+    //
+    // Toglietene una qualsiasi e questo numero cresce: la guardia in (a) vale
+    // 5 mosse D + 3 mosse C, quella in (b) 1 mossa, `canMove` nelle (d) porta
+    // la panchina da 4 a 7 posizioni mobili. Sono i tre rami che nessuna prova
+    // esercitava.
+    expect(vicinato([...vicinatoSquad(), ...FANTASMI])).toBe(vicinato(vicinatoSquad()));
+
+    // E i fantasmi ci sono davvero, in fondo alla panchina: se la rosa fosse
+    // rimasta quella di prima l'uguaglianza sarebbe vera per il motivo sbagliato.
+    const conFantasmi = proposeLineup({
+      squad: [...vicinatoSquad(), ...FANTASMI],
+      opponent: { lineup: OPP_LINEUP, players: opponentFlat() },
+      context: CONTEXT,
+    });
+    expect(conFantasmi.lineup!.benchIds.slice(-3).sort()).toEqual(["Cghost", "Dghost", "Pghost"]);
+    // Nessuno di loro è in campo, in nessun ruolo.
+    for (const ghost of ["Pghost", "Dghost", "Cghost"]) {
+      expect(conFantasmi.lineup!.starterIds).not.toContain(ghost);
+      expect(conFantasmi.lineup!.goalkeeperId).not.toBe(ghost);
+    }
+    // E la proposta è la stessa di una rosa che quei tre non li ha mai avuti.
+    expect(conFantasmi.lineup!.module).toBe("532");
+    expect(conFantasmi.lineup!.benchIds.slice(0, 4)).toEqual(["C4", "P2", "Ab1", "Cb1"]);
   });
 });
 
