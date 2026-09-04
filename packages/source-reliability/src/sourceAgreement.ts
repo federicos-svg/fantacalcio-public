@@ -58,7 +58,10 @@
 // ambiguo, e tutto questo confronto vive o muore sul momento del calcio
 // d'inizio. Gli istanti che escono nell'esito sono già normalizzati, perché un
 // consumatore che li confrontasse fra loro non debba rifare — e sbagliare — la
-// stessa normalizzazione.
+// stessa normalizzazione; **accanto** a ciascuno esce anche l'istante come la
+// fonte l'ha scritto, che si legge e non si confronta. La misura non sostituisce
+// l'osservazione, le sta accanto: un dato trasformato che cancella l'originale è
+// un'inferenza travestita da fatto.
 //
 // SCELTE TECNICHE DICHIARATE E CONTESTABILI (non decisioni di prodotto): le due
 // soglie di numerosità qui sotto; la normalizzazione a UTC fatta con aritmetica
@@ -175,12 +178,27 @@ export interface PlayerComparison {
   /** `null` = il giocatore non compare nella formazione effettiva. */
   readonly actual: StarterCall | null;
   readonly outcome: ComparisonOutcome;
-  /** Istante normalizzato a UTC, non la stringa dichiarata: qui si confronta, non si cita. */
+  /** Istante normalizzato a UTC: **è questo** che il modulo ha confrontato. */
   readonly forecastObservedAt: string;
   /** Istante normalizzato a UTC. */
   readonly actualObservedAt: string;
   /** Istante normalizzato a UTC. */
   readonly kickoffAt: string;
+  /**
+   * Lo stesso istante **come la fonte l'ha scritto**, offset compreso. Non è un
+   * doppione: è l'osservazione accanto alla misura. Un dato trasformato che
+   * cancella l'originale è un'inferenza travestita da fatto, e davanti a una
+   * misura che non torna si deve poter vedere che cosa la fonte aveva *detto*,
+   * non solo che cosa noi ne abbiamo *fatto*.
+   *
+   * **Non si confronta.** Due istanti dichiarati in fusi diversi non si
+   * ordinano fra loro: per quello ci sono i tre campi qui sopra.
+   */
+  readonly forecastObservedAtDeclared: string;
+  /** Il momento della verifica come dichiarato. Memoria, non metro: vedi sopra. */
+  readonly actualObservedAtDeclared: string;
+  /** Il calcio d'inizio come dichiarato. Memoria, non metro: vedi sopra. */
+  readonly kickoffAtDeclared: string;
 }
 
 /** La numerosità, che sta accanto a ogni misura e non sotto di essa. */
@@ -915,6 +933,9 @@ export function measureSourceAgreement(input: {
           forecastObservedAt: latest.at,
           actualObservedAt: facts.observedAt,
           kickoffAt: facts.kickoffAt,
+          forecastObservedAtDeclared: latest.snapshot.stamp.observedAt,
+          actualObservedAtDeclared: lineup.stamp.observedAt,
+          kickoffAtDeclared: lineup.kickoffAt,
         };
         comparisons.push(comparison);
         for (const acc of accs) absorb(acc, comparison);

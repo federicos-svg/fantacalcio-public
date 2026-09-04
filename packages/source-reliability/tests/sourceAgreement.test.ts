@@ -277,6 +277,81 @@ describe("il confine con chi produce le pagine pre-partita", () => {
     expect(only?.actualObservedAt).toBe(AFTER_UTC);
     expect(only?.kickoffAt).toBe(KICKOFF_UTC);
   });
+
+  it("accanto all'istante normalizzato resta quello dichiarato, parola per parola", () => {
+    // La misura non sostituisce l'osservazione, le sta accanto: fra sei mesi,
+    // davanti a un numero che non torna, si deve poter vedere che cosa la fonte
+    // aveva DETTO, non solo che cosa noi ne abbiamo FATTO.
+    const report = reportOf({
+      forecasts: [
+        forecast({ source: "fonte-alfa", team: "squadra-uno", observedAt: "2026-09-13T19:00:00+02:00", starters: ["p1"] }),
+      ],
+      actuals: [
+        actual({
+          team: "squadra-uno",
+          starters: ["p1"],
+          observedAt: "2026-09-13T23:30:00+02:00",
+          kickoffAt: "2026-09-13T20:45:00+02:00",
+        }),
+      ],
+    });
+    const only = report.comparisons[0];
+    expect(only?.forecastObservedAtDeclared).toBe("2026-09-13T19:00:00+02:00");
+    expect(only?.actualObservedAtDeclared).toBe("2026-09-13T23:30:00+02:00");
+    expect(only?.kickoffAtDeclared).toBe("2026-09-13T20:45:00+02:00");
+    // E resta distinto dal canonico: se i due campi coincidessero sempre, uno
+    // dei due non starebbe servendo a niente.
+    expect(only?.forecastObservedAtDeclared).not.toBe(only?.forecastObservedAt);
+  });
+
+  it("il campo dichiarato è memoria, non un metro: chi lo confrontasse rifarebbe il difetto delle due ore", () => {
+    // La previsione è delle 20:00 in un fuso a +02:00, cioè le 18:00Z: **prima**
+    // del calcio d'inizio delle 18:45Z, quindi misurabile. Sulle stringhe
+    // dichiarate «20:00…» viene dopo «18:45Z», e chi confrontasse quelle
+    // rifiuterebbe una previsione perfettamente tempestiva — lo spostamento di
+    // due ore attraverso il calcio d'inizio, di nuovo, questa volta introdotto
+    // da dentro invece che da un adattatore.
+    const dichiarato = "2026-09-13T20:00:00+02:00";
+    expect(compareInstants(dichiarato, KICKOFF)).toBe(1); // il metro sbagliato dice «dopo»
+    expect(compareInstants(canonicaliseInstant(dichiarato) ?? "", KICKOFF_UTC)).toBe(-1); // quello giusto dice «prima»
+
+    const report = reportOf({
+      forecasts: [forecast({ source: "fonte-alfa", team: "squadra-uno", observedAt: dichiarato, starters: ["p1"] })],
+      actuals: [actual({ team: "squadra-uno", starters: ["p1"] })],
+    });
+    // Il confronto è avvenuto, quindi il modulo ha usato il canonico e non il
+    // dichiarato: se usasse il dichiarato, qui ci sarebbe un rifiuto.
+    expect(report.comparisons[0]?.outcome).toBe("agreement_starter");
+    expect(report.comparisons[0]?.forecastObservedAt).toBe("2026-09-13T18:00:00.000Z");
+    expect(report.comparisons[0]?.forecastObservedAtDeclared).toBe(dichiarato);
+  });
+
+  it("nemmeno per scegliere l'ultima istantanea: l'ordine è quello degli istanti, non delle stringhe", () => {
+    // Due istantanee della stessa fonte: `2026-09-13T18:30:00Z` e
+    // `2026-09-13T20:15:00+02:00`, che è le 18:15Z. L'ultima è la prima delle
+    // due; sulle stringhe dichiarate vincerebbe la seconda, e la misura
+    // userebbe la previsione più vecchia credendola la più fresca.
+    const report = reportOf({
+      forecasts: [
+        forecast({
+          source: "fonte-alfa",
+          team: "squadra-uno",
+          observedAt: "2026-09-13T18:30:00Z",
+          starters: ["p1"],
+        }),
+        forecast({
+          source: "fonte-alfa",
+          team: "squadra-uno",
+          observedAt: "2026-09-13T20:15:00+02:00", // 18:15Z: più vecchia
+          starters: ["p2"],
+        }),
+      ],
+      actuals: [actual({ team: "squadra-uno", starters: ["p1"], bench: ["p2"] })],
+    });
+    expect(report.comparisons.find((c) => c.playerId === "p1")?.outcome).toBe("agreement_starter");
+    expect(report.comparisons[0]?.forecastObservedAt).toBe("2026-09-13T18:30:00.000Z");
+    expect(report.comparisons[0]?.forecastObservedAtDeclared).toBe("2026-09-13T18:30:00Z");
+  });
 });
 
 describe("il confronto è per giocatore", () => {
