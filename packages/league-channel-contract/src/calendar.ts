@@ -31,6 +31,25 @@
 // Le date restano stringhe opache e non vengono interpretate: qui non si
 // costruisce nessuna `Date`, non si legge nessun orologio, e la deadline serve
 // a chi decide *quando* agire — fuori da questo pacchetto, che è puro.
+//
+// L'UNICA COSA CHE QUESTO FILE **RISOLVE** È IL DOPPIO CONFRONTO DI COPPA, e la
+// risolve perché qualcuno l'ha decisa. `resolveKnockoutQualification` era
+// fail-closed su tutto finché il criterio di parità non esisteva; **Pico l'ha
+// dichiarato il 2026-09-04**, in modale, testuale: «*Chi ha totalizzato più
+// punti fantacalcio nelle due partite*». Da lì la funzione decide il turno a
+// eliminazione diretta: prima i punti 3 / 1 / 0 del mini girone di due squadre
+// (§22 applicato a ciascuna delle due gare, §23), poi — solo a parità — la
+// somma dei punteggi fantacalcio delle due gare.
+//
+// **CIÒ CHE RESTA INDECISO È INDECISO PERCHÉ NESSUNO L'HA DECISO**, non perché
+// manchi codice: la parità che sopravvive *anche* alla somma dei punteggi
+// fantacalcio, e la parità nel **girone da quattro** (§23,
+// `cup_group_ranking_criteria: UNSPECIFIED`), su cui la decisione del
+// 2026-09-04 non dice nulla — parla delle «due partite» di un doppio confronto,
+// e un girone da quattro non ne ha due. I rifiuti che li riguardano non vanno
+// «aggiustati»: si sbloccano con una nuova dichiarazione di Pico registrata in
+// `docs/data/LEAGUE_RULES.md` §23, non con un criterio dedotto qui. Dettaglio,
+// codici e confini: la prosa davanti a `resolveKnockoutQualification`.
 
 import type { GameweekContext } from "../../league-gameweek/src/gameweekSimulator.js";
 
@@ -219,26 +238,311 @@ export function cupScoringShape(phase: ObservedCupPhase): CupScoringShape {
 export const KNOCKOUT_IS_MINI_GROUP = true as const;
 
 /**
- * CHI PASSA IL TURNO — **non lo dice questo contratto, e non lo dice nemmeno il
- * regolamento**.
+ * CHI PASSA IL TURNO — **un caso deciso e due che restano indecisi**.
  *
- * A parità nel mini girone da due, §23 non dichiara il criterio, e per
- * supplementari e rigori rinvia a una pagina esterna che il regolamento vieta
- * di ricostruire. Le tre uscite possibili erano: indovinare un criterio
- * (differenza reti? gol in trasferta? punteggio totale?), copiare una regola da
- * un'altra competizione, oppure fermarsi. Le prime due sarebbero
- * un'imputazione su un esito eliminatorio, cioè il posto peggiore dove
- * indovinare. Questa funzione è la terza: esiste per **fallire in modo
- * dichiarato** invece di lasciare un vuoto in cui qualcuno, un giorno,
- * scriverebbe una regola inventata.
+ * **Che cosa è deciso, da chi, quando.** Il criterio di parità del doppio
+ * confronto a eliminazione diretta l'ha dichiarato **Pico il 2026-09-04**, in
+ * modale, testuale: «*Chi ha totalizzato più punti fantacalcio nelle due
+ * partite*». Prima di quella frase questa funzione rifiutava tutto, perché il
+ * criterio non esisteva; ora risolve il caso dichiarato e continua a rifiutare
+ * gli altri due.
  *
- * Il contratto **osserva** la coppa: se serve sapere chi è passato, lo si legge
- * dalla piattaforma come un fatto, non lo si deriva qui.
+ * **L'ordine dei criteri** è quello del regolamento più la decisione:
+ *  1. il turno è un **mini girone di due squadre** (`KNOCKOUT_IS_MINI_GROUP`,
+ *     §23): i punti 3 / 1 / 0 di §22 si assegnano **su ciascuna delle due
+ *     gare**, e la somma decide il turno prima di ogni altro criterio;
+ *  2. a parità di punti, la **somma dei punteggi fantacalcio delle due gare**
+ *     (Pico, 2026-09-04);
+ *  3. a parità anche lì, **non decidibile**.
+ *
+ * **CHE COSA RESTA INDECISO — e non è un limite tecnico.** I due rifiuti che
+ * restano non sono un pezzo di codice mancante, sono una **decisione mancante**:
+ *  - `parita_dopo_punteggi_fantacalcio` — che cosa succede se *anche* la somma
+ *    dei punteggi fantacalcio è pari: Pico non l'ha detto, e §23 rinvia per
+ *    supplementari e rigori a una pagina esterna che §27 punto 8 vieta di
+ *    ricostruire;
+ *  - `girone_da_quattro_non_dichiarato` — il criterio di parità della **fase a
+ *    gironi** (§23, `cup_group_ranking_criteria: UNSPECIFIED`), che la decisione
+ *    del 2026-09-04 **non** tocca: parla delle «due partite» di un doppio
+ *    confronto, e il girone da quattro non ne ha due.
+ *
+ * Chi incontra uno di questi due rifiuti **non deve aggiustarlo**: non c'è
+ * niente da riparare qui dentro. Estenderli per analogia — riusare il criterio
+ * dell'eliminazione nel girone, o inventare un terzo criterio dopo il secondo —
+ * sarebbe un'imputazione su un esito eliminatorio, cioè il posto peggiore dove
+ * indovinare. La strada è **una nuova dichiarazione di Pico**, registrata in
+ * `docs/data/LEAGUE_RULES.md` §23; finché non c'è, il rifiuto è il
+ * comportamento corretto.
+ *
+ * **E un terzo rifiuto, di natura diversa.** `osservazione_incompleta` non è
+ * una decisione mancante ma una **lettura insufficiente**: un punteggio
+ * assente, una gara non giocata, due gare che non appartengono allo stesso
+ * scontro. Un dato mancante **non è una parità** e non produce mai una vittoria
+ * dedotta: il contratto osserva la coppa, e su ciò che non ha osservato tace.
  */
-export function resolveKnockoutQualification(): never {
-  throw new Error(
-    "chi passa il turno di eliminazione non è dichiarato dal regolamento (§23 rinvia a una fonte esterna per supplementari e rigori, e vieta di ricostruirla): il contratto osserva la coppa, non la risolve",
+export type KnockoutDecisionCode = "punti_mini_girone" | "somma_punteggi_fantacalcio";
+
+/**
+ * I tre modi di non decidere, tenuti distinti di proposito: i primi due sono
+ * decisioni che Pico non ha preso, il terzo è una lettura che non basta.
+ */
+export type KnockoutRefusalCode =
+  | "parita_dopo_punteggi_fantacalcio"
+  | "girone_da_quattro_non_dichiarato"
+  | "osservazione_incompleta";
+
+/** Il turno è deciso: passa questa squadra, per questo motivo. */
+export interface KnockoutQualificationDecided {
+  readonly decided: true;
+  /** Chi passa. Presente **solo** quando `decided` è `true`. */
+  readonly qualifiedTeamId: string;
+  readonly code: KnockoutDecisionCode;
+  readonly message: string;
+}
+
+/** Il turno non è decidibile, per questo motivo. Nessuna squadra, mai. */
+export interface KnockoutQualificationUndecided {
+  readonly decided: false;
+  readonly code: KnockoutRefusalCode;
+  readonly message: string;
+}
+
+/**
+ * Esito **dichiarato** del doppio confronto. Non un booleano nudo e non un id
+ * che potrebbe essere vuoto: il motivo viaggia con l'esito, come codice stabile
+ * (confrontabile) più messaggio in italiano (leggibile).
+ */
+export type KnockoutQualification = KnockoutQualificationDecided | KnockoutQualificationUndecided;
+
+/**
+ * Una delle due squadre in una gara del doppio confronto, come la piattaforma
+ * la espone. Tutti i campi opzionali: `undefined` è «non osservato», e qui è
+ * sempre un motivo per non decidere.
+ */
+export interface ObservedKnockoutSide {
+  /** Id opaco della squadra. Mai un nome. */
+  readonly teamId?: string;
+  /**
+   * Goal della gara, **osservati**. Non si derivano dal punteggio: la
+   * conversione punteggio → goal è §15 e vive in `packages/league-gameweek`.
+   */
+  readonly goals?: number;
+  /**
+   * Punteggio fantacalcio della gara, **così come la piattaforma lo espone** —
+   * il punteggio finale della formazione, non un pezzo da ricomporre qui.
+   * Nessun modificatore viene aggiunto o tolto in questa funzione.
+   */
+  readonly fantasyPoints?: number;
+}
+
+/**
+ * Una delle due gare di uno scontro a eliminazione diretta. La fase e il verso
+ * sono **dichiarati**, mai dedotti dalla giornata: è la regola di tutto questo
+ * file, e qui vale doppio perché l'esito è eliminatorio.
+ */
+export interface ObservedKnockoutLeg {
+  readonly competitionId?: string;
+  readonly matchday?: number;
+  /** Fase dichiarata: solo `eliminazione` è un doppio confronto. */
+  readonly cupPhase?: ObservedCupPhase;
+  /** Andata o ritorno. Le due gare devono dichiarare versi diversi. */
+  readonly leg?: ObservedLeg;
+  /**
+   * Se la gara si è giocata. `false` è «non giocata», `undefined` è «non
+   * osservato»: nessuno dei due è una parità.
+   */
+  readonly played?: boolean;
+  /** Le due squadre della gara, in un ordine qualsiasi. */
+  readonly sides?: readonly [ObservedKnockoutSide, ObservedKnockoutSide];
+}
+
+/**
+ * Chi passa il turno di eliminazione diretta, dato il doppio confronto.
+ *
+ * Funzione **pura e deterministica**: nessuna rete, nessun orologio, nessun
+ * caso. L'ordine delle due gare è indifferente — andata e ritorno si
+ * riconoscono dal campo `leg` che dichiarano, non dalla posizione in cui
+ * arrivano.
+ *
+ * Vedi il blocco di prosa qui sopra per i codici e, soprattutto, per che cosa
+ * **non** va aggiustato.
+ */
+export function resolveKnockoutQualification(
+  primaGara: ObservedKnockoutLeg,
+  secondaGara: ObservedKnockoutLeg,
+): KnockoutQualification {
+  const gare: readonly ObservedKnockoutLeg[] = [primaGara, secondaGara];
+
+  // La fase a gironi ha un rifiuto suo, e viene prima di ogni altro controllo:
+  // se la domanda riguarda il girone da quattro, la risposta è che il criterio
+  // non è dichiarato — non che i dati sono incompleti.
+  if (gare.some((gara) => gara.cupPhase === "girone")) {
+    return rifiuto(
+      "girone_da_quattro_non_dichiarato",
+      "il criterio di parità del girone da quattro non è dichiarato dal regolamento (§23, cup_group_ranking_criteria) e la decisione del 2026-09-04 riguarda solo il doppio confronto a eliminazione: serve una dichiarazione di Pico, non un criterio dedotto",
+    );
+  }
+  if (gare.some((gara) => gara.cupPhase === "finale")) {
+    return rifiuto(
+      "osservazione_incompleta",
+      "la finale è gara secca (§23) e non è un doppio confronto: qui non c'è un turno da risolvere",
+    );
+  }
+
+  const lette: LetturaGara[] = [];
+  for (const [indice, gara] of gare.entries()) {
+    const lettura = leggiGara(gara, indice === 0 ? "prima gara" : "seconda gara");
+    if (typeof lettura === "string") return rifiuto("osservazione_incompleta", lettura);
+    lette.push(lettura);
+  }
+
+  const [gara1, gara2] = lette as [LetturaGara, LetturaGara];
+
+  if (gara1.competitionId !== gara2.competitionId) {
+    return rifiuto(
+      "osservazione_incompleta",
+      `gare di competizioni diverse (${gara1.competitionId} e ${gara2.competitionId}): non sono lo stesso scontro`,
+    );
+  }
+  if (gara1.matchday === gara2.matchday) {
+    return rifiuto(
+      "osservazione_incompleta",
+      `due gare osservate sulla stessa giornata ${gara1.matchday}: andata e ritorno sono due giornate distinte`,
+    );
+  }
+  if (gara1.leg === gara2.leg) {
+    return rifiuto(
+      "osservazione_incompleta",
+      `due gare dichiarate entrambe come ${gara1.leg}: un doppio confronto è un'andata e un ritorno`,
+    );
+  }
+  const squadre1 = [gara1.sides[0].teamId, gara1.sides[1].teamId].sort();
+  const squadre2 = [gara2.sides[0].teamId, gara2.sides[1].teamId].sort();
+  if (squadre1[0] !== squadre2[0] || squadre1[1] !== squadre2[1]) {
+    return rifiuto(
+      "osservazione_incompleta",
+      `le due gare non oppongono le stesse squadre (${squadre1.join("/")} e ${squadre2.join("/")}): non sono lo stesso scontro`,
+    );
+  }
+
+  const [squadraA, squadraB] = squadre1 as [string, string];
+
+  // Criterio 1 — il mini girone di due squadre: 3 / 1 / 0 su ciascuna gara.
+  const puntiA = puntiMiniGirone(squadraA, gara1) + puntiMiniGirone(squadraA, gara2);
+  const puntiB = puntiMiniGirone(squadraB, gara1) + puntiMiniGirone(squadraB, gara2);
+  if (puntiA !== puntiB) {
+    const vincente = puntiA > puntiB ? squadraA : squadraB;
+    return {
+      decided: true,
+      qualifiedTeamId: vincente,
+      code: "punti_mini_girone",
+      message: `${vincente} passa con ${Math.max(puntiA, puntiB)} punti contro ${Math.min(puntiA, puntiB)} nel mini girone di due squadre (§22 3/1/0 su ciascuna delle due gare, §23)`,
+    };
+  }
+
+  // Criterio 2 — la somma dei punteggi fantacalcio (Pico, 2026-09-04). Il
+  // confronto è esatto, senza tolleranza: i punteggi arrivano osservati e in
+  // mezzi punti, e una tolleranza inventata qui deciderebbe un'eliminazione con
+  // un numero che nessuno ha dichiarato.
+  const puntiFantaA = puntiFantacalcio(squadraA, gara1) + puntiFantacalcio(squadraA, gara2);
+  const puntiFantaB = puntiFantacalcio(squadraB, gara1) + puntiFantacalcio(squadraB, gara2);
+  if (puntiFantaA !== puntiFantaB) {
+    const vincente = puntiFantaA > puntiFantaB ? squadraA : squadraB;
+    return {
+      decided: true,
+      qualifiedTeamId: vincente,
+      code: "somma_punteggi_fantacalcio",
+      message: `parità nel mini girone (${puntiA} punti a testa): passa ${vincente}, che ha totalizzato più punti fantacalcio nelle due partite (${Math.max(puntiFantaA, puntiFantaB)} contro ${Math.min(puntiFantaA, puntiFantaB)}) — criterio dichiarato da Pico il 2026-09-04`,
+    };
+  }
+
+  // Criterio 3 — non esiste: qui si ferma la decisione, non il codice.
+  return rifiuto(
+    "parita_dopo_punteggi_fantacalcio",
+    `parità nel mini girone (${puntiA} punti a testa) e parità anche nella somma dei punteggi fantacalcio (${puntiFantaA} a testa): che cosa decida a questo punto non è dichiarato da nessuno — la decisione del 2026-09-04 si ferma qui e §23 rinvia a una fonte esterna che è vietato ricostruire`,
   );
+}
+
+interface LetturaLato {
+  readonly teamId: string;
+  readonly goals: number;
+  readonly fantasyPoints: number;
+}
+
+interface LetturaGara {
+  readonly competitionId: string;
+  readonly matchday: number;
+  readonly leg: ObservedLeg;
+  readonly sides: readonly [LetturaLato, LetturaLato];
+}
+
+function rifiuto(code: KnockoutRefusalCode, message: string): KnockoutQualificationUndecided {
+  return { decided: false, code, message };
+}
+
+/** La gara letta per intero, oppure il motivo per cui non lo è. */
+function leggiGara(gara: ObservedKnockoutLeg, etichetta: string): LetturaGara | string {
+  if (gara.competitionId === undefined || gara.competitionId.length === 0) {
+    return `${etichetta}: competizione non osservata`;
+  }
+  if (gara.matchday === undefined) return `${etichetta}: giornata non osservata`;
+  if (!Number.isInteger(gara.matchday) || gara.matchday < 1) {
+    return `${etichetta}: giornata non valida (${gara.matchday})`;
+  }
+  if (gara.leg === undefined) {
+    return `${etichetta}: andata o ritorno non dichiarato, e non si deduce dalla giornata`;
+  }
+  if (gara.played === false) {
+    return `${etichetta} (giornata ${gara.matchday}): gara non giocata, e una gara non giocata non è un pareggio`;
+  }
+  if (gara.played !== true) {
+    return `${etichetta} (giornata ${gara.matchday}): non è osservato se la gara si sia giocata`;
+  }
+  if (gara.sides === undefined || gara.sides.length !== 2) {
+    return `${etichetta} (giornata ${gara.matchday}): le due squadre della gara non sono osservate`;
+  }
+  const lati: LetturaLato[] = [];
+  for (const lato of gara.sides) {
+    if (lato.teamId === undefined || lato.teamId.length === 0) {
+      return `${etichetta} (giornata ${gara.matchday}): squadra non osservata`;
+    }
+    if (lato.goals === undefined) {
+      return `${etichetta} (giornata ${gara.matchday}): goal non osservati per ${lato.teamId}`;
+    }
+    if (!Number.isInteger(lato.goals) || lato.goals < 0) {
+      return `${etichetta} (giornata ${gara.matchday}): goal non validi per ${lato.teamId} (${lato.goals})`;
+    }
+    if (lato.fantasyPoints === undefined) {
+      return `${etichetta} (giornata ${gara.matchday}): punteggio fantacalcio non osservato per ${lato.teamId}`;
+    }
+    if (!Number.isFinite(lato.fantasyPoints)) {
+      return `${etichetta} (giornata ${gara.matchday}): punteggio fantacalcio non valido per ${lato.teamId} (${lato.fantasyPoints})`;
+    }
+    lati.push({ teamId: lato.teamId, goals: lato.goals, fantasyPoints: lato.fantasyPoints });
+  }
+  const [primo, secondo] = lati as [LetturaLato, LetturaLato];
+  if (primo.teamId === secondo.teamId) {
+    return `${etichetta} (giornata ${gara.matchday}): la stessa squadra ${primo.teamId} osservata su entrambi i lati`;
+  }
+  return {
+    competitionId: gara.competitionId,
+    matchday: gara.matchday,
+    leg: gara.leg,
+    sides: [primo, secondo],
+  };
+}
+
+/** I 3 / 1 / 0 di §22 applicati alla singola gara del mini girone (§23). */
+function puntiMiniGirone(teamId: string, gara: LetturaGara): number {
+  const nostro = gara.sides[0].teamId === teamId ? gara.sides[0] : gara.sides[1];
+  const altro = gara.sides[0].teamId === teamId ? gara.sides[1] : gara.sides[0];
+  if (nostro.goals > altro.goals) return 3;
+  if (nostro.goals === altro.goals) return 1;
+  return 0;
+}
+
+function puntiFantacalcio(teamId: string, gara: LetturaGara): number {
+  return (gara.sides[0].teamId === teamId ? gara.sides[0] : gara.sides[1]).fantasyPoints;
 }
 
 function assertMatchday(matchday: number): void {

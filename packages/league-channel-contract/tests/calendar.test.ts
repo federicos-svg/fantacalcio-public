@@ -10,7 +10,6 @@ import {
   fixtureFor,
   fixturesOnMatchday,
   isCupMatchday,
-  resolveKnockoutQualification,
   toGameweekContext,
 } from "../src/calendar.js";
 import {
@@ -141,17 +140,6 @@ describe("struttura di coppa del regolamento (§23)", () => {
     expect(andata).not.toEqual(ritorno);
 
     expect(cupScoringShape("eliminazione")).toBe(cupScoringShape("girone"));
-  });
-
-  it("l'esito del turno NON lo calcola il contratto: a parità il regolamento tace", () => {
-    // §23 non dichiara chi passa a parità nel mini girone da due e rinvia a una
-    // fonte esterna per supplementari e rigori, che vieta di ricostruire.
-    // Indovinare un criterio su un esito eliminatorio sarebbe il posto peggiore
-    // dove indovinare: si fallisce in modo dichiarato.
-    expect(() => resolveKnockoutQualification()).toThrow(
-      /non è dichiarato dal regolamento/,
-    );
-    expect(() => resolveKnockoutQualification()).toThrow(/osserva la coppa, non la risolve/);
   });
 
   it("la fase attesa è un'attesa, non un'osservazione", () => {
