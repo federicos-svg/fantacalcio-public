@@ -40,13 +40,34 @@
 // accordo: un ordinamento per risultato è già una classifica, e una classifica
 // è già un giudizio.
 //
+// CHI È ASSENTE DA UNA LISTA COMPLETA. Un giocatore su cui la fonte si è
+// pronunciata e che non compare in nessuna delle due liste effettive non è un
+// caso solo: dipende da che cosa la fonte aveva detto. Se lo dava **titolare**,
+// e la lista effettiva si dichiara completa, la fonte ha sbagliato: è un
+// disaccordo. Se lo dava **fuori**, e la lista si dichiara completa, la fonte
+// ha detto il vero — quel giocatore non è sceso in campo dal primo minuto — ed
+// è un accordo. Trattare i due casi allo stesso modo punirebbe proprio le fonti
+// che pubblicano anche gli esclusi, cioè quelle che dicono di più; e una misura
+// che punisce chi dice il vero non misura più niente. Se la lista **non** si
+// dichiara completa — parziale o non dichiarata — nessuno dei due casi si
+// decide: l'assenza non è informativa e l'esito è «non decidibile».
+//
+// ISTANTI. Si accetta ISO-8601 con `Z` **oppure** con offset esplicito, con i
+// secondi facoltativi e i millisecondi facoltativi, e si **normalizza a UTC**
+// prima di qualunque confronto. Un istante **senza** fuso è rifiutato: è
+// ambiguo, e tutto questo confronto vive o muore sul momento del calcio
+// d'inizio. Gli istanti che escono nell'esito sono già normalizzati, perché un
+// consumatore che li confrontasse fra loro non debba rifare — e sbagliare — la
+// stessa normalizzazione.
+//
 // SCELTE TECNICHE DICHIARATE E CONTESTABILI (non decisioni di prodotto): le due
-// soglie di numerosità qui sotto; l'uso del confronto lessicografico su istanti
-// in forma canonica invece di un orologio; il rifiuto — invece del silenzio —
-// quando due istantanee della stessa fonte per la stessa partita portano lo
-// stesso istante ma contenuti diversi; il trattamento del giocatore previsto
-// titolare e assente dalle liste effettive, che è un disaccordo solo quando la
-// lista effettiva si dichiara completa.
+// soglie di numerosità qui sotto; la normalizzazione a UTC fatta con aritmetica
+// del calendario invece che con un orologio, e la forma canonica interna a
+// larghezza fissa con i millisecondi sempre scritti, perché su di essa l'ordine
+// lessicografico coincida con l'ordine cronologico; il rifiuto — invece del
+// silenzio — quando due istantanee della stessa fonte per la stessa partita
+// portano lo stesso istante ma contenuti diversi; la completezza della lista
+// effettiva a **tre stati**, con `unknown` che non decide mai un esito.
 
 /** Versione della ricetta di misura: viaggia con l'esito, perché un numero senza la sua ricetta non è riproducibile. */
 export const AGREEMENT_MEASURE_VERSION = "source_agreement_v1";
@@ -64,7 +85,11 @@ export type StarterCall = "starter" | "non_starter";
 export interface ObservationStamp {
   /** Identificativo della fonte che ha osservato. Non vuoto. */
   readonly source: string;
-  /** Momento dell'osservazione, in forma canonica `AAAA-MM-GGTHH:MM:SSZ`. */
+  /**
+   * Momento dell'osservazione: ISO-8601 con `Z` **oppure** con offset esplicito
+   * (`2026-09-04T18:00:00+02:00`), secondi e millisecondi facoltativi. Senza
+   * fuso è rifiutato. Viene normalizzato a UTC prima di ogni confronto.
+   */
   readonly observedAt: string;
   /** Giornata di campionato: intero positivo. */
   readonly matchday: number;
@@ -89,21 +114,35 @@ export interface ForecastSnapshot {
 export type FixtureStatus = "played" | "postponed";
 
 /**
+ * Quanto è completa la lista effettiva che abbiamo in mano. Tre stati e non
+ * due: «completa», «parziale» e «non lo so» sono tre cose diverse, e schiacciare
+ * il terzo su uno degli altri due è il modo in cui un dubbio diventa
+ * silenziosamente una certezza. Chi produce queste osservazioni dichiara
+ * `unknown` finché non ha di meglio, e `unknown` qui **non decide mai**: non
+ * autorizza un accordo e non autorizza un disaccordo.
+ *
+ * Le tre etichette sono scritte come le scrive il produttore delle pagine
+ * pre-partita, così che al confine non serva una tabella di traduzione: una
+ * traduzione è un posto in più dove il terzo stato può sparire.
+ */
+export type ActualCompleteness = "declared-complete" | "declared-partial" | "unknown";
+
+/**
  * La formazione effettiva di una squadra in una giornata, osservata dopo il
- * calcio d'inizio. `benchComplete` dichiara se l'elenco dei non titolari è
- * completo: da quel campo dipende se un giocatore previsto e mai comparso sia
- * un disaccordo o una cosa che le liste in nostro possesso non permettono di
- * decidere.
+ * calcio d'inizio. `completeness` dichiara se le liste sono complete: da quel
+ * campo dipende se un giocatore previsto e mai comparso produca un esito
+ * deciso — accordo o disaccordo, a seconda di ciò che la fonte aveva detto —
+ * oppure una cosa che le liste in nostro possesso non permettono di decidere.
  */
 export interface ActualLineup {
   readonly stamp: ObservationStamp;
   readonly team: string;
-  /** Calcio d'inizio, forma canonica: il confine fra i due lati dell'osservazione. */
+  /** Calcio d'inizio: il confine fra i due lati dell'osservazione. Stesse regole di `observedAt`. */
   readonly kickoffAt: string;
   readonly status: FixtureStatus;
   readonly starters: readonly string[];
   readonly bench: readonly string[];
-  readonly benchComplete: boolean;
+  readonly completeness: ActualCompleteness;
 }
 
 /** Che cosa è successo al confronto di un singolo giocatore. Nessun caso è assorbito in silenzio. */
@@ -116,10 +155,12 @@ export type ComparisonOutcome =
   | "disagreement_predicted_starter"
   /** Previsto non titolare, titolare. */
   | "disagreement_predicted_non_starter"
-  /** Previsto, e assente da una lista effettiva che si dichiara completa: disaccordo. */
+  /** Previsto **titolare**, e assente da una lista effettiva che si dichiara completa: disaccordo. */
   | "disagreement_absent_from_complete_squad"
-  /** Previsto, assente da una lista effettiva parziale: non decidibile, e contato a parte. */
-  | "undecidable_partial_actual"
+  /** Previsto **fuori**, e assente da una lista effettiva che si dichiara completa: la fonte aveva ragione. */
+  | "agreement_absent_from_complete_squad"
+  /** Previsto, assente da una lista effettiva parziale o non dichiarata: non decidibile, e contato a parte. */
+  | "undecidable_actual_incomplete"
   /** Presente nella formazione effettiva, e la fonte non si è pronunciata: assenza, non errore. */
   | "source_silent";
 
@@ -134,8 +175,11 @@ export interface PlayerComparison {
   /** `null` = il giocatore non compare nella formazione effettiva. */
   readonly actual: StarterCall | null;
   readonly outcome: ComparisonOutcome;
+  /** Istante normalizzato a UTC, non la stringa dichiarata: qui si confronta, non si cita. */
   readonly forecastObservedAt: string;
+  /** Istante normalizzato a UTC. */
   readonly actualObservedAt: string;
+  /** Istante normalizzato a UTC. */
   readonly kickoffAt: string;
 }
 
@@ -145,13 +189,18 @@ export interface AgreementCounts {
   readonly disagreements: number;
   /** `agreements + disagreements`: le sole chiamate su cui un accordo ha senso. */
   readonly decided: number;
-  /** Previsto titolare, non titolare. */
+  /**
+   * Previsto titolare, non sceso in campo dal primo minuto — che compaia in
+   * panchina o che non compaia affatto in una lista dichiarata completa.
+   * Insieme a `predictedNonStarterStarting` **scompone esattamente**
+   * `disagreements`: la somma dei due è il totale, sempre e su ogni aggregato.
+   */
   readonly predictedStarterNotStarting: number;
-  /** Previsto non titolare, titolare. */
+  /** Previsto non titolare, titolare. L'altra metà esatta di `disagreements`. */
   readonly predictedNonStarterStarting: number;
   /** Giocatori su cui la fonte non si è pronunciata, dentro partite che ha coperto. */
   readonly sourceSilent: number;
-  /** Previsioni non decidibili perché la lista effettiva era dichiarata parziale. */
+  /** Previsioni non decidibili perché la lista effettiva non si dichiarava completa. */
   readonly undecidable: number;
   /** Partite coperte dalla fonte e poi rinviate: nessun errore, nessun accordo. */
   readonly postponedFixtures: number;
@@ -253,7 +302,14 @@ export const MIN_DECIDED_CALLS_FOR_A_READING = 50;
 // Istanti — confronto senza orologio.
 // ---------------------------------------------------------------------------
 
-const INSTANT_SHAPE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})Z$/;
+/**
+ * La forma accettata in ingresso: ISO-8601 con fuso **esplicito** — `Z` oppure
+ * un offset `±HH:MM` — secondi facoltativi, millesimi facoltativi. Un istante
+ * senza fuso non è accettato: sarebbe un'ora senza un posto nel mondo, e qui si
+ * decide se una previsione è arrivata prima del fischio d'inizio.
+ */
+const ACCEPTED_INSTANT =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(Z|[+-]\d{2}:\d{2})$/;
 
 function isLeapYear(year: number): boolean {
   return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
@@ -267,27 +323,95 @@ function daysInMonth(year: number, month: number): number {
 }
 
 /**
- * Un istante è valido se ha la forma canonica UTC **e** se la data esiste sul
- * calendario. In forma canonica a larghezza fissa l'ordine lessicografico
- * coincide con l'ordine cronologico: è così che questo modulo confronta due
- * momenti senza mai istanziare un orologio.
+ * Giorni dall'epoca a una data del calendario gregoriano proletico, con
+ * aritmetica intera e senza orologio: è questa funzione, e non un `Date`, che
+ * permette di spostare un istante dal suo fuso a UTC anche quando lo
+ * spostamento attraversa la mezzanotte, la fine del mese o la fine dell'anno.
  */
-export function isCanonicalInstant(raw: string): boolean {
-  const m = INSTANT_SHAPE.exec(raw);
-  if (m === null) return false;
+function daysFromCivil(year: number, month: number, day: number): number {
+  const y = month <= 2 ? year - 1 : year;
+  const era = Math.floor(y / 400);
+  const yearOfEra = y - era * 400;
+  const dayOfYear = Math.floor((153 * (month + (month > 2 ? -3 : 9)) + 2) / 5) + day - 1;
+  const dayOfEra = yearOfEra * 365 + Math.floor(yearOfEra / 4) - Math.floor(yearOfEra / 100) + dayOfYear;
+  return era * 146097 + dayOfEra - 719468;
+}
+
+/** L'inversa esatta di `daysFromCivil`. */
+function civilFromDays(days: number): { readonly year: number; readonly month: number; readonly day: number } {
+  const z = days + 719468;
+  const era = Math.floor(z / 146097);
+  const dayOfEra = z - era * 146097;
+  const yearOfEra = Math.floor(
+    (dayOfEra - Math.floor(dayOfEra / 1460) + Math.floor(dayOfEra / 36524) - Math.floor(dayOfEra / 146096)) / 365,
+  );
+  const y = yearOfEra + era * 400;
+  const dayOfYear = dayOfEra - (365 * yearOfEra + Math.floor(yearOfEra / 4) - Math.floor(yearOfEra / 100));
+  const mp = Math.floor((5 * dayOfYear + 2) / 153);
+  const day = dayOfYear - Math.floor((153 * mp + 2) / 5) + 1;
+  const month = mp + (mp < 10 ? 3 : -9);
+  return { year: month <= 2 ? y + 1 : y, month, day };
+}
+
+function pad(value: number, width: number): string {
+  return String(value).padStart(width, "0");
+}
+
+/**
+ * Porta un istante accettabile alla forma canonica interna — UTC, larghezza
+ * fissa, millesimi **sempre scritti** — oppure restituisce `null` se non è
+ * accettabile. `null` non è «zero» né «adesso»: è un rifiuto, e chi chiama lo
+ * traduce in `malformed_instant`.
+ *
+ * I millesimi ci sono sempre proprio perché il confronto resti lessicografico:
+ * fra `…:00Z` e `…:00.500Z` l'ordine fra stringhe direbbe il falso, perché `.`
+ * viene prima di `Z`; fra `…:00.000Z` e `…:00.500Z` dice il vero.
+ */
+export function canonicaliseInstant(raw: string): string | null {
+  const m = ACCEPTED_INSTANT.exec(raw);
+  if (m === null) return null;
   const year = Number(m[1]);
   const month = Number(m[2]);
   const day = Number(m[3]);
   const hour = Number(m[4]);
   const minute = Number(m[5]);
-  const second = Number(m[6]);
-  if (month < 1 || month > 12) return false;
-  if (day < 1 || day > daysInMonth(year, month)) return false;
-  if (hour > 23 || minute > 59 || second > 59) return false;
-  return true;
+  const second = m[6] === undefined ? 0 : Number(m[6]);
+  const milli = m[7] === undefined ? 0 : Number(m[7].padEnd(3, "0"));
+  const zone = m[8] ?? "";
+  if (month < 1 || month > 12) return null;
+  if (day < 1 || day > daysInMonth(year, month)) return null;
+  if (hour > 23 || minute > 59 || second > 59) return null;
+
+  let offsetMinutes = 0;
+  if (zone !== "Z") {
+    const offsetHour = Number(zone.slice(1, 3));
+    const offsetMinute = Number(zone.slice(4, 6));
+    if (offsetHour > 23 || offsetMinute > 59) return null;
+    offsetMinutes = (zone.startsWith("-") ? -1 : 1) * (offsetHour * 60 + offsetMinute);
+  }
+
+  // Il fuso si toglie **prima** del confronto, mai dopo: un adattatore che
+  // tagliasse `+02:00` senza spostare l'ora sposterebbe l'istante di due ore.
+  const totalMinutes = daysFromCivil(year, month, day) * 1440 + hour * 60 + minute - offsetMinutes;
+  const utcDays = Math.floor(totalMinutes / 1440);
+  const minuteOfDay = totalMinutes - utcDays * 1440;
+  const civil = civilFromDays(utcDays);
+  return (
+    `${pad(civil.year, 4)}-${pad(civil.month, 2)}-${pad(civil.day, 2)}` +
+    `T${pad(Math.floor(minuteOfDay / 60), 2)}:${pad(minuteOfDay % 60, 2)}:${pad(second, 2)}.${pad(milli, 3)}Z`
+  );
 }
 
-/** `-1`, `0`, `1` fra due istanti canonici. Presuppone istanti già validati. */
+/** Vero se l'istante è ISO-8601 con fuso esplicito e cade su una data che esiste. */
+export function isAcceptableInstant(raw: string): boolean {
+  return canonicaliseInstant(raw) !== null;
+}
+
+/**
+ * `-1`, `0`, `1` fra due istanti **già normalizzati** da `canonicaliseInstant`.
+ * Su quella forma l'ordine lessicografico coincide con l'ordine cronologico: è
+ * così che questo modulo confronta due momenti senza mai istanziare un orologio.
+ */
 export function compareInstants(a: string, b: string): number {
   if (a < b) return -1;
   if (a > b) return 1;
@@ -326,20 +450,30 @@ function duplicates(values: readonly string[]): readonly string[] {
   return [...twice].sort();
 }
 
+/**
+ * Valida la targa e restituisce il momento **già normalizzato a UTC**, oppure
+ * `null` se quel momento non è accettabile. Validare e normalizzare nello
+ * stesso posto è deliberato: se fossero due passaggi, esisterebbe un punto del
+ * programma in cui un istante è valido ma non ancora confrontabile.
+ */
 function validateStamp(
   stamp: ObservationStamp,
   where: string,
   expected: SnapshotPhase,
   rejections: Rejection[],
-): void {
+): string | null {
   if (!isNonEmptyId(stamp.source)) {
     rejections.push({ code: "empty_identifier", detail: `${where}: fonte senza identificativo` });
   }
   if (!Number.isInteger(stamp.matchday) || stamp.matchday < 1) {
     rejections.push({ code: "invalid_matchday", detail: `${where}: giornata non valida (${String(stamp.matchday)})` });
   }
-  if (!isCanonicalInstant(stamp.observedAt)) {
-    rejections.push({ code: "malformed_instant", detail: `${where}: momento non canonico (${stamp.observedAt})` });
+  const observedAt = canonicaliseInstant(stamp.observedAt);
+  if (observedAt === null) {
+    rejections.push({
+      code: "malformed_instant",
+      detail: `${where}: momento non accettabile, serve ISO-8601 con fuso esplicito (${stamp.observedAt})`,
+    });
   }
   if (stamp.phase !== expected) {
     rejections.push({
@@ -347,6 +481,7 @@ function validateStamp(
       detail: `${where}: istantanea dichiarata "${stamp.phase}" dove serve "${expected}"`,
     });
   }
+  return observedAt;
 }
 
 function describeForecast(snapshot: ForecastSnapshot): string {
@@ -359,6 +494,10 @@ function describeForecast(snapshot: ForecastSnapshot): string {
 
 interface FixtureFacts {
   readonly lineup: ActualLineup;
+  /** Momento della verifica, già normalizzato a UTC. */
+  readonly observedAt: string;
+  /** Calcio d'inizio, già normalizzato a UTC. */
+  readonly kickoffAt: string;
   readonly starters: ReadonlySet<string>;
   readonly bench: ReadonlySet<string>;
 }
@@ -371,6 +510,17 @@ function callsSignature(calls: readonly PlayerCall[]): string {
 }
 
 /**
+ * Un'istantanea di previsione con accanto il suo momento già normalizzato a
+ * UTC. Le due cose viaggiano insieme perché nessun confronto avvenga mai sulla
+ * stringa dichiarata: due istanti scritti in fusi diversi si ordinano solo
+ * dopo essere stati portati sullo stesso.
+ */
+interface StampedForecast {
+  readonly snapshot: ForecastSnapshot;
+  readonly at: string;
+}
+
+/**
  * Sceglie l'ultima istantanea prima del calcio d'inizio fra quelle di una fonte
  * per una partita. Due istantanee con lo **stesso** istante non hanno un
  * «ultima»: se dicono la stessa cosa sono un doppione e se ne tiene una,
@@ -378,28 +528,31 @@ function callsSignature(calls: readonly PlayerCall[]): string {
  * sceglierne una a caso.
  */
 function pickLatest(
-  snapshots: readonly ForecastSnapshot[],
+  entries: readonly StampedForecast[],
   rejections: Rejection[],
   notices: string[],
-): ForecastSnapshot | null {
-  let latest = snapshots[0];
+): StampedForecast | null {
+  let latest = entries[0];
   if (latest === undefined) return null;
-  for (const candidate of snapshots) {
-    if (compareInstants(candidate.stamp.observedAt, latest.stamp.observedAt) > 0) latest = candidate;
+  for (const candidate of entries) {
+    if (compareInstants(candidate.at, latest.at) > 0) latest = candidate;
   }
-  const tied = snapshots.filter((s) => compareInstants(s.stamp.observedAt, latest.stamp.observedAt) === 0);
+  const chosen = latest;
+  const tied = entries.filter((e) => compareInstants(e.at, chosen.at) === 0);
   if (tied.length > 1) {
-    const signatures = new Set(tied.map((s) => callsSignature(s.calls)));
+    const signatures = new Set(tied.map((e) => callsSignature(e.snapshot.calls)));
     if (signatures.size > 1) {
       rejections.push({
         code: "ambiguous_latest_forecast",
-        detail: `${describeForecast(latest)}: ${String(tied.length)} istantanee allo stesso istante con contenuti diversi`,
+        detail: `${describeForecast(chosen.snapshot)}: ${String(tied.length)} istantanee allo stesso istante con contenuti diversi`,
       });
       return null;
     }
-    notices.push(`${describeForecast(latest)}: ${String(tied.length)} istantanee identiche allo stesso istante, contate una volta`);
+    notices.push(
+      `${describeForecast(chosen.snapshot)}: ${String(tied.length)} istantanee identiche allo stesso istante, contate una volta`,
+    );
   }
-  return latest;
+  return chosen;
 }
 
 interface AccumulatorLabel {
@@ -441,14 +594,26 @@ function newAccumulator(): CountAccumulator {
   };
 }
 
+/**
+ * Ogni disaccordo incrementa **uno e uno solo** dei due sotto-conti, e ogni
+ * accordo nessuno dei due: è questa la ragione per cui
+ * `predictedStarterNotStarting + predictedNonStarterStarting` è sempre uguale a
+ * `disagreements`. Un disaccordo che non ricadesse in nessuno dei due lascerebbe
+ * una scomposizione che non torna, cioè un numero che nessuno può rifare.
+ */
 function absorb(acc: CountAccumulator, comparison: PlayerComparison): void {
   switch (comparison.outcome) {
     case "agreement_starter":
     case "agreement_non_starter":
+    case "agreement_absent_from_complete_squad":
       acc.agreements += 1;
       acc.decidedMatchdays.add(comparison.matchday);
       break;
     case "disagreement_predicted_starter":
+    case "disagreement_absent_from_complete_squad":
+      // Previsto titolare e non sceso in campo dal primo minuto: che sia
+      // finito in panchina o che non compaia affatto in una lista dichiarata
+      // completa, l'errore della fonte è lo stesso.
       acc.disagreements += 1;
       acc.predictedStarterNotStarting += 1;
       acc.decidedMatchdays.add(comparison.matchday);
@@ -458,12 +623,7 @@ function absorb(acc: CountAccumulator, comparison: PlayerComparison): void {
       acc.predictedNonStarterStarting += 1;
       acc.decidedMatchdays.add(comparison.matchday);
       break;
-    case "disagreement_absent_from_complete_squad":
-      acc.disagreements += 1;
-      acc.predictedStarterNotStarting += comparison.predicted === "starter" ? 1 : 0;
-      acc.decidedMatchdays.add(comparison.matchday);
-      break;
-    case "undecidable_partial_actual":
+    case "undecidable_actual_incomplete":
       acc.undecidable += 1;
       break;
     case "source_silent":
@@ -557,13 +717,17 @@ export function measureSourceAgreement(input: {
   const byFixture = new Map<string, ActualLineup>();
   for (const lineup of input.actuals) {
     const where = `formazione effettiva g${String(lineup.stamp.matchday)}/${lineup.team}@${lineup.stamp.observedAt}`;
-    validateStamp(lineup.stamp, where, "post_kickoff", rejections);
+    const observedAt = validateStamp(lineup.stamp, where, "post_kickoff", rejections);
     if (!isNonEmptyId(lineup.team)) {
       rejections.push({ code: "empty_identifier", detail: `${where}: squadra senza identificativo` });
     }
-    if (!isCanonicalInstant(lineup.kickoffAt)) {
-      rejections.push({ code: "malformed_instant", detail: `${where}: calcio d'inizio non canonico (${lineup.kickoffAt})` });
-    } else if (isCanonicalInstant(lineup.stamp.observedAt) && compareInstants(lineup.stamp.observedAt, lineup.kickoffAt) < 0) {
+    const kickoffAt = canonicaliseInstant(lineup.kickoffAt);
+    if (kickoffAt === null) {
+      rejections.push({
+        code: "malformed_instant",
+        detail: `${where}: calcio d'inizio non accettabile, serve ISO-8601 con fuso esplicito (${lineup.kickoffAt})`,
+      });
+    } else if (observedAt !== null && compareInstants(observedAt, kickoffAt) < 0) {
       rejections.push({
         code: "actual_observed_before_kickoff",
         detail: `${where}: verifica osservata prima del calcio d'inizio (${lineup.kickoffAt})`,
@@ -593,11 +757,16 @@ export function measureSourceAgreement(input: {
   }
 
   // --- coerenza temporale fra i due lati ---
+  // Il confronto avviene fra istanti già normalizzati: una previsione scritta
+  // con offset e un calcio d'inizio scritto in `Z` sono confrontabili solo dopo
+  // essere stati portati sullo stesso fuso, e prima no.
   for (const snapshot of input.forecasts) {
     const lineup = byFixture.get(fixtureKey(snapshot.stamp.matchday, snapshot.team));
     if (lineup === undefined) continue;
-    if (!isCanonicalInstant(snapshot.stamp.observedAt) || !isCanonicalInstant(lineup.kickoffAt)) continue;
-    if (compareInstants(snapshot.stamp.observedAt, lineup.kickoffAt) >= 0) {
+    const observedAt = canonicaliseInstant(snapshot.stamp.observedAt);
+    const kickoffAt = canonicaliseInstant(lineup.kickoffAt);
+    if (observedAt === null || kickoffAt === null) continue;
+    if (compareInstants(observedAt, kickoffAt) >= 0) {
       rejections.push({
         code: "forecast_observed_after_kickoff",
         detail: `${describeForecast(snapshot)}: previsione osservata al calcio d'inizio o dopo (${lineup.kickoffAt})`,
@@ -612,12 +781,17 @@ export function measureSourceAgreement(input: {
 
   // --- confronto ---
   const knownSources = [...new Set(input.forecasts.map((s) => s.stamp.source))].sort();
-  const forecastsByKey = new Map<string, ForecastSnapshot[]>();
+  const forecastsByKey = new Map<string, StampedForecast[]>();
   for (const snapshot of input.forecasts) {
+    const at = canonicaliseInstant(snapshot.stamp.observedAt);
+    // Impossibile a questo punto: un istante non normalizzabile è già uscito
+    // come `malformed_instant` sopra. Resta scritto perché il tipo dica il vero
+    // invece di essere costretto a mentire con un'asserzione.
+    if (at === null) continue;
     const key = sourceFixtureKey(snapshot.stamp.source, snapshot.stamp.matchday, snapshot.team);
     const bucket = forecastsByKey.get(key);
-    if (bucket === undefined) forecastsByKey.set(key, [snapshot]);
-    else bucket.push(snapshot);
+    if (bucket === undefined) forecastsByKey.set(key, [{ snapshot, at }]);
+    else bucket.push({ snapshot, at });
   }
 
   const comparisons: PlayerComparison[] = [];
@@ -640,11 +814,20 @@ export function measureSourceAgreement(input: {
     return fresh.acc;
   };
 
-  const fixtures: FixtureFacts[] = [...byFixture.values()].map((lineup) => ({
-    lineup,
-    starters: new Set(lineup.starters),
-    bench: new Set(lineup.bench),
-  }));
+  const fixtures: FixtureFacts[] = [];
+  for (const lineup of byFixture.values()) {
+    const observedAt = canonicaliseInstant(lineup.stamp.observedAt);
+    const kickoffAt = canonicaliseInstant(lineup.kickoffAt);
+    // Come sopra: già rifiutati, e qui non si indovina un istante mancante.
+    if (observedAt === null || kickoffAt === null) continue;
+    fixtures.push({
+      lineup,
+      observedAt,
+      kickoffAt,
+      starters: new Set(lineup.starters),
+      bench: new Set(lineup.bench),
+    });
+  }
   fixtures.sort((a, b) =>
     a.lineup.stamp.matchday === b.lineup.stamp.matchday
       ? a.lineup.team < b.lineup.team
@@ -687,7 +870,7 @@ export function measureSourceAgreement(input: {
       for (const acc of accs) acc.fixturesCompared += 1;
 
       const called = new Map<string, StarterCall>();
-      for (const call of latest.calls) called.set(call.playerId, call.call);
+      for (const call of latest.snapshot.calls) called.set(call.playerId, call.call);
       // L'universo è l'unione delle due liste: chi non compare in nessuna delle
       // due non esiste per questo confronto e non entra nel conto.
       const universe = [...new Set([...called.keys(), ...lineup.starters, ...lineup.bench])].sort();
@@ -703,7 +886,19 @@ export function measureSourceAgreement(input: {
         if (predicted === null) {
           outcome = "source_silent";
         } else if (actual === null) {
-          outcome = lineup.benchComplete ? "disagreement_absent_from_complete_squad" : "undecidable_partial_actual";
+          // Assente da entrambe le liste. Se le liste non si dichiarano
+          // complete, l'assenza non dice niente e non si decide. Se si
+          // dichiarano complete, l'assenza dice che quel giocatore non è
+          // sceso in campo dal primo minuto: dà torto a chi lo dava titolare
+          // e ragione a chi lo dava fuori.
+          if (lineup.completeness !== "declared-complete") {
+            outcome = "undecidable_actual_incomplete";
+          } else {
+            outcome =
+              predicted === "starter"
+                ? "disagreement_absent_from_complete_squad"
+                : "agreement_absent_from_complete_squad";
+          }
         } else if (predicted === actual) {
           outcome = predicted === "starter" ? "agreement_starter" : "agreement_non_starter";
         } else {
@@ -717,9 +912,9 @@ export function measureSourceAgreement(input: {
           predicted,
           actual,
           outcome,
-          forecastObservedAt: latest.stamp.observedAt,
-          actualObservedAt: lineup.stamp.observedAt,
-          kickoffAt: lineup.kickoffAt,
+          forecastObservedAt: latest.at,
+          actualObservedAt: facts.observedAt,
+          kickoffAt: facts.kickoffAt,
         };
         comparisons.push(comparison);
         for (const acc of accs) absorb(acc, comparison);
