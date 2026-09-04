@@ -1,11 +1,19 @@
 // IL CONTRATTO PRE-PARTITA — che cosa una pagina di stampa sportiva espone,
 // detto in tipi e funzioni pure, senza sapere da dove viene.
 //
-// IL PARSER STA QUI, non dentro un nodo di workflow: `parseMatchPage` è una
-// funzione pura — un testo entra, un esito esce — e i casi che contano sono
-// test, a partire da quello che conta di più: la struttura cambiata sotto di
-// noi, in cui il parser si ferma e lo dichiara invece di restituire mezza
-// formazione. Chi va a prendere la pagina e deposita il raw resta nel privato.
+// I PARSER STANNO QUI, non dentro un nodo di workflow: quattro funzioni pure —
+// un testo entra, un esito esce — una per pagina: `parseMatchPage`,
+// `parseProbableLineupsPage`, `parseCalendarIndex`, `parseStandings`. I casi
+// che contano sono test, a partire da quello che conta di più: la struttura
+// cambiata sotto di noi, in cui il parser si ferma e lo dichiara invece di
+// restituire mezza formazione. Chi va a prendere la pagina e deposita il raw
+// resta nel privato.
+//
+// IL CALENDARIO È L'INDICE, e per questo il suo parser non è uno dei quattro a
+// caso: da lì si ricavano le partite di una giornata, e senza di lui ogni
+// lettura va indovinata a mano. La sua regola più stretta è che la giornata di
+// un gruppo si legge dichiarata o non si legge affatto — mai dalla posizione
+// nell'elenco.
 //
 // MA IL PARSER NON SA DI CHI È LA PAGINA. I nomi delle chiavi arrivano da fuori
 // come parametro obbligatorio — la `SourceShape` — e vivono nel privato: un
@@ -40,7 +48,10 @@
 // QUELLO CHE LA MISURA TROVERÀ QUI, quando qualcuno la costruirà: ogni lista di
 // giocatori porta la propria `Completeness`, e `absenceIsMeaningful` dice se
 // l'assenza di un nome da quella lista significa qualcosa. Senza quel dato una
-// fonte che tace su metà squadra apparirebbe brava per caso.
+// fonte che tace su metà squadra apparirebbe brava per caso. Il parser delle
+// probabili la **produce**, leggendola dai modi di dire dichiarati nella
+// tabella: undici, panchina e formazione intera, ciascuna con la sua, e
+// `unknown` — «non so» — ogni volta che la pagina non lo dice.
 
 export {
   MAX_LABEL_LENGTH,
@@ -106,12 +117,54 @@ export {
 export { PARSE_STOP_CODES, parseMatchPage, type ParseRequest } from "./parseMatchPage.js";
 
 export {
+  MATCH_PAGE_WORDINGS,
   SOURCE_SHAPE_FAMILIES,
+  compilePattern,
+  readShapeTable,
   readSourceShape,
+  type MatchPageWording,
+  type ShapeTable,
   type SourceShape,
   type SourceShapeFamily,
   type SourceShapePatterns,
 } from "./sourceShape.js";
+
+export {
+  PROBABLE_LINEUPS_FAMILIES,
+  PROBABLE_LINEUPS_STOP_CODES,
+  PROBABLE_LINEUPS_WORDINGS,
+  parseProbableLineupsPage,
+  readProbableLineupsShape,
+  type ParseProbableLineupsRequest,
+  type ProbableLineupsFamily,
+  type ProbableLineupsShape,
+  type ProbableLineupsWording,
+} from "./parseProbableLineupsPage.js";
+
+export {
+  CALENDAR_INDEX_FAMILIES,
+  CALENDAR_INDEX_STOP_CODES,
+  CALENDAR_INDEX_WORDINGS,
+  fixtureLookups,
+  parseCalendarIndex,
+  readCalendarIndexShape,
+  type CalendarIndexFamily,
+  type CalendarIndexShape,
+  type FixtureLookup,
+  type ParseCalendarIndexRequest,
+} from "./parseCalendarIndex.js";
+
+export {
+  STANDINGS_FAMILIES,
+  STANDINGS_STOP_CODES,
+  STANDINGS_WORDINGS,
+  parseStandings,
+  readStandingsShape,
+  type ParseStandingsRequest,
+  type StandingsFamily,
+  type StandingsShape,
+  type StandingsWording,
+} from "./parseStandings.js";
 
 export {
   goalDifferenceCheck,

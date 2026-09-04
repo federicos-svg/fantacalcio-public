@@ -52,7 +52,23 @@ import {
   type ObservedSubstitution,
 } from "./matchPage.js";
 import type { MatchdayReference } from "./provenance.js";
-import { isRead, readLabel, shapeNotRecognised, type ReadOutcome } from "./readOutcome.js";
+import {
+  MODULE_SHAPE,
+  arraysNamed,
+  declaredMatchdayAmong,
+  entriesOf,
+  firstArrayIn,
+  firstInstantIn,
+  firstLabelIn,
+  firstReadableJson,
+  firstWholeNumberIn,
+  isRecord,
+  label,
+  stopAt,
+  structuredBlocks,
+  type Entry,
+} from "./documentScan.js";
+import type { ReadOutcome } from "./readOutcome.js";
 import type { SourceShape, SourceShapeFamily } from "./sourceShape.js";
 
 /**
@@ -100,110 +116,12 @@ export interface ParseRequest {
   readonly requestedMatchday: number | null;
 }
 
-const MODULE_SHAPE = /^\d{1,2}(-\d{1,2}){1,4}$/;
-const INSTANT_WITH_ZONE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/;
-
-interface Entry {
-  readonly key: string;
-  readonly value: unknown;
-  readonly container: Record<string, unknown>;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /**
- * Una fermata, detta in modo che si capisca da fuori: il codice, **la famiglia
- * di chiavi** in ballo quando ce n'è una, e il perché in parole.
+ * Una fermata di QUESTO parser: il codice, **la famiglia di chiavi** in ballo
+ * quando ce n'è una, e il perché in parole.
  */
 function stop<T>(code: string, family: SourceShapeFamily | null, why: string): ReadOutcome<T> {
-  const where = family === null ? ["parseMatchPage"] : ["parseMatchPage", "keys", family];
-  const named = family === null ? why : `famiglia di chiavi "${family}": ${why}`;
-  return shapeNotRecognised<T>(`${code} — ${named}`, where);
-}
-
-/** Un'etichetta pulita, oppure `null`. Le stringhe lunghe come una frase non lo sono. */
-function label(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const outcome = readLabel(value.replace(/\s+/g, " "), []);
-  return isRead(outcome) ? outcome.value : null;
-}
-
-/**
- * Ogni coppia chiave/valore del documento, **una volta sola**, con il proprio
- * contenitore. Contarne una due volte farebbe fallire il controllo «due elenchi
- * di titolari» proprio sulle pagine giuste.
- */
-function entriesOf(root: unknown): readonly Entry[] {
-  const out: Entry[] = [];
-  const walk = (value: unknown, depth: number): void => {
-    if (depth > 14 || out.length > 20000) return;
-    if (Array.isArray(value)) {
-      for (let i = 0; i < value.length && i < 60; i += 1) walk(value[i], depth + 1);
-      return;
-    }
-    if (!isRecord(value)) return;
-    for (const key of Object.keys(value)) {
-      out.push({ key, value: value[key], container: value });
-      walk(value[key], depth + 1);
-    }
-  };
-  walk(root, 0);
-  return out;
-}
-
-function structuredBlocks(html: string, shape: SourceShape): readonly string[] {
-  const out: string[] = [];
-  for (const pattern of shape.structuredBlocks) {
-    // `exec` su una regexp con stato globale sarebbe una funzione con memoria:
-    // se ne fa una copia senza `g` per restare puri fra una chiamata e l'altra.
-    const once = new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, ""));
-    const match = once.exec(html);
-    const body = match?.[1];
-    if (body !== undefined && out.length < 10) out.push(body);
-  }
-  return out;
-}
-
-function firstReadableJson(blocks: readonly string[]): unknown {
-  for (const block of blocks) {
-    try {
-      const parsed: unknown = JSON.parse(block);
-      if (typeof parsed === "object" && parsed !== null) return parsed;
-    } catch {
-      // Un blocco illeggibile non è fatale finché ne resta un altro. Fatale è
-      // non averne nessuno, e lo dice chi chiama.
-    }
-  }
-  return null;
-}
-
-function firstLabelIn(container: Record<string, unknown>, pattern: RegExp): string | null {
-  for (const key of Object.keys(container)) {
-    if (!pattern.test(key)) continue;
-    const text = label(container[key]);
-    if (text !== null) return text;
-  }
-  return null;
-}
-
-function firstWholeNumberIn(container: Record<string, unknown>, pattern: RegExp): number | null {
-  for (const key of Object.keys(container)) {
-    if (!pattern.test(key)) continue;
-    const value = container[key];
-    if (typeof value === "number" && Number.isInteger(value) && value >= 0) return value;
-    if (typeof value === "string" && /^\d{1,3}$/.test(value.trim())) return Number(value.trim());
-  }
-  return null;
-}
-
-function firstArrayIn(container: Record<string, unknown>, pattern: RegExp): readonly unknown[] | null {
-  for (const key of Object.keys(container)) {
-    const value = container[key];
-    if (pattern.test(key) && Array.isArray(value)) return value;
-  }
-  return null;
+  return stopAt<T>("parseMatchPage", code, family, why);
 }
 
 // --- i pezzi della formazione ----------------------------------------------
@@ -344,17 +262,8 @@ function matchdayReference(
   shape: SourceShape,
   requested: number | null,
 ): MatchdayReference {
-  for (const entry of entries) {
-    if (!shape.keys.matchday.test(entry.key)) continue;
-    const value = entry.value;
-    if (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 60) {
-      return { origin: "declared-by-source", number: value };
-    }
-    if (typeof value === "string" && /^\s*\d{1,2}\s*$/.test(value)) {
-      const number = Number(value.trim());
-      if (number >= 1) return { origin: "declared-by-source", number };
-    }
-  }
+  const declared = declaredMatchdayAmong(entries, shape.keys.matchday);
+  if (declared !== null) return { origin: "declared-by-source", number: declared };
   // È ciò che ABBIAMO CHIESTO, non ciò che la pagina dichiara: l'origine lo
   // dice, e a valle nessuno può scambiare le due cose.
   if (requested !== null && Number.isInteger(requested) && requested >= 1) {
@@ -397,9 +306,8 @@ function refereeFrom(entries: readonly Entry[], shape: SourceShape): string | nu
  */
 function kickOffFrom(entries: readonly Entry[], shape: SourceShape): Field<string> {
   for (const entry of entries) {
-    if (!shape.keys.kickOff.test(entry.key)) continue;
-    if (typeof entry.value !== "string") continue;
-    if (INSTANT_WITH_ZONE.test(entry.value)) return observed(entry.value);
+    const instant = firstInstantIn(entry.container, shape.keys.kickOff);
+    if (instant !== null) return observed(instant);
   }
   return absentInSource();
 }
@@ -418,7 +326,7 @@ export function parseMatchPage(request: ParseRequest): ReadOutcome<ObservedMatch
     return stop(PARSE_STOP_CODES.emptyInput, null, "nessun contenuto grezzo da leggere");
   }
 
-  const blocks = structuredBlocks(request.rawHtml, shape);
+  const blocks = structuredBlocks(request.rawHtml, shape.structuredBlocks);
   if (blocks.length === 0) {
     return stop(
       PARSE_STOP_CODES.noStructuredBlock,
@@ -432,7 +340,7 @@ export function parseMatchPage(request: ParseRequest): ReadOutcome<ObservedMatch
   }
 
   const entries = entriesOf(root);
-  const starterEntries = entries.filter((entry) => shape.keys.starters.test(entry.key) && Array.isArray(entry.value));
+  const starterEntries = arraysNamed(entries, shape.keys.starters);
   if (starterEntries.length !== 2) {
     return stop(
       PARSE_STOP_CODES.startersNotTwo,
