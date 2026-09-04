@@ -1,17 +1,25 @@
-// COME SI GUARDA DENTRO UN DOCUMENTO — i pezzi comuni a tutti i parser.
+// COME SI GUARDA DENTRO UN DOCUMENTO — i pezzi comuni ai tre parser di indice.
 //
-// Quattro pagine, quattro parser, **un solo modo di guardare**: si estrae il
-// blocco di dati strutturati descritto dalla tabella, lo si legge come JSON, e
-// poi si cercano le cose **per nome di chiave**, non per percorso. Il motivo è
-// scritto per esteso in `parseMatchPage.ts` e vale identico qui: l'osservazione
-// di una struttura misura quali campi esistono, non a che profondità stanno, e
-// un percorso scritto a mano si rompe al primo annidamento diverso.
+// CHI LO USA: `parseProbableLineupsPage`, `parseCalendarIndex`,
+// `parseStandings`. **Non** `parseMatchPage`, che ha i suoi.
 //
-// PERCHÉ IN UN FILE SOLO. Quando il secondo parser è arrivato, queste funzioni
-// erano già scritte dentro il primo. Copiarle avrebbe fatto divergere quattro
-// copie della stessa idea — «un elemento illeggibile ferma tutto», «senza fuso
-// non si legge» — e la divergenza si sarebbe vista solo alla prima lettura vera,
-// su una pagina sola, senza capire perché le altre tre funzionavano.
+// SÌ, È DUPLICAZIONE, ED È DELIBERATA — debito dichiarato, non svista. Queste
+// funzioni esistono già, quasi identiche, dentro `parseMatchPage.ts`: la mossa
+// pulita sarebbe un file solo che serve tutti e quattro i parser. Non si fa
+// adesso perché su `parseMatchPage.ts` sta entrando una correzione di difetti
+// veri, e fra una correzione e una riorganizzazione che tocca le stesse righe
+// **passa prima la correzione**: mandate insieme, chi risolve il conflitto
+// sceglie fra due versioni di una funzione che stanno cambiando per ragioni
+// diverse, ed è il momento in cui una correzione si perde senza che nessuno se
+// ne accorga. Quando quella sarà entrata, i quattro parser si portano sopra un
+// file solo, e sarà anche più facile da rivedere perché sarà **solo** un
+// refactor.
+//
+// CHE COSA FANNO: si estrae il blocco di dati strutturati descritto dalla
+// tabella, lo si legge come JSON, e poi si cercano le cose **per nome di
+// chiave**, non per percorso. L'osservazione di una struttura misura quali campi
+// esistono, non a che profondità stanno, e un percorso scritto a mano si rompe
+// al primo annidamento diverso.
 //
 // QUI NON C'È NIENTE DELLA FONTE. Nessun nome di chiave, nessuna espressione:
 // le espressioni arrivano tutte come argomento, dalla tabella che vive nel
@@ -45,7 +53,7 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
  * famiglia di chiavi** in ballo quando ce n'è una, e il perché in parole.
  *
  * `where` è il nome del parser, e finisce nel percorso: chi legge un motivo sa
- * subito quale delle quattro letture si è fermata.
+ * subito quale lettura si è fermata.
  */
 export function stopAt<T>(
   where: string,

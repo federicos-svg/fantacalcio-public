@@ -86,38 +86,7 @@ export interface SourceShape {
   readonly saysProbable: RegExp;
 }
 
-/**
- * UNA TABELLA COMPILATA, IN GENERALE — famiglie di chiavi e modi di dire.
- *
- * Le pagine sono quattro e ognuna ha il suo elenco di famiglie: la partita ne
- * vuole diciassette, la classifica dodici, il calendario otto. Quello che non
- * cambia è la regola — **niente nomi qui dentro** — e quindi il generico è un
- * tipo con due parametri, non un tipo con dentro l'unione di tutti i nomi.
- *
- * `wordings` sono i **modi di dire** della fonte: non chiavi ma testi che la
- * fonte scrive — «formazioni ufficiali», «elenco completo» — e che vanno
- * riconosciuti per capire che cosa sta dichiarando. Anche loro arrivano da
- * fuori, per la stessa ragione delle chiavi.
- */
-export interface ShapeTable<Family extends string, Wording extends string> {
-  readonly structuredBlocks: readonly RegExp[];
-  readonly keys: Readonly<Record<Family, RegExp>>;
-  readonly wordings: Readonly<Record<Wording, RegExp>>;
-}
-
-/** I modi di dire che servono alla pagina di una partita. */
-export const MATCH_PAGE_WORDINGS = ["saysActual", "saysProbable"] as const;
-
-export type MatchPageWording = (typeof MATCH_PAGE_WORDINGS)[number];
-
-/**
- * Compila un'espressione scritta come testo, o dice perché non si può.
- *
- * Esportata perché ogni pagina ha la sua tabella e le tabelle sono quattro: un
- * secondo modo di compilare, scritto altrove, sarebbe un secondo modo di
- * sbagliare.
- */
-export function compilePattern(pattern: unknown, at: readonly string[]): ReadOutcome<RegExp> {
+function compile(pattern: unknown, at: readonly string[]): ReadOutcome<RegExp> {
   if (typeof pattern !== "string" || pattern.trim().length === 0) {
     return shapeNotRecognised<RegExp>("attesa un'espressione regolare come testo non vuoto", at);
   }
@@ -131,21 +100,94 @@ export function compilePattern(pattern: unknown, at: readonly string[]): ReadOut
 }
 
 /**
- * UNA TABELLA QUALUNQUE, letta con la stessa severità.
- *
- * Ogni pagina ha le sue famiglie di chiavi — la partita ne vuole diciassette,
- * il calendario otto — e ognuna ha, quando le serve, i suoi **modi di dire**:
- * come una fonte scrive «effettiva», come scrive «lista completa». Il generico
- * sta qui perché la severità è la stessa per tutte e quattro, e una severità
- * copiata quattro volte diventa quattro severità diverse al primo ritocco.
+ * Legge la tabella, o dice quale famiglia manca.
  *
  * Fail-closed su tutto: una famiglia assente, un'espressione vuota, una che non
  * compila, zero modi di estrarre il blocco strutturato. Nessuna di queste
  * situazioni ha un ripiego, perché ogni ripiego sarebbe una supposizione sulla
  * forma della fonte fatta dal pezzo di codice che quella forma non la conosce.
+ */
+export function readSourceShape(
+  candidate: unknown,
+  at: readonly string[] = ["sourceShape"],
+): ReadOutcome<SourceShape> {
+  const record = readRecord(candidate, at);
+  if (!isRead(record)) return carryFailure(record);
+
+  const rawBlocks = record.value["structuredBlocks"];
+  if (!Array.isArray(rawBlocks) || rawBlocks.length === 0) {
+    return shapeNotRecognised<SourceShape>(
+      "serve almeno un modo di estrarre il blocco di dati strutturati",
+      [...at, "structuredBlocks"],
+    );
+  }
+  const blocks: RegExp[] = [];
+  for (let i = 0; i < rawBlocks.length; i += 1) {
+    const compiled = compile(rawBlocks[i], [...at, "structuredBlocks", String(i)]);
+    if (!isRead(compiled)) return carryFailure(compiled);
+    blocks.push(compiled.value);
+  }
+
+  const rawKeys = readRecord(record.value["keys"], [...at, "keys"]);
+  if (!isRead(rawKeys)) return carryFailure(rawKeys);
+
+  const keys: Partial<Record<SourceShapeFamily, RegExp>> = {};
+  for (const family of SOURCE_SHAPE_FAMILIES) {
+    const compiled = compile(rawKeys.value[family], [...at, "keys", family]);
+    if (!isRead(compiled)) return carryFailure(compiled);
+    keys[family] = compiled.value;
+  }
+
+  const saysActual = compile(record.value["saysActual"], [...at, "saysActual"]);
+  if (!isRead(saysActual)) return carryFailure(saysActual);
+  const saysProbable = compile(record.value["saysProbable"], [...at, "saysProbable"]);
+  if (!isRead(saysProbable)) return carryFailure(saysProbable);
+
+  return read({
+    structuredBlocks: blocks,
+    keys: keys as Readonly<Record<SourceShapeFamily, RegExp>>,
+    saysActual: saysActual.value,
+    saysProbable: saysProbable.value,
+  });
+}
+
+/**
+ * UNA TABELLA COMPILATA, IN GENERALE — famiglie di chiavi e modi di dire.
+ *
+ * `SourceShape` qui sopra descrive la pagina di una partita. Le altre pagine
+ * hanno le loro famiglie — la classifica dodici, il calendario otto — e ognuna,
+ * quando le serve, i suoi **modi di dire**: come una fonte scrive «effettiva»,
+ * come scrive «lista completa», come scrive «vittoria». Quello che non cambia è
+ * la regola — **niente nomi di fonte qui dentro** — e quindi il generico è un
+ * tipo con due parametri, non un tipo con dentro l'unione di tutti i nomi.
+ *
+ * `wordings` non sono chiavi ma **testi che la fonte scrive**, da riconoscere
+ * per capire che cosa sta dichiarando. Arrivano da fuori come le chiavi, e per
+ * la stessa ragione.
+ */
+export interface ShapeTable<Family extends string, Wording extends string> {
+  readonly structuredBlocks: readonly RegExp[];
+  readonly keys: Readonly<Record<Family, RegExp>>;
+  readonly wordings: Readonly<Record<Wording, RegExp>>;
+}
+
+/**
+ * Legge una tabella qualunque, con la stessa severità di `readSourceShape`.
+ *
+ * Fail-closed su tutto: una famiglia assente, un modo di dire assente,
+ * un'espressione vuota, una che non compila, zero modi di estrarre il blocco
+ * strutturato. Nessuna di queste situazioni ha un ripiego, perché ogni ripiego
+ * sarebbe una supposizione sulla forma della fonte fatta dal pezzo di codice che
+ * quella forma non la conosce.
  *
  * `at` porta **il nome della famiglia**, mai un indice: chi legge il motivo non
  * ha davanti la tabella e deve capire che cosa aggiungerci.
+ *
+ * NON RIUSA `readSourceShape` E NON LO SOSTITUISCE. Le due funzioni fanno la
+ * stessa cosa su elenchi diversi, e per ora convivono: rifare `readSourceShape`
+ * sopra questa avrebbe toccato righe che un'altra correzione sta cambiando, e
+ * fra una correzione di difetti e una riorganizzazione passa prima la
+ * correzione. Debito dichiarato, da chiudere quando quella sarà entrata.
  */
 export function readShapeTable<Family extends string, Wording extends string>(
   candidate: unknown,
@@ -165,7 +207,7 @@ export function readShapeTable<Family extends string, Wording extends string>(
   }
   const blocks: RegExp[] = [];
   for (let i = 0; i < rawBlocks.length; i += 1) {
-    const compiled = compilePattern(rawBlocks[i], [...at, "structuredBlocks", String(i)]);
+    const compiled = compile(rawBlocks[i], [...at, "structuredBlocks", String(i)]);
     if (!isRead(compiled)) return carryFailure(compiled);
     blocks.push(compiled.value);
   }
@@ -175,14 +217,14 @@ export function readShapeTable<Family extends string, Wording extends string>(
 
   const keys: Partial<Record<Family, RegExp>> = {};
   for (const family of families) {
-    const compiled = compilePattern(rawKeys.value[family], [...at, "keys", family]);
+    const compiled = compile(rawKeys.value[family], [...at, "keys", family]);
     if (!isRead(compiled)) return carryFailure(compiled);
     keys[family] = compiled.value;
   }
 
   const said: Partial<Record<Wording, RegExp>> = {};
   for (const wording of wordings) {
-    const compiled = compilePattern(record.value[wording], [...at, wording]);
+    const compiled = compile(record.value[wording], [...at, wording]);
     if (!isRead(compiled)) return carryFailure(compiled);
     said[wording] = compiled.value;
   }
@@ -191,26 +233,5 @@ export function readShapeTable<Family extends string, Wording extends string>(
     structuredBlocks: blocks,
     keys: keys as Readonly<Record<Family, RegExp>>,
     wordings: said as Readonly<Record<Wording, RegExp>>,
-  });
-}
-
-/**
- * Legge la tabella della pagina di una partita, o dice quale famiglia manca.
- *
- * È il caso particolare di `readShapeTable` con le famiglie della partita e i
- * due modi di dire che le servono; la forma del risultato resta quella che il
- * parser della partita usa da sempre.
- */
-export function readSourceShape(
-  candidate: unknown,
-  at: readonly string[] = ["sourceShape"],
-): ReadOutcome<SourceShape> {
-  const table = readShapeTable(candidate, SOURCE_SHAPE_FAMILIES, MATCH_PAGE_WORDINGS, at);
-  if (!isRead(table)) return carryFailure(table);
-  return read({
-    structuredBlocks: table.value.structuredBlocks,
-    keys: table.value.keys,
-    saysActual: table.value.wordings.saysActual,
-    saysProbable: table.value.wordings.saysProbable,
   });
 }

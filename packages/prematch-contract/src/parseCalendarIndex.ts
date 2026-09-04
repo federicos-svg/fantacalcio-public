@@ -38,7 +38,7 @@ import {
   isRecord,
   stopAt,
   structuredBlocks,
-} from "./documentScan.js";
+} from "./indexPageScan.js";
 import { readCalendarIndex, type ObservedCalendarIndex, type ObservedScore } from "./gameweekPages.js";
 import type { MatchdayReference } from "./provenance.js";
 import { carryFailure, isRead, read, type ReadOutcome } from "./readOutcome.js";

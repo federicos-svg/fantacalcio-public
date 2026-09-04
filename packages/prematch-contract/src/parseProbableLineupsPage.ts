@@ -47,7 +47,7 @@ import {
   structuredBlocks,
   MODULE_SHAPE,
   type Entry,
-} from "./documentScan.js";
+} from "./indexPageScan.js";
 import {
   readProbableLineupsPage,
   type ObservedProbableLineupsPage,

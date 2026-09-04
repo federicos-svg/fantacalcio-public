@@ -117,12 +117,9 @@ export {
 export { PARSE_STOP_CODES, parseMatchPage, type ParseRequest } from "./parseMatchPage.js";
 
 export {
-  MATCH_PAGE_WORDINGS,
   SOURCE_SHAPE_FAMILIES,
-  compilePattern,
   readShapeTable,
   readSourceShape,
-  type MatchPageWording,
   type ShapeTable,
   type SourceShape,
   type SourceShapeFamily,

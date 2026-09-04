@@ -35,7 +35,7 @@ import {
   label,
   stopAt,
   structuredBlocks,
-} from "./documentScan.js";
+} from "./indexPageScan.js";
 import { readStandings, type FormOutcome, type ObservedStandings } from "./gameweekPages.js";
 import type { ReadOutcome } from "./readOutcome.js";
 import { readShapeTable, type ShapeTable } from "./sourceShape.js";
