@@ -76,6 +76,111 @@ esperto dai conteggi.
 - Il **ruolo di chi è citato non passa mai a chi cita**, e l'annidamento delle
   citazioni si conserva perché è l'unica cosa che dice chi ha detto che cosa.
 
+## I segnali di formazione — perché la fonte è stata autorizzata
+
+`src/lineupSignals.ts` legge da un post le affermazioni di formazione: un
+giocatore **dato titolare**, **in dubbio**, **dato fuori**, oppure una
+**smentita** di una notizia precedente. Quattro tipi, vocabolario chiuso.
+
+Il testo di un post **non è un dato strutturato**: ogni estrazione da testo
+libero è un'inferenza, e una inferenza che si presentasse come un fatto sarebbe
+peggio di nessuna estrazione. Per questo il pacchetto **misura e dichiara**, come
+fa `packages/source-reliability` con l'accordo fra fonti, e **non pesa niente**:
+nessun punteggio, nessuna fiducia, nessun ordinamento per qualità. Ogni segnale
+esce con
+
+- il **grado della sua evidenza** — forma dell'enunciato (`affermata` /
+  `attenuata`, col termine che l'attenua), soggetto (`risolto` / `ambiguo` /
+  `non_identificato`, con quanti candidati e a quale ampiezza è stato trovato),
+  classe di ruolo dell'autore e se quel ruolo è verificato. È un insieme di
+  fatti messi accanto, non un ordinale: `alto/medio/basso` sarebbe già un peso;
+- **da quale parte del post viene** — corpo dell'autore o citazione, con
+  profondità e indice della citazione, periodo, proposizione e posizione del
+  termine.
+
+Chi sta a valle guarda quei campi e decide quanto pesarli. Qui non si decide.
+
+### Le quattro regole
+
+- **Il silenzio non è un'assenza di informazione sul giocatore.** Un post senza
+  segnali riconoscibili non produce segnali: è `SILENZIO`, non un errore, ed è
+  un fatto diverso da «detto fuori». Il silenzio si dichiara **solo se il testo
+  è stato davvero letto**: corpo del post non riconosciuto →
+  `SILENZIO_NON_DIMOSTRABILE`, che non autorizza nessuna conclusione.
+- **Una contraddizione non cancella niente.** Un segnale più recente che
+  contraddice uno precedente **non lo sostituisce**: restano entrambi, ciascuno
+  col proprio momento, e la contraddizione è dichiarata — `OPPOSTI` (titolare e
+  fuori), `RIVISTO` (una certezza e un dubbio), `SMENTITA_DICHIARATA` — con
+  `span` che dice se sta dentro un post o fra due post. In questo modulo **non
+  esiste un campo «ultimo segnale»**: esisterebbe per essere letto da solo, e
+  chi legge deve poter vedere che l'esperto ha cambiato idea.
+- **Il ruolo si verifica, non si presume.** Un segnale da autore con ruolo non
+  verificato è **valido** ed esce, **marcato** (`roleVerified: false`, con la
+  classe accanto): mai scartato in silenzio — sarebbe inventare un silenzio —
+  mai promosso.
+- **Una citazione non trasferisce il ruolo.** Le parole dentro una citazione
+  producono segnali, perché sono state dette, ma con `voice: "citazione"`,
+  `roleInherited: false` e classe di ruolo `non_verificabile`: il ruolo
+  verificato di chi cita **non copre** ciò che ha detto un altro.
+
+### L'ordine dei post si verifica, non si assume
+
+`RIVISTO` e `SMENTITA_DICHIARATA` sono affermazioni **sul tempo**: se «più
+recente» venisse dall'ordine di un array — che è una scelta di chi lo costruisce,
+non una misura — sarebbero fabbricate. Quindi `verifyPostOrder` guarda che cosa i
+post portano davvero addosso:
+
+1. **indice di pagina** (`pageOffset` + `positionInPage`, quando ogni post li ha):
+   base **primaria**, perché è la struttura osservata e non dipende da nessun fuso;
+2. **istante dichiarato**: usato solo se **ogni** post ha una data in forma
+   canonica, tutte con lo **stesso** scostamento e la stessa larghezza — a quella
+   condizione il confronto lessicografico è un confronto cronologico corretto, e
+   non serve nessun orologio. Scostamenti diversi **non si normalizzano**: il fuso
+   di questo perimetro non è mai stato verificato (§"Che cosa NON è stato
+   osservato", 7), e normalizzarlo sarebbe inventarlo;
+3. **niente di confrontabile**: l'ordine non è verificabile.
+
+Quando ci sono entrambe, la seconda **controlla** la prima. Due osservazioni
+indipendenti che si contraddicono non si mediano e non si scelgono:
+
+- ordine **non monotono** — istanti in contrasto con le pagine, o post consegnati
+  fuori sequenza → **si rifiuta**, `ORDINE_NON_MONOTONO`, fail-closed: nessun
+  segnale, nessuna relazione, il motivo scritto;
+- ordine **non verificabile** → i segnali **escono lo stesso**, perché sono stati
+  detti, ma `RIVISTO` e `SMENTITA_DICHIARATA` **non vengono prodotte**; le coppie
+  lasciate senza relazione temporale sono contate in `pairsWithoutOrder`, non
+  nascoste. `OPPOSTI` resta, perché «dato titolare» e «dato fuori» non possono
+  valere insieme a prescindere da quale sia venuto prima;
+- **dentro un post** l'ordine è quello del testo, e quello si vede sempre.
+
+Per la stessa ragione i due lati di una contraddizione si chiamano `first` e
+`second`, non «prima» e «dopo»: `first` precede `second` solo quando `span` è
+`STESSO_POST` o `POST_SUCCESSIVO`, e `temporal` lo dice.
+
+### Il lessico è un ingresso, non una costante
+
+Le parole con cui una fonte dice «titolare», «in dubbio», «fuori», «smentito»
+sono **la forma di quella fonte**: un elenco di parole nel sorgente sarebbe una
+descrizione della fonte pubblicata nel core — la stessa ragione per cui la
+tabella delle chiavi di un'altra fonte è già stata spostata fuori dal parser che
+la usa. Anche i **nomi dei giocatori** arrivano da fuori, per la stessa ragione
+per cui arriva da fuori la tabella di alias delle squadre.
+
+Non c'è nessun elenco di riserva, nessun valore per difetto, nessun tentativo
+«alla cieca» su parole plausibili: **senza lessico il parser non tenta niente**
+(`LESSICO_ASSENTE`, `LESSICO_INCOMPLETO`, con la famiglia mancante nominata). Le
+fixture delle prove usano lettere greche, non parole di calcio: anche una prova
+sta nel repository pubblico.
+
+`runParser` legge i segnali quando riceve il lessico in `signalLexicon`, e non
+altrimenti: senza, il blocco dei segnali del referto dichiara `LESSICO_ASSENTE`
+senza guardare un carattere di testo. Il **referto** ne porta solo conteggi —
+esiti, stati dell'ordine, tipi, forme, voci, soggetti, classi di ruolo, relazioni
+di contraddizione — con le chiavi in ordine alfabetico e mai per valore, perché
+un ordinamento per risultato è già una classifica; i **termini** che hanno
+prodotto ogni segnale, che sono il lessico privato del chiamante, restano
+nell'**estratto** insieme a nomi e testo.
+
 ## Che cosa esce
 
 - Il **referto**: solo forme e conteggi — esiti, topic, post, ruoli per classe,

@@ -51,6 +51,15 @@ export interface Quote {
   readonly quotedAuthor: string;
   readonly quotedPostId: string;
   readonly quotedAuthorRecognised: boolean;
+  /**
+   * Testo **proprio** di questa citazione: quello del suo livello, al netto
+   * delle citazioni annidate dentro di essa e della riga di attribuzione. Dato
+   * privato, come `textWithoutQuotes`. Serve perché parole citate restano
+   * parole di un altro e vanno lette **sapendo di chi sono**: cancellarle
+   * farebbe sparire ciò che è stato detto, confonderle col corpo del post
+   * attribuirebbe a chi cita ciò che ha detto chi è citato.
+   */
+  readonly text: string;
   /** Il ruolo di chi è citato non passa **mai** a chi cita. */
   readonly roleInherited: false;
 }
