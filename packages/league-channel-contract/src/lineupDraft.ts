@@ -29,6 +29,7 @@
 // stessi argomenti danno lo stesso esito.
 
 import type { Module } from "../../league-gameweek/src/leagueGameweek.js";
+import { MODULES, moduleShape } from "../../league-gameweek/src/leagueGameweek.js";
 import type { Role } from "../../league-gameweek/src/gameweekSimulator.js";
 import type { LineupConstraints } from "../../league-gameweek/src/lineupProposer.js";
 import type { ObservedLeagueSettings } from "./leagueSettings.js";
@@ -233,6 +234,182 @@ export function moveBench(
 export function setLineupModule(lineup: ObservedLineup, module: Module): LineupEdit {
   if (lineup.module === module) return rifiutata(`la formazione è già schierata con «${module}»`);
   return eseguita({ ...lineup, module });
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   LO SCAMBIO — il gesto del campo, e l'unica mossa che non ha uno stato di mezzo
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/** Dove sta un giocatore, e in quale casella dell'elenco. `-1` = la porta. */
+interface Posizione {
+  readonly place: LineupPlace;
+  readonly index: number;
+}
+
+function posizione(lineup: ObservedLineup, playerId: string): Posizione | null {
+  const place = placeOf(lineup, playerId);
+  if (place === "porta") return { place, index: -1 };
+  if (place === "titolare") return { place, index: lineup.starterIds.indexOf(playerId) };
+  if (place === "panchina") return { place, index: lineup.benchIds.indexOf(playerId) };
+  return null;
+}
+
+/** Quanti titolari di movimento per ruolo, o l'id del primo ruolo non letto. */
+function reparti(
+  starterIds: readonly string[],
+  roles: ReadonlyMap<string, Role>,
+): Readonly<Record<Role, number>> | { readonly ruoloIgnoto: string } {
+  const counts: Record<Role, number> = { P: 0, D: 0, C: 0, A: 0 };
+  for (const id of starterIds) {
+    const role = roles.get(id);
+    if (role === undefined) return { ruoloIgnoto: id };
+    counts[role] += 1;
+  }
+  return counts;
+}
+
+/** Il modulo dei sette che ha esattamente questa forma, se ce n'è uno. */
+function moduloConLaForma(
+  defenders: number,
+  midfielders: number,
+  strikers: number,
+): Module | undefined {
+  return MODULES.find((module) => {
+    const shape = moduleShape(module);
+    return (
+      shape.defenders === defenders &&
+      shape.midfielders === midfielders &&
+      shape.strikers === strikers
+    );
+  });
+}
+
+/**
+ * SCAMBIARE DUE GIOCATORI DI POSTO — il gesto che il campo rende naturale, e
+ * che l'elenco in colonna non suggeriva nemmeno.
+ *
+ * È ATOMICO, ed è la ragione per cui non è «una mossa fuori più una mossa
+ * dentro». Le due mosse in fila passerebbero per un undici a dodici o a dieci:
+ * uno stato che nessuno ha voluto, che `draftLegality` mostrerebbe come
+ * illegale, e su cui un secondo rifiuto lascerebbe la formazione a metà strada.
+ * Qui o esce una formazione legale, o non esce niente e il motivo è scritto.
+ *
+ * IL MODULO SEGUE I RUOLI, NON LI COMANDA. Scambiare un difensore in panchina
+ * con un centrocampista in campo cambia la forma degli undici: se la forma
+ * nuova è uno dei sette moduli di §9 la mossa si esegue e il modulo della
+ * formazione diventa quello — gli undici sono esattamente quelli che chi guarda
+ * ha composto, e l'etichetta li descrive invece di contraddirli. Se invece la
+ * forma nuova non è nessuno dei sette, la mossa si rifiuta dicendo la forma che
+ * avrebbe prodotto: eseguirla lascerebbe una formazione che non si può inviare.
+ *
+ * PERCHÉ QUI SI RIFIUTA E `moveToStarters` INVECE LASCIA PASSARE L'ILLEGALE.
+ * Non è la stessa situazione, ed è bene dirlo perché sembra esserlo. Far entrare
+ * qualcuno AGGIUNGE un titolare: il conto passa da dieci a undici di movimento,
+ * nessun modulo lo prevede, e l'unica alternativa a mostrare l'illegalità
+ * sarebbe stata decidere al posto di chi guarda chi esce — che è la scelta che
+ * quella funzione si rifiuta di fare. Lo scambio invece dice già chi esce: il
+ * conto resta dieci, l'unica cosa che può cambiare è la forma, e per la forma
+ * esiste una risposta giusta — il modulo che la descrive — che non toglie
+ * nessuna decisione a nessuno. Dove non esiste, si rifiuta.
+ *
+ * LA PORTA È UN POSTO SOLO. Lo scambio non la lascia mai vuota (chi esce dalla
+ * porta viene rimpiazzato nello stesso gesto) e non ci mette chi portiere non
+ * è: un ruolo diverso da `P`, o non osservato, ferma la mossa. Un secondo
+ * portiere fra i titolari di movimento cade invece sulla regola della forma —
+ * nessuno dei sette moduli ha una casella per lui.
+ *
+ * CHI È FUORI DAI CONVOCATI NON SI SCAMBIA: non ha un posto da cedere. Entra
+ * con `moveToStarters` o `moveToBench`, che è la mossa che descrive ciò che
+ * sta succedendo davvero.
+ */
+export function swapPlayers(
+  lineup: ObservedLineup,
+  aId: string,
+  bId: string,
+  roles: ReadonlyMap<string, Role>,
+): LineupEdit {
+  if (aId === bId) {
+    return rifiutata(`«${aId}» è già al suo posto: scambiarlo con sé stesso non cambia niente`);
+  }
+  const posA = posizione(lineup, aId);
+  if (posA === null) {
+    return rifiutata(
+      `«${aId}» non è schierato in questa formazione: non ha un posto da scambiare, e per farlo ` +
+        "entrare c'è la mossa che lo fa entrare",
+    );
+  }
+  const posB = posizione(lineup, bId);
+  if (posB === null) {
+    return rifiutata(
+      `«${bId}» non è schierato in questa formazione: non ha un posto da scambiare, e per farlo ` +
+        "entrare c'è la mossa che lo fa entrare",
+    );
+  }
+
+  // Le due caselle si leggono PRIMA di scrivere: cercare la seconda dopo aver
+  // scritto la prima la troverebbe sull'id appena messo, e uno scambio dentro
+  // lo stesso elenco tornerebbe indietro da sé.
+  const starterIds = [...lineup.starterIds];
+  const benchIds = [...lineup.benchIds];
+  let goalkeeperId = lineup.goalkeeperId;
+  const scrivi = (posto: Posizione, id: string): boolean => {
+    if (posto.place === "porta") {
+      goalkeeperId = id;
+      return true;
+    }
+    const lista = posto.place === "titolare" ? starterIds : benchIds;
+    if (posto.index < 0 || posto.index >= lista.length) return false;
+    lista[posto.index] = id;
+    return true;
+  };
+  if (!scrivi(posA, bId) || !scrivi(posB, aId)) {
+    return rifiutata("la formazione non è leggibile in una delle due posizioni dello scambio");
+  }
+
+  if (goalkeeperId !== lineup.goalkeeperId) {
+    const role = roles.get(goalkeeperId);
+    if (role === undefined) {
+      return rifiutata(
+        `il ruolo di «${goalkeeperId}» non è stato osservato: in porta non ci si mette per ` +
+          "esclusione, e qui non lo si deduce",
+      );
+    }
+    if (role !== "P") {
+      return rifiutata(
+        `«${goalkeeperId}» è di ruolo ${role}: in porta ci va un portiere, e la porta è ` +
+          "l'unico posto che non ammette un'eccezione",
+      );
+    }
+  }
+
+  // Gli undici di movimento cambiano composizione solo quando uno dei due posti
+  // è fra i titolari e l'altro no. Negli altri casi — due titolari, due
+  // panchinari, porta e panchina — la forma è per costruzione quella di prima,
+  // e il modulo non ha ragione di cambiare.
+  const formaCambiata = (posA.place === "titolare") !== (posB.place === "titolare");
+  const scambiata: ObservedLineup = { ...lineup, goalkeeperId, starterIds, benchIds };
+  if (!formaCambiata) return eseguita(scambiata);
+
+  const conto = reparti(starterIds, roles);
+  if ("ruoloIgnoto" in conto) {
+    return rifiutata(
+      `il ruolo di «${conto.ruoloIgnoto}» non è stato osservato: la forma che lo scambio ` +
+        "lascerebbe non è calcolabile, e non si suppone",
+    );
+  }
+  const modulo = conto.P > 0 ? undefined : moduloConLaForma(conto.D, conto.C, conto.A);
+  if (modulo === undefined) {
+    const portieri =
+      conto.P === 0
+        ? ""
+        : `, più ${conto.P} portiere${conto.P === 1 ? "" : "i"} fra i titolari di movimento`;
+    return rifiutata(
+      `lo scambio lascerebbe ${conto.D} difensori, ${conto.C} centrocampisti e ` +
+        `${conto.A} attaccanti${portieri}: nessuno dei sette moduli di §9 ha questa forma, e ` +
+        "una formazione così non si invia",
+    );
+  }
+  return eseguita({ ...scambiata, module: modulo });
 }
 
 /** Le due opzioni della formazione, una alla volta. */

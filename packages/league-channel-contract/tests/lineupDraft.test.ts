@@ -12,8 +12,10 @@ import {
   placeOf,
   setLineupFlag,
   setLineupModule,
+  swapPlayers,
   type LineupEdit,
 } from "../src/lineupDraft.js";
+import { MODULES, moduleShape } from "../../league-gameweek/src/leagueGameweek.js";
 import { rolesByPlayerId } from "../src/roster.js";
 import type { ObservedLineup } from "../src/lineupSubmission.js";
 import { CAMPIONATO, FORMAZIONE, ROSA, SETTINGS_IN_ACCORDO } from "./fixtures.js";
@@ -268,5 +270,209 @@ describe("la legalità di ciò che si vede, ricontrollata a ogni modifica", () =
     expect(legality.kind).toBe("non_verificabile");
     if (legality.kind !== "non_verificabile") return;
     expect(legality.reason).toContain("c2");
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// LO SCAMBIO — atomico, e con un rifiuto che si legge.
+//
+// Ogni prova di rifiuto qui sotto mostra DUE cose, perché una sola non
+// proverebbe niente: che il motivo è quello atteso, e che la formazione di
+// partenza è rimasta esattamente quella di prima. Un rifiuto che avesse già
+// spostato qualcuno sarebbe il difetto che questa funzione esiste per evitare.
+
+/** Il rifiuto atteso, e la formazione che non si è mossa di un millimetro. */
+function rifiutata(edit: LineupEdit, prima: ObservedLineup, copia: ObservedLineup): string {
+  expect(edit.ok).toBe(false);
+  if (edit.ok) throw new Error("lo scambio doveva essere rifiutato");
+  expect(prima).toEqual(copia);
+  return edit.reason;
+}
+
+/** Copia profonda, per confrontare il prima con il dopo. */
+function copiaDi(lineup: ObservedLineup): ObservedLineup {
+  return {
+    ...lineup,
+    starterIds: [...lineup.starterIds],
+    benchIds: [...lineup.benchIds],
+    flags: { ...lineup.flags },
+  };
+}
+
+/** 3-5-2: dal 4-4-2 ogni scambio cade su un modulo ammesso, da qui no. */
+const FORMAZIONE_352: ObservedLineup = {
+  ...FORMAZIONE,
+  module: "352",
+  starterIds: ["p2", "p3", "p4", "p6", "p7", "p8", "p9", "p14", "p10", "p11"],
+  benchIds: ["p12", "p5", "p13", "p15", "p16"],
+};
+
+describe("scambiare due giocatori di posto", () => {
+  it("due titolari dello stesso ruolo si scambiano il posto, e il modulo non cambia", () => {
+    const dopo = eseguita(swapPlayers(FORMAZIONE, "p2", "p3", RUOLI));
+    expect(dopo.module).toBe("442");
+    expect(dopo.starterIds).toEqual(["p3", "p2", "p4", "p5", "p6", "p7", "p8", "p9", "p10", "p11"]);
+    expect(dopo.benchIds).toEqual(FORMAZIONE.benchIds);
+    expect(dopo.goalkeeperId).toBe("p1");
+  });
+
+  it("due titolari lontani nell'elenco si scambiano davvero, non tornano indietro", () => {
+    // Se le due caselle si cercassero una dopo l'altra, la seconda troverebbe
+    // l'id appena scritto e lo scambio si annullerebbe da sé.
+    const dopo = eseguita(swapPlayers(FORMAZIONE, "p2", "p5", RUOLI));
+    expect(dopo.starterIds).toEqual(["p5", "p3", "p4", "p2", "p6", "p7", "p8", "p9", "p10", "p11"]);
+  });
+
+  it("due panchinari si scambiano l'ordine d'ingresso, e nient'altro si muove", () => {
+    const dopo = eseguita(swapPlayers(FORMAZIONE, "p12", "p16", RUOLI));
+    expect(dopo.benchIds).toEqual(["p16", "p13", "p14", "p15", "p12"]);
+    expect(dopo.starterIds).toEqual(FORMAZIONE.starterIds);
+    expect(dopo.goalkeeperId).toBe("p1");
+    expect(dopo.module).toBe("442");
+  });
+
+  it("panchina e campo con ruoli diversi: il modulo diventa quello che descrive gli undici", () => {
+    // Un centrocampista entra al posto di un difensore: 4-4-2 diventa 3-5-2, e
+    // l'etichetta segue i ruoli invece di contraddirli.
+    const dopo = eseguita(swapPlayers(FORMAZIONE, "p2", "p14", RUOLI));
+    expect(dopo.module).toBe("352");
+    expect(dopo.starterIds).toEqual([
+      "p14",
+      "p3",
+      "p4",
+      "p5",
+      "p6",
+      "p7",
+      "p8",
+      "p9",
+      "p10",
+      "p11",
+    ]);
+    expect(dopo.benchIds).toEqual(["p12", "p13", "p2", "p15", "p16"]);
+    expect(dopo.goalkeeperId).toBe("p1");
+  });
+
+  it("una forma che nessuno dei sette moduli ha si rifiuta, e la formazione resta quella", () => {
+    const copia = copiaDi(FORMAZIONE_352);
+    // Dal 3-5-2, un difensore che esce per un attaccante lascerebbe due
+    // difensori: §9 non ha nessun modulo con due difensori.
+    const reason = rifiutata(
+      swapPlayers(FORMAZIONE_352, "p2", "p15", RUOLI),
+      FORMAZIONE_352,
+      copia,
+    );
+    expect(reason).toContain("2 difensori");
+    expect(reason).toContain("sette moduli");
+
+    // E la strada opposta esiste davvero: dalla stessa formazione, lo scambio
+    // che cade su un modulo ammesso passa. Il rifiuto è la regola, non il muro.
+    const ammesso = eseguita(swapPlayers(FORMAZIONE_352, "p14", "p13", RUOLI));
+    expect(ammesso.module).toBe("442");
+  });
+
+  it("un ruolo non osservato fra i titolari ferma lo scambio invece di supporre la forma", () => {
+    const senzaP7 = new Map(RUOLI);
+    senzaP7.delete("p7");
+    const copia = copiaDi(FORMAZIONE);
+    const reason = rifiutata(swapPlayers(FORMAZIONE, "p2", "p14", senzaP7), FORMAZIONE, copia);
+    expect(reason).toContain("p7");
+    expect(reason).toContain("non è stato osservato");
+
+    // Con i ruoli completi lo stesso scambio si esegue: è il ruolo mancante a
+    // cambiare la strada, non lo scambio in sé.
+    const dopo = eseguita(swapPlayers(FORMAZIONE, "p2", "p14", RUOLI));
+    expect(dopo.module).toBe("352");
+  });
+
+  it("uno scambio che non tocca gli undici non ha bisogno di conoscere i ruoli", () => {
+    const dopo = eseguita(swapPlayers(FORMAZIONE, "p13", "p15", new Map()));
+    expect(dopo.benchIds).toEqual(["p12", "p15", "p14", "p13", "p16"]);
+    expect(dopo.module).toBe("442");
+  });
+});
+
+describe("la porta, nello scambio", () => {
+  it("un portiere della panchina prende la porta, e chi c'era prende la sua casella", () => {
+    const dopo = eseguita(swapPlayers(FORMAZIONE, "p1", "p12", RUOLI));
+    expect(dopo.goalkeeperId).toBe("p12");
+    expect(dopo.benchIds).toEqual(["p1", "p13", "p14", "p15", "p16"]);
+    expect(dopo.starterIds).toEqual(FORMAZIONE.starterIds);
+    expect(dopo.module).toBe("442");
+  });
+
+  it("in porta non ci va chi portiere non è, e la porta non resta mai vuota", () => {
+    const copia = copiaDi(FORMAZIONE);
+    const daPanchina = rifiutata(swapPlayers(FORMAZIONE, "p1", "p13", RUOLI), FORMAZIONE, copia);
+    expect(daPanchina).toContain("p13");
+    expect(daPanchina).toContain("in porta ci va un portiere");
+
+    const dalCampo = rifiutata(swapPlayers(FORMAZIONE, "p1", "p6", RUOLI), FORMAZIONE, copia);
+    expect(dalCampo).toContain("in porta ci va un portiere");
+  });
+
+  it("un portiere il cui ruolo non è stato letto non entra in porta per esclusione", () => {
+    const senzaP12 = new Map(RUOLI);
+    senzaP12.delete("p12");
+    const copia = copiaDi(FORMAZIONE);
+    const reason = rifiutata(swapPlayers(FORMAZIONE, "p1", "p12", senzaP12), FORMAZIONE, copia);
+    expect(reason).toContain("p12");
+    expect(reason).toContain("non è stato osservato");
+  });
+
+  it("un secondo portiere fra gli undici di movimento si rifiuta: non c'è casella per lui", () => {
+    const copia = copiaDi(FORMAZIONE);
+    const reason = rifiutata(swapPlayers(FORMAZIONE, "p2", "p12", RUOLI), FORMAZIONE, copia);
+    expect(reason).toContain("portiere");
+    expect(reason).toContain("sette moduli");
+  });
+
+  it("ogni scambio accettato lascia la porta occupata", () => {
+    const accettati = [
+      swapPlayers(FORMAZIONE, "p1", "p12", RUOLI),
+      swapPlayers(FORMAZIONE, "p2", "p3", RUOLI),
+      swapPlayers(FORMAZIONE, "p2", "p14", RUOLI),
+    ];
+    for (const edit of accettati) {
+      expect(edit.ok).toBe(true);
+      if (!edit.ok) continue;
+      expect(edit.lineup.goalkeeperId.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("gli scambi che non sono scambi", () => {
+  it("scambiare qualcuno con sé stesso non è una mossa", () => {
+    const copia = copiaDi(FORMAZIONE);
+    const reason = rifiutata(swapPlayers(FORMAZIONE, "p2", "p2", RUOLI), FORMAZIONE, copia);
+    expect(reason).toContain("sé stesso");
+  });
+
+  it("un id che nella formazione non c'è non ha un posto da cedere", () => {
+    const copia = copiaDi(FORMAZIONE);
+    const primo = rifiutata(swapPlayers(FORMAZIONE, "p99", "p2", RUOLI), FORMAZIONE, copia);
+    expect(primo).toContain("p99");
+    expect(primo).toContain("non è schierato");
+
+    const secondo = rifiutata(swapPlayers(FORMAZIONE, "p2", "p99", RUOLI), FORMAZIONE, copia);
+    expect(secondo).toContain("p99");
+  });
+
+  it("chi è in rosa ma fuori dai convocati si fa entrare, non si scambia", () => {
+    const senzaP16 = eseguita(moveOutside(FORMAZIONE, "p16"));
+    expect(placeOf(senzaP16, "p16")).toBe("fuori");
+    const copia = copiaDi(senzaP16);
+    const reason = rifiutata(swapPlayers(senzaP16, "p16", "p15", RUOLI), senzaP16, copia);
+    expect(reason).toContain("p16");
+    expect(reason).toContain("non è schierato");
+  });
+});
+
+describe("la forma di un modulo lo identifica", () => {
+  it("i sette moduli di §9 hanno sette forme diverse: nessuno scambio è ambiguo", () => {
+    const forme = MODULES.map((module) => {
+      const shape = moduleShape(module);
+      return `${shape.defenders}-${shape.midfielders}-${shape.strikers}`;
+    });
+    expect(new Set(forme).size).toBe(MODULES.length);
   });
 });
