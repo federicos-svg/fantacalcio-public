@@ -58,7 +58,31 @@ export default defineConfig({
       : {}),
   },
   // Chromium-only per TEST-HARNESS-01 scope — no Firefox/WebKit projects.
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  //
+  // DUE PROGETTI, NON DUE BROWSER. Il secondo è lo STESSO Chromium con lo
+  // schermo di un telefono, e non gira l'intera suite: `testMatch` lo lega a un
+  // file solo. La ragione è che il costo va speso dove serve — la pagina
+  // Formazione disegna undici gettoni più la panchina, ed è la schermata che
+  // esce dallo schermo in verticale se qualcuno le mette accanto una colonna in
+  // più — mentre far girare 270 prove due volte pagherebbe a ogni push un
+  // controllo che quelle prove non fanno.
+  //
+  // `Pixel 5` e non un `viewport` scritto a mano: porta con sé il rapporto di
+  // pixel, il tocco e la stringa d'agente di un telefono vero, cioè le
+  // condizioni in cui la pagina viene guardata davvero. Un `viewport` stretto su
+  // un desktop proverebbe una cosa che somiglia al telefono senza esserlo.
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+      testIgnore: /telefono\.spec\.ts/,
+    },
+    {
+      name: "telefono",
+      use: { ...devices["Pixel 5"] },
+      testMatch: /telefono\.spec\.ts/,
+    },
+  ],
   webServer: {
     // Portable across Linux CI and Windows: plain npm-script chaining via
     // `&&`, no POSIX-only shell syntax, no external process manager.

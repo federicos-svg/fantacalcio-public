@@ -294,6 +294,119 @@ test("la panchina e i non convocati sono zone di posa, spente finché non si ha 
   expect(externalRequests).toEqual([]);
 });
 
+test("con qualcuno in mano si VEDE dove si può posarlo, mouse o non mouse", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await apriIlCampo(page, context, externalRequests);
+
+  const destinazione = page
+    .locator(`#formazione-panchina-${PROVA_COMPETITION_ID} .formazione-riga`)
+    .first();
+  // Senza niente in mano non c'è nessuna destinazione da segnalare: la pagina
+  // non è accesa a caso.
+  await expect(destinazione).toHaveAttribute("data-bersaglio", "no");
+  await expect(page.locator('[data-bersaglio="si"]')).toHaveCount(0);
+
+  await page.locator(gettone(CENTROCAMPISTA)).click();
+
+  // CHI NAVIGA SENZA MOUSE NON DEVE AVERE MENO INFORMAZIONE DI CHI CE L'HA: le
+  // destinazioni si distinguono da ferme, non solo passandoci sopra.
+  await expect(destinazione).toHaveAttribute("data-bersaglio", "si");
+  await expect(
+    page.locator(`#formazione-panchina-posa-${PROVA_COMPETITION_ID}`).locator(".."),
+  ).toHaveAttribute("data-bersaglio", "si");
+  expect(await page.locator('[data-bersaglio="si"]').count()).toBeGreaterThan(3);
+
+  // Ma NON chi si ha in mano: premerlo lo lascia, non lo posa su sé stesso.
+  await expect(
+    page.locator(`#formazione-giocatore-${PROVA_COMPETITION_ID}-${CENTROCAMPISTA}`),
+  ).toHaveAttribute("data-bersaglio", "no");
+
+  // E lasciandolo si spegne tutto.
+  await page.locator(gettone(CENTROCAMPISTA)).click();
+  await expect(page.locator('[data-bersaglio="si"]')).toHaveCount(0);
+
+  expect(externalRequests).toEqual([]);
+});
+
+test("mentre trascini, la destinazione sotto il puntatore si accende — e si spegne uscendo", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await apriIlCampo(page, context, externalRequests);
+
+  const sorgente = page.locator(gettone(PANCHINARO));
+  const bersaglio = page.locator(
+    `#formazione-giocatore-${PROVA_COMPETITION_ID}-${CENTROCAMPISTA}`,
+  );
+  const altrove = page.locator(gettone(`${PROVA_PREFISSO_ID}Difensore-1`));
+
+  // Il trascinamento si guida a mano — premi, passa sopra, passa altrove —
+  // perché `dragTo` lo porterebbe a termine in un colpo solo, e quello che si
+  // vuole misurare qui è precisamente ciò che si vede A METÀ del gesto: senza
+  // questo, capisci dove sarebbe finito il giocatore solo dopo aver mollato.
+  await sorgente.hover();
+  await page.mouse.down();
+  await bersaglio.hover();
+  await bersaglio.hover();
+  await expect(bersaglio).toHaveAttribute("data-bersaglio-attivo", "si");
+
+  // Uscendo si spegne: l'evidenziazione segue il puntatore e non gli resta
+  // attaccata addosso.
+  await altrove.hover();
+  await altrove.hover();
+  await expect(bersaglio).toHaveAttribute("data-bersaglio-attivo", "no");
+  await page.mouse.up();
+
+  expect(externalRequests).toEqual([]);
+});
+
+test("si trascina anche su una casella vuota, che è una destinazione vera", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await apriIlCampo(page, context, externalRequests);
+
+  await page.locator(`#formazione-${PROVA_COMPETITION_ID}-${ATTACCANTE}-in-panchina`).click();
+  const vuoto = page.locator(".formazione-posto-vuoto__posa");
+  await expect(vuoto).toHaveCount(1);
+
+  // IL BERSAGLIO NON È IL BOTTONE. Un bottone spento non riceve nessun evento
+  // del mouse e non li lascia passare, e quello della casella vuota è spento
+  // finché non si ha niente in mano — cioè per tutta la durata di un
+  // trascinamento, che dalla presa non passa. Senza il contenitore attorno, e
+  // senza lasciare che gli eventi lo attraversino, qui non sarebbe atterrato
+  // niente.
+  //
+  // Il gesto si guida a mano con uno spostamento breve prima di puntare la
+  // destinazione: Chromium comincia un trascinamento solo dopo un movimento col
+  // tasto premuto, e un salto secco dalla sorgente al bersaglio non gliene fa
+  // vedere nessuno. È un dettaglio del pilota, non del prodotto — col dito e col
+  // mouse veri il movimento c'è sempre.
+  const sorgente = page.locator(gettone(ATTACCANTE_PANCHINA));
+  const da = await sorgente.boundingBox();
+  expect(da).not.toBeNull();
+  await sorgente.hover();
+  await page.mouse.down();
+  if (da !== null) {
+    await page.mouse.move(da.x + da.width / 2 + 8, da.y + da.height / 2 + 8, { steps: 4 });
+  }
+  await vuoto.hover();
+  await vuoto.hover();
+  // E mentre ci si passa sopra, la casella dice che è LEI la destinazione.
+  await expect(vuoto).toHaveAttribute("data-bersaglio-attivo", "si");
+  await page.mouse.up();
+
+  await expect(page.locator(CAMPO)).toContainText(ATTACCANTE_PANCHINA);
+  await expect(page.locator(".formazione-posto-vuoto")).toHaveCount(0);
+
+  expect(externalRequests).toEqual([]);
+});
+
 test("una mossa rifiutata DICE PERCHÉ: non esiste il gesto in cui non succede niente", async ({
   page,
   context,

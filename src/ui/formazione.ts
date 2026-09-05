@@ -1284,12 +1284,68 @@ function rendiTrascinabile(elemento: HTMLElement, playerId: string): void {
   });
 }
 
+/**
+ * SI VEDE DOVE STA ANDANDO — mentre lo si fa, non dopo.
+ *
+ * Un trascinamento in cui nessuna destinazione si illumina è metà gesto: si
+ * capisce dove sarebbe finito il giocatore solo dopo aver mollato, e la mira si
+ * corregge a cose fatte. Sono due segni distinti perché dicono due cose diverse:
+ * `data-bersaglio` dice «qui si può posare» e sta acceso per tutta la durata
+ * della presa; `data-bersaglio-attivo` dice «se molli, molli QUI» e si accende
+ * solo sotto il puntatore.
+ *
+ * SI EVIDENZIA CIÒ CHE È UN BERSAGLIO, NON CIÒ CHE SARÀ ACCETTATO. La
+ * distinzione è la stessa che governa tutto il file: se una mossa verrà
+ * rifiutata lo dice il contratto, dopo, con la sua ragione. Provare a
+ * indovinarlo qui — spegnere la casella su cui `fillSlot` direbbe di no —
+ * significherebbe riscrivere le sue regole nel disegno e sbagliarle il giorno in
+ * cui cambiano.
+ */
+function segnaBersaglio(elemento: HTMLElement, sotto: boolean): void {
+  elemento.dataset.bersaglioAttivo = sotto ? "si" : "no";
+  elemento.style.outline = sotto
+    ? `2px solid ${C.textAccent}`
+    : elemento.dataset.bersaglio === "si"
+      ? `2px dashed ${C.textAccent}`
+      : "";
+  elemento.style.outlineOffset = elemento.style.outline.length === 0 ? "" : "2px";
+}
+
+/**
+ * LE DESTINAZIONI POSSIBILI, VISIBILI ANCHE SENZA UN MOUSE.
+ *
+ * Chi ha qualcosa in mano deve vedere dove può posarlo, e non solo passandoci
+ * sopra col puntatore: chi naviga da tastiera o col dito avrebbe altrimenti
+ * MENO informazione di chi usa il mouse, che è il contrario di come dev'essere.
+ * Il segno è lo stesso — cambia solo che resta acceso invece di seguire il
+ * puntatore.
+ */
+function marcaDestinazione(elemento: HTMLElement, destinazione: boolean): void {
+  elemento.dataset.bersaglio = destinazione ? "si" : "no";
+  segnaBersaglio(elemento, false);
+}
+
 function rendiBersaglio(
   elemento: HTMLElement,
   competition: FormazioneCompetitionView,
   handlers: FormazioneHandlers,
   bersaglio: Bersaglio,
 ): void {
+  // `dragenter` e `dragleave` scattano anche passando fra i FIGLI dello stesso
+  // elemento — entrare nel bottone dentro la casella è un `dragleave` sulla
+  // casella — quindi si contano le entrate invece di fidarsi dell'ultima:
+  // senza il conteggio l'evidenziazione si spegnerebbe da sola muovendo il
+  // puntatore di due pixel dentro il bersaglio su cui si sta mirando.
+  let dentro = 0;
+  elemento.addEventListener("dragenter", (event) => {
+    event.preventDefault();
+    dentro += 1;
+    segnaBersaglio(elemento, true);
+  });
+  elemento.addEventListener("dragleave", () => {
+    dentro = Math.max(0, dentro - 1);
+    if (dentro === 0) segnaBersaglio(elemento, false);
+  });
   elemento.addEventListener("dragover", (event) => {
     event.preventDefault();
     if (event.dataTransfer !== null) event.dataTransfer.dropEffect = "move";
@@ -1302,6 +1358,8 @@ function rendiBersaglio(
     // «manda in panchina» della striscia sotto, cioè due mosse per un gesto, di
     // cui la seconda disfa la prima.
     event.stopPropagation();
+    dentro = 0;
+    segnaBersaglio(elemento, false);
     const playerId = event.dataTransfer?.getData("text/plain") ?? "";
     if (playerId.length === 0) return;
     posaSuBersaglio(competition, handlers, bersaglio, playerId);
@@ -1620,6 +1678,11 @@ function renderPlayerUnit(
   // il gesto del mouse vive un livello più fuori. Misurato in
   // `e2e/formazione-campo.spec.ts`, che trascina davvero.
   if (competition.editable) rendiTrascinabile(unit, player.id);
+  // Chi si ha in mano non è una destinazione di sé stesso: premerlo lo lascia,
+  // e lo dice già `aria-pressed`. Marcarlo come posto in cui posare direbbe che
+  // esiste una mossa che non esiste.
+  const held = inMano(competition, presa);
+  marcaDestinazione(unit, competition.editable && held !== null && held !== player.id);
   rendiBersaglio(unit, competition, handlers, { kind: "gettone", playerId: player.id });
   return unit;
 }
@@ -1676,9 +1739,16 @@ function renderEmptySlot(
   );
   bottone.style.cssText =
     `display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;` +
-    `flex:0 1 148px;min-width:124px;min-height:64px;padding:6px 7px;border-radius:8px;` +
+    `width:100%;min-height:64px;padding:6px 7px;border-radius:8px;` +
     `background:transparent;border:1px dashed ${bottone.disabled ? C.border : C.textAccent};` +
-    `color:${C.textSec};cursor:${bottone.disabled ? "default" : "pointer"};`;
+    `color:${C.textSec};cursor:${bottone.disabled ? "default" : "pointer"};` +
+    // SPENTO, MA NON UN MURO. Un bottone disabilitato non riceve eventi del
+    // mouse E non li lascia passare a chi gli sta dietro: senza questa riga il
+    // contenitore che accetta il trascinamento non vedrebbe mai arrivare
+    // niente, perché il puntatore è sempre sopra il bottone. Il bottone resta
+    // spento per il dito e per la tastiera; il trascinamento gli passa
+    // attraverso e atterra sul contenitore.
+    (bottone.disabled ? "pointer-events:none;" : "");
 
   const glifo = document.createElement("span");
   glifo.style.cssText = `font-size:11px;font-weight:800;font-family:${C.mono};letter-spacing:0.06em;`;
@@ -1694,8 +1764,20 @@ function renderEmptySlot(
       posaSuBersaglio(competition, handlers, { kind: "posto_vuoto", slot }, held),
     );
   }
-  rendiBersaglio(bottone, competition, handlers, { kind: "posto_vuoto", slot });
-  return bottone;
+
+  // IL BERSAGLIO STA SUL CONTENITORE, NON SUL BOTTONE, e questa volta non è
+  // solo simmetria col gettone: un `<button disabled>` non riceve nessun evento
+  // del mouse, quindi finché non si ha niente in mano — cioè per tutta la durata
+  // di un trascinamento, che non passa dalla presa — la casella vuota non
+  // avrebbe potuto accettare NIENTE. Il bottone resta quello che era per il dito
+  // e per la tastiera; il trascinamento atterra un livello più fuori.
+  const contenitore = document.createElement("div");
+  contenitore.className = "formazione-posto-vuoto__posa";
+  contenitore.style.cssText = `flex:0 1 148px;min-width:124px;display:flex;border-radius:8px;`;
+  contenitore.appendChild(bottone);
+  marcaDestinazione(contenitore, competition.editable && held !== null);
+  rendiBersaglio(contenitore, competition, handlers, { kind: "posto_vuoto", slot });
+  return contenitore;
 }
 
 /** Le righe del campo, disegnate con quello che il campo ha davvero. */
@@ -1885,19 +1967,28 @@ function renderDropZone(
     );
   }
 
+  // Il contenitore è il bersaglio, per la stessa ragione della casella vuota: un
+  // bottone spento non riceve eventi del mouse, e questo è spento proprio quando
+  // un trascinamento potrebbe arrivarci.
+  const riga = document.createElement("span");
+  riga.className = `formazione-${bersaglio.kind}-posa`;
+  riga.style.cssText = `display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;border-radius:6px;`;
+  riga.appendChild(bottone);
+
   // IL MOTIVO SI LEGGE ACCANTO AL BOTTONE, non solo dentro l'etichetta per i
   // lettori di schermo. «Nessun giocatore in mano» si capisce da solo e non si
   // ripete; tutto il resto — il portiere che non lascia la porta, la blindatura
   // — è una spiegazione che chi guarda deve poter leggere senza chiederla, come
   // già fa la nota accanto al comando spento del portiere.
-  if (impedito.length === 0 || impedito === "nessun giocatore in mano") return bottone;
-  const riga = document.createElement("span");
-  riga.style.cssText = `display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;`;
-  riga.appendChild(bottone);
-  const nota = document.createElement("span");
-  nota.style.cssText = `font-size:11px;color:${C.textDim};`;
-  nota.textContent = impedito;
-  riga.appendChild(nota);
+  if (impedito.length > 0 && impedito !== "nessun giocatore in mano") {
+    const nota = document.createElement("span");
+    nota.style.cssText = `font-size:11px;color:${C.textDim};`;
+    nota.textContent = impedito;
+    riga.appendChild(nota);
+  }
+
+  marcaDestinazione(riga, competition.editable && held !== null);
+  rendiBersaglio(riga, competition, handlers, bersaglio);
   return riga;
 }
 
@@ -1945,7 +2036,12 @@ function renderStrip(
       renderPlayerUnit(competition, player, handlers, codes, presa, competition.bench.length),
     );
   }
-  if (zona !== null) rendiBersaglio(striscia, competition, handlers, zona);
+  if (zona !== null) {
+    // La striscia intera accetta una posa, ma non si evidenzia da sé quando si
+    // ha qualcosa in mano: il suo bottone «Posa qui» lo fa già, e due cornici
+    // annidate accese insieme direbbero due destinazioni dove ce n'è una.
+    rendiBersaglio(striscia, competition, handlers, zona);
+  }
   group.appendChild(striscia);
   return group;
 }
