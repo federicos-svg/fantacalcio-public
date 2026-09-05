@@ -19,10 +19,19 @@
 //
 // TUTTO CIÒ CHE ARRIVA È SOSPETTO FINCHÉ NON È STATO GUARDATO. `statoDaDeposito`
 // non si fida di niente: un JSON che non è un oggetto, una rosa che non è una
-// lista, una formazione senza portiere, una lettura senza il suo momento sono
-// tutti `risposta_illeggibile`, mai un oggetto mezzo costruito. La regola è
-// quella di tutta questa schermata: **una lettura che non si è potuta leggere si
-// dichiara, non si arrotonda**.
+// lista, una formazione senza portiere, una lettura senza il suo momento,
+// un'impostazione di lega di una forma che il contratto non dichiara sono tutti
+// `risposta_illeggibile`, mai un oggetto mezzo costruito. La regola è quella di
+// tutta questa schermata: **una lettura che non si è potuta leggere si dichiara,
+// non si arrotonda**.
+//
+// E NESSUNA LETTURA STORTA PUÒ LASCIARE LA PAGINA VUOTA. Il disegno svuota il
+// contenitore e poi lo riempie: se qualcosa lancia in mezzo, resta uno schermo
+// bianco da cui il ricaricamento non fa uscire, perché il deposito è ancora
+// quello. Per questo qui non esiste un campo che entri nello stato senza essere
+// guardato: lo stato che esce da questo file è una forma che il contratto
+// dichiara, sempre, e il peggio che possa capitare a chi guarda è una schermata
+// che dice di non aver capito.
 //
 // E LA GIORNATA SI CONTROLLA, sempre, con la doppia guardia nelle due scale che
 // `../packages/league-channel-contract/src/lineupObservation.ts` descrive per
@@ -44,8 +53,11 @@ import {
   type ObservedCompetitionFixtures,
   type ObservedCompetitionKind,
   type ObservedCompetitionLineup,
+  type ObservedCompetitionSettings,
   type ObservedFixture,
   type ObservedLeagueSettings,
+  type ObservedModuleModifierTarget,
+  type ObservedScoringSettings,
   type ObservedLeagueTeam,
   type ObservedLeagueTeams,
   type ObservedLineup,
@@ -386,6 +398,279 @@ function calendario(valore: unknown): ObservedCalendar | null | "illeggibile" {
   return { teamId, competitions: blocchi };
 }
 
+/* ────────────────────────────────────────────────────────────────────────────
+   LE IMPOSTAZIONI DI LEGA — l'unico campo che si fidava, e non poteva
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * PERCHÉ ESISTE QUESTO BLOCCO. Le impostazioni erano l'unico campo del deposito
+ * che entrava nello stato senza essere guardato: un `as ObservedLeagueSettings`
+ * prometteva al compilatore una forma che a runtime nessuno controllava.
+ * Bastava un `allowedModules` che non fosse una lista — `null`, una stringa, un
+ * oggetto, un numero — perché il disegno della pagina lanciasse DOPO aver
+ * svuotato il contenitore: schermo bianco, niente barra, niente Asta, e il
+ * ricaricamento non aiutava perché il deposito era ancora quello. Qui si valida
+ * campo per campo, come tutto il resto di questo file.
+ *
+ * LA REGOLA, e sono due cose diverse che non vanno confuse:
+ *
+ *  - `null` o assente = **NON OSSERVATO**. È il vocabolario del deposito ed è il
+ *    caso normale — una lega può benissimo non esporre un campo: il campo resta
+ *    fuori, la lettura riesce, e la pagina dice che quella cosa non la sa.
+ *  - presente ma di un'altra forma = **DEPOSITO NON CAPITO**. Non lo si
+ *    arrotonda a «non osservato», che direbbe «la lega non lo dichiara» al posto
+ *    di «la lega ha dichiarato qualcosa che non si è riusciti a leggere».
+ *
+ * E si valida la FORMA che il contratto dichiara, non il merito: un
+ * `maxSubstitutions` di -3 è un numero, ed è `validateObservedLeagueSettings`,
+ * col regolamento in mano, a dire che non torna. Perdere la pagina intera per un
+ * tetto assurdo sarebbe una cura peggiore del male.
+ */
+function nonOsservato(valore: unknown): boolean {
+  return valore === null || valore === undefined;
+}
+
+function booleano(valore: unknown): boolean | undefined {
+  return typeof valore === "boolean" ? valore : undefined;
+}
+
+/**
+ * Il blocco di punteggio, campo per campo. I problemi si accumulano in
+ * `problemi` — tutti, non il primo — perché un deposito storto si corregge una
+ * volta sola se dice tutto quello che non torna.
+ */
+function impostazioniDiPunteggio(
+  grezzo: Record<string, unknown>,
+  dove: string,
+  problemi: string[],
+): ObservedScoringSettings {
+  const segnala = (campo: string): undefined => {
+    problemi.push(`${dove}${campo}`);
+    return undefined;
+  };
+  const num = (campo: string): number | undefined => {
+    const valore = grezzo[campo];
+    if (nonOsservato(valore)) return undefined;
+    return numero(valore) ?? segnala(campo);
+  };
+  const bool = (campo: string): boolean | undefined => {
+    const valore = grezzo[campo];
+    if (nonOsservato(valore)) return undefined;
+    return booleano(valore) ?? segnala(campo);
+  };
+  const testi = (campo: string): readonly string[] | undefined => {
+    const valore = grezzo[campo];
+    if (nonOsservato(valore)) return undefined;
+    return listaDiTesti(valore) ?? segnala(campo);
+  };
+  const moduli = (campo: string): readonly Module[] | undefined => {
+    const letti = testi(campo);
+    if (letti === undefined) return undefined;
+    // Il cast è coperto dal controllo: un modulo che §9 non conosce non entra.
+    return letti.every((modulo) => MODULI.includes(modulo))
+      ? (letti as readonly Module[])
+      : segnala(campo);
+  };
+  /**
+   * Una mappa parziale di numeri. `chiavi` è l'elenco delle chiavi ammesse
+   * quando il core pubblico ce l'ha in casa (i moduli di §9); `null` quando non
+   * ce l'ha — la tariffa di §12 vive in un pacchetto che l'invariante di
+   * isolamento della Fase 2 vieta di importare da `src/`, e riscriverne qui
+   * l'elenco a mano rifiuterebbe domani un evento aggiunto là. Le chiavi non
+   * controllate non fanno danno: la riconciliazione legge solo quelle che
+   * conosce, e i valori — che sono la parte che può far esplodere un conto —
+   * sono numeri sempre.
+   */
+  const mappa = (
+    campo: string,
+    chiavi: readonly string[] | null,
+  ): Readonly<Record<string, number>> | undefined => {
+    const valore = grezzo[campo];
+    if (nonOsservato(valore)) return undefined;
+    const letto = oggetto(valore);
+    if (letto === null) return segnala(campo);
+    const fuori: Record<string, number> = {};
+    for (const [chiave, voce] of Object.entries(letto)) {
+      const punti = numero(voce);
+      if (punti === undefined || (chiavi !== null && !chiavi.includes(chiave))) {
+        return segnala(campo);
+      }
+      fuori[chiave] = punti;
+    }
+    return fuori;
+  };
+  const tabella = <T>(
+    campo: string,
+    prima: string,
+    seconda: string,
+    riga: (a: number, b: number) => T,
+  ): readonly T[] | undefined => {
+    const valore = grezzo[campo];
+    if (nonOsservato(valore)) return undefined;
+    if (!Array.isArray(valore)) return segnala(campo);
+    const righe: T[] = [];
+    for (const voce of valore) {
+      const letta = oggetto(voce);
+      if (letta === null) return segnala(campo);
+      const a = numero(letta[prima]);
+      const b = numero(letta[seconda]);
+      if (a === undefined || b === undefined) return segnala(campo);
+      righe.push(riga(a, b));
+    }
+    return righe;
+  };
+
+  // §9 — moduli e modificatore modulo.
+  const allowedModules = moduli("allowedModules");
+  const moduleModifier = mappa("moduleModifier", MODULI);
+  const bersaglioGrezzo = grezzo["moduleModifierTarget"];
+  const moduleModifierTarget: ObservedModuleModifierTarget | undefined = nonOsservato(
+    bersaglioGrezzo,
+  )
+    ? undefined
+    : bersaglioGrezzo === "avversario" || bersaglioGrezzo === "noi_stessi"
+      ? bersaglioGrezzo
+      : segnala("moduleModifierTarget");
+
+  // §10 — panchina e sostituzioni.
+  const maxSubstitutions = num("maxSubstitutions");
+  const sameRoleOnly = bool("sameRoleOnly");
+  const moduleChangeViaSubstitution = bool("moduleChangeViaSubstitution");
+  const officeReserveAllowed = bool("officeReserveAllowed");
+
+  // §12 e §12-bis — tariffa e gol subito.
+  const bonusMalusTariff = mappa("bonusMalusTariff", null);
+  const goalConcededMalusPerGoal = num("goalConcededMalusPerGoal");
+  const goalConcededMalusRoles = testi("goalConcededMalusRoles");
+
+  // §13 — senza voto.
+  const noVoteBonusMalusBase = num("noVoteBonusMalusBase");
+  const noVoteBookedPreset = num("noVoteBookedPreset");
+  const noVoteSentOffDuringMatch = num("noVoteSentOffDuringMatch");
+
+  // §14 — fattore campo.
+  const homeFieldBonus = num("homeFieldBonus");
+  const neutralGroundFromMatchday = num("neutralGroundFromMatchday");
+
+  // §15 — conversione punteggio -> goal.
+  const firstGoalThreshold = num("firstGoalThreshold");
+  const goalBandWidth = num("goalBandWidth");
+  const sameBandExtraGoalMinGap = num("sameBandExtraGoalMinGap");
+  const bothBelowThresholdGoalMinGap = num("bothBelowThresholdGoalMinGap");
+
+  // §16 — deadline e formazione non comunicata.
+  const lineupDeadlineMinutesBeforeKickoff = num("lineupDeadlineMinutesBeforeKickoff");
+  const missingLineupFallsBackToPrevious = bool("missingLineupFallsBackToPrevious");
+
+  // §19 — modificatore difesa.
+  const defenceMinDefendersWithVote = num("defenceMinDefendersWithVote");
+  const defenceBands = tabella("defenceBands", "minAverage", "bonus", (minAverage, bonus) => ({
+    minAverage,
+    bonus,
+  }));
+
+  // §20 — modificatore centrocampo.
+  const midfieldFictitiousVote = num("midfieldFictitiousVote");
+  const midfieldMaxDelta = num("midfieldMaxDelta");
+  const midfieldTable = tabella("midfieldTable", "difference", "delta", (difference, delta) => ({
+    difference,
+    delta,
+  }));
+
+  // §21 — modificatore attacco.
+  const attackSufficientVote = num("attackSufficientVote");
+  const attackMaxBonus = num("attackMaxBonus");
+  const attackMaxFromVote = num("attackMaxFromVote");
+  const attackExcludesAnyBonus = bool("attackExcludesAnyBonus");
+  const attackTable = tabella("attackTable", "vote", "bonus", (vote, bonus) => ({ vote, bonus }));
+
+  // §22 — punti di classifica.
+  const pointsWin = num("pointsWin");
+  const pointsDraw = num("pointsDraw");
+  const pointsLoss = num("pointsLoss");
+
+  // Un campo non osservato NON compare: `undefined` scritto a mano e campo
+  // assente si assomigliano a schermo e non sono la stessa cosa per chi legge
+  // l'oggetto con `in`.
+  return {
+    ...(allowedModules === undefined ? {} : { allowedModules }),
+    ...(moduleModifier === undefined ? {} : { moduleModifier }),
+    ...(moduleModifierTarget === undefined ? {} : { moduleModifierTarget }),
+    ...(maxSubstitutions === undefined ? {} : { maxSubstitutions }),
+    ...(sameRoleOnly === undefined ? {} : { sameRoleOnly }),
+    ...(moduleChangeViaSubstitution === undefined ? {} : { moduleChangeViaSubstitution }),
+    ...(officeReserveAllowed === undefined ? {} : { officeReserveAllowed }),
+    ...(bonusMalusTariff === undefined ? {} : { bonusMalusTariff }),
+    ...(goalConcededMalusPerGoal === undefined ? {} : { goalConcededMalusPerGoal }),
+    ...(goalConcededMalusRoles === undefined ? {} : { goalConcededMalusRoles }),
+    ...(noVoteBonusMalusBase === undefined ? {} : { noVoteBonusMalusBase }),
+    ...(noVoteBookedPreset === undefined ? {} : { noVoteBookedPreset }),
+    ...(noVoteSentOffDuringMatch === undefined ? {} : { noVoteSentOffDuringMatch }),
+    ...(homeFieldBonus === undefined ? {} : { homeFieldBonus }),
+    ...(neutralGroundFromMatchday === undefined ? {} : { neutralGroundFromMatchday }),
+    ...(firstGoalThreshold === undefined ? {} : { firstGoalThreshold }),
+    ...(goalBandWidth === undefined ? {} : { goalBandWidth }),
+    ...(sameBandExtraGoalMinGap === undefined ? {} : { sameBandExtraGoalMinGap }),
+    ...(bothBelowThresholdGoalMinGap === undefined ? {} : { bothBelowThresholdGoalMinGap }),
+    ...(lineupDeadlineMinutesBeforeKickoff === undefined
+      ? {}
+      : { lineupDeadlineMinutesBeforeKickoff }),
+    ...(missingLineupFallsBackToPrevious === undefined
+      ? {}
+      : { missingLineupFallsBackToPrevious }),
+    ...(defenceMinDefendersWithVote === undefined ? {} : { defenceMinDefendersWithVote }),
+    ...(defenceBands === undefined ? {} : { defenceBands }),
+    ...(midfieldFictitiousVote === undefined ? {} : { midfieldFictitiousVote }),
+    ...(midfieldMaxDelta === undefined ? {} : { midfieldMaxDelta }),
+    ...(midfieldTable === undefined ? {} : { midfieldTable }),
+    ...(attackSufficientVote === undefined ? {} : { attackSufficientVote }),
+    ...(attackMaxBonus === undefined ? {} : { attackMaxBonus }),
+    ...(attackMaxFromVote === undefined ? {} : { attackMaxFromVote }),
+    ...(attackExcludesAnyBonus === undefined ? {} : { attackExcludesAnyBonus }),
+    ...(attackTable === undefined ? {} : { attackTable }),
+    ...(pointsWin === undefined ? {} : { pointsWin }),
+    ...(pointsDraw === undefined ? {} : { pointsDraw }),
+    ...(pointsLoss === undefined ? {} : { pointsLoss }),
+  };
+}
+
+/**
+ * Le impostazioni intere: il blocco generale più, se la piattaforma le espone,
+ * le dichiarazioni per competizione. `null` quando `settings` non è nemmeno un
+ * oggetto; altrimenti i problemi trovati stanno in `problemi`.
+ */
+function impostazioniDiLega(valore: unknown, problemi: string[]): ObservedLeagueSettings | null {
+  const grezzo = oggetto(valore);
+  if (grezzo === null) return null;
+  const generali = impostazioniDiPunteggio(grezzo, "", problemi);
+
+  const grezzeCompetizioni = grezzo["perCompetition"];
+  if (nonOsservato(grezzeCompetizioni)) return generali;
+  if (!Array.isArray(grezzeCompetizioni)) {
+    problemi.push("perCompetition");
+    return generali;
+  }
+  const blocchi: ObservedCompetitionSettings[] = [];
+  for (const voce of grezzeCompetizioni) {
+    const blocco = oggetto(voce);
+    const competitionId = blocco === null ? undefined : testo(blocco["competitionId"]);
+    if (blocco === null || competitionId === undefined) {
+      problemi.push("perCompetition");
+      continue;
+    }
+    const dentro = oggetto(blocco["settings"]);
+    if (dentro === null) {
+      problemi.push(`perCompetition.${competitionId}.settings`);
+      continue;
+    }
+    blocchi.push({
+      competitionId,
+      settings: impostazioniDiPunteggio(dentro, `perCompetition.${competitionId}.`, problemi),
+    });
+  }
+  return { ...generali, perCompetition: blocchi };
+}
+
 function osservazione(valore: unknown): LineupObservation | null {
   const grezzo = oggetto(valore);
   if (grezzo === null) return null;
@@ -466,9 +751,18 @@ export function statoDaDeposito(payload: unknown): LineupChannelState {
     return ignoto("risposta_illeggibile", "la rosa letta non è leggibile");
   }
 
-  const impostazioni = oggetto(grezzo["settings"]);
+  const problemiImpostazioni: string[] = [];
+  const impostazioni = impostazioniDiLega(grezzo["settings"], problemiImpostazioni);
   if (impostazioni === null) {
     return ignoto("risposta_illeggibile", "le impostazioni di lega non sono leggibili");
+  }
+  if (problemiImpostazioni.length > 0) {
+    // I campi si nominano tutti: sono i nomi del contratto, non della fonte, e
+    // servono a chi deve correggere il deposito invece di indovinare.
+    return ignoto(
+      "risposta_illeggibile",
+      `le impostazioni di lega dichiarano qualcosa che non si è capito: ${problemiImpostazioni.join(", ")}`,
+    );
   }
 
   const elenco = grezzo["competitions"];
@@ -519,7 +813,7 @@ export function statoDaDeposito(payload: unknown): LineupChannelState {
     kind: "letto",
     observations: osservazioni,
     roster: squadra,
-    settings: impostazioni as ObservedLeagueSettings,
+    settings: impostazioni,
     competitions: competizioni,
     leagueTeams: squadre,
     calendar: calendarioLetto,
