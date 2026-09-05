@@ -150,7 +150,9 @@ test("l'esito di un salvataggio non sopravvive alla modifica che lo smentisce", 
 
   // LA MOSSA CHE LO SMENTISCE. Il 343 con questa rosa non è schierabile: la
   // pagina lo dice, e il salvataggio si ferma.
-  await page.locator(`#formazione-modulo-schierato-${PROVA_COMPETITION_ID}`).selectOption("343");
+  // La barra dei moduli è fatta di bottoni veri, uno per modulo, e non di una
+  // tendina: si preme quello che si vuole schierare.
+  await page.locator(`#formazione-modulo-schierato-${PROVA_COMPETITION_ID}-343`).click();
   await expect(page.locator(`#formazione-salva-impedito-${PROVA_COMPETITION_ID}`)).toContainText(
     "Non si può salvare",
   );
@@ -168,12 +170,25 @@ test("l'esito di un salvataggio non sopravvive alla modifica che lo smentisce", 
   // anche per il giorno in cui la frase sarà «inviata e confermata» — se si
   // rimette in campo esattamente ciò che è stato inviato, quello è ciò che la
   // piattaforma ha.
-  await page.locator(`#formazione-modulo-schierato-${PROVA_COMPETITION_ID}`).selectOption("442");
+  await page.locator(`#formazione-modulo-schierato-${PROVA_COMPETITION_ID}-442`).click();
   await expect(page.locator(`#formazione-salva-${PROVA_COMPETITION_ID}`)).toBeEnabled();
   await expect(page.locator("#formazione-stato-invio")).toContainText("ha passato la validazione");
 
+  // PRENDERE IN MANO NON È UNA MOSSA, e l'esito resta: la formazione non è
+  // cambiata di un posto. È la prima metà del gesto in due tempi, ed è
+  // esattamente ciò che deve poter succedere senza conseguenze — altrimenti
+  // guardare la squadra col dito costerebbe la frase che dice come sta.
+  await page
+    .locator(`#formazione-panchina-${PROVA_COMPETITION_ID} [id$='-gettone']`)
+    .first()
+    .click();
+  await expect(page.locator("#formazione-stato-invio")).toContainText("ha passato la validazione");
+
   // Ma basta una mossa qualunque — non solo il modulo — perché sparisca di nuovo.
-  await page.locator(`#formazione-panchina-${PROVA_COMPETITION_ID} button`).first().click();
+  await page
+    .locator(`#formazione-panchina-${PROVA_COMPETITION_ID} [id$='-panchina-giu']`)
+    .first()
+    .click();
   await expect(page.locator("#formazione-stato-invio")).toHaveCount(0);
 
   expect(externalRequests).toEqual([]);

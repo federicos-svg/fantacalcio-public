@@ -200,15 +200,25 @@ test("i comandi della formazione funzionano tutti sulla squadra di esempio", asy
   await expect(titolari).toContainText("esce quando entra un altro portiere");
 
   // 6. CAMBIARE MODULO, e vedere subito che l'undici non lo compone.
-  const modulo = page.locator(`#formazione-modulo-schierato-${PROVA_COMPETITION_ID}`);
-  await modulo.selectOption("352");
-  await expect(modulo).toHaveValue("352");
+  //
+  // I moduli sono una barra di bottoni veri, uno per ognuno dei sette di §9, e
+  // non una tendina: quello schierato si riconosce senza aprire niente, e
+  // quello che non si può schierare adesso resta a vista, spento.
+  const modulo352 = page.locator(`#formazione-modulo-schierato-${PROVA_COMPETITION_ID}-352`);
+  const modulo442 = page.locator(`#formazione-modulo-schierato-${PROVA_COMPETITION_ID}-442`);
+  await expect(modulo442).toHaveAttribute("data-attivo", "si");
+  await expect(modulo442).toHaveAttribute("aria-pressed", "true");
+  // Il modulo già schierato non si rischiera: il bottone resta a vista, spento.
+  await expect(modulo442).toBeDisabled();
+  await modulo352.click();
+  await expect(modulo352).toHaveAttribute("data-attivo", "si");
   const legalita = page.locator(`#formazione-legalita-${PROVA_COMPETITION_ID}`);
   await expect(legalita).toContainText("COSÌ NON SI PUÒ MANDARE");
   await expect(page.locator(`#formazione-salva-${PROVA_COMPETITION_ID}`)).toBeDisabled();
   await expect(page.locator(`#formazione-salva-impedito-${PROVA_COMPETITION_ID}`)).toBeVisible();
   await page.locator(`#formazione-annulla-${PROVA_COMPETITION_ID}`).click();
-  await expect(modulo).toHaveValue("442");
+  await expect(modulo442).toHaveAttribute("data-attivo", "si");
+  await expect(modulo352).toHaveAttribute("data-attivo", "no");
 
   // 7. LE DUE OPZIONI DELLA FORMAZIONE.
   const nascosta = page.locator(`#formazione-nascosta-${PROVA_COMPETITION_ID}`);
@@ -290,7 +300,9 @@ test("le spunte, il blocco totale e i motivi di rifiuto si provano davvero", asy
   await expect(
     page.locator(`#formazione-${PROVA_COMPETITION_ID}-${unTitolare}-in-panchina`),
   ).toBeDisabled();
-  await expect(page.locator(`#formazione-modulo-schierato-${PROVA_COMPETITION_ID}`)).toBeDisabled();
+  await expect(
+    page.locator(`#formazione-modulo-schierato-${PROVA_COMPETITION_ID}-352`),
+  ).toBeDisabled();
   await blindata.uncheck();
   await expect(
     page.locator(`#formazione-${PROVA_COMPETITION_ID}-${unTitolare}-in-panchina`),
@@ -324,7 +336,7 @@ test("Salva in prova: la validazione gira, e non parte niente verso nessuna lega
 
   // Una formazione illegale si ferma prima, con il motivo: la validazione è
   // quella vera, non una scorciatoia della prova.
-  await page.locator(`#formazione-modulo-schierato-${PROVA_COMPETITION_ID}`).selectOption("343");
+  await page.locator(`#formazione-modulo-schierato-${PROVA_COMPETITION_ID}-343`).click();
   await expect(page.locator(`#formazione-salva-${PROVA_COMPETITION_ID}`)).toBeDisabled();
   await expect(page.locator(`#formazione-salva-impedito-${PROVA_COMPETITION_ID}`)).toContainText(
     "Non si può salvare",

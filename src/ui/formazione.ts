@@ -38,8 +38,35 @@
 // quindi ogni controllo ha un `id` stabile su cui la shell riporta il fuoco. Un
 // comando che non si può usare resta VISIBILE e disabilitato, non sparisce: una
 // riga che perde i suoi bottoni non dice a nessuno perché li ha persi.
+//
+// IL CAMPO È IL DISEGNO, NON UN ORNAMENTO. Una formazione si guarda come si
+// guarda una squadra — la porta in basso, poi difesa, centrocampo, attacco — e
+// non come un elenco di caselle in colonna: in colonna il modulo non si vede,
+// il reparto scoperto non si vede, e la domanda che si fa la domenica mattina
+// («chi mi manca davanti?») richiede di contare a mente ciò che un campo dice
+// a colpo d'occhio.
+//
+// I POSTI NON LI CONTA QUESTA FUNZIONE. Li dà `pitchLayout`, che sa quanti ne
+// prevede il modulo; ricavarli qui contando i giocatori produrrebbe una seconda
+// geometria, e il giorno in cui il modulo cambia direbbe una cosa diversa da
+// quella che l'invio manda. Un posto che il modulo prevede e nessuno occupa
+// RESTA a schermo, vuoto — un reparto scoperto è la cosa più importante che
+// questa pagina possa mostrare — e un titolare che il modulo non riesce a
+// ospitare non sparisce dietro il verde: si dichiara, perché è schierato
+// davvero ed è lui a rendere illegale l'invio.
+//
+// OGNI GESTO HA DUE STRADE, E LA SECONDA È QUELLA CHE CONTA. Il trascinamento
+// nativo non esiste sotto un dito su un telefono e non esiste per chi usa la
+// tastiera: affidargli il gesto principale significherebbe riservare la
+// schermata a chi ha un mouse. Quindi ogni gettone, ogni posto del campo e ogni
+// zona di posa è un BOTTONE VERO — si preme un giocatore per prenderlo, si
+// preme la destinazione per posarlo, si preme di nuovo lo stesso per lasciarlo
+// — e il trascinamento è una scorciatoia appoggiata sopra gli stessi comandi,
+// mai l'unica via. Ciò che si sta tenendo in mano non lo ricorda questo file:
+// lo tiene la shell e lo passa (`FormazionePresa`), come il conflitto aperto e
+// l'esito dell'ultimo salvataggio.
 
-import { C, escHtml } from "./theme.js";
+import { C, escHtml, renderRoleChip } from "./theme.js";
 import type {
   ConstraintConflict,
   ConstraintQuarantine,
@@ -49,9 +76,12 @@ import type {
   LineupDifference,
   LineupFlags,
   Module,
+  PitchSlot,
+  Role,
   SubmissionUiState,
   SubmissionViolation,
 } from "../../packages/league-channel-contract/src/index.js";
+import { pitchLayout } from "../../packages/league-channel-contract/src/index.js";
 import { MODULES, saveBlockers } from "../../packages/league-channel-contract/src/index.js";
 import {
   lineupAgeLabel,
@@ -83,6 +113,35 @@ export interface FormazioneHandlers {
   readonly onMoveOutside: (competitionId: string, playerId: string) => void;
   /** Riordina la panchina di un posto: chi entra prima e chi entra dopo. */
   readonly onMoveBench: (competitionId: string, playerId: string, direction: "su" | "giu") => void;
+  /**
+   * DUE GIOCATORI SI SCAMBIANO IL POSTO — il gesto del campo.
+   *
+   * È il gesto che il trascinamento produce, e che il tocco e la tastiera
+   * producono in due tempi (prendi, posa). Che cosa significhi scambiare non lo
+   * decide questa schermata: lo decide `swapPlayers`, che è simmetrico e non
+   * sceglie niente di nascosto — chi sale prende esattamente il posto di chi
+   * scende, ordine della panchina compreso.
+   */
+  readonly onSwap: (competitionId: string, aId: string, bId: string) => void;
+  /**
+   * POSA UN GIOCATORE SU UNA CASELLA CHE IL MODULO PREVEDE E NESSUNO OCCUPA.
+   *
+   * Non è uno scambio — non c'è nessuno da scambiare — e non è «portalo fra i
+   * titolari»: la casella dice DOVE si sta mirando, e `fillSlot` la ricontrolla
+   * contro il campo di adesso. Per questo la casella viaggia per intero invece
+   * di essere ridotta a un ruolo: un `PitchSlot` ricostruito qui sarebbe un
+   * posto inventato con l'aspetto di un posto letto.
+   */
+  readonly onFillSlot: (competitionId: string, playerId: string, slot: PitchSlot) => void;
+  /**
+   * PRENDE UN GIOCATORE IN MANO, o lo lascia con `null`.
+   *
+   * Non cambia nessuna formazione: è la prima metà di un gesto in due tempi, ed
+   * esiste perché il trascinamento da solo lascerebbe fuori chi usa un dito o
+   * una tastiera. Lo stato che ne esce lo tiene la shell e torna qui come
+   * `FormazionePresa`.
+   */
+  readonly onPrendi: (competitionId: string, playerId: string | null) => void;
   /** Cambia il modulo con cui la formazione è schierata. */
   readonly onSetModule: (competitionId: string, module: Module) => void;
   /** Accende o spegne una delle due opzioni della formazione. */
@@ -136,6 +195,26 @@ export const NESSUNA_MODIFICA_IN_SOSPESO: FormazioneEditState = {
   conflict: null,
   refusal: "",
 };
+
+/**
+ * IL GIOCATORE CHE SI HA IN MANO, e per quale competizione.
+ *
+ * È lo stato del gesto in due tempi, e non è una preferenza né un dato della
+ * lega: nessuno lo persiste, e sparisce appena una mossa viene eseguita o
+ * rifiutata. Sta nella shell e non in questo file per la ragione di sempre —
+ * `render()` ricostruisce l'albero a ogni clic, e uno stato tenuto qui dentro
+ * verrebbe buttato via proprio nel momento in cui serve.
+ *
+ * La competizione fa parte della presa: due formazioni sono due squadre della
+ * stessa persona, e un giocatore preso su una non si posa sull'altra.
+ */
+export interface FormazionePresa {
+  readonly competitionId: string | null;
+  readonly playerId: string | null;
+}
+
+/** Niente in mano: lo stato normale, e quello a cui si torna dopo ogni mossa. */
+export const NESSUNA_PRESA: FormazionePresa = { competitionId: null, playerId: null };
 
 /**
  * LA PROVA CON UNA SQUADRA DI ESEMPIO, per quel che ne deve sapere la pagina:
@@ -674,12 +753,131 @@ function renderDraftState(
 }
 
 /**
+ * PERCHÉ QUESTO MODULO NON SI PUÒ SCHIERARE ADESSO. Vuoto = si può.
+ *
+ * Sta in una funzione sola perché è la stessa domanda per tutti e sette i
+ * riquadri, e perché la risposta finisce in due posti — il bottone spento e la
+ * riga che ne dice il motivo — che non devono poter dire due cose diverse.
+ *
+ * IL MODULO BLOCCATO NON COMPARE FRA LE RAGIONI, ed è deliberato: schierarne un
+ * altro CONTRADDICE quel vincolo, e una contraddizione fra due volontà della
+ * stessa persona la scioglie lei (`renderConflict`). Spegnere il bottone
+ * toglierebbe la domanda insieme alla risposta.
+ */
+function moduloImpedito(
+  competition: FormazioneCompetitionView,
+  module: Module,
+): string {
+  const lineup = competition.lineup;
+  if (lineup === null) return "non c'è nessuna formazione da schierare";
+  if (competition.unavailableReason.length > 0) return competition.unavailableReason;
+  if (!competition.editable) return "la formazione è blindata";
+  if (lineup.module === module) return "è il modulo con cui è schierata adesso";
+  if (competition.allowedModules === null) {
+    return "la lega non ha dichiarato quali moduli ammette";
+  }
+  if (!competition.allowedModules.includes(module)) {
+    return "la lega non lo dichiara schierabile";
+  }
+  return "";
+}
+
+/** La riga corta che sta sotto la chiave del modulo. Vuota è la norma. */
+function moduloEtichetta(
+  competition: FormazioneCompetitionView,
+  module: Module,
+  impedito: string,
+): string {
+  if (competition.lineup?.module === module) return "schierato";
+  if (competition.constraints.lockedModule === module) return "bloccato";
+  if (impedito === "la lega non lo dichiara schierabile") return "non ammesso";
+  if (impedito === "la lega non ha dichiarato quali moduli ammette") return "non dichiarati";
+  if (impedito.length > 0) return "non si cambia";
+  return "";
+}
+
+/**
+ * LA BARRA DEI MODULI — sette riquadri, sempre tutti e sette, mai una tendina.
+ *
+ * PERCHÉ TUTTI E SETTE. Un modulo che sparisce dalla barra non dice a nessuno
+ * perché è sparito: chi cerca il 3-5-2 e non lo trova non sa se la lega lo
+ * vieta, se lo vieta un suo vincolo, o se ha guardato male. Restano quindi a
+ * schermo tutti — sono i sette di §9, che sono il regolamento e non una lista
+ * scritta a mano qui — e quello che non si può schiera adesso è SPENTO con il
+ * motivo scritto sotto.
+ *
+ * E LA REGOLA DI PRIMA NON SI PIEGA: quando la lega non dichiara quali moduli
+ * ammette, da qui il modulo NON si cambia. Non si offre una scelta fra opzioni
+ * che nessuno ha osservato — sarebbe un invio respinto là, deciso qui — e la
+ * differenza rispetto a prima è solo che il divieto adesso si vede invece di
+ * essere l'assenza di una tendina.
+ */
+function renderModuleBar(
+  competition: FormazioneCompetitionView,
+  handlers: FormazioneHandlers,
+): HTMLElement {
+  const barra = document.createElement("div");
+  barra.id = `formazione-modulo-schierato-${competition.competitionId}`;
+  barra.setAttribute("role", "group");
+  barra.setAttribute("aria-label", `Modulo schierato — ${competition.label}`);
+  barra.style.cssText = `display:flex;flex-wrap:wrap;gap:6px;`;
+
+  for (const module of MODULES) {
+    const impedito = moduloImpedito(competition, module);
+    const attivo = competition.lineup?.module === module;
+    const etichetta = moduloEtichetta(competition, module, impedito);
+
+    const bottone = document.createElement("button");
+    bottone.type = "button";
+    bottone.id = `formazione-modulo-schierato-${competition.competitionId}-${module}`;
+    bottone.disabled = impedito.length > 0;
+    bottone.dataset.modulo = module;
+    bottone.dataset.attivo = attivo ? "si" : "no";
+    bottone.setAttribute("aria-pressed", attivo ? "true" : "false");
+    bottone.setAttribute(
+      "aria-label",
+      impedito.length > 0
+        ? `Modulo ${module} — non schierabile: ${impedito}`
+        : `Schiera il modulo ${module} — ${competition.label}`,
+    );
+    bottone.style.cssText =
+      `display:flex;flex-direction:column;align-items:center;gap:2px;min-width:58px;` +
+      `padding:5px 9px;border-radius:8px;font-family:${C.mono};cursor:${bottone.disabled ? "default" : "pointer"};` +
+      `background:${attivo ? C.accentDim : C.panelInner};` +
+      `border:1px solid ${attivo ? C.textAccent : C.border};` +
+      `color:${attivo ? C.textPrimary : C.textMid};` +
+      (bottone.disabled && !attivo ? "opacity:0.5;" : "");
+
+    const chiave = document.createElement("span");
+    chiave.style.cssText = `font-size:14px;font-weight:800;letter-spacing:0.04em;`;
+    chiave.textContent = module;
+    bottone.appendChild(chiave);
+
+    // IL MOTIVO SI LEGGE, non si scopre passandoci sopra: un `title` non esiste
+    // per chi ha un dito al posto del mouse, ed è precisamente chi ha più
+    // bisogno di sapere perché un bottone è spento.
+    const nota = document.createElement("span");
+    nota.style.cssText = `font-size:9px;letter-spacing:0.04em;text-transform:uppercase;color:${attivo ? C.textSec : C.textDim};min-height:11px;`;
+    nota.textContent = etichetta;
+    bottone.appendChild(nota);
+
+    if (!bottone.disabled) {
+      bottone.addEventListener("click", () =>
+        handlers.onSetModule(competition.competitionId, module),
+      );
+    }
+    barra.appendChild(bottone);
+  }
+  return barra;
+}
+
+/**
  * IL MODULO CON CUI SI SCHIERA, e le due opzioni della formazione.
  *
  * L'ELENCO DEI MODULI VIENE DALLA LEGA, non da una costante di questo file: se
- * la lega non lo dichiara la pagina lo DICE e non offre una lista, perché una
- * lista inventata qui produrrebbe un invio respinto là — e chi ha scelto non
- * saprebbe nemmeno di aver scelto fra opzioni mai osservate.
+ * la lega non lo dichiara la pagina lo DICE e non lascia scegliere, perché una
+ * scelta fra opzioni mai osservate produrrebbe un invio respinto là — e chi ha
+ * scelto non saprebbe nemmeno di aver scelto fra opzioni inventate.
  */
 function renderLineupControls(
   competition: FormazioneCompetitionView,
@@ -690,60 +888,35 @@ function renderLineupControls(
   wrap.style.cssText = `display:flex;flex-direction:column;gap:10px;border:1px solid ${C.border};border-radius:8px;padding:10px 14px;`;
   wrap.appendChild(smallHeading("LA FORMAZIONE DI QUESTA GIORNATA", C.textSec));
 
-  const riga = document.createElement("div");
-  riga.style.cssText = `display:flex;flex-wrap:wrap;align-items:center;gap:12px;`;
-
   const lineup = competition.lineup;
   const allowed = competition.allowedModules;
-  const selectId = `formazione-modulo-schierato-${competition.competitionId}`;
+
+  wrap.appendChild(smallHeading("MODULO SCHIERATO", C.textSec));
+  wrap.appendChild(renderModuleBar(competition, handlers));
 
   if (allowed === null) {
-    riga.appendChild(
-      paragraph(
-        `Schierata con «${lineup === null ? "—" : lineup.module}». La lega non ha dichiarato quali moduli ammette: ` +
-          "da qui il modulo non si cambia, perché l'unica lista possibile sarebbe inventata.",
-        `color:${C.textAccent};`,
-      ),
+    const riga = paragraph(
+      `Schierata con «${lineup === null ? "—" : lineup.module}». La lega non ha dichiarato quali moduli ammette: ` +
+        "da qui il modulo non si cambia, perché l'unica lista possibile sarebbe inventata.",
+      `color:${C.textAccent};`,
     );
     riga.id = `formazione-moduli-non-dichiarati-${competition.competitionId}`;
     wrap.appendChild(riga);
   } else {
-    const label = document.createElement("label");
-    label.setAttribute("for", selectId);
-    label.style.cssText = `font-size:12px;font-weight:700;letter-spacing:0.05em;color:${C.textSec};`;
-    label.textContent = "MODULO SCHIERATO";
-    riga.appendChild(label);
-
-    const select = document.createElement("select");
-    select.id = selectId;
-    select.disabled = !competition.editable || lineup === null;
-    select.style.cssText = `background:${C.panelInner};color:${C.textPrimary};border:1px solid ${C.border};border-radius:6px;padding:5px 8px;font-size:13px;`;
-
-    // Il modulo con cui si è schierati adesso resta selezionabile anche se la
-    // lega non lo dichiara più: nasconderlo mostrerebbe una tendina che dice
-    // una cosa diversa dalla formazione che le sta accanto. Che sia fuori
-    // elenco lo dice la violazione bloccante, non un'opzione che sparisce.
-    const opzioni = [...allowed];
-    if (lineup !== null && !opzioni.includes(lineup.module)) opzioni.unshift(lineup.module);
-    for (const module of opzioni) {
-      const option = document.createElement("option");
-      option.value = module;
-      option.textContent =
-        allowed.includes(module) ? module : `${module} (non più dichiarato dalla lega)`;
-      select.appendChild(option);
-    }
-    if (lineup !== null) select.value = lineup.module;
-    select.addEventListener("change", () => {
-      handlers.onSetModule(competition.competitionId, select.value as Module);
-    });
-    riga.appendChild(select);
-    riga.appendChild(
+    // Il modulo con cui si è schierati adesso resta a schermo, e acceso, anche
+    // se la lega non lo dichiara più: nasconderlo mostrerebbe una barra che
+    // dice una cosa diversa dalla formazione che le sta accanto. Che sia fuori
+    // elenco lo dice questa riga insieme alla violazione bloccante.
+    const fuoriElenco = lineup !== null && !allowed.includes(lineup.module);
+    wrap.appendChild(
       paragraph(
-        `moduli dichiarati dalla lega: ${allowed.join(", ")}`,
-        `font-size:12px;color:${C.textDim};`,
+        `moduli dichiarati dalla lega: ${allowed.join(", ")}` +
+          (fuoriElenco
+            ? ` — la formazione è schierata con «${lineup.module}», che la lega non dichiara più`
+            : ""),
+        `font-size:12px;color:${fuoriElenco ? C.textAccent : C.textDim};`,
       ),
     );
-    wrap.appendChild(riga);
   }
 
   wrap.appendChild(
@@ -1001,76 +1174,328 @@ function codesByPlayer(competition: FormazioneCompetitionView): ReadonlyMap<stri
   return map;
 }
 
-/** Una riga di giocatore: la spunta, chi è, i motivi, e i comandi del posto. */
-function renderPlayerRow(
+/* ────────────────────────────────────────────────────────────────────────────
+   IL CAMPO, LA PANCHINA, I NON CONVOCATI — un gettone solo, quattro posti
+
+   Tutto ciò che sta qui sotto disegna la stessa cosa in posti diversi: un
+   giocatore che si può prendere e posare. Un gettone solo, e non quattro
+   disegni che si assomigliano, perché è la stessa cosa: la differenza fra
+   essere in campo ed essere in panchina la porta il modello (`place`), e i
+   comandi che ne conseguono si scelgono da lì.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/** Il giocatore che si ha in mano su QUESTA competizione, o `null`. */
+function inMano(competition: FormazioneCompetitionView, presa: FormazionePresa): string | null {
+  return presa.competitionId === competition.competitionId ? presa.playerId : null;
+}
+
+/** I ruoli della rosa mostrata, per dare i posti del campo a `pitchLayout`. */
+function ruoliMostrati(competition: FormazioneCompetitionView): ReadonlyMap<string, Role> {
+  // Non è una derivazione: è la stessa rosa del modello, indicizzata per id
+  // perché `pitchLayout` la chiede così. Nessun ruolo viene dedotto qui, e uno
+  // che il modello non porta resta assente — è quello che rende un titolare
+  // «senza posto» invece di metterlo in una linea indovinata.
+  return new Map(competition.players.map((player) => [player.id, player.role]));
+}
+
+/**
+ * DOVE STA, DETTO A PAROLE. Serve alle etichette dei lettori di schermo: chi non
+ * vede il campo deve sapere dal testo quello che il verde dice a colpo d'occhio.
+ */
+function postoInParole(place: FormazionePlayerRow["place"]): string {
+  return place === "porta"
+    ? "in porta"
+    : place === "titolare"
+      ? "in campo"
+      : place === "panchina"
+        ? "in panchina"
+        : "fuori dai convocati";
+}
+
+/**
+ * LA POSA — che cosa succede quando si lascia andare qualcuno su un bersaglio.
+ *
+ * Una funzione sola, e non due, perché il trascinamento e il tocco DEVONO fare
+ * la stessa cosa: due strade che portano allo stesso gesto sono una promessa, e
+ * due elenchi di `if` scritti in due punti diversi la rompono al primo cambio.
+ * Chi chiama passa il giocatore da posare — la presa nel caso del tocco, il
+ * carico del trascinamento nel caso del mouse — e riceve il gesto già scelto.
+ */
+type Bersaglio =
+  | { readonly kind: "gettone"; readonly playerId: string }
+  /**
+   * LA CASELLA VUOTA PORTA SÉ STESSA, e non è un dettaglio: `fillSlot` vuole
+   * sapere QUALE posto, perché una casella libera in difesa dice che il modulo
+   * aspetta ancora un difensore, e la ricontrolla contro il campo di adesso —
+   * una casella di un disegno precedente descriverebbe una formazione che non
+   * c'è più.
+   */
+  | { readonly kind: "posto_vuoto"; readonly slot: PitchSlot }
+  | { readonly kind: "panchina" }
+  | { readonly kind: "fuori" };
+
+function posaSuBersaglio(
+  competition: FormazioneCompetitionView,
+  handlers: FormazioneHandlers,
+  bersaglio: Bersaglio,
+  playerId: string,
+): void {
+  const competitionId = competition.competitionId;
+  if (bersaglio.kind === "gettone") {
+    // Posare qualcuno su sé stesso è lasciarlo: non è una mossa, e chiamare
+    // `onSwap` produrrebbe un rifiuto scritto per una cosa che nessuno ha
+    // sbagliato.
+    if (bersaglio.playerId === playerId) {
+      handlers.onPrendi(competitionId, null);
+      return;
+    }
+    handlers.onSwap(competitionId, playerId, bersaglio.playerId);
+    return;
+  }
+  if (bersaglio.kind === "posto_vuoto") {
+    handlers.onFillSlot(competitionId, playerId, bersaglio.slot);
+    return;
+  }
+  if (bersaglio.kind === "panchina") {
+    handlers.onMoveToBench(competitionId, playerId);
+    return;
+  }
+  handlers.onMoveOutside(competitionId, playerId);
+}
+
+/**
+ * IL TRASCINAMENTO, appoggiato sopra i comandi che esistono già.
+ *
+ * `dragstart` non chiama nessun gesto e non fa ridisegnare niente: un `render()`
+ * qui staccherebbe dal documento l'elemento che si sta trascinando, cioè
+ * romperebbe il trascinamento nel suo primo millisecondo. Chi si sta muovendo
+ * viaggia nel `dataTransfer`, che è il posto che il browser gli dà.
+ *
+ * `dragover` accetta senza guardare il carico — durante il trascinamento il
+ * contenuto non è leggibile, è una regola del browser e non una scorciatoia —
+ * e una posa che non ha senso finisce dove finiscono tutte le mosse che non
+ * esistono: in un rifiuto dichiarato, con il motivo scritto.
+ */
+function rendiTrascinabile(elemento: HTMLElement, playerId: string): void {
+  elemento.draggable = true;
+  elemento.addEventListener("dragstart", (event) => {
+    event.dataTransfer?.setData("text/plain", playerId);
+    if (event.dataTransfer !== null) event.dataTransfer.effectAllowed = "move";
+  });
+}
+
+function rendiBersaglio(
+  elemento: HTMLElement,
+  competition: FormazioneCompetitionView,
+  handlers: FormazioneHandlers,
+  bersaglio: Bersaglio,
+): void {
+  elemento.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    if (event.dataTransfer !== null) event.dataTransfer.dropEffect = "move";
+  });
+  elemento.addEventListener("drop", (event) => {
+    event.preventDefault();
+    // IL BERSAGLIO PIÙ INTERNO VINCE, E DA SOLO. Un gettone di panchina sta
+    // dentro la striscia della panchina, e tutte e due sono bersagli: senza
+    // questa riga una posa su un gettone eseguirebbe PRIMA lo scambio e POI il
+    // «manda in panchina» della striscia sotto, cioè due mosse per un gesto, di
+    // cui la seconda disfa la prima.
+    event.stopPropagation();
+    const playerId = event.dataTransfer?.getData("text/plain") ?? "";
+    if (playerId.length === 0) return;
+    posaSuBersaglio(competition, handlers, bersaglio, playerId);
+  });
+}
+
+/**
+ * IL GETTONE DEL GIOCATORE — un bottone vero, e il gesto principale della pagina.
+ *
+ * Un bottone e non un `div` con un `click`: si raggiunge con Tab, si preme con
+ * Invio e con la barra, e i lettori di schermo lo annunciano per quello che è.
+ * `aria-pressed` dice se è quello che si ha in mano, così lo stato della presa
+ * non è affidato al solo colore del bordo.
+ *
+ * CHE COSA FA PREMERLO dipende da che cosa si ha in mano, e l'etichetta lo dice
+ * sempre per esteso invece di lasciarlo indovinare: niente in mano lo prende;
+ * sé stesso lo lascia; qualcun altro li scambia.
+ */
+function renderPlayerToken(
   competition: FormazioneCompetitionView,
   player: FormazionePlayerRow,
   handlers: FormazioneHandlers,
   codes: ReadonlyMap<string, string[]>,
-  benchLength: number,
-): HTMLElement {
-  const row = document.createElement("div");
-  row.className = "formazione-riga";
-  row.dataset.posto = player.place;
-  row.style.cssText = `display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:4px 6px;border-radius:6px;background:${player.starter ? C.panelInner : "transparent"};`;
+  presa: FormazionePresa,
+): HTMLButtonElement {
+  const held = inMano(competition, presa);
+  const preso = held === player.id;
+  const bottone = document.createElement("button");
+  bottone.type = "button";
+  bottone.id = `formazione-${competition.competitionId}-${player.id}-gettone`;
+  bottone.className = "formazione-gettone";
+  bottone.dataset.posto = player.place;
+  bottone.dataset.ruolo = player.role;
+  bottone.dataset.preso = preso ? "si" : "no";
+  bottone.disabled = !competition.editable;
+  bottone.setAttribute("aria-pressed", preso ? "true" : "false");
 
+  const ruolo = ROLE_LABEL[player.role] ?? player.role;
+  const disponibilita = player.availability === undefined ? "" : `, ${player.availability}`;
+  const chiSono = `«${player.id}», ${ruolo}, ${postoInParole(player.place)}${disponibilita}`;
+  bottone.setAttribute(
+    "aria-label",
+    !competition.editable
+      ? `${chiSono} — la formazione non si modifica`
+      : preso
+        ? `Lascia ${chiSono}`
+        : held === null
+          ? `Prendi ${chiSono}`
+          : `Scambia «${held}» con ${chiSono}`,
+  );
+
+  const bordo = preso ? C.textAccent : player.locked ? C.accent : C.border;
+  bottone.style.cssText =
+    `display:flex;flex-direction:column;align-items:stretch;gap:3px;width:100%;` +
+    `padding:6px 7px;border-radius:8px;text-align:left;` +
+    `background:${C.panel};border:${preso ? "2px" : "1px"} solid ${bordo};` +
+    `cursor:${bottone.disabled ? "default" : "grab"};` +
+    (bottone.disabled ? "opacity:0.6;" : "");
+
+  const testa = document.createElement("span");
+  testa.style.cssText = `display:flex;align-items:center;gap:5px;`;
+  testa.appendChild(renderRoleChip(player.role));
+  const nome = document.createElement("span");
+  nome.style.cssText = `font-family:${C.mono};font-size:11px;font-weight:700;color:${C.textPrimary};overflow-wrap:anywhere;line-height:1.25;`;
+  nome.textContent = player.id;
+  testa.appendChild(nome);
+  bottone.appendChild(testa);
+
+  // I SEGNI CHE IL MODELLO PORTA, e nessun altro. La disponibilità è quella che
+  // la lega ha dichiarato, la spunta è quella che qualcuno ha messo: qui non
+  // nasce nessun giudizio nuovo sopra un dato mancante.
+  const segni = document.createElement("span");
+  segni.style.cssText = `display:flex;flex-wrap:wrap;align-items:center;gap:4px;font-size:9.5px;line-height:1.3;`;
+  if (player.availability !== undefined) {
+    const stato = document.createElement("span");
+    const colore =
+      player.availability === "indisponibile"
+        ? C.stopRed
+        : player.availability === "in_dubbio"
+          ? C.textAccent
+          : C.textDim;
+    stato.style.cssText = `color:${colore};letter-spacing:0.03em;`;
+    stato.textContent = player.availability;
+    segni.appendChild(stato);
+  }
+  if (player.locked) {
+    const spunta = document.createElement("span");
+    spunta.style.cssText = `color:${C.textAccent};font-weight:700;letter-spacing:0.03em;`;
+    spunta.textContent = "lo voglio in campo";
+    segni.appendChild(spunta);
+  }
+  const codici = codes.get(player.id) ?? [];
+  if (codici.length > 0) {
+    const nota = document.createElement("span");
+    nota.className = "formazione-riga__motivo";
+    nota.style.cssText = `font-family:${C.mono};color:${C.stopRed};`;
+    nota.textContent = codici.join(" ");
+    segni.appendChild(nota);
+  }
+  if (segni.childElementCount > 0) bottone.appendChild(segni);
+
+  if (!bottone.disabled) {
+    bottone.addEventListener("click", () => {
+      if (held === null) {
+        handlers.onPrendi(competition.competitionId, player.id);
+        return;
+      }
+      posaSuBersaglio(
+        competition,
+        handlers,
+        { kind: "gettone", playerId: player.id },
+        held,
+      );
+    });
+  }
+  return bottone;
+}
+
+/** La spunta «lo voglio in campo», legata al suo controllo e mai a un colore. */
+function renderSpunta(
+  competition: FormazioneCompetitionView,
+  player: FormazionePlayerRow,
+  handlers: FormazioneHandlers,
+): HTMLElement {
   const id = `formazione-spunta-${competition.competitionId}-${player.id}`;
+  const wrap = document.createElement("span");
+  wrap.style.cssText = `display:flex;align-items:center;gap:4px;`;
+
   const input = document.createElement("input");
   input.type = "checkbox";
   input.id = id;
   input.checked = player.locked;
   input.disabled = !competition.editable;
+  input.style.cssText = "margin:0;width:13px;height:13px;flex:none;";
+  input.setAttribute("aria-label", `«${player.id}» — lo voglio in campo`);
   input.addEventListener("change", () =>
     handlers.onToggleLockedStarter(competition.competitionId, player.id),
   );
-  row.appendChild(input);
-
-  if (player.place === "panchina" && player.benchOrder !== null) {
-    const ordine = document.createElement("span");
-    ordine.className = "formazione-riga__ordine";
-    ordine.style.cssText = `font-size:12px;font-weight:700;font-family:${C.mono};color:${C.textAccent};min-width:22px;`;
-    ordine.textContent = `${player.benchOrder}º`;
-    ordine.setAttribute("aria-label", `${player.benchOrder}º a entrare`);
-    row.appendChild(ordine);
-  }
+  wrap.appendChild(input);
 
   const label = document.createElement("label");
   label.setAttribute("for", id);
-  label.style.cssText = `font-size:13px;color:${C.textPrimary};display:flex;gap:8px;align-items:baseline;flex:1 1 200px;`;
-  const ruolo = ROLE_LABEL[player.role] ?? player.role;
-  const stato =
-    player.place === "porta"
-      ? "in porta"
-      : player.place === "titolare"
-        ? "in campo"
-        : player.place === "panchina"
-          ? "in panchina"
-          : "fuori dai convocati";
-  const disponibilita = player.availability === undefined ? "" : ` · ${player.availability}`;
-  label.innerHTML =
-    `<strong style="font-family:${C.mono};">${escHtml(player.id)}</strong>` +
-    `<span style="color:${C.textDim};font-size:12px;">${escHtml(ruolo)} · ${escHtml(stato)}${escHtml(disponibilita)}</span>`;
-  row.appendChild(label);
+  label.style.cssText = `font-size:9.5px;letter-spacing:0.03em;color:${C.textSec};cursor:pointer;`;
+  label.textContent = "voglio";
+  wrap.appendChild(label);
+  return wrap;
+}
 
-  const codici = codes.get(player.id) ?? [];
-  if (codici.length > 0) {
-    const nota = document.createElement("span");
-    nota.className = "formazione-riga__motivo";
-    nota.style.cssText = `font-size:11px;font-family:${C.mono};color:${C.stopRed};`;
-    nota.textContent = codici.join(" ");
-    row.appendChild(nota);
-  }
+/** Un bottone di comando piccolo, per la striscia sotto il gettone. */
+function miniButton(
+  id: string,
+  text: string,
+  ariaLabel: string,
+  disabled: boolean,
+  onClick: () => void,
+): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.id = id;
+  button.className = "btn";
+  button.textContent = text;
+  button.setAttribute("aria-label", ariaLabel);
+  button.disabled = disabled;
+  button.style.cssText = `font-size:9.5px;padding:1px 5px;${disabled ? "opacity:0.45;" : ""}`;
+  if (!disabled) button.addEventListener("click", onClick);
+  return button;
+}
 
-  const comandi = document.createElement("div");
-  comandi.style.cssText = `display:flex;flex-wrap:wrap;gap:6px;margin-left:auto;`;
+/**
+ * I COMANDI DEL POSTO, sotto il gettone e sempre tutti.
+ *
+ * Sono gli stessi di prima, con gli stessi identificativi: il campo cambia il
+ * disegno, non i gesti che esistevano. Restano perché il trascinamento non è
+ * l'unica strada e nemmeno la presa lo è: «In panchina» è un comando che si
+ * capisce senza aver capito niente del resto della pagina.
+ */
+function renderComandiPosto(
+  competition: FormazioneCompetitionView,
+  player: FormazionePlayerRow,
+  handlers: FormazioneHandlers,
+  benchLength: number,
+): HTMLElement {
+  const comandi = document.createElement("span");
+  comandi.style.cssText = `display:flex;flex-wrap:wrap;align-items:center;gap:3px;`;
   const spento = !competition.editable;
   const prefisso = `formazione-${competition.competitionId}-${player.id}`;
+
+  comandi.appendChild(renderSpunta(competition, player, handlers));
 
   if (player.place === "porta") {
     // Il portiere non lascia la porta vuota: il comando resta, disabilitato, e
     // accanto c'è scritto che cosa serve perché diventi possibile.
     comandi.appendChild(
-      commandButton(
+      miniButton(
         `${prefisso}-in-panchina`,
         "In panchina",
         `Manda «${player.id}» in panchina`,
@@ -1079,12 +1504,12 @@ function renderPlayerRow(
       ),
     );
     const nota = document.createElement("span");
-    nota.style.cssText = `font-size:11px;color:${C.textDim};`;
+    nota.style.cssText = `font-size:9px;color:${C.textDim};`;
     nota.textContent = "esce quando entra un altro portiere";
     comandi.appendChild(nota);
   } else if (player.place === "titolare") {
     comandi.appendChild(
-      commandButton(
+      miniButton(
         `${prefisso}-in-panchina`,
         "In panchina",
         `Manda «${player.id}» in panchina`,
@@ -1094,7 +1519,7 @@ function renderPlayerRow(
     );
   } else if (player.place === "panchina") {
     comandi.appendChild(
-      commandButton(
+      miniButton(
         `${prefisso}-in-campo`,
         "In campo",
         `Porta «${player.id}» fra i titolari`,
@@ -1103,7 +1528,7 @@ function renderPlayerRow(
       ),
     );
     comandi.appendChild(
-      commandButton(
+      miniButton(
         `${prefisso}-panchina-su`,
         "Su",
         `«${player.id}» entra prima`,
@@ -1112,7 +1537,7 @@ function renderPlayerRow(
       ),
     );
     comandi.appendChild(
-      commandButton(
+      miniButton(
         `${prefisso}-panchina-giu`,
         "Giù",
         `«${player.id}» entra dopo`,
@@ -1121,7 +1546,7 @@ function renderPlayerRow(
       ),
     );
     comandi.appendChild(
-      commandButton(
+      miniButton(
         `${prefisso}-fuori`,
         "Fuori",
         `Togli «${player.id}» dai convocati`,
@@ -1131,7 +1556,7 @@ function renderPlayerRow(
     );
   } else {
     comandi.appendChild(
-      commandButton(
+      miniButton(
         `${prefisso}-in-campo`,
         "In campo",
         `Porta «${player.id}» fra i titolari`,
@@ -1140,7 +1565,7 @@ function renderPlayerRow(
       ),
     );
     comandi.appendChild(
-      commandButton(
+      miniButton(
         `${prefisso}-in-panchina`,
         "In panchina",
         `Porta «${player.id}» in panchina`,
@@ -1149,39 +1574,379 @@ function renderPlayerRow(
       ),
     );
   }
-  row.appendChild(comandi);
-
-  return row;
+  return comandi;
 }
 
-/** Un gruppo di righe: i titolari, la panchina, chi non è convocato. */
-function renderGroup(
+/**
+ * IL GIOCATORE INTERO: il gettone, l'ordine di panchina quando ce l'ha, e i
+ * comandi del suo posto.
+ *
+ * `formazione-riga` resta la classe di ogni giocatore a schermo anche adesso che
+ * non è più una riga: è il segno per cui «quanti giocatori si vedono» è una
+ * domanda che si può ancora fare al DOM, e da quella domanda dipendono due
+ * garanzie che non si toccano — che con il canale non letto non se ne veda
+ * NESSUNO, e che in prova ognuno porti addosso il marchio della squadra finta.
+ */
+function renderPlayerUnit(
+  competition: FormazioneCompetitionView,
+  player: FormazionePlayerRow,
+  handlers: FormazioneHandlers,
+  codes: ReadonlyMap<string, string[]>,
+  presa: FormazionePresa,
+  benchLength: number,
+): HTMLElement {
+  const unit = document.createElement("div");
+  unit.className = "formazione-riga";
+  unit.dataset.posto = player.place;
+  unit.id = `formazione-giocatore-${competition.competitionId}-${player.id}`;
+  unit.style.cssText = `display:flex;flex-direction:column;gap:3px;flex:0 1 148px;min-width:124px;`;
+
+  if (player.place === "panchina" && player.benchOrder !== null) {
+    const ordine = document.createElement("span");
+    ordine.className = "formazione-riga__ordine";
+    ordine.style.cssText = `font-size:10px;font-weight:700;font-family:${C.mono};color:${C.textAccent};`;
+    ordine.textContent = `${player.benchOrder}º a entrare`;
+    unit.appendChild(ordine);
+  }
+
+  unit.appendChild(renderPlayerToken(competition, player, handlers, codes, presa));
+  unit.appendChild(renderComandiPosto(competition, player, handlers, benchLength));
+
+  // IL TRASCINAMENTO PARTE DAL CONTENITORE, NON DAL BOTTONE, e non è una
+  // preferenza di stile: un `<button draggable>` non fa partire nessun
+  // trascinamento nei browser — il bottone si prende il `mousedown` per sé — e
+  // la scorciatoia col mouse sarebbe rimasta una promessa scritta e mai
+  // mantenuta. Il bottone resta quello che era, per il clic e per la tastiera;
+  // il gesto del mouse vive un livello più fuori. Misurato in
+  // `e2e/formazione-campo.spec.ts`, che trascina davvero.
+  if (competition.editable) rendiTrascinabile(unit, player.id);
+  rendiBersaglio(unit, competition, handlers, { kind: "gettone", playerId: player.id });
+  return unit;
+}
+
+/**
+ * UN POSTO CHE IL MODULO PREVEDE E NESSUNO OCCUPA.
+ *
+ * Resta a schermo, e resta vuoto: un reparto scoperto è la cosa più importante
+ * che questa pagina possa mostrare la domenica mattina, e un posto che sparisce
+ * quando nessuno lo occupa la nasconde proprio quando serve.
+ *
+ * È UNA DESTINAZIONE VERA, non un buco decorativo: la si raggiunge trascinando,
+ * premendola col dito e premendola da tastiera, e ciò che ne esce è `fillSlot`,
+ * che sa QUALE casella e la ricontrolla contro il campo di adesso.
+ *
+ * PREMERLO NON CAMBIA IL RUOLO DI NESSUNO. La casella dice dove si sta mirando,
+ * non che reparto prende chi arriva: un centrocampista posato sulla casella
+ * libera della difesa resta un centrocampista, il conto dei reparti cambia, e
+ * se la forma nuova non è nessuno dei sette moduli la mossa si rifiuta dicendo
+ * la forma. L'etichetta promette quindi «posa qui», che è ciò che succede, e
+ * non «diventa un difensore», che non succede.
+ *
+ * SPENTO SOLO QUANDO PREMERLO NON SIGNIFICHEREBBE NIENTE — niente in mano, o
+ * formazione che non si modifica. Tutto il resto passa e riceve una risposta:
+ * un rifiuto scritto è un'informazione, un bottone spento su una mossa che
+ * qualcuno stava per capire è un vicolo cieco.
+ */
+function renderEmptySlot(
+  competition: FormazioneCompetitionView,
+  slot: PitchSlot,
+  handlers: FormazioneHandlers,
+  presa: FormazionePresa,
+): HTMLElement {
+  const held = inMano(competition, presa);
+  const impedito = !competition.editable
+    ? "la formazione non si modifica"
+    : held === null
+      ? "nessun giocatore in mano: prendine uno, o usa «In campo» sul suo gettone"
+      : "";
+
+  const bottone = document.createElement("button");
+  bottone.type = "button";
+  bottone.id = `formazione-posto-${competition.competitionId}-${slot.line}-${slot.indexInLine}`;
+  bottone.className = "formazione-posto-vuoto";
+  bottone.dataset.ruolo = slot.role;
+  bottone.dataset.linea = String(slot.line);
+  bottone.disabled = impedito.length > 0;
+  const ruolo = ROLE_LABEL[slot.role] ?? slot.role;
+  bottone.setAttribute(
+    "aria-label",
+    impedito.length > 0
+      ? `Posto vuoto, ${ruolo} — ${impedito}`
+      : `Posto vuoto, ${ruolo} — posa qui «${held ?? ""}»`,
+  );
+  bottone.style.cssText =
+    `display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;` +
+    `flex:0 1 148px;min-width:124px;min-height:64px;padding:6px 7px;border-radius:8px;` +
+    `background:transparent;border:1px dashed ${bottone.disabled ? C.border : C.textAccent};` +
+    `color:${C.textSec};cursor:${bottone.disabled ? "default" : "pointer"};`;
+
+  const glifo = document.createElement("span");
+  glifo.style.cssText = `font-size:11px;font-weight:800;font-family:${C.mono};letter-spacing:0.06em;`;
+  glifo.textContent = slot.role;
+  bottone.appendChild(glifo);
+  const testo = document.createElement("span");
+  testo.style.cssText = `font-size:9.5px;letter-spacing:0.03em;`;
+  testo.textContent = "posto vuoto";
+  bottone.appendChild(testo);
+
+  if (!bottone.disabled && held !== null) {
+    bottone.addEventListener("click", () =>
+      posaSuBersaglio(competition, handlers, { kind: "posto_vuoto", slot }, held),
+    );
+  }
+  rendiBersaglio(bottone, competition, handlers, { kind: "posto_vuoto", slot });
+  return bottone;
+}
+
+/** Le righe del campo, disegnate con quello che il campo ha davvero. */
+function renderPitchLines(): SVGSVGElement {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", "0 0 100 150");
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  svg.style.cssText =
+    "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;";
+
+  const linea = (attrs: Readonly<Record<string, string>>, tag: string): void => {
+    const el = document.createElementNS(NS, tag);
+    for (const [name, value] of Object.entries(attrs)) el.setAttribute(name, value);
+    el.setAttribute("fill", "none");
+    el.setAttribute("stroke", "oklch(0.92 0.02 150 / 0.30)");
+    el.setAttribute("stroke-width", "0.7");
+    svg.appendChild(el);
+  };
+
+  linea({ x: "2", y: "2", width: "96", height: "146" }, "rect");
+  linea({ x1: "2", y1: "75", x2: "98", y2: "75" }, "line");
+  linea({ cx: "50", cy: "75", r: "13" }, "circle");
+  // La porta è in basso: area di rigore e area piccola stanno da quella parte,
+  // e in cima c'è quella dell'avversario. Un campo con una porta sola sarebbe
+  // un campo che nessuno riconosce.
+  linea({ x: "22", y: "121", width: "56", height: "27" }, "rect");
+  linea({ x: "36", y: "138", width: "28", height: "10" }, "rect");
+  linea({ x: "22", y: "2", width: "56", height: "27" }, "rect");
+  linea({ x: "36", y: "2", width: "28", height: "10" }, "rect");
+  return svg;
+}
+
+/**
+ * IL CAMPO — la porta in basso, poi difesa, centrocampo, attacco.
+ *
+ * L'ordine del disegno è quello con cui si guarda una partita da dietro la
+ * propria porta, che è il verso in cui la formazione si legge da sempre. Le
+ * linee arrivano da `pitchLayout` nell'ordine del regolamento (porta per prima)
+ * e si disegnano al contrario: da che parte cominciare a guardarle è una
+ * decisione del disegno, e sta qui.
+ */
+function renderPitch(
   competition: FormazioneCompetitionView,
   handlers: FormazioneHandlers,
   codes: ReadonlyMap<string, string[]>,
+  presa: FormazionePresa,
+): HTMLElement {
+  const group = document.createElement("div");
+  group.id = `formazione-titolari-${competition.competitionId}`;
+  group.setAttribute("role", "group");
+  group.setAttribute("aria-label", `In campo — ${competition.label}`);
+  group.style.cssText = `display:flex;flex-direction:column;gap:8px;`;
+  group.appendChild(smallHeading("IN CAMPO", C.textSec));
+
+  const lineup = competition.lineup;
+  if (lineup === null) return group;
+
+  const layout = pitchLayout(lineup, ruoliMostrati(competition));
+  const byId = new Map(competition.players.map((player) => [player.id, player]));
+
+  const campo = document.createElement("div");
+  campo.className = "formazione-campo";
+  campo.dataset.modulo = layout.module;
+  campo.style.cssText =
+    `position:relative;display:flex;flex-direction:column-reverse;gap:10px;` +
+    `padding:14px 10px;border-radius:12px;border:1px solid ${C.border};overflow:hidden;` +
+    // Il verde a strisce del taglio dell'erba: due toni scuri, non un prato
+    // acceso. Il fondo di questa app è scuro, e un campo luminoso qui sotto
+    // renderebbe illeggibile tutto ciò che ci sta sopra.
+    `background:repeating-linear-gradient(180deg, oklch(0.31 0.055 150) 0 26px, oklch(0.275 0.05 150) 26px 52px);`;
+  campo.appendChild(renderPitchLines());
+
+  // `column-reverse`: le linee arrivano porta-difesa-centrocampo-attacco e si
+  // impilano dal basso, così l'attacco finisce in cima senza che l'ordine del
+  // modello venga rovesciato prima di essere letto.
+  for (const [numero, linea] of layout.lines.entries()) {
+    const riga = document.createElement("div");
+    riga.className = "formazione-campo__linea";
+    riga.dataset.linea = String(numero);
+    riga.style.cssText = `position:relative;display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;gap:8px;`;
+    for (const slot of linea) {
+      // Un posto occupato da un id che nella rosa non c'è non produce un gettone
+      // inventato: resta il posto vuoto, e chi manca lo dichiara `legality` con
+      // `id_fuori_rosa`. È la stessa regola che il modello applica ai gruppi.
+      const player = slot.playerId === null ? undefined : byId.get(slot.playerId);
+      riga.appendChild(
+        player === undefined
+          ? renderEmptySlot(competition, slot, handlers, presa)
+          : renderPlayerUnit(
+              competition,
+              player,
+              handlers,
+              codes,
+              presa,
+              competition.bench.length,
+            ),
+      );
+    }
+    campo.appendChild(riga);
+  }
+  group.appendChild(campo);
+
+  // IN CAMPO E SENZA UN POSTO. Non è un dettaglio da nascondere sotto il verde:
+  // è un giocatore schierato davvero, che il modulo non riesce a ospitare, ed è
+  // lui a rendere illegale l'invio. Sta fuori dal campo perché nel campo non c'è
+  // un posto per lui — inventargliene uno direbbe che il modulo lo prevede.
+  const senzaPosto = layout.unplaced
+    .map((id) => byId.get(id))
+    .filter((player): player is FormazionePlayerRow => player !== undefined);
+  if (senzaPosto.length > 0) {
+    const box = document.createElement("div");
+    box.id = `formazione-senza-posto-${competition.competitionId}`;
+    box.setAttribute("role", "alert");
+    box.style.cssText = `border:1px solid ${C.stopRedDark};border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:6px;`;
+    box.appendChild(smallHeading("IN CAMPO, E SENZA UN POSTO IN QUESTO MODULO", C.stopRed));
+    box.appendChild(
+      paragraph(
+        `Sono schierati fra gli undici, e il modulo «${layout.module}» non ha un posto per loro. ` +
+          "Finché restano qui la formazione non è quella che il modulo dichiara: cambia modulo, " +
+          "oppure mandali in panchina.",
+        `font-size:12px;color:${C.textMid};`,
+      ),
+    );
+    const striscia = document.createElement("div");
+    striscia.style.cssText = `display:flex;flex-wrap:wrap;gap:8px;`;
+    for (const player of senzaPosto) {
+      striscia.appendChild(
+        renderPlayerUnit(competition, player, handlers, codes, presa, competition.bench.length),
+      );
+    }
+    box.appendChild(striscia);
+    group.appendChild(box);
+  }
+  return group;
+}
+
+/**
+ * UNA ZONA DI POSA — la panchina intera, o i non convocati interi.
+ *
+ * È un bottone e non un'area muta: senza di lui, mandare in panchina col dito o
+ * con la tastiera richiederebbe di trovare il gettone giusto su cui posare, e
+ * «mandalo in panchina» non è «scambialo con quello». Resta a schermo anche
+ * quando non si può usare, con il motivo.
+ */
+function renderDropZone(
+  competition: FormazioneCompetitionView,
+  handlers: FormazioneHandlers,
+  presa: FormazionePresa,
+  bersaglio: Bersaglio & { readonly kind: "panchina" | "fuori" },
+): HTMLElement {
+  const held = inMano(competition, presa);
+  const heldRow =
+    held === null ? undefined : competition.players.find((row) => row.id === held);
+  const dove = bersaglio.kind === "panchina" ? "panchina" : "fuori dai convocati";
+  const impedito = !competition.editable
+    ? "la formazione non si modifica"
+    : held === null
+      ? "nessun giocatore in mano"
+      : heldRow !== undefined && heldRow.place === (bersaglio.kind === "panchina" ? "panchina" : "fuori")
+        ? `«${held}» è già ${dove === "panchina" ? "in panchina" : "fuori dai convocati"}`
+        : heldRow !== undefined && heldRow.place === "porta"
+          ? `«${held}» è in porta: esce solo quando un altro portiere entra al suo posto`
+          : "";
+
+  const bottone = document.createElement("button");
+  bottone.type = "button";
+  bottone.id = `formazione-${bersaglio.kind}-posa-${competition.competitionId}`;
+  bottone.className = "btn";
+  bottone.disabled = impedito.length > 0;
+  bottone.textContent =
+    bersaglio.kind === "panchina" ? "Posa qui: in panchina" : "Posa qui: fuori dai convocati";
+  bottone.setAttribute(
+    "aria-label",
+    impedito.length > 0
+      ? `${bottone.textContent} — non si può: ${impedito}`
+      : bersaglio.kind === "panchina"
+        ? `Manda «${held ?? ""}» in panchina`
+        : `Togli «${held ?? ""}» dai convocati`,
+  );
+  bottone.style.cssText = `font-size:11px;padding:3px 9px;${bottone.disabled ? "opacity:0.45;" : ""}`;
+  if (!bottone.disabled && held !== null) {
+    bottone.addEventListener("click", () =>
+      posaSuBersaglio(competition, handlers, bersaglio, held),
+    );
+  }
+
+  // IL MOTIVO SI LEGGE ACCANTO AL BOTTONE, non solo dentro l'etichetta per i
+  // lettori di schermo. «Nessun giocatore in mano» si capisce da solo e non si
+  // ripete; tutto il resto — il portiere che non lascia la porta, la blindatura
+  // — è una spiegazione che chi guarda deve poter leggere senza chiederla, come
+  // già fa la nota accanto al comando spento del portiere.
+  if (impedito.length === 0 || impedito === "nessun giocatore in mano") return bottone;
+  const riga = document.createElement("span");
+  riga.style.cssText = `display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;`;
+  riga.appendChild(bottone);
+  const nota = document.createElement("span");
+  nota.style.cssText = `font-size:11px;color:${C.textDim};`;
+  nota.textContent = impedito;
+  riga.appendChild(nota);
+  return riga;
+}
+
+/**
+ * UNA STRISCIA DI GIOCATORI: la panchina, i non convocati, o la rosa intera
+ * quando non c'è nessuna formazione da modificare.
+ *
+ * La striscia intera è un bersaglio del trascinamento, e il bottone di posa che
+ * la accompagna fa la stessa cosa col dito e con la tastiera.
+ */
+function renderStrip(
+  competition: FormazioneCompetitionView,
+  handlers: FormazioneHandlers,
+  codes: ReadonlyMap<string, string[]>,
+  presa: FormazionePresa,
   suffisso: string,
   titolo: string,
   nota: string,
   righe: readonly FormazionePlayerRow[],
+  zona: (Bersaglio & { readonly kind: "panchina" | "fuori" }) | null,
 ): HTMLElement {
   const group = document.createElement("div");
   group.id = `formazione-${suffisso}-${competition.competitionId}`;
   group.setAttribute("role", "group");
   group.setAttribute("aria-label", `${titolo} — ${competition.label}`);
-  group.style.cssText = `display:flex;flex-direction:column;gap:4px;`;
-  group.appendChild(smallHeading(titolo.toUpperCase(), C.textSec));
+  group.style.cssText = `display:flex;flex-direction:column;gap:6px;border:1px solid ${C.border};border-radius:10px;padding:10px 12px;`;
+
+  const testa = document.createElement("div");
+  testa.style.cssText = `display:flex;flex-wrap:wrap;align-items:center;gap:8px;`;
+  testa.appendChild(smallHeading(titolo.toUpperCase(), C.textSec));
+  if (zona !== null) testa.appendChild(renderDropZone(competition, handlers, presa, zona));
+  group.appendChild(testa);
+
   if (nota.length > 0) {
     group.appendChild(paragraph(nota, `font-size:12px;color:${C.textDim};`));
   }
+
+  const striscia = document.createElement("div");
+  striscia.style.cssText = `display:flex;flex-wrap:wrap;gap:8px;`;
   if (righe.length === 0) {
-    group.appendChild(paragraph("nessuno", `font-size:12px;color:${C.textDim};`));
-    return group;
+    striscia.appendChild(paragraph("nessuno", `font-size:12px;color:${C.textDim};`));
   }
   for (const player of righe) {
-    group.appendChild(
-      renderPlayerRow(competition, player, handlers, codes, competition.bench.length),
+    striscia.appendChild(
+      renderPlayerUnit(competition, player, handlers, codes, presa, competition.bench.length),
     );
   }
+  if (zona !== null) rendiBersaglio(striscia, competition, handlers, zona);
+  group.appendChild(striscia);
   return group;
 }
 
@@ -1190,15 +1955,22 @@ function renderRosterOnly(
   competition: FormazioneCompetitionView,
   handlers: FormazioneHandlers,
   codes: ReadonlyMap<string, string[]>,
+  presa: FormazionePresa,
 ): HTMLElement {
-  return renderGroup(
+  // NIENTE CAMPO QUI, e non è una dimenticanza: senza una formazione letta non
+  // c'è nessun modulo, quindi non ci sono posti da disegnare. Un campo verde con
+  // undici caselle vuote si leggerebbe «non ho ancora schierato nessuno», che è
+  // una conclusione precisa e diversa da «la lega non riporta niente».
+  return renderStrip(
     competition,
     handlers,
     codes,
+    presa,
     "rosa",
     "Rosa",
     "Le spunte dicono chi vuoi in campo e restano anche se non salvi adesso.",
     competition.players,
+    null,
   );
 }
 
@@ -1266,6 +2038,7 @@ function renderCompetition(
   save: FormazioneSaveState,
   edit: FormazioneEditState,
   prova: boolean,
+  presa: FormazionePresa,
 ): HTMLElement {
   const panel = document.createElement("section");
   panel.className = "panel";
@@ -1344,6 +2117,46 @@ function renderCompetition(
     box.appendChild(smallHeading("MOSSA NON ESEGUITA", C.stopRed));
     box.appendChild(paragraph(edit.refusal, `color:${C.textMid};margin-top:4px;`));
     panel.appendChild(box);
+  }
+
+  // LA SQUADRA SUBITO, E I MOTIVI SOTTO. Il campo sta qui — attaccato al modulo
+  // che lo forma e alla riga che dice se è quello della piattaforma — e non in
+  // fondo dopo cinque riquadri di diagnostica: chi apre questa pagina la
+  // domenica mattina viene a vedere la sua squadra, non un referto. I riquadri
+  // che spiegano perché qualcosa non va restano tutti, uno per uno, e stanno
+  // sotto ciò che descrivono e sopra il bottone che fermano.
+  const codes = codesByPlayer(competition);
+  if (competition.lineup === null) {
+    panel.appendChild(renderRosterOnly(competition, handlers, codes, presa));
+  } else {
+    panel.appendChild(renderPitch(competition, handlers, codes, presa));
+    panel.appendChild(
+      renderStrip(
+        competition,
+        handlers,
+        codes,
+        presa,
+        "panchina",
+        "Panchina",
+        "L'ordine conta: quando i senza voto sono più delle sostituzioni disponibili entra chi sta più " +
+          "in alto — a sinistra si entra prima. «Su» lo fa entrare prima, «Giù» dopo.",
+        competition.bench,
+        { kind: "panchina" },
+      ),
+    );
+    panel.appendChild(
+      renderStrip(
+        competition,
+        handlers,
+        codes,
+        presa,
+        "fuori",
+        "Fuori dai convocati",
+        "In rosa, e non schierati in questa partita.",
+        competition.outside,
+        { kind: "fuori" },
+      ),
+    );
   }
 
   const vincoli = document.createElement("div");
@@ -1434,46 +2247,6 @@ function renderCompetition(
   const legalita = renderLegality(competition);
   if (legalita !== null) panel.appendChild(legalita);
 
-  const codes = codesByPlayer(competition);
-  if (competition.lineup === null) {
-    panel.appendChild(renderRosterOnly(competition, handlers, codes));
-  } else {
-    panel.appendChild(
-      renderGroup(
-        competition,
-        handlers,
-        codes,
-        "titolari",
-        "In campo",
-        "Il portiere per primo, poi i dieci di movimento.",
-        competition.starters,
-      ),
-    );
-    panel.appendChild(
-      renderGroup(
-        competition,
-        handlers,
-        codes,
-        "panchina",
-        "Panchina",
-        "L'ordine conta: quando i senza voto sono più delle sostituzioni disponibili entra chi sta più " +
-          "in alto. «Su» lo fa entrare prima, «Giù» dopo.",
-        competition.bench,
-      ),
-    );
-    panel.appendChild(
-      renderGroup(
-        competition,
-        handlers,
-        codes,
-        "fuori",
-        "Fuori dai convocati",
-        "In rosa, e non schierati in questa partita.",
-        competition.outside,
-      ),
-    );
-  }
-
   const blockers = saveBlockers(competition);
   const salva = document.createElement("button");
   salva.type = "button";
@@ -1525,6 +2298,12 @@ export function renderFormazioneScreen(
    * non c'è niente da datare. In ogni altro caso questa fascia c'è.
    */
   lettura: FormazioneLettura | null = null,
+  /**
+   * IL GIOCATORE CHE SI HA IN MANO. Non è un dato della lega e non si persiste:
+   * è la prima metà del gesto in due tempi, e la seconda strada — quella che
+   * esiste per chi non ha un mouse — non funzionerebbe senza.
+   */
+  presa: FormazionePresa = NESSUNA_PRESA,
 ): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "screen-container";
@@ -1574,7 +2353,7 @@ export function renderFormazioneScreen(
   if (lettura !== null) wrap.appendChild(renderLettura(lettura, prova.attiva));
 
   for (const competition of view.competitions) {
-    wrap.appendChild(renderCompetition(competition, handlers, save, edit, prova.attiva));
+    wrap.appendChild(renderCompetition(competition, handlers, save, edit, prova.attiva, presa));
   }
   if (prova.attiva) wrap.appendChild(renderProvaMarchio(prova, "coda"));
   return wrap;
