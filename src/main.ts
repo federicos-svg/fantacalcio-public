@@ -208,7 +208,10 @@ import {
   moveToBench,
   moveToStarters,
   prepareSubmission,
+  reconcileConstraints,
+  removeQuarantinedConstraint,
   rolesByPlayerId,
+  saveOutcomeApplies,
   setLineupFlag,
   setLineupModule,
   setLockedModule,
@@ -220,6 +223,8 @@ import {
   type LineupConstraints,
   type LineupChannelState,
   type LineupEdit,
+  type ConstraintQuarantine,
+  type FormazioneSaveOwner,
   type LineupFlags,
   type Module,
   type ObservedLineup,
@@ -240,6 +245,7 @@ import {
   formazioneConstraintsNotice,
   loadFormazioneConstraints,
   saveFormazioneConstraints,
+  FORMAZIONE_CONSTRAINTS_SCAVALCATI,
 } from "./formazioneConstraints.js";
 // LA PROVA CON UNA SQUADRA DI ESEMPIO. Nessuna porta viene collegata: la shell
 // sostituisce lo stato del canale con un valore sintetico soltanto quando
@@ -250,8 +256,10 @@ import {
   modalitaProvaAttiva,
   provaChannelState,
   PROVA_COMPETITION_ID,
+  PROVA_SALVATAGGIO_MOTIVO,
   provaProducerReports,
   salvaModalitaProva,
+  type ProvaRichiesta,
 } from "./formazioneProva.js";
 import {
   renderFormazioneScreen,
@@ -585,6 +593,31 @@ type PendingLineupEdit =
   | { readonly kind: "fuori"; readonly competitionId: string; readonly playerId: string }
   | { readonly kind: "modulo"; readonly competitionId: string; readonly module: Module };
 
+/**
+ * L'ESITO DELL'ULTIMO SALVA, CON ADDOSSO A CHI APPARTIENE.
+ *
+ * `owner` è la squadra, la competizione e la formazione ESATTA che l'esito
+ * descrive. Senza di lui l'esito era un campo che nessuna mossa azzerava, e la
+ * frase «la formazione di esempio ha passato la validazione» sopravviveva alla
+ * mossa che la smentiva: sullo stesso schermo si leggevano insieme quella e
+ * «Non si può salvare: l'invio non sarebbe legale in 2 punti», con la
+ * rassicurante scritta più in grande. Un esito che non appartiene più a ciò che
+ * si vede non si aggiorna: SPARISCE — `saveOutcomeApplies` lo decide a ogni
+ * render, e nessuna funzione deve ricordarsi di azzerarlo.
+ */
+interface FormazioneSaveRecord extends FormazioneSaveState {
+  readonly owner: FormazioneSaveOwner | null;
+}
+
+/** Nessun esito da mostrare: lo stato di partenza, e quello di ogni esito scaduto. */
+const NESSUN_ESITO_SALVATAGGIO: FormazioneSaveRecord = {
+  competitionId: null,
+  state: NIENTE_DA_INVIARE,
+  blocking: [],
+  warnings: [],
+  owner: null,
+};
+
 interface AppState {
   screen: Screen;
   /**
@@ -613,13 +646,15 @@ interface AppState {
   /**
    * LA PROVA CON UNA SQUADRA DI ESEMPIO — richiesta, non ancora concessa.
    *
-   * È ciò che chi guarda ha CHIESTO, qui o in una visita precedente. Se sia
-   * anche attiva non lo dice questo campo: lo decide `modalitaProvaAttiva`
-   * contro lo stato del canale, e con una squadra vera letta la risposta è
-   * sempre `false`. I due valori sono tenuti distinti di proposito: un solo
-   * booleano «attiva» sarebbe una copia della regola, e le copie divergono.
+   * È ciò che chi guarda ha CHIESTO, e DA QUANDO: `adesso` è un comando appena
+   * premuto, `ricordata` è l'accensione riletta dall'archivio di una visita
+   * precedente. Se sia anche attiva non lo dice questo campo: lo decide
+   * `modalitaProvaAttiva` contro lo stato del canale, e una prova solo
+   * ricordata non torna accesa finché non si sa che dati veri non ce ne sono.
+   * I due valori sono tenuti distinti di proposito: un solo booleano «attiva»
+   * sarebbe una copia della regola, e le copie divergono.
    */
-  formazioneProvaRichiesta: boolean;
+  formazioneProvaRichiesta: ProvaRichiesta;
   /** `true` quando l'archivio locale non ha tenuto l'accensione della prova. */
   formazioneProvaNonPersistita: boolean;
   /**
@@ -636,8 +671,8 @@ interface AppState {
   formazioneEdit: FormazioneEditState;
   /** La modifica che aspetta la decisione sul conflitto. `null` è la norma. */
   formazionePendingEdit: PendingLineupEdit | null;
-  /** L'esito dell'ultimo «Salva»: quale competizione, e i tre stati dell'invio. */
-  formazioneSave: FormazioneSaveState;
+  /** L'esito dell'ultimo «Salva»: quale competizione, i tre stati dell'invio, e a chi appartiene. */
+  formazioneSave: FormazioneSaveRecord;
   moment: Moment;
   log: AuctionEvent[];
   recovery: RecoveryState;
@@ -1139,14 +1174,17 @@ const state: AppState = {
   lineupDrafts: new Map(),
   lineupConstraintsNotice: formazioneConstraintsNotice(bootFormazioneConstraints.status),
   // La prova rilegge la sua sola accensione, fail-closed a spenta: un archivio
-  // storto non fa comparire dati finti a nessuno che non li abbia chiesti.
-  formazioneProvaRichiesta: caricaModalitaProva(browserStorage),
+  // storto non fa comparire dati finti a nessuno che non li abbia chiesti. E
+  // quella riletta è «ricordata», non «adesso»: nessuno l'ha chiesta in questa
+  // visita, quindi non torna accesa finché non si sa che dati veri non ce ne
+  // sono (modalitaProvaAttiva, regola 2).
+  formazioneProvaRichiesta: caricaModalitaProva(browserStorage) ? "ricordata" : "no",
   formazioneProvaNonPersistita: false,
   lineupProvaConstraints: new Map(),
   lineupProvaDrafts: new Map(),
   formazioneEdit: NESSUNA_MODIFICA_IN_SOSPESO,
   formazionePendingEdit: null,
-  formazioneSave: { competitionId: null, state: NIENTE_DA_INVIARE, blocking: [], warnings: [] },
+  formazioneSave: NESSUN_ESITO_SALVATAGGIO,
   moment: "chiamata",
   log: bootLogEvents,
   recovery: recoveryFromLoadResult(bootLog),
@@ -3262,33 +3300,35 @@ function competitionConstraints(competitionId: string): LineupConstraints {
 /**
  * ENTRARE E USCIRE DALLA PROVA, e in tutti e due i casi si riparte puliti.
  *
- * L'esito dell'ultimo salvataggio, il conflitto aperto e l'ultima mossa
- * rifiutata riguardano la formazione su cui sono nati: lasciarli a schermo
- * dopo il passaggio li appoggerebbe sull'altra, che è la confusione che questa
- * pagina esiste per non produrre. Uscendo, i vincoli e le modifiche della prova
- * si buttano: erano di una squadra che non esiste.
+ * Il conflitto aperto e l'ultima mossa rifiutata riguardano la formazione su
+ * cui sono nati: lasciarli a schermo dopo il passaggio li appoggerebbe
+ * sull'altra, che è la confusione che questa pagina esiste per non produrre.
+ * Uscendo, i vincoli e le modifiche della prova si buttano: erano di una
+ * squadra che non esiste.
+ *
+ * L'ESITO DELL'ULTIMO SALVA NON SI AZZERA PIÙ DA QUI, e non è una dimenticanza:
+ * è la correzione del difetto. Un azzeramento è una cosa di cui bisogna
+ * ricordarsi in ogni punto in cui la formazione cambia — e in nessuno di quei
+ * punti ci si ricordava — mentre l'esito ADESSO porta addosso a chi appartiene
+ * (`FormazioneSaveRecord.owner`) e sparisce da sé appena la squadra, la
+ * competizione o la formazione non sono più quelle. Una regola sola, in un
+ * posto solo, invece di undici promemoria.
  */
-function azzeraStatoFormazione(): void {
+function azzeraModificaInSospeso(): void {
   state.formazioneEdit = NESSUNA_MODIFICA_IN_SOSPESO;
   state.formazionePendingEdit = null;
-  state.formazioneSave = {
-    competitionId: null,
-    state: NIENTE_DA_INVIARE,
-    blocking: [],
-    warnings: [],
-  };
 }
 
 function entraInProva(): void {
-  state.formazioneProvaRichiesta = true;
+  state.formazioneProvaRichiesta = "adesso";
   state.formazioneProvaNonPersistita = !salvaModalitaProva(browserStorage, true);
-  azzeraStatoFormazione();
+  azzeraModificaInSospeso();
   render();
   focusAfterRender("formazione-prova-esci");
 }
 
 function esciDallaProva(): void {
-  state.formazioneProvaRichiesta = false;
+  state.formazioneProvaRichiesta = "no";
   state.lineupProvaConstraints.clear();
   state.lineupProvaDrafts.clear();
   // Uscendo non resta nessuna cornice su cui dire che la scrittura non ha
@@ -3296,7 +3336,7 @@ function esciDallaProva(): void {
   // accesa — marchiata come sempre, e a un clic dall'essere spenta di nuovo.
   salvaModalitaProva(browserStorage, false);
   state.formazioneProvaNonPersistita = false;
-  azzeraStatoFormazione();
+  azzeraModificaInSospeso();
   render();
   focusAfterRender("formazione-prova-entra");
 }
@@ -3319,12 +3359,32 @@ function persistLineupConstraints(competitionId: string, next: LineupConstraints
     state.lineupProvaConstraints.set(competitionId, next);
     return;
   }
-  state.lineupConstraints.set(competitionId, next);
-  const persisted = saveFormazioneConstraints(browserStorage, state.lineupConstraints);
-  state.lineupConstraintsNotice = persisted
-    ? ""
-    : "I vincoli appena messi non sono stati scritti nell'archivio locale: valgono per questa sessione e " +
-      "non saranno qui al prossimo avvio.";
+  // LA BASE DELLA SCRITTURA, presa PRIMA di applicarla: è l'archivio su cui
+  // questa spunta è nata. Se nel frattempo è diventato un altro, ha scritto
+  // un'altra scheda — stessa guardia di `saveAuctionLog`, stessa portata: si
+  // RILEVA una scrittura perduta, non si sincronizzano le schede.
+  const base = new Map(state.lineupConstraints);
+  const next2 = new Map(state.lineupConstraints);
+  next2.set(competitionId, next);
+  const esito = saveFormazioneConstraints(browserStorage, next2, base);
+
+  if (esito.kind === "scavalcata") {
+    // NON SI SCRIVE E NON SI FINGE. La spunta appena messa non entra nemmeno in
+    // memoria: mostrarla spuntata sarebbe la stessa bugia di prima, con la
+    // differenza che adesso la sappiamo. Si rilegge l'archivio, così ciò che si
+    // vede è ciò che c'è davvero, e lo si dice.
+    const riletti = loadFormazioneConstraints(browserStorage);
+    state.lineupConstraints = new Map(riletti.byCompetition);
+    state.lineupConstraintsNotice = FORMAZIONE_CONSTRAINTS_SCAVALCATI;
+    return;
+  }
+
+  state.lineupConstraints = next2;
+  state.lineupConstraintsNotice =
+    esito.kind === "ok"
+      ? ""
+      : "I vincoli appena messi non sono stati scritti nell'archivio locale: valgono per questa sessione e " +
+        "non saranno qui al prossimo avvio.";
 }
 
 /** Applica un vincolo, lo persiste, ridisegna e riporta il fuoco dov'era. */
@@ -3590,6 +3650,45 @@ function risolviConflitto(competitionId: string, removeConstraint: boolean): voi
   );
 }
 
+/**
+ * TOGLIE UN VINCOLO MESSO DA PARTE — e lo toglie dai vincoli GREZZI, che sono
+ * gli unici in cui esiste ancora.
+ *
+ * È l'unica strada per disfarlo. La spunta su un giocatore uscito di rosa non
+ * ha nessuna riga a schermo, perché la riga del giocatore non c'è più; il
+ * blocco su un modulo che la lega non ammette più non compare nella tendina,
+ * perché la tendina mostra ciò che è applicato. Senza questo comando restavano
+ * nell'archivio locale a fermare ogni invio, e l'unica via d'uscita era
+ * cancellare l'archivio a mano.
+ */
+function togliVincoloInQuarantena(
+  competitionId: string,
+  quarantine: ConstraintQuarantine,
+): void {
+  applyLineupConstraints(
+    competitionId,
+    removeQuarantinedConstraint(competitionConstraints(competitionId), quarantine),
+    `formazione-quarantena-${competitionId}`,
+  );
+}
+
+/**
+ * A CHI APPARTIENE UN ESITO PRODOTTO ADESSO: la squadra su cui si sta
+ * lavorando, la competizione, e la formazione esatta che si è vista.
+ *
+ * `teamId` viene dalla rosa letta — quella vera, o quella di esempio, che ha un
+ * `teamId` suo — quindi un esito nato in prova non può comparire sulla squadra
+ * vera, né il contrario, nemmeno per il tempo di un render.
+ */
+function proprietarioEsito(competitionId: string): FormazioneSaveOwner {
+  const channel = canaleCorrente();
+  return {
+    teamId: channel.kind === "letto" ? channel.roster.teamId : "",
+    competitionId,
+    lineup: shownLineup(competitionId),
+  };
+}
+
 /** Lo stato «da inviare» con la sua ragione: nulla è partito, e si dice perché. */
 function formazioneNonInviata(
   competitionId: string,
@@ -3602,6 +3701,7 @@ function formazioneNonInviata(
     state: { kind: "da_inviare", reason },
     blocking,
     warnings,
+    owner: proprietarioEsito(competitionId),
   };
   render();
   focusAfterRender("formazione-stato-invio-etichetta");
@@ -3657,7 +3757,33 @@ function saveFormazione(competitionId: string): void {
     return;
   }
 
-  const constraints = competitionConstraints(competitionId);
+  // UNA FONTE SOLA PER I VINCOLI, e sono quelli che la pagina MOSTRA.
+  //
+  // Qui il Salva usava i vincoli grezzi mentre la vista mostrava i
+  // riconciliati, e le due cose divergevano esattamente nel caso in cui
+  // divergere costa: una spunta su un giocatore che oggi non è più in rosa
+  // spariva dalla vista — «messa da parte, non applicata» — e restava dentro
+  // l'invio, che veniva rifiutato per giocatore sconosciuto. La riga di quel
+  // giocatore a schermo non c'era più, quindi la spunta non era togliibile da
+  // nessun comando: la formazione restava bloccata per sempre. Adesso è la
+  // stessa riconciliazione che costruisce la vista (`buildFormazioneView`) a
+  // decidere che cosa parte, e ciò che resta da parte lo dichiara la quarantena
+  // — che ferma il salvataggio e offre il comando per toglierlo.
+  const riconciliati = reconcileConstraints(
+    competitionConstraints(competitionId),
+    channel.roster,
+    channel.settings.allowedModules,
+  );
+  const constraints = riconciliati.applied;
+  if (riconciliati.quarantined.length > 0) {
+    formazioneNonInviata(
+      competitionId,
+      "ci sono vincoli messi da parte, e non si manda una formazione che li ignora in silenzio: " +
+        "toglili dal riquadro «vincoli messi da parte», oppure rimettili in modo che si possano " +
+        "applicare.",
+    );
+    return;
+  }
   const produttore = provaAttiva()
     ? provaProducerReports(vincoliCorrenti(), lineup).get(competitionId)
     : lineupProducerReports(channel, state.lineupConstraints).reports.get(competitionId);
@@ -3686,28 +3812,53 @@ function saveFormazione(competitionId: string): void {
   // mostra è l'esito della validazione più la dichiarazione che nulla è andato
   // da nessuna parte, che è esattamente quello che è successo.
   if (provaAttiva()) {
-    formazioneNonInviata(
-      competitionId,
-      "la formazione di esempio ha passato la validazione, e non è stata mandata a nessuno: " +
-        "questa è una prova, e il canale della lega resta scollegato.",
-      [],
-      preparation.warnings,
-    );
+    formazioneNonInviata(competitionId, PROVA_SALVATAGGIO_MOTIVO, [], preparation.warnings);
     return;
   }
 
   const attempt = submitLineup(preparation.submission);
-  state.formazioneSave = {
-    competitionId,
-    state: submissionUiState(attempt),
-    blocking: [],
-    warnings: preparation.warnings,
-  };
+  const uiState = submissionUiState(attempt);
+  // UNA BOZZA CONFERMATA NON È PIÙ UNA BOZZA. `inviato_confermato` significa una
+  // cosa sola e provata — la rilettura coincide posizione per posizione — quindi
+  // ciò che era «modificata e non ancora inviata» adesso è quello che la
+  // piattaforma riporta. Tenerla farebbe convivere sullo stesso schermo «INVIATA
+  // E CONFERMATA» e «MODIFICATA — NON ANCORA INVIATA», che è la coppia peggiore
+  // che questa pagina possa mostrare: la frase che dice «sei a posto» sopra
+  // quella che dice «non sei partito».
+  if (uiState.kind === "inviato_confermato") bozzeCorrenti().delete(competitionId);
   // Dopo un invio la lega può non essere più quella di prima: si rilegge invece
   // di continuare a mostrare lo stato con cui si era arrivati qui.
   state.lineupChannel = readLineupChannelState();
+  state.formazioneSave = {
+    competitionId,
+    state: uiState,
+    blocking: [],
+    warnings: preparation.warnings,
+    // IL PROPRIETARIO SI PRENDE ADESSO, cioè dopo la bozza buttata e dopo la
+    // rilettura: è la formazione che sta per andare a schermo insieme all'esito.
+    // Da qui in avanti la prima mossa di chi guarda la cambia, e l'esito sparisce.
+    owner: proprietarioEsito(competitionId),
+  };
   render();
   focusAfterRender("formazione-stato-invio-etichetta");
+}
+
+/**
+ * L'ESITO CHE VA A SCHERMO — quello di prima, se appartiene ancora a ciò che si
+ * vede; altrimenti NIENTE.
+ *
+ * È il punto in cui il difetto muore. Prima l'esito era un campo che nessuna
+ * mossa toccava, e la riga «la formazione di esempio ha passato la validazione»
+ * restava sotto gli occhi accanto a «Non si può salvare: l'invio non sarebbe
+ * legale in 2 punti», prodotta dalla mossa successiva. Adesso l'esito non si
+ * aggiorna e non si corregge: se la formazione che l'ha prodotto non è più
+ * quella mostrata, non c'è.
+ */
+function esitoDaMostrare(): FormazioneSaveRecord {
+  const save = state.formazioneSave;
+  if (save.competitionId === null) return NESSUN_ESITO_SALVATAGGIO;
+  const applica = saveOutcomeApplies(save.owner, proprietarioEsito(save.competitionId));
+  return applica ? save : NESSUN_ESITO_SALVATAGGIO;
 }
 
 function renderFormazione(): HTMLElement {
@@ -3764,8 +3915,10 @@ function renderFormazione(): HTMLElement {
       onResetLineup: (competitionId) => annullaModifiche(competitionId),
       onResolveConflict: (competitionId, removeConstraint) =>
         risolviConflitto(competitionId, removeConstraint),
+      onRemoveQuarantined: (competitionId, quarantine) =>
+        togliVincoloInQuarantena(competitionId, quarantine),
     },
-    state.formazioneSave,
+    esitoDaMostrare(),
     state.formazioneEdit,
     avviso.join(" "),
     {

@@ -57,6 +57,68 @@ describe("un invio legale non produce nulla", () => {
     ).toEqual([]);
   });
 
+  it("un id che porta il nome di una proprietà di `Object` non eredita un ruolo che nessuno ha osservato", () => {
+    // IL MODO CLASSICO IN CUI UN OGGETTO USATO COME DIZIONARIO TRADISCE. Gli id
+    // arrivano da fuori: basta che uno si chiami `constructor`, `toString` o
+    // `valueOf` perché `record[id]`, senza `Object.hasOwn`, risponda con un
+    // pezzo del prototipo di `Object` — una funzione — invece di `undefined`.
+    // A valle quel non-ruolo diventa un portiere «di ruolo function toString()»
+    // e un reparto contato male: un giudizio inventato al posto di un'assenza
+    // dichiarata. La guardia c'era e non la esercitava nessuna prova.
+    const piano: Record<string, Role> = Object.fromEntries(RUOLI);
+    for (const eredidato of ["constructor", "toString", "valueOf", "hasOwnProperty"]) {
+      // L'id sta nella rosa passata: così non si confonde con `id_fuori_rosa`,
+      // ed è il caso realistico — la piattaforma ha davvero restituito quell'id.
+      const violations = validateSubmissionAgainstSettings(
+        invio({ benchIds: [eredidato, "p13", "p14", "p15", "p16"] }),
+        SETTINGS_IN_ACCORDO,
+        { rosterIds: [...ROSTER_IDS, eredidato], roles: piano },
+      );
+      const ignoto = violations.find(
+        (violation) => violation.code === SUBMISSION_VIOLATION_CODES.ruoloNonOsservato,
+      );
+      expect(ignoto?.message).toContain(eredidato);
+      expect(ignoto?.severity).toBe("avvertimento");
+      // Un ruolo non osservato non produce nessun giudizio di merito.
+      expect(violations.filter((violation) => violation.severity === "bloccante")).toEqual([]);
+    }
+  });
+
+  it("lo stesso id ereditato in porta non diventa «portiere di ruolo sbagliato»", () => {
+    // Il caso peggiore: senza la guardia il ruolo letto dal prototipo non è
+    // «P», quindi esce un BLOCCANTE — l'invio si ferma per un ruolo che nessuno
+    // ha mai osservato. Fail-closed sull'ignoto, che il file vieta due volte.
+    const piano: Record<string, Role> = Object.fromEntries(RUOLI);
+    const violations = validateSubmissionAgainstSettings(
+      invio({ goalkeeperId: "valueOf" }),
+      SETTINGS_IN_ACCORDO,
+      { rosterIds: [...ROSTER_IDS, "valueOf"], roles: piano },
+    );
+    expect(codici(violations)).toContain(SUBMISSION_VIOLATION_CODES.ruoloNonOsservato);
+    expect(codici(violations)).not.toContain(SUBMISSION_VIOLATION_CODES.portiereRuoloErrato);
+  });
+
+  it("mappa e oggetto piano rispondono uguale anche sugli id che somigliano al prototipo", () => {
+    // Le due forme di `ObservedRoles` devono essere intercambiabili: se lo
+    // fossero solo sugli id «normali», chi passa da JSON avrebbe un contratto
+    // diverso da chi passa da `rolesByPlayerId`, e nessuno glielo direbbe.
+    const mappa: ReadonlyMap<string, Role> = new Map(RUOLI);
+    const piano: Record<string, Role> = Object.fromEntries(RUOLI);
+    const submission = invio({ benchIds: ["constructor", "p13", "p14", "p15", "p16"] });
+    const roster = [...ROSTER_IDS, "constructor"];
+    expect(
+      validateSubmissionAgainstSettings(submission, SETTINGS_IN_ACCORDO, {
+        rosterIds: roster,
+        roles: piano,
+      }),
+    ).toEqual(
+      validateSubmissionAgainstSettings(submission, SETTINGS_IN_ACCORDO, {
+        rosterIds: roster,
+        roles: mappa,
+      }),
+    );
+  });
+
   it("l'esito non dipende dallo stato: due chiamate identiche danno lo stesso elenco", () => {
     const a = validateSubmissionAgainstSettings(invio(), SETTINGS_IN_ACCORDO, { roles: RUOLI });
     const b = validateSubmissionAgainstSettings(invio(), SETTINGS_IN_ACCORDO, { roles: RUOLI });
@@ -288,6 +350,27 @@ describe("giornata e competizione", () => {
     expect(codici(violations)).toContain(SUBMISSION_VIOLATION_CODES.giornataNonValida);
   });
 
+  it("una giornata frazionaria è bloccante quanto una giornata zero", () => {
+    // La riga del controllo dice DUE cose — intera E positiva — e la prova qui
+    // sopra ne esercitava una sola: si poteva togliere `Number.isInteger` e la
+    // suite restava verde. Una «giornata 5,5» non esiste su nessun calendario, e
+    // arriverebbe da una lettura sbagliata della piattaforma: è esattamente il
+    // caso in cui un invio partirebbe per una partita che non c'è.
+    for (const matchday of [5.5, 0.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const submission: LineupSubmission = {
+        matchday,
+        competitionId: FORMAZIONE.competitionId,
+        lineup: FORMAZIONE,
+        leagueRuleVersion: "2026_27_v1",
+      };
+      const giornata = validateSubmissionAgainstSettings(submission, SETTINGS_IN_ACCORDO).find(
+        (violation) => violation.code === SUBMISSION_VIOLATION_CODES.giornataNonValida,
+      );
+      expect(giornata?.severity).toBe("bloccante");
+      expect(giornata?.observed).toBe(false);
+    }
+  });
+
   it("invio e formazione su due competizioni diverse: è la partita sbagliata", () => {
     const submission: LineupSubmission = {
       matchday: 5,
@@ -328,7 +411,10 @@ describe("panchina e sostituzioni", () => {
     expect(corta?.code).toBe(SUBMISSION_VIOLATION_CODES.panchinaPiuCortaDelleSostituzioni);
     expect(corta?.severity).toBe("avvertimento");
     expect(corta?.observed).toBe(true);
-    expect(corta?.message).toContain("5");
+    // I DUE numeri, non «un 5 da qualche parte»: il messaggio serve a chi
+    // decide se inviare così, e una cifra sola non gli dice di quanto è corto.
+    expect(corta?.message).toContain("panchina di 2");
+    expect(corta?.message).toContain("contro 5 sostituzioni");
   });
 
   it("senza maxSubstitutions osservato la panchina corta non dice nulla", () => {
@@ -363,5 +449,34 @@ describe("l'ordine dell'esito è stabile", () => {
     // E ci sono davvero entrambe le famiglie, altrimenti l'ordine non prova nulla.
     expect(severita).toContain("bloccante");
     expect(severita).toContain("avvertimento");
+    // Con un bloccante solo, l'ordinamento dei codici sarebbe vero per vuoto:
+    // la riga sopra non proverebbe niente e sembrerebbe provarlo.
+    expect(new Set(codici(bloccanti)).size).toBeGreaterThan(1);
+  });
+
+  it("a parità di severità e di codice ordina per messaggio, e non lascia decidere l'ordine dei controlli", () => {
+    // IL TERZO CRITERIO NON LO ESERCITAVA NESSUNO: si poteva togliere il
+    // confronto sui messaggi e la suite restava verde, perché nessuna prova
+    // produceva due violazioni con lo STESSO codice. Ma è il caso normale — due
+    // ruoli non osservati, due id fuori rosa — e senza il terzo criterio a
+    // ordinarli sarebbe l'ordine in cui il codice attraversa la formazione, che
+    // non è un ordine dichiarato: cambierebbe riordinando `submittedIds`.
+    const parziali = new Map(RUOLI);
+    parziali.delete("p9"); // titolare, nono della lista
+    parziali.delete("p14"); // panchinaro, secondo della panchina
+    const violations = validateSubmissionAgainstSettings(invio(), SETTINGS_IN_ACCORDO, {
+      rosterIds: ROSTER_IDS,
+      roles: parziali,
+    });
+    // Due violazioni, stessa severità e stesso codice: le distingue il messaggio.
+    expect(violations).toHaveLength(2);
+    expect(new Set(codici(violations))).toEqual(
+      new Set([SUBMISSION_VIOLATION_CODES.ruoloNonOsservato]),
+    );
+    // L'ordine di ATTRAVERSAMENTO è p9 (titolare) prima di p14 (panchina);
+    // l'ordine DICHIARATO è per messaggio, e «p14» viene prima di «p9». Se i
+    // due coincidessero questa prova non distinguerebbe nulla.
+    expect(violations[0]?.message).toContain("«p14»");
+    expect(violations[1]?.message).toContain("«p9»");
   });
 });

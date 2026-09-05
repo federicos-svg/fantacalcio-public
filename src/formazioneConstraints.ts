@@ -121,31 +121,32 @@ export function loadFormazioneConstraints(storage: StorageLike): FormazioneConst
     return { status: "quarantined", byCompetition: EMPTY };
   }
 
-  const byCompetition = new Map<string, LineupConstraints>();
-  for (const entry of result.data.perCompetition) {
-    // Gli id ripetuti dentro lo stesso elenco non sono una contraddizione: sono
-    // la stessa spunta scritta due volte. Si tiene la prima e si prosegue.
-    const lockedStarterIds = [...new Set(entry.lockedStarterIds)];
-    byCompetition.set(
-      entry.competitionId,
-      entry.lockedModule === undefined
-        ? { lockedStarterIds, locked: entry.locked }
-        : { lockedStarterIds, lockedModule: entry.lockedModule, locked: entry.locked },
-    );
-  }
-  return { status: "ok", byCompetition };
+  // Gli id ripetuti dentro lo stesso elenco non sono una contraddizione: sono
+  // la stessa spunta scritta due volte. `mapFromEntries` tiene la prima e
+  // prosegue — ed è la stessa normalizzazione che la guardia contro le
+  // scritture concorrenti usa per non gridare al lupo su un archivio valido ma
+  // non normalizzato.
+  return { status: "ok", byCompetition: mapFromEntries(result.data.perCompetition) };
 }
 
 /**
- * Scrive l'archivio. Torna `false` quando la scrittura non ha tenuto — la
- * rilettura è parte del contratto, come in `saveListoneColumnPrefs`: una quota
- * piena, o una modalità privata che accetta `setItem` e non conserva niente,
- * deve poter essere DETTA e non scoperta al reload successivo.
+ * L'esito di una scrittura. Tre casi, e sono tre rimedi diversi.
+ *
+ * - `ok` — scritto e riletto identico;
+ * - `non-scritta` — l'archivio non ha tenuto (quota piena, modalità privata,
+ *   browser che rifiuta l'accesso): i vincoli valgono per questa sessione sola;
+ * - `scavalcata` — fra la lettura su cui questa modifica è nata e adesso,
+ *   QUALCUN ALTRO ha scritto: un'altra scheda dello stesso browser. Non si
+ *   scrive niente, e chi chiama lo dice invece di far sparire la spunta di uno
+ *   dei due in silenzio.
  */
-export function saveFormazioneConstraints(
-  storage: StorageLike,
-  byCompetition: ReadonlyMap<string, LineupConstraints>,
-): boolean {
+export type SaveFormazioneConstraintsResult =
+  | { readonly kind: "ok" }
+  | { readonly kind: "non-scritta" }
+  | { readonly kind: "scavalcata" };
+
+/** La forma con cui i vincoli finiscono nell'archivio. Un posto solo, due usi. */
+function canonicalRaw(byCompetition: ReadonlyMap<string, LineupConstraints>): string | null {
   const perCompetition = [...byCompetition.entries()].map(([competitionId, constraints]) => ({
     competitionId,
     lockedStarterIds: [...constraints.lockedStarterIds],
@@ -156,15 +157,116 @@ export function saveFormazioneConstraints(
     schemaVersion: FORMAZIONE_CONSTRAINTS_SCHEMA_VERSION,
     perCompetition,
   });
-  if (!parsed.success) return false;
-  const raw = JSON.stringify(parsed.data);
+  return parsed.success ? JSON.stringify(parsed.data) : null;
+}
+
+/**
+ * Ciò che l'archivio contiene ADESSO, riportato alla forma canonica.
+ *
+ * Il confronto non è byte contro byte sul grezzo: l'archivio potrebbe contenere
+ * una scrittura valida ma non normalizzata (un id spuntato due volte nello
+ * stesso elenco, che `loadFormazioneConstraints` deduplica), e chiamarla
+ * «scrittura di un altro» sarebbe un falso allarme che bloccherebbe ogni
+ * spunta. `null` significa «qui non c'è un archivio valido»: chiave assente,
+ * illeggibile, o un contenuto che questa versione mette in quarantena — casi in
+ * cui non esiste nessuna scrittura altrui da rispettare.
+ */
+function storedCanonical(storage: StorageLike): string | null {
+  let raw: string | null;
+  try {
+    raw = storage.getItem(FORMAZIONE_CONSTRAINTS_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+  if (raw === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    return null;
+  }
+  const result = storeSchema.safeParse(parsed);
+  if (!result.success) return null;
+  if (hasDuplicateCompetitions(result.data.perCompetition)) return null;
+  return canonicalRaw(mapFromEntries(result.data.perCompetition));
+}
+
+function mapFromEntries(
+  entries: readonly z.infer<typeof entrySchema>[],
+): ReadonlyMap<string, LineupConstraints> {
+  const byCompetition = new Map<string, LineupConstraints>();
+  for (const entry of entries) {
+    const lockedStarterIds = [...new Set(entry.lockedStarterIds)];
+    byCompetition.set(
+      entry.competitionId,
+      entry.lockedModule === undefined
+        ? { lockedStarterIds, locked: entry.locked }
+        : { lockedStarterIds, lockedModule: entry.lockedModule, locked: entry.locked },
+    );
+  }
+  return byCompetition;
+}
+
+/**
+ * Scrive l'archivio, e dice com'è andata. La rilettura è parte del contratto,
+ * come in `saveListoneColumnPrefs`: una quota piena, o una modalità privata che
+ * accetta `setItem` e non conserva niente, deve poter essere DETTA e non
+ * scoperta al reload successivo.
+ *
+ * DUE SCHEDE NON SI CANCELLANO PIÙ LE SPUNTE A VICENDA. `expectedPrevious` è
+ * l'archivio su cui questa modifica è nata: se l'archivio adesso è un altro,
+ * fra la lettura e questa scrittura ha scritto qualcun altro — una seconda
+ * scheda dello stesso browser — e sovrascriverlo cancellerebbe la sua spunta
+ * senza che nessuna delle due schede se ne accorga. Si rifiuta e si riferisce.
+ *
+ * È esattamente la guardia di `saveAuctionLog` (`expectedPreviousLog` →
+ * `divergent-log`, src/logRecovery.ts) applicata qui, con la stessa portata
+ * dichiarata: concorrenza ottimistica, cioè si RILEVA una scrittura perduta,
+ * non si sincronizzano le schede. Omettere l'argomento conserva il
+ * comportamento di prima — sovrascrittura incondizionata — ed è quello che
+ * vuole la sola strada di sostituzione deliberata: rileggere l'archivio e
+ * riscriverlo per intero.
+ */
+export function saveFormazioneConstraints(
+  storage: StorageLike,
+  byCompetition: ReadonlyMap<string, LineupConstraints>,
+  expectedPrevious?: ReadonlyMap<string, LineupConstraints>,
+): SaveFormazioneConstraintsResult {
+  const raw = canonicalRaw(byCompetition);
+  if (raw === null) return { kind: "non-scritta" };
+
+  // PRIMA DI SCRIVERE, MAI DOPO: una scrittura rifiutata lascia l'archivio
+  // esattamente com'era.
+  if (expectedPrevious !== undefined) {
+    const atteso = canonicalRaw(expectedPrevious);
+    const presente = storedCanonical(storage);
+    if (presente !== null && presente !== atteso) return { kind: "scavalcata" };
+  }
+
   try {
     storage.setItem(FORMAZIONE_CONSTRAINTS_STORAGE_KEY, raw);
-    return storage.getItem(FORMAZIONE_CONSTRAINTS_STORAGE_KEY) === raw;
+    return storage.getItem(FORMAZIONE_CONSTRAINTS_STORAGE_KEY) === raw
+      ? { kind: "ok" }
+      : { kind: "non-scritta" };
   } catch {
-    return false;
+    return { kind: "non-scritta" };
   }
 }
+
+/**
+ * LA RIGA CHE ROMPE IL SILENZIO quando un'altra scheda ha scritto per prima.
+ *
+ * Il silenzio era la parte inaccettabile del difetto: due schede aperte sulla
+ * stessa pagina, una spunta ciascuna, e l'archivio ne conservava una sola
+ * mentre tutte e due continuavano a mostrare la propria come se fosse salvata.
+ * Qui si dice che cosa è successo, che cosa NON è stato scritto e che cosa si
+ * vede adesso — che sono i vincoli veri, riletti dall'archivio.
+ */
+export const FORMAZIONE_CONSTRAINTS_SCAVALCATI =
+  "Un'altra scheda di questo browser ha cambiato i vincoli della formazione dopo che questa " +
+  "pagina li aveva letti: la spunta appena messa NON è stata salvata, per non cancellare la sua. " +
+  "Qui sotto ci sono i vincoli come stanno adesso nell'archivio: rimetti la spunta se la vuoi " +
+  "ancora, e tieni una scheda sola su questa pagina.";
 
 /** La riga da mostrare al boot quando l'archivio non è al sicuro. Vuota è la norma. */
 export function formazioneConstraintsNotice(status: FormazioneConstraintsStatus): string {

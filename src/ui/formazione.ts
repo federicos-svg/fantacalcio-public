@@ -42,6 +42,7 @@
 import { C, escHtml } from "./theme.js";
 import type {
   ConstraintConflict,
+  ConstraintQuarantine,
   FormazioneCompetitionView,
   FormazionePlayerRow,
   FormazioneView,
@@ -57,6 +58,7 @@ import {
   type LineupFreshness,
 } from "../../packages/league-channel-contract/src/index.js";
 import {
+  etichettaProvaVale,
   PROVA_ESITO_SALVATAGGIO,
   PROVA_ETICHETTA_SALVATAGGIO,
   PROVA_INVITO,
@@ -89,6 +91,19 @@ export interface FormazioneHandlers {
   readonly onResetLineup: (competitionId: string) => void;
   /** Scioglie il conflitto: `true` toglie il vincolo ed esegue, `false` lascia tutto. */
   readonly onResolveConflict: (competitionId: string, removeConstraint: boolean) => void;
+  /**
+   * Toglie un vincolo messo da parte — l'unico comando capace di raggiungerlo.
+   *
+   * Riceve il vincolo messo da parte per intero, così com'è nel modello: che
+   * cosa significhi toglierlo lo decide `removeQuarantinedConstraint` nel
+   * contratto, non questa funzione di render. Non è una comodità: la riga del
+   * giocatore uscito di rosa a schermo non c'è più, quindi senza questo comando
+   * la spunta non era togliibile da nessuna parte.
+   */
+  readonly onRemoveQuarantined: (
+    competitionId: string,
+    quarantine: ConstraintQuarantine,
+  ) => void;
 }
 
 /** Ciò che la shell sa e il modello non porta: l'esito dell'ultimo salvataggio. */
@@ -449,6 +464,39 @@ function renderProvaInvito(prova: FormazioneProva): HTMLElement {
   return box;
 }
 
+/**
+ * DUE COMPETIZIONI INDISTINGUIBILI SI DICHIARANO, NON SI DISEGNANO DUE VOLTE.
+ *
+ * Il modello ha già tenuto la prima e scartato le altre (`FormazioneView.duplicated`):
+ * qui non si sceglie niente, si dice che è successo. Il pannello scartato non
+ * può sparire in silenzio — sarebbe una partita che nessuno sa di non aver
+ * schierato — e non può nemmeno essere disegnato, perché ne uscirebbero due
+ * bottoni «Salva» indistinguibili sopra la stessa chiave.
+ */
+function renderDuplicateNotice(duplicated: readonly string[]): HTMLElement {
+  const box = document.createElement("section");
+  box.id = "formazione-competizioni-duplicate";
+  box.className = "panel";
+  box.setAttribute("role", "alert");
+  box.setAttribute("aria-label", "Competizioni con lo stesso identificativo");
+  box.style.cssText = `border:1px solid ${C.stopRedDark};display:flex;flex-direction:column;gap:8px;`;
+  const title = sectionTitle("DUE COMPETIZIONI CON LO STESSO IDENTIFICATIVO");
+  title.style.cssText = `color:${C.stopRed};`;
+  box.appendChild(title);
+  box.appendChild(
+    paragraph(
+      "La lettura riporta più di una competizione con lo stesso identificativo: " +
+        `${duplicated.join(", ")}. Da qui non si possono distinguere — i vincoli, le modifiche e ` +
+        "il salvataggio le userebbero tutte come se fossero una sola — quindi ne viene mostrata " +
+        "la prima e le altre NON sono in questa pagina. Non sono state schierate e non sono state " +
+        "salvate: se sono due partite diverse, vanno schierate sulla piattaforma finché la lettura " +
+        "non le distingue.",
+      `color:${C.textPrimary};`,
+    ),
+  );
+  return box;
+}
+
 /** L'elenco delle violazioni, quando ce ne sono. Testo, non colore soltanto. */
 function renderViolations(
   id: string,
@@ -492,12 +540,12 @@ function renderDifferences(differences: readonly LineupDifference[]): HTMLElemen
  * crederebbe di essere schierato e non lo è.
  */
 function renderSubmissionState(save: FormazioneSaveState, prova: boolean): HTMLElement {
-  // IN PROVA IL SALVATAGGIO NON FINGE, E NEMMENO IL SUO CONTRARIO. L'etichetta
-  // della prova si usa solo sullo stato in cui nulla è partito — l'unico che la
-  // shell produce in prova, perché la porta d'invio non viene chiamata affatto.
-  // Se un giorno arrivasse qui uno stato «inviato», dirgli «prova» sarebbe la
-  // stessa bugia girata dall'altra parte: si tiene l'etichetta vera.
-  const inProva = prova && save.state.kind === "da_inviare";
+  // IN PROVA IL SALVATAGGIO NON FINGE, E NEMMENO IL SUO CONTRARIO. La regola —
+  // l'etichetta della prova copre solo lo stato in cui nulla è partito — vive in
+  // `etichettaProvaVale` e non in questa espressione: qui era una condizione
+  // scritta dentro una funzione di render, cioè una promessa che si poteva
+  // provare solo con un browser e che nessuna prova sorvegliava.
+  const inProva = etichettaProvaVale(prova, save.state.kind);
   const box = document.createElement("div");
   box.id = "formazione-stato-invio";
   box.dataset.stato = save.state.kind;
@@ -1126,20 +1174,60 @@ function renderRosterOnly(
   );
 }
 
-/** I vincoli salvati che oggi non valgono più: si vedono, non si scartano. */
-function renderQuarantine(competition: FormazioneCompetitionView): HTMLElement | null {
+/**
+ * I VINCOLI SALVATI CHE OGGI NON VALGONO PIÙ: si vedono, non si scartano, E SI
+ * POSSONO TOGLIERE.
+ *
+ * L'ultima parte è quella che mancava, ed era la più grave. Una spunta messa su
+ * un giocatore che oggi non è più in rosa non ha nessuna riga a schermo — la
+ * riga del giocatore non c'è più — quindi non c'era NESSUN comando in tutta la
+ * pagina capace di toglierla: la formazione restava bloccata e l'unica via
+ * d'uscita era cancellare l'archivio locale a mano. Un prodotto in cui non si
+ * può disfare ciò che si è fatto è rotto anche quando tutti i dati sono giusti.
+ *
+ * Il comando sta QUI e non altrove perché questo riquadro è l'unico posto in
+ * cui il vincolo è ancora nominato.
+ */
+function renderQuarantine(
+  competition: FormazioneCompetitionView,
+  handlers: FormazioneHandlers,
+): HTMLElement | null {
   if (competition.quarantined.length === 0) return null;
   const box = document.createElement("div");
   box.id = `formazione-quarantena-${competition.competitionId}`;
   box.setAttribute("role", "alert");
-  box.style.cssText = `border:1px solid ${C.stopRedDark};border-radius:8px;padding:8px 12px;`;
+  box.style.cssText = `border:1px solid ${C.stopRedDark};border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;gap:8px;`;
   box.appendChild(smallHeading("VINCOLI MESSI DA PARTE", C.stopRed));
-  const list = document.createElement("ul");
-  list.style.cssText = `margin:4px 0 0;padding-left:18px;font-size:12px;line-height:1.5;color:${C.textMid};`;
-  list.innerHTML = competition.quarantined
-    .map((q) => `<li><strong>${escHtml(q.value)}</strong> — ${escHtml(q.reason)}</li>`)
-    .join("");
-  box.appendChild(list);
+  box.appendChild(
+    paragraph(
+      "Non vengono applicati, e finché sono qui il salvataggio si ferma: erano scelte tue e non " +
+        "si buttano al posto tuo. Toglili da qui quando non li vuoi più.",
+      `font-size:12px;color:${C.textDim};`,
+    ),
+  );
+
+  for (const q of competition.quarantined) {
+    const riga = document.createElement("div");
+    riga.className = "formazione-quarantena__riga";
+    riga.dataset.vincolo = q.kind;
+    riga.style.cssText = `display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;font-size:12px;line-height:1.5;color:${C.textMid};`;
+    const testo = document.createElement("span");
+    testo.style.cssText = "flex:1 1 240px;";
+    testo.innerHTML = `<strong style="font-family:${C.mono};">${escHtml(q.value)}</strong> — ${escHtml(q.reason)}`;
+    riga.appendChild(testo);
+    riga.appendChild(
+      commandButton(
+        `formazione-quarantena-togli-${competition.competitionId}-${q.value}`,
+        "Togli questo vincolo",
+        q.kind === "modulo_non_ammesso"
+          ? `Togli il blocco sul modulo «${q.value}» — ${competition.label}`
+          : `Togli la spunta su «${q.value}» — ${competition.label}`,
+        false,
+        () => handlers.onRemoveQuarantined(competition.competitionId, q),
+      ),
+    );
+    box.appendChild(riga);
+  }
   return box;
 }
 
@@ -1238,7 +1326,7 @@ function renderCompetition(
   vincoli.appendChild(renderLockControl(competition, handlers));
   panel.appendChild(vincoli);
 
-  const quarantena = renderQuarantine(competition);
+  const quarantena = renderQuarantine(competition, handlers);
   if (quarantena !== null) panel.appendChild(quarantena);
 
   // TUTTI I MOTIVI INSIEME, non uno alla volta: se tre spunte sono in conflitto,
@@ -1437,6 +1525,11 @@ export function renderFormazioneScreen(
     if (!prova.attiva) wrap.appendChild(renderProvaInvito(prova));
     return wrap;
   }
+
+  // PRIMA DELLE FORMAZIONI, perché riguarda quante ce ne sono: se una
+  // competizione non è stata disegnata, saperlo viene prima di guardare quelle
+  // che ci sono.
+  if (view.duplicated.length > 0) wrap.appendChild(renderDuplicateNotice(view.duplicated));
 
   if (view.competitions.length === 0) {
     wrap.appendChild(
