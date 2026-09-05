@@ -391,16 +391,28 @@ export function provaProducerReports(
    ──────────────────────────────────────────────────────────────────────────── */
 
 /**
- * CHI HA CHIESTO LA PROVA, E QUANDO.
+ * CHI HA ACCESO LA PROVA: chi guarda, o un archivio che non lo dichiara.
  *
- * Non sono due sfumature della stessa cosa. `adesso` è un comando appena
- * premuto da chi sta guardando la pagina: sa che cosa ha chiesto e vede subito
- * il marchio. `ricordata` è l'accensione riletta dall'archivio locale di una
- * visita precedente: nessuno l'ha chiesta oggi, e chi apre il sito non si
- * aspetta che una squadra inventata compaia prima ancora che si sappia se la
- * sua c'è.
+ * Non sono due sfumature della stessa cosa, e la differenza non è il TEMPO.
+ *
+ * `chiesta` è una volontà di chi guarda: ha premuto il comando, sopra un avviso
+ * che diceva a chiare lettere che la sua squadra non era stata letta. Una
+ * volontà non scade con un ricaricamento — il ricaricamento è la cosa che si fa
+ * per continuare, non per disdire — quindi una prova chiesta ieri e ricordata
+ * dall'archivio è ancora `chiesta`, non un ricordo passivo.
+ *
+ * `ricordata` è un'accensione che l'archivio NON dichiara come chiesta: un
+ * archivio scritto da una versione precedente, che sapeva dire solo «accesa»,
+ * o un archivio manomesso. Lì nessuno può provare che qualcuno l'abbia voluta,
+ * e chi apre il sito non si aspetta che una squadra inventata compaia prima
+ * ancora che si sappia se la sua c'è.
+ *
+ * La distinzione vive nell'ARCHIVIO (`caricaModalitaProva`), non in un momento:
+ * finché i due passavano dallo stesso interruttore ricordato, «volontà» e
+ * «ricordo» erano indistinguibili al secondo avvio, e una delle due doveva
+ * perdere.
  */
-export type ProvaRichiesta = "no" | "adesso" | "ricordata";
+export type ProvaRichiesta = "no" | "chiesta" | "ricordata";
 
 /**
  * LA PROVA È ACCESA? Una domanda sola, con una risposta sola, in un posto solo.
@@ -422,9 +434,19 @@ export type ProvaRichiesta = "no" | "adesso" | "ricordata";
  *    che nessun dato vero può arrivare, ed è quindi l'unica in cui una prova
  *    ricordata torna accesa da sé.
  *
- *    Una prova chiesta ADESSO non passa da questa seconda regola: è un comando
- *    esplicito di chi guarda, dato sopra un avviso che dice a chiare lettere che
- *    la squadra non è stata letta. La regola 1 continua a valere anche per lei.
+ *    Da quando la porta di lettura è collegata (`../formazioneCanaleRemoto.ts`)
+ *    questa build non produce più quella causa: una lega che risponde `404` non
+ *    sta dicendo «non c'è nessun canale», sta dicendo «ho chiesto e non mi hanno
+ *    risposto», e domani potrebbe rispondere. Per un'accensione che nessuno
+ *    dichiara di aver chiesto la risposta resta quindi NO, ed è la risposta
+ *    giusta: la squadra inventata non si riaccende da sé su un guasto di oggi.
+ *
+ *    Una prova CHIESTA non passa da questa seconda regola: è una volontà di chi
+ *    guarda, espressa sopra un avviso che dice a chiare lettere che la squadra
+ *    non è stata letta, e vale qualunque cosa la lega risponda — anche dopo un
+ *    ricaricamento, perché l'archivio ricorda che è stata chiesta e non solo che
+ *    era accesa. La regola 1 continua a valere anche per lei: appena una squadra
+ *    vera arriva, la prova si spegne.
  */
 export function modalitaProvaAttiva(
   richiesta: ProvaRichiesta,
@@ -473,47 +495,77 @@ export function destinazioneVincoli(prova: boolean): "archivio" | "prova" {
  * scrivono da nessuna parte.
  */
 export const FORMAZIONE_PROVA_STORAGE_KEY = "fac_formazione_prova";
-export const FORMAZIONE_PROVA_SCHEMA_VERSION = 1;
+export const FORMAZIONE_PROVA_SCHEMA_VERSION = 2;
 
+/**
+ * v2: l'archivio ricorda **che la prova è stata chiesta**, non che era accesa.
+ *
+ * È la differenza che il campo `attiva` di v1 non sapeva dire, e senza la quale
+ * al secondo avvio una volontà espressa e un'accensione trovata addosso sono lo
+ * stesso byte. Da lì in poi una delle due deve per forza perdere: o la volontà
+ * di chi ha chiesto la prova non sopravvive a un ricaricamento, o una squadra
+ * inventata si riaccende da sé sopra un canale che magari domani risponde.
+ */
 const provaSchema = z
   .object({
     schemaVersion: z.literal(FORMAZIONE_PROVA_SCHEMA_VERSION),
+    chiesta: z.boolean(),
+  })
+  .strict();
+
+/**
+ * v1: sapeva dire solo «accesa». Si rilegge ancora — un archivio scritto prima
+ * di questa versione esiste sui dispositivi veri — ma per ciò che è: un'
+ * accensione che NON dichiara di essere stata chiesta, cioè `ricordata`, con
+ * tutto il sospetto della regola 2 di `modalitaProvaAttiva`.
+ */
+const provaSchemaV1 = z
+  .object({
+    schemaVersion: z.literal(1),
     attiva: z.boolean(),
   })
   .strict();
 
 /**
- * Rilegge l'accensione. Fail-closed a SPENTA: qualunque guaio — archivio
- * illeggibile, forma inattesa, browser che non dà accesso — produce una pagina
- * che si comporta come si è sempre comportata, cioè l'avviso al posto della
- * squadra. Un archivio storto che accendesse la prova sarebbe l'unico modo per
- * far comparire dati finti senza che nessuno li abbia chiesti.
+ * Rilegge l'accensione, e dice **di che tipo è**. Fail-closed a `"no"`:
+ * qualunque guaio — archivio illeggibile, forma inattesa, browser che non dà
+ * accesso — produce una pagina che si comporta come si è sempre comportata,
+ * cioè l'avviso al posto della squadra. Un archivio storto che accendesse la
+ * prova sarebbe l'unico modo per far comparire dati finti senza che nessuno li
+ * abbia chiesti.
+ *
+ * Restituisce `ProvaRichiesta` e non un booleano di proposito: era proprio
+ * nella traduzione «booleano → etichetta», fatta da chi chiamava, che si
+ * perdeva l'unica informazione che serviva a distinguere i due casi.
  */
-export function caricaModalitaProva(storage: StorageLike): boolean {
+export function caricaModalitaProva(storage: StorageLike): ProvaRichiesta {
   let raw: string | null;
   try {
     raw = storage.getItem(FORMAZIONE_PROVA_STORAGE_KEY);
   } catch {
-    return false;
+    return "no";
   }
-  if (raw === null) return false;
+  if (raw === null) return "no";
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw) as unknown;
   } catch {
-    return false;
+    return "no";
   }
-  const result = provaSchema.safeParse(parsed);
-  return result.success ? result.data.attiva : false;
+  const attuale = provaSchema.safeParse(parsed);
+  if (attuale.success) return attuale.data.chiesta ? "chiesta" : "no";
+  const precedente = provaSchemaV1.safeParse(parsed);
+  if (precedente.success) return precedente.data.attiva ? "ricordata" : "no";
+  return "no";
 }
 
 /**
- * Scrive l'accensione, e dice se ha tenuto — con la rilettura dentro il
+ * Scrive la volontà, e dice se ha tenuto — con la rilettura dentro il
  * contratto, come gli altri archivi di questa pagina. Chi chiama usa il `false`
  * per dirlo a schermo invece di lasciarlo scoprire al prossimo avvio.
  */
-export function salvaModalitaProva(storage: StorageLike, attiva: boolean): boolean {
-  const raw = JSON.stringify({ schemaVersion: FORMAZIONE_PROVA_SCHEMA_VERSION, attiva });
+export function salvaModalitaProva(storage: StorageLike, chiesta: boolean): boolean {
+  const raw = JSON.stringify({ schemaVersion: FORMAZIONE_PROVA_SCHEMA_VERSION, chiesta });
   try {
     storage.setItem(FORMAZIONE_PROVA_STORAGE_KEY, raw);
     return storage.getItem(FORMAZIONE_PROVA_STORAGE_KEY) === raw;

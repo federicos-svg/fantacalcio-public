@@ -32,11 +32,15 @@ import type {
  * L'ORDINE DEI PEZZI NON È ALFABETICO: è quello dell'importanza per chi schiera.
  * La formazione per prima, perché è il dato di cui la pagina parla; poi la
  * propria rosa, poi le regole, poi ciò che serve a sapere contro chi si gioca.
- * La prima riga è anche quella che decide il titolo della fascia, quindi
- * cambiarne l'ordine cambierebbe il significato della schermata, non la sua
- * estetica.
+ *
+ * È un ordine di LETTURA e nient'altro. Il pezzo che decide titolo, colore e
+ * allarme della fascia non è «il primo di questo elenco»: è la formazione, e
+ * `costruisciLettura` la prende per nome. Riordinare questa lista cambia in
+ * quale ordine i pezzi si elencano, e non può cambiare che cosa la fascia
+ * dichiara — è la differenza fra un'estetica e un significato, e prima erano
+ * la stessa cosa.
  */
-const ORDINE: readonly (keyof ObservedParts)[] = [
+export const ORDINE_DEI_PEZZI: readonly (keyof ObservedParts)[] = [
   "lineup",
   "roster",
   "settings",
@@ -128,12 +132,26 @@ export function costruisciLettura(
   state: LineupChannelState,
   adesso: string,
   soglia?: number,
+  /**
+   * L'ordine in cui i pezzi si elencano. È un argomento, e non una costante
+   * chiusa qui dentro, perché così una prova può permutarlo e pretendere che la
+   * fascia dichiari **la stessa cosa**: senza poterlo permutare, «il pezzo si
+   * prende per nome e non per posizione» resterebbe una frase in un commento.
+   */
+  ordine: readonly (keyof ObservedParts)[] = ORDINE_DEI_PEZZI,
 ): FormazioneLettura | null {
   if (state.kind !== "letto") return null;
   return {
-    parti: ORDINE.map((chiave) =>
-      parte(NOMI_DEI_PEZZI[chiave], state.observations[chiave], adesso, soglia),
-    ),
+    // PER NOME, non per posizione. `observations.lineup` è obbligatorio nel
+    // contratto, quindi questa età esiste sempre e il tipo lo dichiara: è ciò
+    // che toglie al disegno il ripiego che si era inventato.
+    formazione: {
+      nome: NOMI_DEI_PEZZI.lineup,
+      freschezza: lineupFreshness(state.observations.lineup, adesso, soglia),
+    },
+    altre: ordine
+      .filter((chiave) => chiave !== "lineup")
+      .map((chiave) => parte(NOMI_DEI_PEZZI[chiave], state.observations[chiave], adesso, soglia)),
     seriesMatchday: state.observations.lineup.seriesMatchday,
     sfide: sfide(state),
   };

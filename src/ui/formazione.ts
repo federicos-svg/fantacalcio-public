@@ -250,12 +250,32 @@ function renderUnknownNotice(view: FormazioneView): HTMLElement {
  */
 export interface FormazioneLettura {
   /**
-   * Un pezzo del deposito e la sua età. **Uno per pezzo**, e nessuno si eredita:
-   * rose e calendario si rileggono di rado, la formazione spesso, e presentare
-   * una rosa di tre settimane fa con l'età della formazione sarebbe lo stesso
-   * difetto della formazione vecchia, in un altro vestito.
+   * IL PEZZO «FORMAZIONE», in un campo suo, perché è quello che decide che cosa
+   * la fascia DICHIARA: titolo, colore, allarme.
+   *
+   * Non sta dentro l'elenco per una ragione che questo file ha già pagato una
+   * volta: prenderlo da lì significherebbe prenderlo per POSIZIONE, e la
+   * posizione non è un'identità. L'ordine dei pezzi vive in un altro file
+   * (`../formazioneLettura.ts`); il giorno in cui qualcuno lo riordina — una
+   * modifica che nessun compilatore fermerebbe — la fascia comincerebbe a
+   * mostrare l'età di un altro pezzo con le parole della formazione. Il pezzo
+   * di cui la fascia parla si nomina.
+   *
+   * `freschezza` non è annullabile, e questa non è una comodità: la lettura
+   * della formazione è obbligatoria nel contratto (`ObservedParts.lineup`),
+   * quindi la sua età esiste sempre. Dirlo QUI è ciò che toglie al disegno il
+   * bisogno di inventarsi un ripiego — un valore che il modello non ha mai
+   * prodotto — per un caso che non può capitare.
    */
-  readonly parti: readonly FormazioneParteLetta[];
+  readonly formazione: FormazioneParteDatata;
+  /**
+   * Gli altri pezzi del deposito, ognuno con la sua età. **Uno per pezzo**, e
+   * nessuno si eredita: rose e calendario si rileggono di rado, la formazione
+   * spesso, e presentare una rosa di tre settimane fa con l'età della
+   * formazione sarebbe lo stesso difetto della formazione vecchia, in un altro
+   * vestito.
+   */
+  readonly altre: readonly FormazioneParteLetta[];
   /** La giornata di Serie A che la lettura della formazione ha osservato. */
   readonly seriesMatchday: number;
   /** Le sfide di questa giornata, una per competizione. */
@@ -266,6 +286,11 @@ export interface FormazioneParteLetta {
   readonly nome: string;
   /** `null` = questo pezzo non è stato letto affatto. */
   readonly freschezza: LineupFreshness | null;
+}
+
+/** Un pezzo la cui lettura il contratto pretende sempre: l'età c'è, e basta. */
+export interface FormazioneParteDatata extends FormazioneParteLetta {
+  readonly freschezza: LineupFreshness;
 }
 
 /** L'avversario di questa giornata in una competizione, o perché non si sa. */
@@ -295,9 +320,10 @@ export interface FormazioneSfida {
  * cui non si sa l'età dichiara di non saperlo — non promette e non accusa.
  */
 function renderLettura(lettura: FormazioneLettura, prova: boolean): HTMLElement {
-  const formazione = lettura.parti[0]?.freschezza ?? null;
-  const fresca: LineupFreshness =
-    formazione ?? { kind: "eta_ignota", thresholdMinutes: 0 };
+  // IL PEZZO SI PRENDE PER NOME, e la sua età non ha ripieghi: il modello la
+  // porta sempre (vedi `FormazioneLettura.formazione`), quindi qui non c'è
+  // niente da inventare — che è la regola di questo file, non una preferenza.
+  const fresca: LineupFreshness = lettura.formazione.freschezza;
   const vecchia = fresca.kind === "non_attuale";
   const ignota = fresca.kind === "eta_ignota";
   const allarme = vecchia || ignota;
@@ -345,7 +371,9 @@ function renderLettura(lettura: FormazioneLettura, prova: boolean): HTMLElement 
   const elenco = document.createElement("ul");
   elenco.id = "formazione-momenti-per-pezzo";
   elenco.style.cssText = `margin:0;padding-left:18px;font-size:12px;line-height:1.7;color:${C.textSec};`;
-  for (const parte of lettura.parti) {
+  // La formazione per prima, perché è il pezzo di cui la fascia sta parlando;
+  // gli altri nell'ordine che il modello dichiara.
+  for (const parte of [lettura.formazione, ...lettura.altre]) {
     const voce = document.createElement("li");
     const stato = parte.freschezza;
     if (stato === null) {

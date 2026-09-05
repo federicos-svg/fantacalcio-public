@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { costruisciLettura } from "./formazioneLettura.js";
+import { costruisciLettura, ORDINE_DEI_PEZZI } from "./formazioneLettura.js";
 import { statoDaDeposito } from "./formazioneCanaleRemoto.js";
 import { provaChannelState } from "./formazioneProva.js";
 
@@ -26,23 +26,55 @@ describe("ogni pezzo dichiara la propria età, e nessuna si eredita", () => {
   it("c'è una riga per pezzo, sempre tutte", () => {
     const lettura = costruisciLettura(STATO, POCO_DOPO);
     expect(lettura).not.toBeNull();
-    expect(lettura?.parti).toHaveLength(5);
-    // La formazione è la prima: è il dato di cui la pagina parla, ed è la riga
-    // che decide il titolo della fascia.
-    expect(lettura?.parti[0]?.nome).toBe("formazione");
+    // Cinque pezzi: la formazione, che sta in un campo suo, più gli altri
+    // quattro. La formazione non è «il primo dell'elenco»: è nominata.
+    expect(lettura?.formazione.nome).toBe("formazione");
+    expect(lettura?.altre).toHaveLength(4);
+    expect(lettura?.altre.map((parte) => parte.nome)).not.toContain("formazione");
+  });
+
+  /* ── L'IDENTITÀ NON È LA POSIZIONE ─────────────────────────────────────────
+   *
+   * La fascia prende titolo, colore e allarme dall'età della FORMAZIONE. Finché
+   * quel pezzo veniva preso come «il primo dell'elenco», il significato della
+   * schermata era appeso all'ordine di una lista che vive in un altro file e
+   * che nessun compilatore protegge: riordinarla — un gesto che sembra
+   * estetico — avrebbe fatto dichiarare alla fascia l'età di un altro pezzo,
+   * con le parole della formazione.
+   */
+  it("riordinare l'elenco dei pezzi non cambia che cosa dichiara la fascia", () => {
+    const dritto = costruisciLettura(STATO, POCO_DOPO);
+    const alContrario = costruisciLettura(STATO, POCO_DOPO, undefined, [
+      ...ORDINE_DEI_PEZZI,
+    ].reverse());
+
+    // Il pezzo della fascia è lo stesso, e la sua età è la stessa: qui la
+    // formazione è dentro la soglia mentre la rosa — che in questo ordine
+    // sarebbe la prima — è già fuori. Se la fascia si prendesse per posizione,
+    // questo confronto cadrebbe.
+    expect(alContrario?.formazione).toEqual(dritto?.formazione);
+    expect(alContrario?.formazione.freschezza.kind).toBe("attuale");
+    expect(alContrario?.altre[0]?.freschezza?.kind).toBe("non_attuale");
+
+    // E l'elenco è lo stesso insieme di pezzi, soltanto in un altro ordine:
+    // riordinare cambia l'estetica, e nient'altro.
+    expect(alContrario?.altre.map((parte) => parte.nome)).toEqual(
+      [...(dritto?.altre ?? [])].reverse().map((parte) => parte.nome),
+    );
   });
 
   it("formazione fresca e rose vecchie convivono, ognuna con la sua verità", () => {
     const lettura = costruisciLettura(STATO, POCO_DOPO);
     // 20 minuti: dentro la soglia.
-    expect(lettura?.parti[0]?.freschezza?.kind).toBe("attuale");
+    expect(lettura?.formazione.freschezza.kind).toBe("attuale");
     // 12 ore: fuori. È lo stesso deposito, letto nello stesso istante.
-    expect(lettura?.parti[1]?.freschezza?.kind).toBe("non_attuale");
+    expect(lettura?.altre[0]?.freschezza?.kind).toBe("non_attuale");
   });
 
   it("una rosa avversaria di tre settimane fa NON si presenta come attuale", () => {
     const lettura = costruisciLettura(STATO, TRE_SETTIMANE_DOPO);
-    for (const parte of lettura?.parti ?? []) {
+    expect(lettura?.formazione.freschezza.kind).toBe("non_attuale");
+    for (const parte of lettura?.altre ?? []) {
       expect(parte.freschezza?.kind, parte.nome).toBe("non_attuale");
     }
   });
@@ -56,7 +88,7 @@ describe("ogni pezzo dichiara la propria età, e nessuna si eredita", () => {
       leagueTeams: null,
     };
     const lettura = costruisciLettura(senzaCalendario, POCO_DOPO);
-    const calendario = lettura?.parti.find((parte) => parte.nome === "calendario");
+    const calendario = lettura?.altre.find((parte) => parte.nome === "calendario");
     expect(calendario?.freschezza).toBeNull();
   });
 
@@ -102,7 +134,7 @@ describe("con chi si gioca", () => {
 describe("la squadra di esempio si data come tutto il resto di sé", () => {
   it("la prova porta una data fissa e inventata, e non si presenta come attuale", () => {
     const lettura = costruisciLettura(provaChannelState(), POCO_DOPO);
-    expect(lettura?.parti[0]?.freschezza?.kind).toBe("non_attuale");
+    expect(lettura?.formazione.freschezza.kind).toBe("non_attuale");
   });
 
   it("la prova ha un avversario, e la sua rosa è dichiarata non letta", () => {

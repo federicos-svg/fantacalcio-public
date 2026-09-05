@@ -646,9 +646,10 @@ interface AppState {
   /**
    * LA PROVA CON UNA SQUADRA DI ESEMPIO — richiesta, non ancora concessa.
    *
-   * È ciò che chi guarda ha CHIESTO, e DA QUANDO: `adesso` è un comando appena
-   * premuto, `ricordata` è l'accensione riletta dall'archivio di una visita
-   * precedente. Se sia anche attiva non lo dice questo campo: lo decide
+   * È ciò che chi guarda ha CHIESTO, e DA CHI viene: `chiesta` è una volontà —
+   * un comando appena premuto, oppure ritrovato nell'archivio proprio come
+   * volontà — mentre `ricordata` è un'accensione che l'archivio non dichiara
+   * come chiesta. Se sia anche attiva non lo dice questo campo: lo decide
    * `modalitaProvaAttiva` contro lo stato del canale, e una prova solo
    * ricordata non torna accesa finché non si sa che dati veri non ce ne sono.
    * I due valori sono tenuti distinti di proposito: un solo booleano «attiva»
@@ -1173,12 +1174,13 @@ const state: AppState = {
   lineupConstraints: new Map(bootFormazioneConstraints.byCompetition),
   lineupDrafts: new Map(),
   lineupConstraintsNotice: formazioneConstraintsNotice(bootFormazioneConstraints.status),
-  // La prova rilegge la sua sola accensione, fail-closed a spenta: un archivio
-  // storto non fa comparire dati finti a nessuno che non li abbia chiesti. E
-  // quella riletta è «ricordata», non «adesso»: nessuno l'ha chiesta in questa
-  // visita, quindi non torna accesa finché non si sa che dati veri non ce ne
-  // sono (modalitaProvaAttiva, regola 2).
-  formazioneProvaRichiesta: caricaModalitaProva(browserStorage) ? "ricordata" : "no",
+  // La prova rilegge l'archivio, fail-closed a spenta: un archivio storto non
+  // fa comparire dati finti a nessuno che non li abbia chiesti. Ed è
+  // l'ARCHIVIO a dire di che accensione si tratta — una chiesta da chi guarda,
+  // che vale anche dopo un ricaricamento, o una che nessuno dichiara di aver
+  // chiesto, che resta sotto la regola 2 di `modalitaProvaAttiva`. Qui non si
+  // traduce più niente: era in quella traduzione che la differenza si perdeva.
+  formazioneProvaRichiesta: caricaModalitaProva(browserStorage),
   formazioneProvaNonPersistita: false,
   lineupProvaConstraints: new Map(),
   lineupProvaDrafts: new Map(),
@@ -3320,7 +3322,9 @@ function azzeraModificaInSospeso(): void {
 }
 
 function entraInProva(): void {
-  state.formazioneProvaRichiesta = "adesso";
+  state.formazioneProvaRichiesta = "chiesta";
+  // Si scrive la VOLONTÀ, non l'accensione: è ciò che la rende ritrovabile per
+  // quel che è al prossimo avvio, invece che indistinguibile da un ricordo.
   state.formazioneProvaNonPersistita = !salvaModalitaProva(browserStorage, true);
   azzeraModificaInSospeso();
   render();
