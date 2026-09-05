@@ -35,18 +35,41 @@ import type { LineupConstraints } from "../../league-gameweek/src/lineupProposer
 import type { ObservedLeagueSettings } from "./leagueSettings.js";
 import type { LineupFlags, ObservedLineup } from "./lineupSubmission.js";
 import { diffLineups, toSubmission } from "./lineupSubmission.js";
+import type { PitchSlot } from "./pitchLayout.js";
+import { LINEA_PORTA, pitchLayout } from "./pitchLayout.js";
 import type { ObservedTeam } from "./roster.js";
 import { rolesByPlayerId } from "./roster.js";
 import type { SubmissionViolation } from "./submissionLegality.js";
 import { validateSubmissionAgainstSettings } from "./submissionLegality.js";
 
-/** L'esito di una mossa: la formazione nuova, oppure il motivo del rifiuto. */
+/**
+ * L'esito di una mossa: la formazione nuova, oppure il motivo del rifiuto.
+ *
+ * IL RIFIUTO PUÒ PORTARE UN CONFLITTO, e non è una terza strada: è lo stesso
+ * rifiuto di sempre, con accanto il vincolo che lo ha prodotto quando ce n'è
+ * uno. `reason` c'è sempre e da sola basta a mostrare a schermo perché la mossa
+ * non è passata — un rifiuto muto diventerebbe «non succede niente» sotto le
+ * dita di chi trascina. `conflict`, quando c'è, dice **quale** vincolo si sta
+ * contraddicendo e che cosa succede se lo si toglie: è la stessa
+ * `ConstraintConflict` che `moduleChangeConflict` restituisce per un cambio di
+ * modulo esplicito, perché è la stessa contraddizione e non deve avere due
+ * forme diverse a seconda di come la si raggiunge.
+ */
 export type LineupEdit =
   | { readonly ok: true; readonly lineup: ObservedLineup }
-  | { readonly ok: false; readonly reason: string };
+  | {
+      readonly ok: false;
+      readonly reason: string;
+      readonly conflict?: ConstraintConflict;
+    };
 
 function rifiutata(reason: string): LineupEdit {
   return { ok: false, reason };
+}
+
+/** Un rifiuto che porta con sé il vincolo contraddetto, e il modo di scioglierlo. */
+function inConflitto(conflict: ConstraintConflict): LineupEdit {
+  return { ok: false, reason: conflict.message, conflict };
 }
 
 function eseguita(lineup: ObservedLineup): LineupEdit {
@@ -285,6 +308,84 @@ function moduloConLaForma(
 }
 
 /**
+ * LA CHIUSURA COMUNE DELLE DUE MOSSE DEL CAMPO — lo scambio e il posare
+ * qualcuno su una casella vuota. Le due mosse sono gesti diversi e arrivano qui
+ * con formazioni già costruite; da qui in poi le regole sono le stesse, e
+ * scriverle due volte avrebbe significato lasciarle divergere.
+ *
+ * IL MODULO BLOCCATO NON SI AGGIRA TRASCINANDO. Un cambio di modulo esplicito
+ * passa da `moduleChangeConflict` perché chi lo chiede SA di cambiare modulo.
+ * Un trascinamento no: chi lo fa sposta un giocatore, e il modulo cambia come
+ * conseguenza — una conseguenza che il chiamante non ha modo di prevedere e
+ * quindi non ha modo di andare a chiedere. Una guardia che valesse solo se
+ * qualcun altro si ricorda di interrogarla non sarebbe una guardia: il vincolo
+ * sul modulo esiste perché quel modulo non cambi, e se un trascinamento glielo
+ * cambia in silenzio il vincolo non c'è. Perciò il conflitto si calcola QUI,
+ * con la stessa funzione e nella stessa forma del cambio esplicito, e chi ha
+ * messo la spunta scioglie la contraddizione togliendola — come già fa altrove.
+ *
+ * `formaCambiata` non si deduce contando: lo dice la mossa, che sa se ha
+ * toccato o no la composizione degli undici di movimento.
+ */
+function concludiMossaDelCampo(
+  precedente: ObservedLineup,
+  proposta: ObservedLineup,
+  formaCambiata: boolean,
+  roles: ReadonlyMap<string, Role>,
+  constraints: LineupConstraints,
+  gesto: string,
+): LineupEdit {
+  if (proposta.goalkeeperId.length === 0 && precedente.goalkeeperId.length > 0) {
+    return rifiutata(
+      `${gesto} lascerebbe la porta vuota, e la porta lascia il posto solo quando un altro ` +
+        "portiere entra al suo posto",
+    );
+  }
+  if (proposta.goalkeeperId !== precedente.goalkeeperId) {
+    const role = roles.get(proposta.goalkeeperId);
+    if (role === undefined) {
+      return rifiutata(
+        `il ruolo di «${proposta.goalkeeperId}» non è stato osservato: in porta non ci si mette ` +
+          "per esclusione, e qui non lo si deduce",
+      );
+    }
+    if (role !== "P") {
+      return rifiutata(
+        `«${proposta.goalkeeperId}» è di ruolo ${role}: in porta ci va un portiere, e la porta ` +
+          "è l'unico posto che non ammette un'eccezione",
+      );
+    }
+  }
+
+  if (!formaCambiata) return eseguita(proposta);
+
+  const conto = reparti(proposta.starterIds, roles);
+  if ("ruoloIgnoto" in conto) {
+    return rifiutata(
+      `il ruolo di «${conto.ruoloIgnoto}» non è stato osservato: la forma che ${gesto} ` +
+        "lascerebbe non è calcolabile, e non si suppone",
+    );
+  }
+  const modulo = conto.P > 0 ? undefined : moduloConLaForma(conto.D, conto.C, conto.A);
+  if (modulo === undefined) {
+    const portieri =
+      conto.P === 0
+        ? ""
+        : `, più ${conto.P} portiere${conto.P === 1 ? "" : "i"} fra i titolari di movimento`;
+    return rifiutata(
+      `${gesto} lascerebbe ${conto.D} difensori, ${conto.C} centrocampisti e ` +
+        `${conto.A} attaccanti${portieri}: nessuno dei sette moduli di §9 ha questa forma, e ` +
+        "una formazione così non si invia",
+    );
+  }
+  if (modulo === proposta.module) return eseguita(proposta);
+
+  const conflitto = moduleChangeConflict(constraints, modulo);
+  if (conflitto !== null) return inConflitto(conflitto);
+  return eseguita({ ...proposta, module: modulo });
+}
+
+/**
  * SCAMBIARE DUE GIOCATORI DI POSTO — il gesto che il campo rende naturale, e
  * che l'elenco in colonna non suggeriva nemmeno.
  *
@@ -321,12 +422,18 @@ function moduloConLaForma(
  * CHI È FUORI DAI CONVOCATI NON SI SCAMBIA: non ha un posto da cedere. Entra
  * con `moveToStarters` o `moveToBench`, che è la mossa che descrive ciò che
  * sta succedendo davvero.
+ *
+ * I VINCOLI SONO UN ARGOMENTO, e obbligatorio. Uno scambio che cambia il modulo
+ * contraddice un modulo bloccato esattamente come lo contraddice un cambio
+ * esplicito, e il conflitto esce da qui invece di dipendere da chi disegna:
+ * `NO_LINEUP_CONSTRAINTS` è il valore da passare quando vincoli non ce ne sono.
  */
 export function swapPlayers(
   lineup: ObservedLineup,
   aId: string,
   bId: string,
   roles: ReadonlyMap<string, Role>,
+  constraints: LineupConstraints,
 ): LineupEdit {
   if (aId === bId) {
     return rifiutata(`«${aId}» è già al suo posto: scambiarlo con sé stesso non cambia niente`);
@@ -366,50 +473,138 @@ export function swapPlayers(
     return rifiutata("la formazione non è leggibile in una delle due posizioni dello scambio");
   }
 
-  if (goalkeeperId !== lineup.goalkeeperId) {
-    const role = roles.get(goalkeeperId);
-    if (role === undefined) {
-      return rifiutata(
-        `il ruolo di «${goalkeeperId}» non è stato osservato: in porta non ci si mette per ` +
-          "esclusione, e qui non lo si deduce",
-      );
-    }
-    if (role !== "P") {
-      return rifiutata(
-        `«${goalkeeperId}» è di ruolo ${role}: in porta ci va un portiere, e la porta è ` +
-          "l'unico posto che non ammette un'eccezione",
-      );
-    }
-  }
-
   // Gli undici di movimento cambiano composizione solo quando uno dei due posti
   // è fra i titolari e l'altro no. Negli altri casi — due titolari, due
   // panchinari, porta e panchina — la forma è per costruzione quella di prima,
   // e il modulo non ha ragione di cambiare.
   const formaCambiata = (posA.place === "titolare") !== (posB.place === "titolare");
-  const scambiata: ObservedLineup = { ...lineup, goalkeeperId, starterIds, benchIds };
-  if (!formaCambiata) return eseguita(scambiata);
+  return concludiMossaDelCampo(
+    lineup,
+    { ...lineup, goalkeeperId, starterIds, benchIds },
+    formaCambiata,
+    roles,
+    constraints,
+    "lo scambio",
+  );
+}
 
-  const conto = reparti(starterIds, roles);
-  if ("ruoloIgnoto" in conto) {
+/**
+ * POSARE QUALCUNO SU UNA CASELLA VUOTA — il secondo gesto del campo, e quello
+ * che una formazione incompleta rende necessario.
+ *
+ * NON È UNO SCAMBIO e non è `moveToStarters`. Non è uno scambio perché non c'è
+ * nessuno da scambiare: la casella è vuota per definizione, e chiedere allo
+ * scambio di gestirla significherebbe fargli inventare un secondo giocatore.
+ * Non è `moveToStarters` perché quella mossa non sa **dove** stai posando, e il
+ * dove qui conta: una casella libera in difesa dice che il modulo aspetta ancora
+ * un difensore, e portarci un centrocampista cambia il conto dei reparti.
+ *
+ * LA CASELLA DICE DOVE SI STA MIRANDO, NON CHE RUOLO PRENDE CHI ARRIVA. È la
+ * distinzione che tiene lontano il difetto di sempre: un centrocampista posato
+ * sulla casella libera della difesa **non diventa un difensore** — resta un
+ * centrocampista, il conto dei reparti cambia, e se la forma nuova è uno dei
+ * sette moduli la mossa passa con il modulo che la descrive. Se non lo è, si
+ * rifiuta dicendo la forma. La casella serve a due cose sole, ed entrambe sono
+ * fatti e non deduzioni: dire che un posto libero **c'è** — un modulo già
+ * completo non ne ha, e allora non si aggiunge un dodicesimo — e distinguere la
+ * porta dal resto del campo.
+ *
+ * LA CASELLA DEV'ESSERE QUELLA DI ADESSO. Il `PitchSlot` che arriva viene
+ * ricontrollato contro il campo che questa formazione produce ora: una casella
+ * presa da un disegno precedente descriverebbe un campo che non c'è più, e
+ * posarci qualcuno sopra sarebbe eseguire una mossa mirata a un'altra
+ * formazione.
+ *
+ * Il resto è lo stesso dello scambio, e passa dalle stesse righe: atomica, la
+ * porta è un posto solo e vuole un portiere, chi è fuori dai convocati entra con
+ * le mosse che lo fanno entrare, e un modulo bloccato non si aggira posando.
+ */
+export function fillSlot(
+  lineup: ObservedLineup,
+  playerId: string,
+  slot: PitchSlot,
+  roles: ReadonlyMap<string, Role>,
+  constraints: LineupConstraints,
+): LineupEdit {
+  if (slot.playerId !== null) {
     return rifiutata(
-      `il ruolo di «${conto.ruoloIgnoto}» non è stato osservato: la forma che lo scambio ` +
-        "lascerebbe non è calcolabile, e non si suppone",
+      `quel posto è già di «${slot.playerId}»: due giocatori su una casella sola non esistono, e ` +
+        "per metterli uno al posto dell'altro c'è lo scambio",
     );
   }
-  const modulo = conto.P > 0 ? undefined : moduloConLaForma(conto.D, conto.C, conto.A);
-  if (modulo === undefined) {
-    const portieri =
-      conto.P === 0
-        ? ""
-        : `, più ${conto.P} portiere${conto.P === 1 ? "" : "i"} fra i titolari di movimento`;
+
+  // La casella si riconosce nel campo di ADESSO, non si prende per buona.
+  const campo = pitchLayout(lineup, roles);
+  const riga = campo.lines[slot.line];
+  const casella = riga === undefined ? undefined : riga[slot.indexInLine];
+  if (casella === undefined || casella.role !== slot.role) {
     return rifiutata(
-      `lo scambio lascerebbe ${conto.D} difensori, ${conto.C} centrocampisti e ` +
-        `${conto.A} attaccanti${portieri}: nessuno dei sette moduli di §9 ha questa forma, e ` +
-        "una formazione così non si invia",
+      `quella casella non esiste nel campo di questa formazione: il modulo «${lineup.module}» ` +
+        "non la prevede, e una casella di un disegno precedente non è un posto",
     );
   }
-  return eseguita({ ...scambiata, module: modulo });
+  if (casella.playerId !== null) {
+    return rifiutata(
+      `quel posto è ora di «${casella.playerId}»: il campo è cambiato da quando è stato ` +
+        "disegnato, e la mossa mirava a un'altra formazione",
+    );
+  }
+
+  const place = placeOf(lineup, playerId);
+  if (place === "fuori") {
+    return rifiutata(
+      `«${playerId}» non è schierato in questa formazione: prima entra fra i convocati, e per ` +
+        "quello c'è la mossa che lo fa entrare",
+    );
+  }
+
+  const gesto = `posare «${playerId}» in quel posto`;
+
+  if (slot.line === LINEA_PORTA) {
+    if (place === "porta") return rifiutata(`«${playerId}» è già in porta`);
+    return concludiMossaDelCampo(
+      lineup,
+      {
+        ...lineup,
+        goalkeeperId: playerId,
+        starterIds: lineup.starterIds.filter((id) => id !== playerId),
+        benchIds: lineup.benchIds.filter((id) => id !== playerId),
+      },
+      place === "titolare",
+      roles,
+      constraints,
+      gesto,
+    );
+  }
+
+  if (place === "porta") {
+    return rifiutata(
+      `«${playerId}» è in porta, e la porta non può restare vuota: lascia il posto solo quando ` +
+        "un altro portiere entra al suo posto",
+    );
+  }
+  if (place === "titolare") {
+    return rifiutata(
+      `«${playerId}» è già fra i titolari, e la casella in cui compare la decide il suo ruolo: ` +
+        "spostarlo su un posto libero di un altro reparto non lo cambierebbe di reparto",
+    );
+  }
+
+  // Dalla panchina agli undici, in fondo: dentro il suo reparto è l'ultimo, che
+  // è esattamente la prima casella libera che il campo gli mostra. Inserirlo
+  // altrove sposterebbe di una posizione ogni compagno del suo reparto.
+  return concludiMossaDelCampo(
+    lineup,
+    {
+      ...lineup,
+      starterIds: [...lineup.starterIds, playerId],
+      benchIds: lineup.benchIds.filter((id) => id !== playerId),
+    },
+    true,
+    roles,
+    constraints,
+    gesto,
+  );
 }
 
 /** Le due opzioni della formazione, una alla volta. */
