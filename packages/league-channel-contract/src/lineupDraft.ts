@@ -324,6 +324,26 @@ function moduloConLaForma(
  * con la stessa funzione e nella stessa forma del cambio esplicito, e chi ha
  * messo la spunta scioglie la contraddizione togliendola — come già fa altrove.
  *
+ * E NON SI AGGIRA NEMMENO LA SPUNTA «LO VOGLIO IN CAMPO», per la stessa
+ * ragione detta due volte. `moveToBench` e `moveOutside` non guardano i vincoli
+ * perché sono gesti che DICHIARANO «lo mando fuori»: chi li chiama sta
+ * togliendo qualcuno, e lo sa. Un trascinamento dichiara «metto dentro
+ * quest'altro», e che ne esca uno è la conseguenza — di nuovo una conseguenza
+ * che il chiamante non ha modo di prevedere. Se la spunta saltasse in silenzio,
+ * chi l'ha messa perché quel giocatore DEVE giocare si troverebbe senza il
+ * vincolo e senza nessuno che gliel'abbia detto. Perciò chi esce dagli undici
+ * si confronta con `benchMoveConflict` — la stessa funzione, lo stesso oggetto
+ * — e la contraddizione la scioglie chi l'ha creata togliendo la spunta.
+ *
+ * L'ORDINE DEI CONTROLLI non è casuale. Prima ciò che rende la mossa
+ * IMPOSSIBILE (porta, ruoli, forma), poi ciò che la rende CONTRADDITTORIA (le
+ * spunte). Al contrario si direbbe a chi guarda «togli la spunta e la mossa si
+ * fa» quando la mossa non si farebbe comunque, e gli si farebbe buttare via un
+ * vincolo per niente. Quando due vincoli sono contraddetti insieme esce prima
+ * quello sul giocatore — è la contraddizione più diretta di una volontà
+ * esplicita — e il secondo si presenta quando il primo è sciolto: nessuna mossa
+ * viene eseguita finché un vincolo resta in piedi.
+ *
  * `formaCambiata` non si deduce contando: lo dice la mossa, che sa se ha
  * toccato o no la composizione degli undici di movimento.
  */
@@ -357,32 +377,70 @@ function concludiMossaDelCampo(
     }
   }
 
-  if (!formaCambiata) return eseguita(proposta);
+  let modulo = proposta.module;
+  if (formaCambiata) {
+    const conto = reparti(proposta.starterIds, roles);
+    if ("ruoloIgnoto" in conto) {
+      return rifiutata(
+        `il ruolo di «${conto.ruoloIgnoto}» non è stato osservato: la forma che ${gesto} ` +
+          "lascerebbe non è calcolabile, e non si suppone",
+      );
+    }
+    const trovato = conto.P > 0 ? undefined : moduloConLaForma(conto.D, conto.C, conto.A);
+    if (trovato === undefined) {
+      const portieri =
+        conto.P === 0
+          ? ""
+          : `, più ${conto.P} portiere${conto.P === 1 ? "" : "i"} fra i titolari di movimento`;
+      return rifiutata(
+        `${gesto} lascerebbe ${conto.D} difensori, ${conto.C} centrocampisti e ` +
+          `${conto.A} attaccanti${portieri}: nessuno dei sette moduli di §9 ha questa forma, e ` +
+          "una formazione così non si invia",
+      );
+    }
+    modulo = trovato;
+  }
 
-  const conto = reparti(proposta.starterIds, roles);
-  if ("ruoloIgnoto" in conto) {
-    return rifiutata(
-      `il ruolo di «${conto.ruoloIgnoto}» non è stato osservato: la forma che ${gesto} ` +
-        "lascerebbe non è calcolabile, e non si suppone",
-    );
-  }
-  const modulo = conto.P > 0 ? undefined : moduloConLaForma(conto.D, conto.C, conto.A);
-  if (modulo === undefined) {
-    const portieri =
-      conto.P === 0
-        ? ""
-        : `, più ${conto.P} portiere${conto.P === 1 ? "" : "i"} fra i titolari di movimento`;
-    return rifiutata(
-      `${gesto} lascerebbe ${conto.D} difensori, ${conto.C} centrocampisti e ` +
-        `${conto.A} attaccanti${portieri}: nessuno dei sette moduli di §9 ha questa forma, e ` +
-        "una formazione così non si invia",
-    );
-  }
+  const spuntato = spuntatoCheEsceDagliUndici(precedente, proposta, constraints);
+  if (spuntato !== null) return inConflitto(spuntato);
+
   if (modulo === proposta.module) return eseguita(proposta);
-
   const conflitto = moduleChangeConflict(constraints, modulo);
   if (conflitto !== null) return inConflitto(conflitto);
   return eseguita({ ...proposta, module: modulo });
+}
+
+/** Gli undici schierati: la porta, quando c'è qualcuno, più i titolari. */
+function undici(lineup: ObservedLineup): readonly string[] {
+  return lineup.goalkeeperId.length === 0
+    ? lineup.starterIds
+    : [lineup.goalkeeperId, ...lineup.starterIds];
+}
+
+/**
+ * IL PRIMO SPUNTATO CHE LA MOSSA TOGLIEREBBE DAGLI UNDICI, se ce n'è uno.
+ *
+ * Si calcola confrontando gli undici di prima con quelli di dopo, non
+ * ragionando sui casi: un elenco di casi si dimentica del caso nuovo, due
+ * insiemi no. Chi resta negli undici cambiando solo posto — dalla porta al
+ * campo, o da una casella all'altra — non «esce» affatto, e infatti non compare.
+ *
+ * L'ordine è quello degli undici (la porta per prima, poi i titolari come
+ * dichiarati): stesso ingresso, stesso conflitto.
+ */
+function spuntatoCheEsceDagliUndici(
+  precedente: ObservedLineup,
+  proposta: ObservedLineup,
+  constraints: LineupConstraints,
+): ConstraintConflict | null {
+  if (constraints.lockedStarterIds.length === 0) return null;
+  const dopo = new Set(undici(proposta));
+  for (const id of undici(precedente)) {
+    if (dopo.has(id)) continue;
+    const conflitto = benchMoveConflict(constraints, id);
+    if (conflitto !== null) return conflitto;
+  }
+  return null;
 }
 
 /**
@@ -425,7 +483,9 @@ function concludiMossaDelCampo(
  *
  * I VINCOLI SONO UN ARGOMENTO, e obbligatorio. Uno scambio che cambia il modulo
  * contraddice un modulo bloccato esattamente come lo contraddice un cambio
- * esplicito, e il conflitto esce da qui invece di dipendere da chi disegna:
+ * esplicito, e uno scambio che manda in panchina uno spuntato «lo voglio in
+ * campo» contraddice quella spunta anche se chi trascina stava guardando l'altro
+ * dei due: i conflitti escono da qui invece di dipendere da chi disegna.
  * `NO_LINEUP_CONSTRAINTS` è il valore da passare quando vincoli non ce ne sono.
  */
 export function swapPlayers(
@@ -518,6 +578,14 @@ export function swapPlayers(
  * Il resto è lo stesso dello scambio, e passa dalle stesse righe: atomica, la
  * porta è un posto solo e vuole un portiere, chi è fuori dai convocati entra con
  * le mosse che lo fanno entrare, e un modulo bloccato non si aggira posando.
+ *
+ * NESSUNO ESCE, POSANDO — ed è una proprietà della mossa, non una dimenticanza.
+ * Si riempie un posto che nessuno occupa: gli undici si allungano, non si
+ * sostituiscono. La regola sulla spunta «lo voglio in campo» vale comunque
+ * anche qui, perché sta nella chiusura comune e si calcola sugli undici di
+ * prima contro quelli di dopo: semplicemente non ha mai nessuno da segnalare.
+ * Il giorno in cui questa mossa imparasse a spostare qualcuno, la regola
+ * sarebbe già al suo posto invece di essere da aggiungere.
  */
 export function fillSlot(
   lineup: ObservedLineup,

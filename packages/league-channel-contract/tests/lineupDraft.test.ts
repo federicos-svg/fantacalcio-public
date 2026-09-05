@@ -757,3 +757,90 @@ describe("posare un giocatore su una casella vuota", () => {
     expect(reason).toContain("non è stato osservato");
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// LA SPUNTA «LO VOGLIO IN CAMPO», E IL TRASCINAMENTO CHE NON LA FA SALTARE.
+
+/** «p2 deve giocare», e nient'altro. */
+const P2_IN_CAMPO: LineupConstraints = { lockedStarterIds: ["p2"], locked: false };
+
+describe("uno spuntato non esce dagli undici trascinando", () => {
+  it("lo scambio che lo manderebbe in panchina produce IL CONFLITTO, non un'uscita silenziosa", () => {
+    // Chi trascina sta guardando p14, che entra: che ne esca p2 è la
+    // conseguenza, ed è esattamente ciò che il chiamante non può prevedere.
+    const copia = copiaDi(FORMAZIONE);
+    const conflitto = conConflitto(
+      swapPlayers(FORMAZIONE, "p2", "p14", RUOLI, P2_IN_CAMPO),
+      FORMAZIONE,
+      copia,
+    );
+    expect(conflitto).toEqual(benchMoveConflict(P2_IN_CAMPO, "p2"));
+    expect(conflitto.kind).toBe("titolare_spuntato");
+    expect(conflitto.message).toContain("p2");
+
+    // Senza la spunta lo stesso identico scambio passa.
+    const senzaSpunta = eseguita(swapPlayers(FORMAZIONE, "p2", "p14", RUOLI, SENZA_VINCOLI));
+    expect(senzaSpunta.module).toBe("352");
+    expect(placeOf(senzaSpunta, "p2")).toBe("panchina");
+  });
+
+  it("una spunta su qualcun altro non si guarda nemmeno", () => {
+    const altroSpuntato: LineupConstraints = { lockedStarterIds: ["p3"], locked: false };
+    const dopo = eseguita(swapPlayers(FORMAZIONE, "p2", "p14", RUOLI, altroSpuntato));
+    expect(dopo.module).toBe("352");
+    expect(placeOf(dopo, "p3")).toBe("titolare");
+  });
+
+  it("vale anche per il portiere: la porta è parte degli undici", () => {
+    const portiereSpuntato: LineupConstraints = { lockedStarterIds: ["p1"], locked: false };
+    const copia = copiaDi(FORMAZIONE);
+    // Qui la forma non cambia affatto: se il controllo vivesse dentro il ramo
+    // del modulo, questo scambio passerebbe e la spunta salterebbe.
+    const conflitto = conConflitto(
+      swapPlayers(FORMAZIONE, "p1", "p12", RUOLI, portiereSpuntato),
+      FORMAZIONE,
+      copia,
+    );
+    expect(conflitto).toEqual(benchMoveConflict(portiereSpuntato, "p1"));
+
+    const senzaSpunta = eseguita(swapPlayers(FORMAZIONE, "p1", "p12", RUOLI, SENZA_VINCOLI));
+    expect(senzaSpunta.goalkeeperId).toBe("p12");
+  });
+
+  it("chi resta negli undici cambiando solo posto non esce, e non c'è nessun conflitto", () => {
+    // Due titolari che si scambiano il posto restano tutti e due in campo.
+    const dopo = eseguita(swapPlayers(FORMAZIONE, "p2", "p3", RUOLI, P2_IN_CAMPO));
+    expect(placeOf(dopo, "p2")).toBe("titolare");
+    // E due panchinari non toccano gli undici affatto.
+    expect(eseguita(swapPlayers(FORMAZIONE, "p13", "p15", RUOLI, P2_IN_CAMPO)).benchIds).toEqual([
+      "p12",
+      "p15",
+      "p14",
+      "p13",
+      "p16",
+    ]);
+  });
+
+  it("prima ciò che rende la mossa impossibile, poi ciò che la rende contraddittoria", () => {
+    // Uno scambio che lascerebbe una forma che nessun modulo ha, e che
+    // toglierebbe anche uno spuntato: il rifiuto è quello della forma, perché
+    // togliere la spunta non farebbe passare la mossa.
+    const spuntatoNel352: LineupConstraints = { lockedStarterIds: ["p2"], locked: false };
+    const copia = copiaDi(FORMAZIONE_352);
+    const edit = swapPlayers(FORMAZIONE_352, "p2", "p15", RUOLI, spuntatoNel352);
+    const reason = rifiutata(edit, FORMAZIONE_352, copia);
+    expect(reason).toContain("sette moduli");
+    expect(edit.ok === false && edit.conflict).toBeUndefined();
+  });
+
+  it("posare qualcuno su un posto vuoto non fa uscire nessuno, e infatti passa", () => {
+    // Il posto era libero: gli undici si allungano, non si sostituiscono.
+    const spuntati: LineupConstraints = { lockedStarterIds: ["p2", "p6"], locked: false };
+    const dopo = eseguita(
+      fillSlot(SENZA_UN_DIFENSORE, "p13", casellaVuotaDifesa(), RUOLI, spuntati),
+    );
+    expect(placeOf(dopo, "p2")).toBe("titolare");
+    expect(placeOf(dopo, "p6")).toBe("titolare");
+    expect(placeOf(dopo, "p13")).toBe("titolare");
+  });
+});
