@@ -202,6 +202,7 @@ import {
   buildFormazioneView,
   decideInitialScreen,
   editsBlockedReason,
+  fillSlot,
   moduleChangeConflict,
   moveBench,
   moveOutside,
@@ -216,10 +217,12 @@ import {
   setLineupModule,
   setLockedModule,
   submissionUiState,
+  swapPlayers,
   toggleLocked,
   toggleLockedStarter,
   NIENTE_DA_INVIARE,
   NO_LINEUP_CONSTRAINTS,
+  type ConstraintConflict,
   type LineupConstraints,
   type LineupChannelState,
   type LineupEdit,
@@ -228,6 +231,7 @@ import {
   type LineupFlags,
   type Module,
   type ObservedLineup,
+  type PitchSlot,
   type SubmissionViolation,
 } from "../packages/league-channel-contract/src/index.js";
 import {
@@ -264,7 +268,9 @@ import {
 import {
   renderFormazioneScreen,
   NESSUNA_MODIFICA_IN_SOSPESO,
+  NESSUNA_PRESA,
   type FormazioneEditState,
+  type FormazionePresa,
   type FormazioneSaveState,
 } from "./ui/formazione.js";
 import { renderClubBadge } from "./ui/serieA.js";
@@ -591,7 +597,41 @@ type ConfirmationsRecoveryState =
 type PendingLineupEdit =
   | { readonly kind: "in_panchina"; readonly competitionId: string; readonly playerId: string }
   | { readonly kind: "fuori"; readonly competitionId: string; readonly playerId: string }
-  | { readonly kind: "modulo"; readonly competitionId: string; readonly module: Module };
+  | { readonly kind: "modulo"; readonly competitionId: string; readonly module: Module }
+  /**
+   * LE DUE MOSSE DEL CAMPO, con dentro IL VINCOLO che hanno contraddetto.
+   *
+   * Hanno un caso loro e non riusano `in_panchina` per una ragione che si vede
+   * solo quando il conflitto si scioglie: al «Togli il vincolo e procedi» la
+   * mossa che aspettava viene rieseguita, e rieseguire un `moveToBench` al
+   * posto di uno scambio manderebbe in panchina chi usciva SENZA far entrare
+   * chi doveva entrare. Il vincolo tolto, la mossa a metà, e nessuno che se ne
+   * accorge.
+   *
+   * IL CONFLITTO VIAGGIA CON LA MOSSA, e non lo calcola la shell: lo produce
+   * `swapPlayers` o `fillSlot`, che sono le uniche a sapere che cosa la mossa
+   * avrebbe fatto. Ricalcolarlo qui sarebbe la seconda verità di sempre, e
+   * questa volta su una domanda — «chi esce dagli undici?» — la cui risposta il
+   * contratto ha smesso di lasciare a chi disegna.
+   *
+   * Riesecuzione, non applicazione: se dopo il primo vincolo ne resta un
+   * secondo, la mossa lo restituisce e la stessa domanda si ripresenta. Nessuna
+   * mossa passa finché un vincolo è ancora in piedi.
+   */
+  | {
+      readonly kind: "scambio";
+      readonly competitionId: string;
+      readonly conflict: ConstraintConflict;
+      readonly aId: string;
+      readonly bId: string;
+    }
+  | {
+      readonly kind: "posa";
+      readonly competitionId: string;
+      readonly conflict: ConstraintConflict;
+      readonly playerId: string;
+      readonly slot: PitchSlot;
+    };
 
 /**
  * L'ESITO DELL'ULTIMO SALVA, CON ADDOSSO A CHI APPARTIENE.
@@ -672,6 +712,15 @@ interface AppState {
   formazioneEdit: FormazioneEditState;
   /** La modifica che aspetta la decisione sul conflitto. `null` è la norma. */
   formazionePendingEdit: PendingLineupEdit | null;
+  /**
+   * IL GIOCATORE CHE SI HA IN MANO sul campo, e su quale competizione.
+   *
+   * È la prima metà del gesto in due tempi — prendi, posa — che esiste perché
+   * il trascinamento nativo non funziona col dito su un telefono né da
+   * tastiera. Non si persiste e non è un dato della lega: sparisce appena una
+   * mossa viene eseguita o rifiutata, come il conflitto in attesa qui sopra.
+   */
+  formazionePresa: FormazionePresa;
   /** L'esito dell'ultimo «Salva»: quale competizione, i tre stati dell'invio, e a chi appartiene. */
   formazioneSave: FormazioneSaveRecord;
   moment: Moment;
@@ -1186,6 +1235,7 @@ const state: AppState = {
   lineupProvaDrafts: new Map(),
   formazioneEdit: NESSUNA_MODIFICA_IN_SOSPESO,
   formazionePendingEdit: null,
+  formazionePresa: NESSUNA_PRESA,
   formazioneSave: NESSUN_ESITO_SALVATAGGIO,
   moment: "chiamata",
   log: bootLogEvents,
@@ -3319,6 +3369,10 @@ function competitionConstraints(competitionId: string): LineupConstraints {
 function azzeraModificaInSospeso(): void {
   state.formazioneEdit = NESSUNA_MODIFICA_IN_SOSPESO;
   state.formazionePendingEdit = null;
+  // LA PRESA SI LASCIA INSIEME AL RESTO. Un giocatore «in mano» preso su una
+  // squadra e ancora in mano su un'altra sarebbe la stessa confusione del
+  // conflitto sopravvissuto al passaggio, con in più il rischio di posarlo.
+  state.formazionePresa = NESSUNA_PRESA;
 }
 
 function entraInProva(): void {
@@ -3436,22 +3490,59 @@ function shownLineup(competitionId: string): ObservedLineup | null {
 function mossaRifiutata(competitionId: string, reason: string): void {
   state.formazioneEdit = { competitionId, conflict: null, refusal: reason };
   state.formazionePendingEdit = null;
+  // Il gesto è finito, anche se è finito in un rifiuto: chi lo ha fatto non
+  // deve ritrovarsi ancora il giocatore in mano mentre legge perché non si è
+  // potuto posare.
+  state.formazionePresa = NESSUNA_PRESA;
   render();
   focusAfterRender(`formazione-mossa-rifiutata-${competitionId}`);
 }
 
 /**
- * L'esito di una mossa diventa stato: la bozza nuova, oppure il rifiuto scritto.
- * Non c'è una terza strada, e in particolare non c'è quella silenziosa.
+ * IL CONFLITTO IN ATTESA, con la mossa che lo aspetta.
+ *
+ * Non calcola niente: riceve il conflitto che la mossa ha restituito e lo mette
+ * a schermo con la domanda che la pagina fa da sempre — togliere il vincolo, o
+ * lasciare tutto com'è. La mossa non è stata eseguita, e non lo sarà finché
+ * qualcuno non risponde.
  */
-function applyLineupEdit(competitionId: string, edit: LineupEdit, focusId: string): void {
+function conflittoInAttesa(pending: PendingLineupEdit, conflict: ConstraintConflict): void {
+  state.formazionePendingEdit = pending;
+  state.formazioneEdit = { competitionId: pending.competitionId, conflict, refusal: "" };
+  state.formazionePresa = NESSUNA_PRESA;
+  render();
+  focusAfterRender(`formazione-conflitto-procedi-${pending.competitionId}`);
+}
+
+/**
+ * L'esito di una mossa diventa stato: la bozza nuova, il conflitto da sciogliere,
+ * oppure il rifiuto scritto. Non c'è una quarta strada, e in particolare non c'è
+ * quella silenziosa: un trascinamento in cui «non succede niente» è il modo più
+ * rapido per far credere che la pagina sia rotta quando invece ha ragione.
+ *
+ * `ripeti` è la mossa da rifare dopo che il vincolo è stato tolto, e le mosse
+ * del campo (`scambio`, `posa`) la portano perché il conflitto lo producono
+ * loro: chi non la passa non ha conflitti da sciogliere — li ha già chiesti
+ * prima con `chiediOEsegui` — e un rifiuto resta un rifiuto.
+ */
+function applyLineupEdit(
+  competitionId: string,
+  edit: LineupEdit,
+  focusId: string,
+  ripeti?: (conflict: ConstraintConflict) => PendingLineupEdit,
+): void {
   if (!edit.ok) {
+    if (edit.conflict !== undefined && ripeti !== undefined) {
+      conflittoInAttesa(ripeti(edit.conflict), edit.conflict);
+      return;
+    }
     mossaRifiutata(competitionId, edit.reason);
     return;
   }
   bozzeCorrenti().set(competitionId, edit.lineup);
   state.formazioneEdit = NESSUNA_MODIFICA_IN_SOSPESO;
   state.formazionePendingEdit = null;
+  state.formazionePresa = NESSUNA_PRESA;
   render();
   focusAfterRender(focusId);
 }
@@ -3514,7 +3605,16 @@ function portaTraTitolari(competitionId: string, playerId: string): void {
  */
 function chiediOEsegui(
   competitionId: string,
-  pending: PendingLineupEdit,
+  /**
+   * SOLO LE MOSSE CHE DICHIARANO CHI TOLGONO. Premere «In panchina», «Fuori» o
+   * un modulo dichiara ciò che si sta facendo, quindi il conflitto si può
+   * calcolare PRIMA di provare. Le due mosse del campo no — chi trascina sposta
+   * uno e ne fa uscire un altro come conseguenza — e infatti il loro conflitto
+   * arriva dalla mossa: escluderle qui dal tipo è ciò che impedisce che un
+   * giorno qualcuno le faccia passare di qua e la domanda venga fatta due volte,
+   * con due risposte che possono non coincidere.
+   */
+  pending: Exclude<PendingLineupEdit, { readonly kind: "scambio" | "posa" }>,
   esegui: () => void,
 ): void {
   const constraints = competitionConstraints(competitionId);
@@ -3526,10 +3626,7 @@ function chiediOEsegui(
     esegui();
     return;
   }
-  state.formazionePendingEdit = pending;
-  state.formazioneEdit = { competitionId, conflict, refusal: "" };
-  render();
-  focusAfterRender(`formazione-conflitto-procedi-${competitionId}`);
+  conflittoInAttesa(pending, conflict);
 }
 
 function mandaInPanchina(competitionId: string, playerId: string): void {
@@ -3556,6 +3653,89 @@ function mandaFuori(competitionId: string, playerId: string): void {
   );
 }
 
+/**
+ * PRENDE UN GIOCATORE IN MANO, o lo lascia.
+ *
+ * Non tocca nessuna formazione, e infatti non passa da `applyLineupEdit`: è la
+ * prima metà di un gesto, e la seconda metà — la posa — è una delle mosse che
+ * esistevano già. Serve perché il trascinamento nativo non esiste sotto un dito
+ * e non esiste da tastiera: senza questi due tempi, il gesto principale del
+ * campo sarebbe riservato a chi ha un mouse.
+ *
+ * Prendere qualcuno su una formazione che non si modifica è un rifiuto
+ * dichiarato come tutti gli altri: il gettone è già spento, e se la blindatura
+ * arrivasse fra il disegno e il clic si direbbe perché invece di non fare
+ * niente.
+ */
+function prendiGiocatore(competitionId: string, playerId: string | null): void {
+  if (playerId === null) {
+    state.formazionePresa = NESSUNA_PRESA;
+    render();
+    return;
+  }
+  const lineup = shownLineup(competitionId);
+  const blocked = editsBlockedReason(competitionConstraints(competitionId), lineup);
+  if (blocked.length > 0) {
+    mossaRifiutata(competitionId, blocked);
+    return;
+  }
+  state.formazionePresa = { competitionId, playerId };
+  render();
+  focusAfterRender(`formazione-${competitionId}-${playerId}-gettone`);
+}
+
+/**
+ * DUE GIOCATORI SI SCAMBIANO IL POSTO — il gesto del campo, in una riga.
+ *
+ * Passa dagli stessi due filtri di ogni altra mossa — la formazione dev'essere
+ * modificabile, i ruoli devono essere quelli osservati — e poi non decide più
+ * niente: che cosa lo scambio produca, se lasci la porta vuota, se la forma che
+ * ne esce sia uno dei sette moduli e se contraddica un vincolo lo dice
+ * `swapPlayers`, che riceve i vincoli come argomento proprio perché la risposta
+ * non dipenda da chi disegna.
+ *
+ * QUI NON SI CHIEDE PRIMA. Le altre mosse passano da `chiediOEsegui`, che
+ * calcola il conflitto prima di provare: lì funziona perché chi preme «In
+ * panchina» dichiara chi sta togliendo. Un trascinamento no — chi lo fa sposta
+ * qualcuno, e che ne esca un altro è una conseguenza che il chiamante non ha
+ * modo di prevedere — quindi il conflitto arriva DALLA mossa, dentro il rifiuto,
+ * ed è lo stesso oggetto che la pagina mostra da sempre.
+ */
+function scambiaGiocatori(competitionId: string, aId: string, bId: string): void {
+  const lineup = lineupModificabile(competitionId);
+  if (lineup === null) return;
+  const roles = ruoliDellaRosa(competitionId);
+  if (roles === null) return;
+  applyLineupEdit(
+    competitionId,
+    swapPlayers(lineup, aId, bId, roles, competitionConstraints(competitionId)),
+    `formazione-${competitionId}-${bId}-gettone`,
+    (conflict) => ({ kind: "scambio", competitionId, conflict, aId, bId }),
+  );
+}
+
+/**
+ * POSARE QUALCUNO SU UNA CASELLA CHE IL MODULO PREVEDE E NESSUNO OCCUPA.
+ *
+ * La casella viaggia intera fino a `fillSlot`, che la ricontrolla contro il
+ * campo di ADESSO: fra il disegno e il gesto la formazione può essere cambiata,
+ * e una casella di un disegno precedente descriverebbe un campo che non c'è più.
+ * Rifare quel controllo qui sarebbe la seconda verità di sempre; passare un
+ * ruolo al posto della casella sarebbe la stessa cosa, scritta più corta.
+ */
+function posaSuCasella(competitionId: string, playerId: string, slot: PitchSlot): void {
+  const lineup = lineupModificabile(competitionId);
+  if (lineup === null) return;
+  const roles = ruoliDellaRosa(competitionId);
+  if (roles === null) return;
+  applyLineupEdit(
+    competitionId,
+    fillSlot(lineup, playerId, slot, roles, competitionConstraints(competitionId)),
+    `formazione-${competitionId}-${playerId}-gettone`,
+    (conflict) => ({ kind: "posa", competitionId, conflict, playerId, slot }),
+  );
+}
+
 function riordinaPanchina(competitionId: string, playerId: string, direction: "su" | "giu"): void {
   const lineup = lineupModificabile(competitionId);
   if (lineup === null) return;
@@ -3573,7 +3753,11 @@ function cambiaModuloSchierato(competitionId: string, module: Module): void {
     applyLineupEdit(
       competitionId,
       setLineupModule(lineup, module),
-      `formazione-modulo-schierato-${competitionId}`,
+      // IL FUOCO TORNA SUL MODULO CHE SI È PREMUTO, non sulla barra: da quando i
+      // moduli sono sette bottoni invece di una tendina, la barra è un gruppo e
+      // un gruppo non prende il fuoco. Chi naviga da tastiera si ritroverebbe
+      // rimbalzato in cima alla pagina a ogni cambio.
+      `formazione-modulo-schierato-${competitionId}-${module}`,
     ),
   );
 }
@@ -3611,6 +3795,41 @@ function annullaModifiche(competitionId: string): void {
  * `false` non tocca niente — né il vincolo né la formazione — e chiude la
  * domanda. In nessuno dei due casi il codice sceglie al posto suo.
  */
+/**
+ * QUALE SPUNTA STA CONTRADDICENDO QUESTO CONFLITTO.
+ *
+ * `ConstraintConflict` dice quale VINCOLO è contraddetto e che cosa succede se
+ * lo si toglie, ma non porta l'id di chi lo porta: per le mosse che il conflitto
+ * se lo calcolano da sole (`swapPlayers`, `fillSlot`) l'id va ritrovato, e
+ * ritrovarlo leggendo la frase sarebbe interpretare della prosa.
+ *
+ * Lo si ritrova invece CHIEDENDOLO ALLA STESSA FUNZIONE che lo ha scritto:
+ * `benchMoveConflict` su ogni spunta, e quella la cui risposta coincide è la
+ * spunta contraddetta. Non c'è nessuna regola nuova qui dentro — se un giorno la
+ * frase cambia, cambia da tutte e due le parti insieme — e se nessuna coincide
+ * non si tira a indovinare: non si toglie niente.
+ */
+function spuntaContraddetta(
+  constraints: LineupConstraints,
+  conflict: ConstraintConflict,
+): string | null {
+  return (
+    constraints.lockedStarterIds.find(
+      (id) => benchMoveConflict(constraints, id)?.message === conflict.message,
+    ) ?? null
+  );
+}
+
+/** I vincoli senza quello che questo conflitto nomina. Invariati se non si sa quale. */
+function senzaIlVincoloContraddetto(
+  constraints: LineupConstraints,
+  conflict: ConstraintConflict,
+): LineupConstraints {
+  if (conflict.kind === "modulo_bloccato") return setLockedModule(constraints, null);
+  const spunta = spuntaContraddetta(constraints, conflict);
+  return spunta === null ? constraints : toggleLockedStarter(constraints, spunta);
+}
+
 function risolviConflitto(competitionId: string, removeConstraint: boolean): void {
   const pending = state.formazionePendingEdit;
   state.formazionePendingEdit = null;
@@ -3626,7 +3845,14 @@ function risolviConflitto(competitionId: string, removeConstraint: boolean): voi
     competitionId,
     pending.kind === "modulo"
       ? setLockedModule(constraints, null)
-      : toggleLockedStarter(constraints, pending.playerId),
+      : pending.kind === "scambio" || pending.kind === "posa"
+        ? // Il vincolo da togliere lo nomina il conflitto che la mossa ha
+          // restituito: la shell non lo ricalcola, perché ricalcolarlo
+          // significherebbe rispondere una seconda volta alla domanda «chi esce
+          // dagli undici?» — che è esattamente ciò che il contratto ha smesso di
+          // lasciare a chi disegna.
+          senzaIlVincoloContraddetto(constraints, pending.conflict)
+        : toggleLockedStarter(constraints, pending.playerId),
   );
 
   const lineup = shownLineup(competitionId);
@@ -3641,8 +3867,22 @@ function risolviConflitto(competitionId: string, removeConstraint: boolean): voi
     applyLineupEdit(
       competitionId,
       setLineupModule(lineup, pending.module),
-      `formazione-modulo-schierato-${competitionId}`,
+      `formazione-modulo-schierato-${competitionId}-${pending.module}`,
     );
+    return;
+  }
+  // LA MOSSA CHE RIPARTE È QUELLA CHE ASPETTAVA, PER INTERO E DA CAPO. Uno
+  // scambio si riesegue come scambio — mandare in panchina chi usciva e
+  // fermarsi lì toglierebbe il vincolo per fare metà di ciò che era stato
+  // chiesto — e si riesegue passando dalla funzione del gesto, non da una copia
+  // della sua chiamata: se dopo il primo vincolo ne resta un secondo, la mossa
+  // lo restituisce e la stessa domanda si ripresenta, come dev'essere.
+  if (pending.kind === "scambio") {
+    scambiaGiocatori(competitionId, pending.aId, pending.bId);
+    return;
+  }
+  if (pending.kind === "posa") {
+    posaSuCasella(competitionId, pending.playerId, pending.slot);
     return;
   }
   applyLineupEdit(
@@ -3914,6 +4154,10 @@ function renderFormazione(): HTMLElement {
       onMoveOutside: (competitionId, playerId) => mandaFuori(competitionId, playerId),
       onMoveBench: (competitionId, playerId, direction) =>
         riordinaPanchina(competitionId, playerId, direction),
+      onSwap: (competitionId, aId, bId) => scambiaGiocatori(competitionId, aId, bId),
+      onFillSlot: (competitionId, playerId, slot) =>
+        posaSuCasella(competitionId, playerId, slot),
+      onPrendi: (competitionId, playerId) => prendiGiocatore(competitionId, playerId),
       onSetModule: (competitionId, module) => cambiaModuloSchierato(competitionId, module),
       onSetFlag: (competitionId, flag, value) => cambiaOpzione(competitionId, flag, value),
       onResetLineup: (competitionId) => annullaModifiche(competitionId),
@@ -3935,6 +4179,11 @@ function renderFormazione(): HTMLElement {
     // qui — al momento del disegno — e non dentro il contratto: è l'unico punto
     // dell'applicazione in cui «adesso» significa davvero adesso.
     costruisciLettura(channel, new Date().toISOString()),
+    // IL GIOCATORE IN MANO. Sta nello stato della shell e non dentro il render
+    // per la ragione di sempre: `render()` ricostruisce l'albero a ogni clic, e
+    // una presa tenuta là dentro verrebbe buttata via fra il «prendi» e il
+    // «posa», cioè proprio nel mezzo del gesto che deve tenere.
+    state.formazionePresa,
   );
 }
 
