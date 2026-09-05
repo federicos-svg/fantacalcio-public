@@ -9,7 +9,9 @@ import {
   normalizeConstraintReport,
   prepareSubmission,
   reconcileConstraints,
+  removeQuarantinedConstraint,
   saveBlockers,
+  saveOutcomeApplies,
   setLockedModule,
   submissionUiState,
   toggleLocked,
@@ -20,7 +22,7 @@ import {
   type LineupConstraints,
   type ObservedCompetitionLineup,
 } from "../src/lineupCoachSurface.js";
-import { moveBench, moveToStarters, type LineupEdit } from "../src/lineupDraft.js";
+import { moveBench, moveToStarters, setLineupModule, type LineupEdit } from "../src/lineupDraft.js";
 import { rolesByPlayerId } from "../src/roster.js";
 import type { ObservedTeam } from "../src/roster.js";
 import type { ObservedLineup } from "../src/lineupSubmission.js";
@@ -793,5 +795,260 @@ describe("i tre stati dell'invio non si confondono mai", () => {
     expect(nonTentato.kind).toBe("da_inviare");
     expect(rifiutato.reason).toContain("respinto");
     expect(nonTentato.reason).toContain("mai partito");
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+   DUE COMPETIZIONI CON LO STESSO IDENTIFICATIVO
+
+   `competitionId` è la chiave di tutto ciò che la schermata tiene per
+   competizione — i vincoli salvati, la modifica non inviata, l'esito dell'ultimo
+   salvataggio — e ogni comando a schermo se la porta dentro il proprio
+   identificativo. Due letture con lo stesso id producevano due pannelli
+   identici e due bottoni «Salva» indistinguibili, di cui uno scriveva sopra i
+   vincoli dell'altro: il duplicato che rende ambiguo il comando.
+   ──────────────────────────────────────────────────────────────────────────── */
+describe("due competizioni con lo stesso identificativo", () => {
+  const doppio = letto([
+    campionato({ kind: "letta", lineup: FORMAZIONE }),
+    campionato({ kind: "letta", lineup: FORMAZIONE }, 7),
+  ]);
+
+  it("non producono due pannelli: l'id compare una volta sola", () => {
+    const view = buildFormazioneView(doppio, new Map());
+    expect(view.competitions.map((c) => c.competitionId)).toEqual(["c1"]);
+    // Si tiene la PRIMA, nell'ordine che la lettura ha riferito: non si sceglie
+    // «la migliore», che sarebbe una decisione inventata qui.
+    expect(view.competitions[0]?.matchday).toBe(5);
+  });
+
+  it("si dichiarano invece di sparire in silenzio", () => {
+    const view = buildFormazioneView(doppio, new Map());
+    expect(view.duplicated).toEqual(["c1"]);
+  });
+
+  it("un id ripetuto tre volte si dichiara una volta sola", () => {
+    const view = buildFormazioneView(
+      letto([
+        campionato({ kind: "letta", lineup: FORMAZIONE }),
+        campionato({ kind: "letta", lineup: FORMAZIONE }),
+        campionato({ kind: "letta", lineup: FORMAZIONE }),
+      ]),
+      new Map(),
+    );
+    expect(view.competitions).toHaveLength(1);
+    expect(view.duplicated).toEqual(["c1"]);
+  });
+
+  it("due competizioni DIVERSE restano due, e non si dichiara niente", () => {
+    const view = buildFormazioneView(
+      letto([
+        campionato({ kind: "letta", lineup: FORMAZIONE }),
+        { competition: COPPA, matchday: 5, state: { kind: "letta", lineup: null } },
+      ]),
+      new Map(),
+    );
+    expect(view.competitions.map((c) => c.competitionId)).toEqual(["c1", "c2"]);
+    expect(view.duplicated).toEqual([]);
+  });
+
+  it("con lo stato ignoto non c'è niente da dichiarare: né competizioni né duplicati", () => {
+    const view = buildFormazioneView(sconosciuto("risposta_assente"), new Map());
+    expect(view.competitions).toEqual([]);
+    expect(view.duplicated).toEqual([]);
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+   UN ESITO DI SALVATAGGIO APPARTIENE ALLA FORMAZIONE CHE L'HA PRODOTTO
+
+   Il difetto riprodotto: Salva, poi cambia modulo, e sullo schermo convivono «la
+   formazione di esempio ha passato la validazione» e «Non si può salvare:
+   l'invio non sarebbe legale in 2 punti». Due frasi opposte, e la rassicurante
+   più visibile. La regola che lo chiude è una sola, e sta qui: se la squadra, la
+   competizione o la formazione non sono più quelle, l'esito non si aggiorna —
+   SPARISCE.
+   ──────────────────────────────────────────────────────────────────────────── */
+describe("un esito di salvataggio appartiene alla formazione che l'ha prodotto", () => {
+  const proprietario = { teamId: "t1", competitionId: "c1", lineup: FORMAZIONE };
+
+  it("sulla stessa squadra, stessa competizione e stessa formazione l'esito resta", () => {
+    expect(saveOutcomeApplies(proprietario, { ...proprietario })).toBe(true);
+    // Una copia con gli stessi valori è la stessa formazione: il confronto è
+    // sul contenuto, non sull'identità dell'oggetto.
+    expect(
+      saveOutcomeApplies(proprietario, { ...proprietario, lineup: { ...FORMAZIONE } }),
+    ).toBe(true);
+  });
+
+  it("cambiare modulo lo fa sparire: è la mossa che smentisce la frase rassicurante", () => {
+    const dopo = setLineupModule(FORMAZIONE, "343");
+    expect(dopo.ok).toBe(true);
+    if (!dopo.ok) return;
+    expect(saveOutcomeApplies(proprietario, { ...proprietario, lineup: dopo.lineup })).toBe(false);
+  });
+
+  it("riordinare la panchina lo fa sparire: decide chi entra la domenica", () => {
+    const dopo = moveBench(FORMAZIONE, "p13", "su");
+    expect(dopo.ok).toBe(true);
+    if (!dopo.ok) return;
+    expect(saveOutcomeApplies(proprietario, { ...proprietario, lineup: dopo.lineup })).toBe(false);
+  });
+
+  it("un esito nato su un'altra SQUADRA non compare su questa, né viceversa", () => {
+    // È il passaggio dentro e fuori dalla modalità dimostrativa: la squadra di
+    // esempio ha un `teamId` suo, e un esito nato là non deve poter comparire
+    // sulla squadra vera nemmeno per il tempo di un render.
+    expect(saveOutcomeApplies(proprietario, { ...proprietario, teamId: "ESEMPIO-Squadra" })).toBe(
+      false,
+    );
+    expect(
+      saveOutcomeApplies(
+        { ...proprietario, teamId: "ESEMPIO-Squadra" },
+        proprietario,
+      ),
+    ).toBe(false);
+  });
+
+  it("un esito di un'altra competizione non compare su questa", () => {
+    expect(saveOutcomeApplies(proprietario, { ...proprietario, competitionId: "c2" })).toBe(false);
+  });
+
+  it("senza proprietario non c'è nessun esito da mostrare", () => {
+    expect(saveOutcomeApplies(null, proprietario)).toBe(false);
+  });
+
+  it("«nessuna formazione» vale come proprietario, e solo contro se stesso", () => {
+    const senza = { teamId: "t1", competitionId: "c1", lineup: null };
+    expect(saveOutcomeApplies(senza, { ...senza })).toBe(true);
+    expect(saveOutcomeApplies(senza, proprietario)).toBe(false);
+    expect(saveOutcomeApplies(proprietario, senza)).toBe(false);
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+   IL PERCORSO INTERO — spunta, giocatore che esce di rosa, rilettura, bottone,
+   comando per togliere
+
+   Il difetto non viveva dentro un pezzo: viveva nel passaggio fra i pezzi. La
+   vista mostrava i vincoli RICONCILIATI, il salvataggio usava i GREZZI, e la
+   pagina non aveva nessun comando capace di raggiungere quello messo da parte.
+   Riprodotto: spunti un giocatore per tenerlo in campo; alla lettura successiva
+   quel giocatore non è più in rosa; lo schermo dice «messo da parte» ma NON dice
+   «non si può salvare» e il bottone resta acceso; al clic, rifiuto per giocatore
+   sconosciuto; e la riga di quel giocatore non esiste più, quindi la spunta non
+   è togliibile da nessuna parte. La formazione restava bloccata, e l'unica via
+   d'uscita era cancellare l'archivio a mano.
+
+   Questa suite segue il percorso per intero con le stesse funzioni che la shell
+   chiama, nell'ordine in cui le chiama.
+   ──────────────────────────────────────────────────────────────────────────── */
+describe("un vincolo che oggi non si può applicare non blocca la formazione per sempre", () => {
+  /** La rosa di domani: `p2` non c'è più. Mercato, svincolo, qualunque cosa. */
+  const ROSA_SENZA_P2: ObservedTeam = {
+    ...ROSA,
+    players: ROSA.players.filter((player) => player.id !== "p2"),
+  };
+  /** La formazione che la lega riporta domani, senza `p2`. */
+  const FORMAZIONE_SENZA_P2: ObservedLineup = {
+    ...FORMAZIONE,
+    starterIds: FORMAZIONE.starterIds.map((id) => (id === "p2" ? "p13" : id)),
+    benchIds: FORMAZIONE.benchIds.filter((id) => id !== "p13"),
+  };
+
+  /** Ieri: la spunta è stata messa su un giocatore che allora era in rosa. */
+  const SALVATI: LineupConstraints = { lockedStarterIds: ["p2"], locked: false };
+
+  function vistaDiDomani(constraints: LineupConstraints) {
+    const stato = letto([campionato({ kind: "letta", lineup: FORMAZIONE_SENZA_P2 })], ROSA_SENZA_P2);
+    const view = buildFormazioneView(stato, new Map([["c1", constraints]]));
+    const competition = view.competitions[0];
+    if (competition === undefined) throw new Error("la competizione c1 dovrebbe esserci");
+    return competition;
+  }
+
+  it("il vincolo finisce in quarantena, nominato e con la sua ragione", () => {
+    const competition = vistaDiDomani(SALVATI);
+    expect(competition.quarantined).toHaveLength(1);
+    expect(competition.quarantined[0]?.kind).toBe("titolare_fuori_rosa");
+    expect(competition.quarantined[0]?.value).toBe("p2");
+  });
+
+  it("e la riga del giocatore non esiste più: nessun comando della pagina lo nomina", () => {
+    // È il motivo per cui un avviso da leggere non bastava. La spunta esisteva
+    // solo nell'archivio: a schermo non c'era più niente da togliere.
+    const competition = vistaDiDomani(SALVATI);
+    expect(competition.players.map((row) => row.id)).not.toContain("p2");
+    expect(competition.starters.map((row) => row.id)).not.toContain("p2");
+    expect(competition.bench.map((row) => row.id)).not.toContain("p2");
+    expect(competition.outside.map((row) => row.id)).not.toContain("p2");
+  });
+
+  it("IL BOTTONE SI SPEGNE PRIMA DEL CLIC, invece di accendersi e poi rifiutare", () => {
+    const blockers = saveBlockers(vistaDiDomani(SALVATI));
+    expect(blockers.join(" ")).toContain("messo da parte");
+  });
+
+  it("togliere il vincolo lo toglie davvero, e il salvataggio torna possibile", () => {
+    const competition = vistaDiDomani(SALVATI);
+    const quarantena = competition.quarantined[0];
+    if (quarantena === undefined) throw new Error("il vincolo dovrebbe essere in quarantena");
+
+    // IL COMANDO. Agisce sui vincoli GREZZI, che sono gli unici in cui il
+    // vincolo messo da parte esiste ancora.
+    const dopo = removeQuarantinedConstraint(SALVATI, quarantena);
+    expect(dopo.lockedStarterIds).toEqual([]);
+
+    // E il giro seguente: niente quarantena, e niente blocchi al salvataggio.
+    const domaniPulito = vistaDiDomani(dopo);
+    expect(domaniPulito.quarantined).toEqual([]);
+    expect(saveBlockers(domaniPulito)).toEqual([]);
+  });
+
+  it("lo stesso percorso vale per un modulo che la lega non ammette più", () => {
+    const conModulo: LineupConstraints = { lockedStarterIds: [], lockedModule: "343", locked: false };
+    const stato: LineupChannelState = {
+      kind: "letto",
+      roster: ROSA,
+      settings: { ...SETTINGS_IN_ACCORDO, allowedModules: ["442", "352"] },
+      competitions: [campionato({ kind: "letta", lineup: FORMAZIONE })],
+    };
+    const view = buildFormazioneView(stato, new Map([["c1", conModulo]]));
+    const competition = view.competitions[0];
+    if (competition === undefined) throw new Error("la competizione c1 dovrebbe esserci");
+
+    // La tendina mostra ciò che è APPLICATO, cioè nessun blocco: e adesso è
+    // vero anche per il salvataggio, che usa gli stessi vincoli riconciliati.
+    expect(competition.constraints.lockedModule).toBeUndefined();
+    expect(competition.quarantined[0]?.kind).toBe("modulo_non_ammesso");
+    expect(saveBlockers(competition).join(" ")).toContain("messo da parte");
+
+    const quarantena = competition.quarantined[0];
+    if (quarantena === undefined) throw new Error("il modulo dovrebbe essere in quarantena");
+    expect(removeQuarantinedConstraint(conModulo, quarantena).lockedModule).toBeUndefined();
+  });
+
+  it("togliere un vincolo in quarantena non tocca gli altri vincoli", () => {
+    const misti: LineupConstraints = {
+      lockedStarterIds: ["p2", "p3"],
+      lockedModule: "442",
+      locked: true,
+    };
+    const dopo = removeQuarantinedConstraint(misti, {
+      kind: "titolare_fuori_rosa",
+      value: "p2",
+      reason: "",
+    });
+    expect(dopo.lockedStarterIds).toEqual(["p3"]);
+    expect(dopo.lockedModule).toBe("442");
+    expect(dopo.locked).toBe(true);
+  });
+
+  it("«togli» toglie e non inverte: su un vincolo che non c'è non lo rimette", () => {
+    const dopo = removeQuarantinedConstraint(
+      { lockedStarterIds: ["p3"], locked: false },
+      { kind: "titolare_fuori_rosa", value: "p2", reason: "" },
+    );
+    expect(dopo.lockedStarterIds).toEqual(["p3"]);
   });
 });

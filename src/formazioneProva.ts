@@ -54,6 +54,7 @@ import type {
   ObservedLeagueSettings,
   ObservedLineup,
   ObservedTeam,
+  SubmissionUiState,
 } from "../packages/league-channel-contract/src/index.js";
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -94,6 +95,19 @@ export const PROVA_INVITO =
 
 /** L'etichetta dell'esito di un Salva in prova. Non dice mai «inviato». */
 export const PROVA_ETICHETTA_SALVATAGGIO = "PROVA — NULLA È PARTITO, NESSUNA LEGA È STATA TOCCATA";
+
+/**
+ * LA RAGIONE DELL'ESITO DI UN SALVA IN PROVA, parola per parola.
+ *
+ * Sta qui e non dentro la shell perché è la sola cosa che, a schermo,
+ * distingue «la porta non è stata chiamata» da «la porta è stata chiamata e non
+ * era collegata»: quest'ultima produrrebbe lo stesso stato `da_inviare` e la
+ * stessa etichetta, con una ragione diversa. Un test può pretenderla alla
+ * lettera solo se la ragione ha un nome.
+ */
+export const PROVA_SALVATAGGIO_MOTIVO =
+  "la formazione di esempio ha passato la validazione, e non è stata mandata a nessuno: " +
+  "questa è una prova, e il canale della lega resta scollegato.";
 
 /** Che cosa è successo davvero premendo Salva in prova. */
 export const PROVA_ESITO_SALVATAGGIO =
@@ -314,24 +328,70 @@ export function provaProducerReports(
    ──────────────────────────────────────────────────────────────────────────── */
 
 /**
+ * CHI HA CHIESTO LA PROVA, E QUANDO.
+ *
+ * Non sono due sfumature della stessa cosa. `adesso` è un comando appena
+ * premuto da chi sta guardando la pagina: sa che cosa ha chiesto e vede subito
+ * il marchio. `ricordata` è l'accensione riletta dall'archivio locale di una
+ * visita precedente: nessuno l'ha chiesta oggi, e chi apre il sito non si
+ * aspetta che una squadra inventata compaia prima ancora che si sappia se la
+ * sua c'è.
+ */
+export type ProvaRichiesta = "no" | "adesso" | "ricordata";
+
+/**
  * LA PROVA È ACCESA? Una domanda sola, con una risposta sola, in un posto solo.
  *
- * `richiesta` è ciò che chi guarda ha chiesto — adesso, o in una visita
- * precedente rileggendo l'archivio locale. Non basta: se il canale della lega
- * ha LETTO una squadra, la risposta è `false` comunque. Non è una precauzione
- * ridondante, è l'unico modo per cui una prova dimenticata accesa non possa
- * mai coprire la formazione vera — nemmeno per il tempo di un render, nemmeno
- * se l'archivio è stato manomesso.
+ * Due regole, e la seconda è la metà che mancava.
  *
- * Il caso opposto — canale sconosciuto, qualunque ne sia la causa — è quello in
- * cui la pagina non ha niente da mostrare, ed è l'unico in cui la prova serve.
+ * 1. I DATI VERI VINCONO SEMPRE: se il canale ha LETTO una squadra la risposta
+ *    è `false` comunque. È l'unico modo per cui una prova dimenticata accesa non
+ *    possa mai coprire la formazione vera — nemmeno per il tempo di un render,
+ *    nemmeno se l'archivio è stato manomesso.
+ *
+ * 2. UNA PROVA RICORDATA NON SI RIACCENDE FINCHÉ NON SI SA SE CI SONO DATI VERI.
+ *    «Il canale ha letto» e «il canale non ha letto» non esauriscono gli stati:
+ *    fra i due c'è «non si sa», e ci si sta per tutto il tempo di una lettura e
+ *    per sempre se la lettura fallisce. In quel tempo la regola 1 non protegge
+ *    niente, perché la squadra vera non è ancora arrivata: una prova riaccesa da
+ *    sola coprirebbe dati veri che stanno per esserci. `porta_non_collegata` è
+ *    l'unica causa che dice «non c'è nessun canale», cioè l'unica in cui si SA
+ *    che nessun dato vero può arrivare, ed è quindi l'unica in cui una prova
+ *    ricordata torna accesa da sé.
+ *
+ *    Una prova chiesta ADESSO non passa da questa seconda regola: è un comando
+ *    esplicito di chi guarda, dato sopra un avviso che dice a chiare lettere che
+ *    la squadra non è stata letta. La regola 1 continua a valere anche per lei.
  */
 export function modalitaProvaAttiva(
-  richiesta: boolean,
+  richiesta: ProvaRichiesta,
   channel: LineupChannelState,
 ): boolean {
+  if (richiesta === "no") return false;
   if (channel.kind === "letto") return false;
-  return richiesta;
+  if (richiesta === "ricordata") return channel.cause === "porta_non_collegata";
+  return true;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   L'ETICHETTA DELLA PROVA — copre ciò che non è partito, e nient'altro
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * L'ETICHETTA «PROVA» VALE SOLO SULLO STATO IN CUI NULLA È PARTITO.
+ *
+ * In prova la porta d'invio non viene chiamata affatto, quindi `da_inviare` è
+ * l'unico stato che la shell può produrre: questa funzione non è una
+ * precauzione contro un caso normale, è la difesa contro il giorno in cui uno
+ * stato «inviato» arrivasse qui comunque — per un difetto, per un ordine di
+ * esecuzione cambiato, per una porta collegata dove non doveva. In quel giorno
+ * scrivere «PROVA — NULLA È PARTITO» sopra un invio vero sarebbe la bugia di
+ * questa pagina girata dall'altra parte, e costerebbe come l'altra: si tiene
+ * l'etichetta vera, e la prova la si vede lo stesso dal marchio che non si
+ * chiude.
+ */
+export function etichettaProvaVale(prova: boolean, stato: SubmissionUiState["kind"]): boolean {
+  return prova && stato === "da_inviare";
 }
 
 /** Dove finisce una spunta messa adesso: nell'archivio vero, o solo nella prova. */

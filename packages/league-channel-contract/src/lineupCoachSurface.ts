@@ -269,9 +269,52 @@ export function reconcileConstraints(
   return { applied, quarantined };
 }
 
+/**
+ * TOGLIE DAI VINCOLI SALVATI QUELLO CHE È FINITO IN QUARANTENA.
+ *
+ * Va sui vincoli GREZZI — quelli persistiti — perché è l'unico posto in cui il
+ * vincolo messo da parte esiste ancora: nei riconciliati, per definizione, non
+ * c'è più. Ed è l'unica strada per disfarlo: la spunta su un giocatore uscito
+ * di rosa non ha nessuna riga a schermo (la riga del giocatore non c'è più) e
+ * il blocco su un modulo non più ammesso non compare nella tendina (che mostra
+ * ciò che è applicato), quindi senza questa operazione restavano nell'archivio
+ * a fermare ogni invio, e l'unica via d'uscita era cancellare l'archivio a
+ * mano. Un prodotto in cui non si può disfare ciò che si è fatto è rotto anche
+ * quando tutti i dati sono giusti.
+ *
+ * Vive qui e non nella shell per la ragione di sempre: la corrispondenza fra
+ * «che cosa è in quarantena» e «che cosa toglierlo significa» è una decisione,
+ * e le decisioni si provano senza browser.
+ */
+export function removeQuarantinedConstraint(
+  constraints: LineupConstraints,
+  quarantine: ConstraintQuarantine,
+): LineupConstraints {
+  return quarantine.kind === "modulo_non_ammesso"
+    ? setLockedModule(constraints, null)
+    : withoutLockedStarter(constraints, quarantine.value);
+}
+
 /* ────────────────────────────────────────────────────────────────────────────
    I TRE COMANDI — spunta per giocatore, modulo bloccato, formazione blindata
    ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Toglie una spunta, e basta. `toggleLockedStarter` la rimetterebbe se non
+ * c'era: su un vincolo in quarantena — che c'è sempre — sarebbe lo stesso
+ * risultato, ma «togli» e «inverti» sono due comandi diversi e chiamarne uno al
+ * posto dell'altro è il modo in cui un giorno si rimette ciò che si voleva
+ * togliere.
+ */
+function withoutLockedStarter(
+  constraints: LineupConstraints,
+  playerId: string,
+): LineupConstraints {
+  const lockedStarterIds = constraints.lockedStarterIds.filter((id) => id !== playerId);
+  return constraints.lockedModule === undefined
+    ? { lockedStarterIds, locked: constraints.locked }
+    : { lockedStarterIds, lockedModule: constraints.lockedModule, locked: constraints.locked };
+}
 
 /**
  * La spunta «questo lo voglio in campo», accesa o spenta.
@@ -706,6 +749,23 @@ export interface FormazioneView {
   readonly notice: FormazioneUnknownNotice | null;
   /** VUOTO se e solo se `known` è `false`: l'avviso non convive con la squadra. */
   readonly competitions: readonly FormazioneCompetitionView[];
+  /**
+   * GLI IDENTIFICATIVI DI COMPETIZIONE ARRIVATI PIÙ DI UNA VOLTA. Vuoto è la norma.
+   *
+   * `competitionId` è la chiave di TUTTO ciò che questa schermata tiene per
+   * competizione — i vincoli salvati, la modifica non inviata, l'esito
+   * dell'ultimo salvataggio — e ogni comando a schermo la porta nel proprio
+   * identificativo. Due letture con lo stesso id non sono due competizioni: sono
+   * la stessa chiave usata due volte, e disegnarle entrambe produrrebbe due
+   * pannelli identici con due bottoni «Salva» indistinguibili, di cui uno
+   * scriverebbe sopra i vincoli dell'altro.
+   *
+   * Qui non si sceglie quale delle due valga: si disegna la PRIMA — l'ordine è
+   * quello che la lettura ha riferito, non uno inventato — e si DICHIARA che le
+   * altre non sono state disegnate. Una competizione nascosta in silenzio
+   * sarebbe una partita che nessuno sa di non aver schierato.
+   */
+  readonly duplicated: readonly string[];
 }
 
 /**
@@ -749,6 +809,10 @@ const TITOLI: Readonly<Record<ChannelUnknownCause, string>> = {
  * INVARIANTE, e i test lo sorvegliano: `known === false` implica
  * `competitions.length === 0`. Non c'è modo di rappresentare uno schermo con
  * l'avviso e mezza formazione insieme.
+ *
+ * SECONDA INVARIANTE: `competitions` non contiene mai due volte lo stesso
+ * `competitionId`. Gli id ripetuti dalla lettura finiscono in `duplicated` e
+ * non producono un secondo pannello — vedi `FormazioneView.duplicated`.
  */
 export function buildFormazioneView(
   state: LineupChannelState,
@@ -775,11 +839,29 @@ export function buildFormazioneView(
       known: false,
       notice: { cause: state.cause, title: TITOLI[state.cause], detail },
       competitions: [],
+      duplicated: [],
     };
   }
 
+  // UN ID PER PANNELLO. Si tiene la prima occorrenza di ogni `competitionId` e
+  // si dichiarano le altre: la deduplicazione avviene PRIMA di costruire la
+  // vista, così nessun pezzo del modello — né i comandi che ne derivano gli
+  // identificativi — può nascere due volte sulla stessa chiave.
+  const visti = new Set<string>();
+  const duplicated: string[] = [];
+  const uniche: ObservedCompetitionLineup[] = [];
+  for (const observed of state.competitions) {
+    const id = observed.competition.competitionId;
+    if (visti.has(id)) {
+      if (!duplicated.includes(id)) duplicated.push(id);
+      continue;
+    }
+    visti.add(id);
+    uniche.push(observed);
+  }
+
   const roles = rolesByPlayerId(state.roster);
-  const competitions = state.competitions.map((observed) => {
+  const competitions = uniche.map((observed) => {
     const competitionId = observed.competition.competitionId;
     const saved = constraintsByCompetition.get(competitionId) ?? NO_LINEUP_CONSTRAINTS;
     const reconciled = reconcileConstraints(saved, state.roster, state.settings.allowedModules);
@@ -861,7 +943,58 @@ export function buildFormazioneView(
     } satisfies FormazioneCompetitionView;
   });
 
-  return { known: true, notice: null, competitions };
+  return { known: true, notice: null, competitions, duplicated };
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   L'ESITO DI UN SALVATAGGIO APPARTIENE ALLA FORMAZIONE CHE L'HA PRODOTTO
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * A CHI APPARTIENE UN ESITO DI SALVATAGGIO.
+ *
+ * Un esito — «nulla è partito, e qui c'è perché», «inviata e confermata» — è
+ * vero di UNA formazione, di UNA competizione, di UNA squadra. Tenerlo a
+ * schermo dopo che una di quelle tre è cambiata non lo rende vecchio: lo rende
+ * FALSO, e nel verso peggiore, perché la frase rassicurante sopravvive alla
+ * mossa che la smentisce.
+ *
+ * `teamId` c'è per una ragione precisa: la squadra di esempio della modalità
+ * dimostrativa è una squadra diversa da quella vera, e un esito nato su una non
+ * deve poter comparire sull'altra nemmeno per il tempo di un render.
+ */
+export interface FormazioneSaveOwner {
+  /** La squadra su cui l'esito è nato: `ObservedTeam.teamId`. */
+  readonly teamId: string;
+  readonly competitionId: string;
+  /** La formazione esatta che l'ha prodotto. `null` quando non ce n'era nessuna. */
+  readonly lineup: ObservedLineup | null;
+}
+
+/**
+ * L'ESITO VALE ANCORA? Una domanda sola, con una risposta sola, in un posto solo.
+ *
+ * `false` significa che l'esito non si aggiorna e non si corregge: SPARISCE. Un
+ * esito che restasse a schermo accanto alla formazione che lo smentisce è
+ * esattamente il difetto che questa schermata esiste per non avere — far
+ * credere di essere schierati quando non lo si è.
+ *
+ * Il confronto delle formazioni è quello dell'invio (`isLineupModified`, cioè
+ * `diffLineups`): due panchine con gli stessi nomi in ordine diverso sono due
+ * formazioni diverse, e un esito calcolato sulla prima non dice niente della
+ * seconda.
+ */
+export function saveOutcomeApplies(
+  owner: FormazioneSaveOwner | null,
+  current: FormazioneSaveOwner,
+): boolean {
+  if (owner === null) return false;
+  if (owner.teamId !== current.teamId) return false;
+  if (owner.competitionId !== current.competitionId) return false;
+  if (owner.lineup === null || current.lineup === null) {
+    return owner.lineup === current.lineup;
+  }
+  return !isLineupModified(owner.lineup, current.lineup);
 }
 
 /**
@@ -888,6 +1021,21 @@ export function saveBlockers(competition: FormazioneCompetitionView): readonly s
   }
   if (competition.unmet.length > 0) {
     reasons.push("la formazione mostrata non rispetta i vincoli che hai messo");
+  }
+  // UN VINCOLO MESSO DA PARTE FERMA L'INVIO, e si spegne il bottone invece di
+  // farlo premere e poi dire di no. Un vincolo in quarantena è una preferenza
+  // che è stata espressa e che oggi non si può rispettare: mandare la
+  // formazione senza di lei manderebbe una formazione diversa da quella che chi
+  // ha spuntato crede di aver bloccato, e senza che nessuno glielo abbia
+  // chiesto. La via d'uscita non è un avviso da leggere: è il comando che
+  // toglie il vincolo, accanto alla riga che lo nomina — l'unico posto dove può
+  // stare, perché la riga del giocatore uscito di rosa a schermo non c'è più.
+  if (competition.quarantined.length > 0) {
+    reasons.push(
+      competition.quarantined.length === 1
+        ? "c'è un vincolo messo da parte: toglilo, oppure rimettilo in modo che si possa applicare"
+        : `ci sono ${competition.quarantined.length} vincoli messi da parte: toglili, oppure rimettili in modo che si possano applicare`,
+    );
   }
   if (competition.legality.kind === "non_verificabile" && competition.lineup !== null) {
     reasons.push(competition.legality.reason);

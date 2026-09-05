@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { StorageLike } from "./logRecovery.js";
 import {
+  FORMAZIONE_CONSTRAINTS_SCAVALCATI,
   FORMAZIONE_CONSTRAINTS_SCHEMA_VERSION,
   FORMAZIONE_CONSTRAINTS_STORAGE_KEY,
   formazioneConstraintsNotice,
@@ -53,7 +54,7 @@ describe("il giro completo dei vincoli", () => {
       [CAMPIONATO, { lockedStarterIds: ["p3", "p2"], lockedModule: "352", locked: false }],
       [COPPA, { lockedStarterIds: [], locked: true }],
     ]);
-    expect(saveFormazioneConstraints(storage, vincoli)).toBe(true);
+    expect(saveFormazioneConstraints(storage, vincoli)).toEqual({ kind: "ok" });
 
     const riletti = loadFormazioneConstraints(storage);
     expect(riletti.status).toBe("ok");
@@ -164,12 +165,12 @@ describe("una scrittura che non tiene viene detta", () => {
         amnesicStorage(),
         new Map<string, LineupConstraints>([[CAMPIONATO, { lockedStarterIds: ["p2"], locked: false }]]),
       ),
-    ).toBe(false);
+    ).toEqual({ kind: "non-scritta" });
   });
 
   it("uno storage che rifiuta l'accesso non fa esplodere niente, né in scrittura né in lettura", () => {
     const storage = hostileStorage();
-    expect(saveFormazioneConstraints(storage, new Map())).toBe(false);
+    expect(saveFormazioneConstraints(storage, new Map())).toEqual({ kind: "non-scritta" });
     const esito = loadFormazioneConstraints(storage);
     expect(esito.status).toBe("storage-error");
     expect(esito.byCompetition.size).toBe(0);
@@ -183,6 +184,90 @@ describe("una scrittura che non tiene viene detta", () => {
         memoryStorage(),
         new Map<string, LineupConstraints>([[CAMPIONATO, { lockedStarterIds: troppi, locked: false }]]),
       ),
-    ).toBe(false);
+    ).toEqual({ kind: "non-scritta" });
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+   DUE SCHEDE NON SI CANCELLANO PIÙ LE SPUNTE A VICENDA, E IL SILENZIO FINISCE
+
+   Lo scenario, riprodotto: la stessa pagina aperta in due schede dello stesso
+   browser. La scheda A spunta un difensore, la scheda B un attaccante. Prima,
+   l'archivio conservava soltanto la spunta di B — B ha scritto per ultima
+   partendo dalla sua copia in memoria, che il difensore non lo aveva mai visto
+   — e la scheda A continuava a mostrare la propria come se fosse salvata. Due
+   preferenze espresse, una sopravvissuta, nessun avviso da nessuna parte.
+
+   La guardia è quella di `saveAuctionLog` (`expectedPreviousLog` →
+   `divergent-log`, src/logRecovery.ts): la base della scrittura viaggia con la
+   scrittura, e se l'archivio non è più quella base non si scrive niente.
+   ──────────────────────────────────────────────────────────────────────────── */
+describe("una scrittura scavalcata da un'altra scheda non passa in silenzio", () => {
+  const difensore = new Map<string, LineupConstraints>([
+    [CAMPIONATO, { lockedStarterIds: ["D1"], locked: false }],
+  ]);
+  const attaccante = new Map<string, LineupConstraints>([
+    [CAMPIONATO, { lockedStarterIds: ["A1"], locked: false }],
+  ]);
+
+  it("la seconda scheda viene rifiutata invece di cancellare la spunta della prima", () => {
+    const storage = memoryStorage();
+    // Le due schede partono dallo stesso archivio: vuoto.
+    const baseComune = new Map<string, LineupConstraints>();
+
+    // La scheda B scrive per prima e tiene.
+    expect(saveFormazioneConstraints(storage, attaccante, baseComune)).toEqual({ kind: "ok" });
+
+    // La scheda A scrive dopo, partendo da una base che non è più quella vera.
+    expect(saveFormazioneConstraints(storage, difensore, baseComune)).toEqual({
+      kind: "scavalcata",
+    });
+
+    // E soprattutto: l'archivio è rimasto quello di B, intatto. Una scrittura
+    // rifiutata non tocca niente.
+    const riletti = loadFormazioneConstraints(storage);
+    expect(riletti.status).toBe("ok");
+    expect(riletti.byCompetition.get(CAMPIONATO)?.lockedStarterIds).toEqual(["A1"]);
+  });
+
+  it("la riga che lo dice nomina la spunta non salvata e dice che cosa si vede adesso", () => {
+    expect(FORMAZIONE_CONSTRAINTS_SCAVALCATI).toContain("NON è stata salvata");
+    expect(FORMAZIONE_CONSTRAINTS_SCAVALCATI).toContain("altra scheda");
+  });
+
+  it("senza base dichiarata la scrittura resta incondizionata, come prima", () => {
+    const storage = memoryStorage();
+    expect(saveFormazioneConstraints(storage, attaccante, new Map())).toEqual({ kind: "ok" });
+    // Nessuna base: è la sostituzione deliberata — si rilegge e si riscrive.
+    expect(saveFormazioneConstraints(storage, difensore)).toEqual({ kind: "ok" });
+    expect(
+      loadFormazioneConstraints(storage).byCompetition.get(CAMPIONATO)?.lockedStarterIds,
+    ).toEqual(["D1"]);
+  });
+
+  it("riscrivere sopra la propria base non è una scrittura concorrente", () => {
+    const storage = memoryStorage();
+    expect(saveFormazioneConstraints(storage, attaccante, new Map())).toEqual({ kind: "ok" });
+    // Stessa scheda, secondo gesto: la base è ciò che ha scritto lei.
+    expect(saveFormazioneConstraints(storage, difensore, attaccante)).toEqual({ kind: "ok" });
+  });
+
+  it("un archivio valido ma non normalizzato non è un falso allarme", () => {
+    // Un id spuntato due volte nello stesso elenco: `loadFormazioneConstraints`
+    // lo deduplica, quindi la copia in memoria e il grezzo nell'archivio non
+    // sono byte per byte la stessa cosa. Chiamarla «scrittura di un altro»
+    // bloccherebbe ogni spunta per sempre.
+    const raw = JSON.stringify({
+      schemaVersion: FORMAZIONE_CONSTRAINTS_SCHEMA_VERSION,
+      perCompetition: [{ competitionId: CAMPIONATO, lockedStarterIds: ["A1", "A1"], locked: false }],
+    });
+    const storage = memoryStorage({ [FORMAZIONE_CONSTRAINTS_STORAGE_KEY]: raw });
+    const base = loadFormazioneConstraints(storage).byCompetition;
+    expect(saveFormazioneConstraints(storage, difensore, base)).toEqual({ kind: "ok" });
+  });
+
+  it("un archivio in quarantena non blocca la scrittura: lì non c'è nessuna spunta da rispettare", () => {
+    const storage = memoryStorage({ [FORMAZIONE_CONSTRAINTS_STORAGE_KEY]: "{{{" });
+    expect(saveFormazioneConstraints(storage, difensore, new Map())).toEqual({ kind: "ok" });
   });
 });
