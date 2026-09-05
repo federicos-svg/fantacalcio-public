@@ -11,8 +11,10 @@ import {
   PROVA_MAI_IN_CAMPO,
   PROVA_PREFISSO_ID,
   PROVA_ROSA,
+  PROVA_SALVATAGGIO_MOTIVO,
   PROVA_SPIEGAZIONE,
   caricaModalitaProva,
+  etichettaProvaVale,
   destinazioneVincoli,
   modalitaProvaAttiva,
   provaChannelState,
@@ -319,8 +321,9 @@ describe("l'avvertimento su chi non scende in campo si vede davvero", () => {
 
 describe("i dati veri vincono sempre sulla prova", () => {
   it("con una squadra letta la prova è spenta, anche se richiesta", () => {
-    expect(modalitaProvaAttiva(true, CANALE_LETTO_VERO)).toBe(false);
-    expect(modalitaProvaAttiva(false, CANALE_LETTO_VERO)).toBe(false);
+    expect(modalitaProvaAttiva("adesso", CANALE_LETTO_VERO)).toBe(false);
+    expect(modalitaProvaAttiva("ricordata", CANALE_LETTO_VERO)).toBe(false);
+    expect(modalitaProvaAttiva("no", CANALE_LETTO_VERO)).toBe(false);
   });
 
   it("una prova salvata in una visita precedente non sopravvive alla lettura vera", () => {
@@ -330,20 +333,55 @@ describe("i dati veri vincono sempre sulla prova", () => {
     // stavolta risponde. La prova non deve poter coprire la squadra vera.
     const richiesta = caricaModalitaProva(storage);
     expect(richiesta).toBe(true);
-    expect(modalitaProvaAttiva(richiesta, CANALE_LETTO_VERO)).toBe(false);
-    // E con la porta ancora scollegata resta invece disponibile.
-    expect(modalitaProvaAttiva(richiesta, CANALE_NON_COLLEGATO)).toBe(true);
+    expect(modalitaProvaAttiva("ricordata", CANALE_LETTO_VERO)).toBe(false);
+    // E con la porta scollegata — l'unico stato in cui si SA che dati veri non
+    // ce ne sono — resta invece disponibile.
+    expect(modalitaProvaAttiva("ricordata", CANALE_NON_COLLEGATO)).toBe(true);
   });
 
   it("la prova si accende solo su richiesta: senza richiesta non si accende mai", () => {
-    expect(modalitaProvaAttiva(false, CANALE_NON_COLLEGATO)).toBe(false);
+    expect(modalitaProvaAttiva("no", CANALE_NON_COLLEGATO)).toBe(false);
     for (const cause of [
       "porta_non_collegata",
       "risposta_assente",
       "risposta_illeggibile",
       "non_diagnosticabile",
     ] as const) {
-      expect(modalitaProvaAttiva(false, { kind: "sconosciuto", cause, detail: "" })).toBe(false);
+      expect(modalitaProvaAttiva("no", { kind: "sconosciuto", cause, detail: "" })).toBe(false);
+    }
+  });
+
+  /* ── LA FINESTRA IN CUI NON SI SA ANCORA ───────────────────────────────────
+   *
+   * «Il canale ha letto» e «il canale non ha letto» non esauriscono gli stati.
+   * Fra i due c'è «non si sa», e ci si sta per tutto il tempo di una lettura e
+   * per sempre se la lettura fallisce. In quel tempo la regola «i dati veri
+   * vincono sempre» non protegge niente, perché la squadra vera non è ancora
+   * arrivata: una prova riaccesa da sola le starebbe sopra, marcata ma sopra.
+   */
+  it("una prova solo RICORDATA non si riaccende finché non si sa se ci sono dati veri", () => {
+    for (const cause of ["risposta_assente", "risposta_illeggibile", "non_diagnosticabile"] as const) {
+      expect(
+        modalitaProvaAttiva("ricordata", { kind: "sconosciuto", cause, detail: "" }),
+        cause,
+      ).toBe(false);
+    }
+    // L'unica causa che dice «non c'è nessun canale», cioè l'unica in cui si SA
+    // che nessun dato vero può arrivare.
+    expect(modalitaProvaAttiva("ricordata", CANALE_NON_COLLEGATO)).toBe(true);
+  });
+
+  it("una prova chiesta ADESSO si accende comunque: è un comando, non un ricordo", () => {
+    for (const cause of [
+      "porta_non_collegata",
+      "risposta_assente",
+      "risposta_illeggibile",
+      "non_diagnosticabile",
+    ] as const) {
+      expect(
+        modalitaProvaAttiva("adesso", { kind: "sconosciuto", cause, detail: "" }),
+        cause,
+      ).toBe(true);
     }
   });
 
@@ -395,7 +433,7 @@ describe("i vincoli della prova e quelli veri non si mescolano", () => {
     const veri = new Map<string, LineupConstraints>([
       ["c1", vincoli({ lockedStarterIds: ["p7"], lockedModule: "433" })],
     ]);
-    expect(saveFormazioneConstraints(storage, veri)).toBe(true);
+    expect(saveFormazioneConstraints(storage, veri)).toEqual({ kind: "ok" });
     salvaModalitaProva(storage, true);
     const riletti = loadFormazioneConstraints(storage);
     expect(riletti.status).toBe("ok");
@@ -440,5 +478,58 @@ describe("il canale della prova non passa da nessuna porta", () => {
     const canale = provaChannelState();
     if (canale.kind !== "letto") return;
     expect(canale.competitions[0]?.competition.name).toContain("esempio");
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+   L'ETICHETTA DELLA PROVA COPRE CIÒ CHE NON È PARTITO, E NIENT'ALTRO
+
+   Era una condizione scritta dentro una funzione di render — `prova &&
+   save.state.kind === "da_inviare"` — cioè una promessa che si poteva provare
+   solo con un browser, e che nessuna prova sorvegliava: togliendo la seconda
+   metà, «PROVA — NULLA È PARTITO» finiva sopra uno stato «inviato» e la suite
+   restava verde. È la bugia di questa pagina girata dall'altra parte, e costa
+   come l'altra.
+   ──────────────────────────────────────────────────────────────────────────── */
+describe("l'etichetta della prova copre solo ciò che non è partito", () => {
+  it("in prova vale sullo stato «da inviare», che è l'unico che la prova produce", () => {
+    expect(etichettaProvaVale(true, "da_inviare")).toBe(true);
+  });
+
+  it("in prova NON vale su uno stato «inviato»: si tiene l'etichetta vera", () => {
+    expect(etichettaProvaVale(true, "inviato_confermato")).toBe(false);
+    expect(etichettaProvaVale(true, "inviato_esito_ignoto")).toBe(false);
+  });
+
+  it("fuori dalla prova non vale mai, nemmeno su «da inviare»", () => {
+    for (const stato of ["da_inviare", "inviato_confermato", "inviato_esito_ignoto"] as const) {
+      expect(etichettaProvaVale(false, stato), stato).toBe(false);
+    }
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+   IN PROVA LA PORTA D'INVIO NON VIENE CHIAMATA — e a schermo si vede da qui
+
+   La ragione dell'esito è la sola cosa che, sullo schermo, distingue «la porta
+   non è stata chiamata» da «la porta è stata chiamata e non era collegata»:
+   quest'ultima produrrebbe lo stesso stato `da_inviare`, la stessa etichetta e
+   lo stesso paragrafo, con una ragione diversa — ed è esattamente la mutazione
+   che la suite non vedeva. Avere la ragione come costante è ciò che permette a
+   e2e/formazione-screen.spec.ts di pretenderla alla lettera.
+   ──────────────────────────────────────────────────────────────────────────── */
+describe("la ragione di un Salva in prova non nomina nessuna porta", () => {
+  it("dice che nulla è stato mandato e che il canale resta scollegato", () => {
+    expect(PROVA_SALVATAGGIO_MOTIVO).toContain("non è stata mandata a nessuno");
+    expect(PROVA_SALVATAGGIO_MOTIVO).toContain("il canale della lega resta scollegato");
+  });
+
+  it("non contiene le parole con cui la porta d'invio riferisce di non essere collegata", () => {
+    // `submitLineup` risponde «la porta di invio non è collegata in questa
+    // versione del sito», e `submissionUiState` la premette con «nulla è
+    // partito: ». Se una di queste due comparisse a schermo in prova, vorrebbe
+    // dire che la porta è stata interrogata.
+    expect(PROVA_SALVATAGGIO_MOTIVO).not.toContain("porta di invio");
+    expect(PROVA_SALVATAGGIO_MOTIVO).not.toContain("nulla è partito");
   });
 });
