@@ -376,3 +376,50 @@ test("le spunte della prova non finiscono fra i vincoli della squadra vera", asy
 
   expect(externalRequests).toEqual([]);
 });
+
+test("il momento della lettura è sopra la formazione, e ogni pezzo porta il suo", async ({
+  page,
+  context,
+}) => {
+  // LA FASCIA CHE QUESTA SUITE PUÒ VEDERE. La squadra di esempio è l'unico
+  // stato «letto» che un browser senza layer privato può raggiungere, quindi è
+  // qui che si prova che la dichiarazione del momento arriva davvero a schermo
+  // — e non solo che le funzioni pure la calcolano.
+  const externalRequests: string[] = [];
+  await apriFormazione(page, context, externalRequests);
+  await accendiLaProva(page);
+
+  const banda = page.locator("#formazione-momento-lettura");
+  await expect(banda).toBeVisible();
+
+  // LA DATA DELLA PROVA È FISSA E VECCHIA, e la fascia lo dice invece di
+  // presentarla come attuale: è esattamente il comportamento che la fascia
+  // esiste per avere, imparato dove non costa niente sbagliarsi.
+  await expect(banda).toHaveAttribute("data-freschezza", "non_attuale");
+  await expect(banda).toContainText("NON È NECESSARIAMENTE LA FORMAZIONE DI ADESSO");
+  await expect(banda).toHaveAttribute("role", "alert");
+  await expect(banda).toContainText("squadra di esempio");
+
+  // UNA RIGA PER PEZZO, SEMPRE TUTTE: togliere quelle «normali» farebbe
+  // diventare l'assenza di una riga un'informazione che nessuno ha scritto.
+  const pezzi = page.locator("#formazione-momenti-per-pezzo li");
+  await expect(pezzi).toHaveCount(5);
+  await expect(pezzi.first()).toContainText("formazione");
+
+  // CON CHI SI GIOCA, e la rosa avversaria dichiarata NON LETTA — che non è
+  // «rosa vuota»: la prima è un'ignoranza, la seconda un'affermazione falsa.
+  await expect(banda).toContainText("contro Avversario di esempio");
+  await expect(banda).toContainText("in casa");
+  await expect(banda).toContainText("rosa avversaria non letta");
+
+  // LA FASCIA STA SOPRA LE FORMAZIONI: chi legge undici nomi incontra la loro
+  // data prima di fidarsene, non dopo averci creduto.
+  const posizioneBanda = await banda.evaluate((el) => el.getBoundingClientRect().top);
+  const primaCompetizione = page.locator("[id^='formazione-competizione-']").first();
+  const posizioneFormazione = await primaCompetizione.evaluate(
+    (el) => el.getBoundingClientRect().top,
+  );
+  expect(posizioneBanda).toBeLessThan(posizioneFormazione);
+
+  expect(externalRequests).toEqual([]);
+});

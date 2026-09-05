@@ -200,20 +200,74 @@ const FORMAZIONE_SURFACE: readonly string[] = [
   // nessuna porta collegata. Entra in elenco perché nomina i tipi del
   // contratto — è una riga in diff, come ogni altra porta di questo elenco.
   "src/formazioneProva.ts",
+  // L'adattatore che collega la porta di lettura a un percorso dello stesso
+  // sito: nessun host, nessuna credenziale, solo la traduzione fail-closed del
+  // deposito nei tipi di questo contratto.
+  "src/formazioneCanaleRemoto.ts",
+  // La costruzione, pura e provabile, della fascia che dichiara quando ogni
+  // pezzo è stato letto e con chi si gioca.
+  "src/formazioneLettura.ts",
   // La schermata.
   "src/ui/formazione.ts",
   // La shell: barra, schermata iniziale, salvataggio.
   "src/main.ts",
 ];
 
+/**
+ * VIA I COMMENTI PRIMA DI CERCARE, e non è una comodità.
+ *
+ * Questa guardia dichiara di sorvegliare **chi importa** il pacchetto, e finché
+ * cercava la stringa nel sorgente intero rispondeva anche a **chi lo nomina in
+ * un commento**. Non è un caso di scuola: è stato trovato mentre succedeva, su
+ * un file del layer privato che non importa niente da qui e che spiega, in
+ * prosa, perché la validazione della forma appartiene a questo pacchetto e non
+ * a lui. Quel file veniva segnalato come violazione.
+ *
+ * Un falso positivo, qui, è un difetto di sicurezza e non un fastidio estetico:
+ * la strada più corta per farlo tacere è **togliere la spiegazione** invece del
+ * problema, e il risultato sarebbe un repository in cui la regola non si può
+ * documentare dove serve. La guardia deve misurare gli import, non la prosa.
+ *
+ * Non si passa a un parser: la stessa domanda la si può sbagliare in due modi, e
+ * l'altro guard di questo file — quello sugli specificatori — esiste già e fa la
+ * sua parte. Qui basta che i commenti non contino, e i casi costruiti sotto
+ * provano che ciò che resta continua a fallire.
+ */
+export function senzaCommenti(sorgente: string): string {
+  return sorgente.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
 describe("il contratto di osservazione resta fuori dal prodotto d'asta", () => {
+  it("un commento che nomina il pacchetto non è un import, e non fa fallire", () => {
+    // Il caso reale che ha prodotto questa correzione, ridotto all'osso.
+    const soloProsa = [
+      "// La validazione vive nel contratto pubblico league-channel-contract:",
+      "// riscriverla qui produrrebbe due validatori destinati a divergere.",
+      "/* leagueChannelContract non viene importato da questo file. */",
+      "export const x = 1;",
+    ].join("\n");
+    expect(/league-channel-contract|leagueChannelContract/.test(senzaCommenti(soloProsa))).toBe(false);
+
+    // E un import vero continua a essere visto, commenti o non commenti.
+    const conImport = [
+      "// un commento qualunque",
+      'import type { T } from "../packages/league-channel-contract/src/index.js";',
+    ].join("\n");
+    expect(/league-channel-contract|leagueChannelContract/.test(senzaCommenti(conImport))).toBe(true);
+
+    // Un URL dentro il codice non deve essere scambiato per un commento: `//`
+    // preceduto da `:` non apre un commento, e ciò che segue resta sorvegliato.
+    const conUrl = 'const u = "https://esempio.invalid/leagueChannelContract";';
+    expect(/leagueChannelContract/.test(senzaCommenti(conUrl))).toBe(true);
+  });
+
   it("nessun file fuori dal pacchetto importa league-channel-contract, salvo la pagina Formazione", () => {
     const offenders: string[] = [];
     for (const root of isolatedRoots()) {
       for (const file of sourceFiles(root)) {
         const relative = file.slice(REPO_ROOT.length);
         if (FORMAZIONE_SURFACE.includes(relative)) continue;
-        const src = readFileSync(file, "utf8");
+        const src = senzaCommenti(readFileSync(file, "utf8"));
         if (/league-channel-contract|leagueChannelContract/.test(src)) {
           offenders.push(relative);
         }
@@ -228,8 +282,8 @@ describe("il contratto di osservazione resta fuori dal prodotto d'asta", () => {
     for (const relative of FORMAZIONE_SURFACE) {
       expect(statSync(join(REPO_ROOT, relative)).isFile(), relative).toBe(true);
     }
-    // Nessuna radice, nessun prefisso: cinque file e basta.
-    expect(FORMAZIONE_SURFACE).toHaveLength(5);
+    // Nessuna radice, nessun prefisso: sette file e basta.
+    expect(FORMAZIONE_SURFACE).toHaveLength(7);
     for (const relative of FORMAZIONE_SURFACE) {
       expect(relative.endsWith(".ts")).toBe(true);
     }

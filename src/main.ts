@@ -235,6 +235,12 @@ import {
   readLineupChannelState,
   submitLineup,
 } from "./formazioneChannel.js";
+// IL CANALE, COLLEGATO A UN PERCORSO DELLO STESSO SITO. Nessun host, nessuna
+// credenziale, nessuna piattaforma nominata: chi sta dietro `/api/formazione` è
+// il layer privato, e il core pubblico non sa altro che il percorso. La prosa
+// intera sta in testa a ./formazioneCanaleRemoto.ts.
+import { avviaCanaleDaDeposito } from "./formazioneCanaleRemoto.js";
+import { costruisciLettura } from "./formazioneLettura.js";
 import {
   formazioneConstraintsNotice,
   loadFormazioneConstraints,
@@ -640,9 +646,10 @@ interface AppState {
   /**
    * LA PROVA CON UNA SQUADRA DI ESEMPIO — richiesta, non ancora concessa.
    *
-   * È ciò che chi guarda ha CHIESTO, e DA QUANDO: `adesso` è un comando appena
-   * premuto, `ricordata` è l'accensione riletta dall'archivio di una visita
-   * precedente. Se sia anche attiva non lo dice questo campo: lo decide
+   * È ciò che chi guarda ha CHIESTO, e DA CHI viene: `chiesta` è una volontà —
+   * un comando appena premuto, oppure ritrovato nell'archivio proprio come
+   * volontà — mentre `ricordata` è un'accensione che l'archivio non dichiara
+   * come chiesta. Se sia anche attiva non lo dice questo campo: lo decide
    * `modalitaProvaAttiva` contro lo stato del canale, e una prova solo
    * ricordata non torna accesa finché non si sa che dati veri non ce ne sono.
    * I due valori sono tenuti distinti di proposito: un solo booleano «attiva»
@@ -1112,12 +1119,29 @@ const bootSchedaDrafts = loadSchedaDrafts(browserStorage);
 // riga lo dice senza allarmare: la contabilità dell'asta non è toccata.
 const bootInterestFlags = loadInterestFlags(browserStorage);
 
-// LA LEGA, CHIESTA UNA VOLTA AL BOOT. Nel core pubblico la porta non è
-// collegata e la risposta è «porta non collegata», che è la verità e non un
-// errore: la pagina Formazione lo dichiara al posto della squadra. I vincoli
-// salvati si rileggono comunque — sono di Pico, non della lega — e un archivio
-// illeggibile riparte VUOTO con una riga che lo dice, mai a metà.
+// LA LEGA, CHIESTA UNA VOLTA AL BOOT — ma **dopo** che la prima pagina è stata
+// decisa, e la distinzione non è di stile.
+//
+// La porta si collega nel blocco di avvio in fondo al file, non qui. Se si
+// collegasse prima di questa riga, lo stato al boot diventerebbe «la lega non ha
+// ancora risposto» invece di «porta non collegata», e `decideInitialScreen`
+// aprirebbe il sito sulla Formazione **sempre**: la richiesta non può essere
+// arrivata nel momento in cui la prima pagina va a schermo. Sarebbe un
+// cambiamento di prodotto — quale schermata apre il sito — ottenuto per effetto
+// collaterale, e per giunta deciso su un dato che non c'è ancora.
+//
+// Quindi: il boot resta quello di prima, e la regola di prodotto che c'è già si
+// riapplica **quando la lettura arriva davvero**, e solo se Pico non ha ancora
+// cambiato pagina da sé — una sua navigazione non viene mai annullata da un dato
+// che arriva dopo.
+//
+// I vincoli salvati si rileggono comunque — sono di Pico, non della lega — e un
+// archivio illeggibile riparte VUOTO con una riga che lo dice, mai a metà.
 const bootLineupChannel = readLineupChannelState();
+// La schermata che la regola di prodotto ha scelto **finora**: serve a
+// riconoscere una navigazione di Pico da una pagina che nessuno ha ancora
+// toccato, quando la lettura arriva.
+let schermoDecisoAlBoot: Screen = decideInitialScreen(bootLineupChannel);
 const bootFormazioneConstraints = loadFormazioneConstraints(browserStorage);
 
 function interestFlagsBootNotice(
@@ -1145,17 +1169,18 @@ const state: AppState = {
   // sull'Asta; rosa piena apre sulla Formazione anche quando la formazione non
   // c'è ancora; un canale che non risponde apre sulla Formazione con l'avviso
   // al posto della squadra.
-  screen: decideInitialScreen(bootLineupChannel),
+  screen: schermoDecisoAlBoot,
   lineupChannel: bootLineupChannel,
   lineupConstraints: new Map(bootFormazioneConstraints.byCompetition),
   lineupDrafts: new Map(),
   lineupConstraintsNotice: formazioneConstraintsNotice(bootFormazioneConstraints.status),
-  // La prova rilegge la sua sola accensione, fail-closed a spenta: un archivio
-  // storto non fa comparire dati finti a nessuno che non li abbia chiesti. E
-  // quella riletta è «ricordata», non «adesso»: nessuno l'ha chiesta in questa
-  // visita, quindi non torna accesa finché non si sa che dati veri non ce ne
-  // sono (modalitaProvaAttiva, regola 2).
-  formazioneProvaRichiesta: caricaModalitaProva(browserStorage) ? "ricordata" : "no",
+  // La prova rilegge l'archivio, fail-closed a spenta: un archivio storto non
+  // fa comparire dati finti a nessuno che non li abbia chiesti. Ed è
+  // l'ARCHIVIO a dire di che accensione si tratta — una chiesta da chi guarda,
+  // che vale anche dopo un ricaricamento, o una che nessuno dichiara di aver
+  // chiesto, che resta sotto la regola 2 di `modalitaProvaAttiva`. Qui non si
+  // traduce più niente: era in quella traduzione che la differenza si perdeva.
+  formazioneProvaRichiesta: caricaModalitaProva(browserStorage),
   formazioneProvaNonPersistita: false,
   lineupProvaConstraints: new Map(),
   lineupProvaDrafts: new Map(),
@@ -3297,7 +3322,9 @@ function azzeraModificaInSospeso(): void {
 }
 
 function entraInProva(): void {
-  state.formazioneProvaRichiesta = "adesso";
+  state.formazioneProvaRichiesta = "chiesta";
+  // Si scrive la VOLONTÀ, non l'accensione: è ciò che la rende ritrovabile per
+  // quel che è al prossimo avvio, invece che indistinguibile da un ricordo.
   state.formazioneProvaNonPersistita = !salvaModalitaProva(browserStorage, true);
   azzeraModificaInSospeso();
   render();
@@ -3904,6 +3931,10 @@ function renderFormazione(): HTMLElement {
       onEntra: entraInProva,
       onEsci: esciDallaProva,
     },
+    // QUANDO OGNI PEZZO È STATO LETTO, e con chi si gioca. L'orologio si legge
+    // qui — al momento del disegno — e non dentro il contratto: è l'unico punto
+    // dell'applicazione in cui «adesso» significa davvero adesso.
+    costruisciLettura(channel, new Date().toISOString()),
   );
 }
 
@@ -9125,6 +9156,37 @@ function renderVoidConfirm(): HTMLElement {
 render();
 void autoLoadListonePool();
 void autoLoadExpertSchede();
+
+// LA LEGA — la porta si collega qui, a prima pagina già decisa (il perché sta
+// accanto a `bootLineupChannel`). Da questo istante lo stato non è più «porta
+// non collegata» — che descrive una build senza layer privato — ma «la lega non
+// ha ancora risposto», che è ciò che sta succedendo davvero: si aggiorna subito
+// e si ridisegna, così chi apre la Formazione in questo secondo legge la verità
+// invece di un messaggio che riguarda un'altra build.
+void avviaCanaleDaDeposito({
+  fetchImpl: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init),
+  alCambio: () => {
+    state.lineupChannel = readLineupChannelState();
+    // LA PAGINA SI RIDECIDE SOLO SE LA LEGA È STATA LETTA DAVVERO, e mai su una
+    // pagina che Pico ha già scelto da sé.
+    //
+    // `decideInitialScreen` manda sulla Formazione anche un canale che non
+    // risponde — è una scelta di Pico, e serve a non lasciare un canale rotto
+    // dietro una schermata che funziona. Ma quella regola decide **quale pagina
+    // APRE il sito**: applicarla di nuovo a lettura fallita significherebbe
+    // portare via Pico dalla pagina che sta usando per annunciargli un guasto,
+    // qualche secondo dopo che il sito si è aperto. Il guasto lo dichiara la
+    // Formazione quando ci va, e la barra è sempre lì.
+    if (state.lineupChannel.kind === "letto" && state.screen === schermoDecisoAlBoot) {
+      const scelto = decideInitialScreen(state.lineupChannel);
+      state.screen = scelto;
+      schermoDecisoAlBoot = scelto;
+    }
+    render();
+  },
+});
+state.lineupChannel = readLineupChannelState();
+render();
 
 window.addEventListener("offline", () => {
   state.offline = true;

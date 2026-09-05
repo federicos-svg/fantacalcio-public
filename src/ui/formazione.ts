@@ -54,6 +54,10 @@ import type {
 } from "../../packages/league-channel-contract/src/index.js";
 import { MODULES, saveBlockers } from "../../packages/league-channel-contract/src/index.js";
 import {
+  lineupAgeLabel,
+  type LineupFreshness,
+} from "../../packages/league-channel-contract/src/index.js";
+import {
   etichettaProvaVale,
   PROVA_ESITO_SALVATAGGIO,
   PROVA_ETICHETTA_SALVATAGGIO,
@@ -230,6 +234,194 @@ function renderUnknownNotice(view: FormazioneView): HTMLElement {
     ),
   );
   return panel;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   QUANDO QUESTA FORMAZIONE È STATA LETTA
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Il momento della lettura, come la pagina lo riceve.
+ *
+ * `null` soltanto quando non c'è nessuna formazione a schermo — con l'avviso di
+ * canale al posto della squadra non c'è niente da datare. In ogni altro caso
+ * questa fascia **c'è**: è la regola che questa schermata deve rispettare più di
+ * ogni altra, ed è il motivo per cui il campo è obbligatorio nel contratto.
+ */
+export interface FormazioneLettura {
+  /**
+   * IL PEZZO «FORMAZIONE», in un campo suo, perché è quello che decide che cosa
+   * la fascia DICHIARA: titolo, colore, allarme.
+   *
+   * Non sta dentro l'elenco per una ragione che questo file ha già pagato una
+   * volta: prenderlo da lì significherebbe prenderlo per POSIZIONE, e la
+   * posizione non è un'identità. L'ordine dei pezzi vive in un altro file
+   * (`../formazioneLettura.ts`); il giorno in cui qualcuno lo riordina — una
+   * modifica che nessun compilatore fermerebbe — la fascia comincerebbe a
+   * mostrare l'età di un altro pezzo con le parole della formazione. Il pezzo
+   * di cui la fascia parla si nomina.
+   *
+   * `freschezza` non è annullabile, e questa non è una comodità: la lettura
+   * della formazione è obbligatoria nel contratto (`ObservedParts.lineup`),
+   * quindi la sua età esiste sempre. Dirlo QUI è ciò che toglie al disegno il
+   * bisogno di inventarsi un ripiego — un valore che il modello non ha mai
+   * prodotto — per un caso che non può capitare.
+   */
+  readonly formazione: FormazioneParteDatata;
+  /**
+   * Gli altri pezzi del deposito, ognuno con la sua età. **Uno per pezzo**, e
+   * nessuno si eredita: rose e calendario si rileggono di rado, la formazione
+   * spesso, e presentare una rosa di tre settimane fa con l'età della
+   * formazione sarebbe lo stesso difetto della formazione vecchia, in un altro
+   * vestito.
+   */
+  readonly altre: readonly FormazioneParteLetta[];
+  /** La giornata di Serie A che la lettura della formazione ha osservato. */
+  readonly seriesMatchday: number;
+  /** Le sfide di questa giornata, una per competizione. */
+  readonly sfide: readonly FormazioneSfida[];
+}
+
+export interface FormazioneParteLetta {
+  readonly nome: string;
+  /** `null` = questo pezzo non è stato letto affatto. */
+  readonly freschezza: LineupFreshness | null;
+}
+
+/** Un pezzo la cui lettura il contratto pretende sempre: l'età c'è, e basta. */
+export interface FormazioneParteDatata extends FormazioneParteLetta {
+  readonly freschezza: LineupFreshness;
+}
+
+/** L'avversario di questa giornata in una competizione, o perché non si sa. */
+export interface FormazioneSfida {
+  readonly competizione: string;
+  readonly giornata: number | null;
+  /** Nome dell'avversario, o il suo id quando il nome non è stato osservato. */
+  readonly avversario: string;
+  readonly campo: "casa" | "trasferta" | null;
+  /** `false` = elencato ma rosa non letta. Mai «rosa vuota». */
+  readonly rosaAvversarioLetta: boolean;
+  /** Vuoto quando l'avversario c'è; altrimenti il motivo dichiarato. */
+  readonly motivoAssenza: string;
+}
+
+/**
+ * LA FASCIA DEL MOMENTO DELLA LETTURA — sopra le competizioni, mai in fondo.
+ *
+ * Sta qui e non in un piè di pagina perché è la cosa che cambia il significato
+ * di tutto ciò che sta sotto: undici nomi non dicono da soli se sono quelli di
+ * adesso, e chi legge la formazione deve incontrare la sua data **prima** di
+ * fidarsene, non dopo averci creduto.
+ *
+ * Tre stati e tre voci diverse, perché sono tre cose diverse: una lettura
+ * recente si annuncia e basta; una lettura vecchia **smette di essere presentata
+ * come attuale** e lo dice con la stessa evidenza di un avviso; una lettura di
+ * cui non si sa l'età dichiara di non saperlo — non promette e non accusa.
+ */
+function renderLettura(lettura: FormazioneLettura, prova: boolean): HTMLElement {
+  // IL PEZZO SI PRENDE PER NOME, e la sua età non ha ripieghi: il modello la
+  // porta sempre (vedi `FormazioneLettura.formazione`), quindi qui non c'è
+  // niente da inventare — che è la regola di questo file, non una preferenza.
+  const fresca: LineupFreshness = lettura.formazione.freschezza;
+  const vecchia = fresca.kind === "non_attuale";
+  const ignota = fresca.kind === "eta_ignota";
+  const allarme = vecchia || ignota;
+
+  const banda = document.createElement("section");
+  banda.id = "formazione-momento-lettura";
+  banda.className = "panel";
+  banda.dataset.freschezza = fresca.kind;
+  banda.setAttribute(allarme ? "role" : "aria-live", allarme ? "alert" : "polite");
+  banda.setAttribute("aria-label", "Momento della lettura della formazione");
+  banda.style.cssText =
+    `display:flex;flex-direction:column;gap:6px;` +
+    (allarme ? `border:1px solid ${C.stopRedDark};` : ``);
+
+  const quando =
+    fresca.kind === "eta_ignota" ? lineupAgeLabel(null) : lineupAgeLabel(fresca.ageMinutes);
+
+  const titolo = sectionTitle(
+    vecchia
+      ? "QUESTA NON È NECESSARIAMENTE LA FORMAZIONE DI ADESSO"
+      : ignota
+        ? "NON SI SA QUANTO SIA RECENTE QUESTA LETTURA"
+        : `LETTA DALLA LEGA ${quando.toUpperCase()}`,
+  );
+  if (allarme) titolo.style.cssText = `color:${C.stopRed};`;
+  banda.appendChild(titolo);
+
+  const corpo = vecchia
+    ? `L'ultima lettura della lega risale a ${quando}, oltre i ${fresca.thresholdMinutes} minuti ` +
+      `entro cui una lettura può ancora essere presentata come attuale. Quella qui sotto è la ` +
+      `formazione di allora: da allora può essere cambiata sulla piattaforma, e questa pagina non ` +
+      `lo saprebbe. Giornata di Serie A dell'ultima lettura: ${lettura.seriesMatchday}.`
+    : ignota
+      ? `Il momento di questa lettura non è confrontabile con l'ora di questo dispositivo, quindi ` +
+        `non si può dire se sia recente. Non viene presentata come attuale: non perché sia vecchia, ` +
+        `ma perché non si sa. Giornata di Serie A dell'ultima lettura: ${lettura.seriesMatchday}.`
+      : `La formazione qui sotto è quella che la lega riportava ${quando}, alla giornata di Serie A ` +
+        `${lettura.seriesMatchday}. Nessuna modifica fatta sulla piattaforma dopo quel momento è ` +
+        `visibile qui.`;
+  banda.appendChild(paragraph(corpo, `color:${allarme ? C.textPrimary : C.textSec};`));
+
+  // OGNI PEZZO, CON LA SUA ETÀ. Una riga per pezzo, sempre tutte: togliere quelle
+  // «normali» lascerebbe l'elenco a parlare solo dei guasti, e allora l'assenza
+  // di una riga diventerebbe un'informazione che nessuno ha scritto.
+  const elenco = document.createElement("ul");
+  elenco.id = "formazione-momenti-per-pezzo";
+  elenco.style.cssText = `margin:0;padding-left:18px;font-size:12px;line-height:1.7;color:${C.textSec};`;
+  // La formazione per prima, perché è il pezzo di cui la fascia sta parlando;
+  // gli altri nell'ordine che il modello dichiara.
+  for (const parte of [lettura.formazione, ...lettura.altre]) {
+    const voce = document.createElement("li");
+    const stato = parte.freschezza;
+    if (stato === null) {
+      voce.textContent = `${parte.nome}: non letta.`;
+    } else if (stato.kind === "eta_ignota") {
+      voce.textContent = `${parte.nome}: letta, ma non si sa quando.`;
+    } else {
+      const quandoParte = lineupAgeLabel(stato.ageMinutes);
+      voce.textContent =
+        stato.kind === "non_attuale"
+          ? `${parte.nome}: ${quandoParte} — non più presentata come attuale.`
+          : `${parte.nome}: ${quandoParte}.`;
+    }
+    if (stato !== null && stato.kind !== "attuale") voce.style.cssText = `color:${C.stopRed};`;
+    elenco.appendChild(voce);
+  }
+  banda.appendChild(elenco);
+
+  // CON CHI SI GIOCA. Sta qui, accanto al momento della lettura, perché è un
+  // dato della stessa lettura e ha la stessa fragilità: un avversario di una
+  // giornata vecchia è sbagliato quanto una formazione di una giornata vecchia.
+  for (const sfida of lettura.sfide) {
+    const riga = document.createElement("p");
+    riga.style.cssText = `margin:0;font-size:13px;line-height:1.6;color:${C.textPrimary};`;
+    const giornata = sfida.giornata === null ? "giornata non dichiarata" : `giornata ${sfida.giornata}`;
+    if (sfida.motivoAssenza.length > 0) {
+      riga.style.cssText += `color:${C.textSec};`;
+      riga.textContent = `${sfida.competizione}, ${giornata} — ${sfida.motivoAssenza}`;
+    } else {
+      const dove =
+        sfida.campo === null ? "" : sfida.campo === "casa" ? ", in casa" : ", in trasferta";
+      const rosa = sfida.rosaAvversarioLetta
+        ? "rosa avversaria letta"
+        : "rosa avversaria non letta — non è una rosa vuota, è una lettura che non c'è";
+      riga.textContent = `${sfida.competizione}, ${giornata} — contro ${sfida.avversario}${dove}. ${rosa}.`;
+    }
+    banda.appendChild(riga);
+  }
+
+  if (prova) {
+    banda.appendChild(
+      paragraph(
+        "Questa è la data della squadra di esempio, inventata come tutto il resto di questa prova.",
+        `color:${C.textSec};`,
+      ),
+    );
+  }
+  return banda;
 }
 
 /**
@@ -1327,6 +1519,12 @@ export function renderFormazioneScreen(
   edit: FormazioneEditState = NESSUNA_MODIFICA_IN_SOSPESO,
   notice = "",
   prova: FormazioneProva = NESSUNA_PROVA,
+  /**
+   * QUANDO ogni pezzo è stato letto, e con chi si gioca. `null` soltanto quando
+   * non c'è nessuna formazione a schermo: con l'avviso al posto della squadra
+   * non c'è niente da datare. In ogni altro caso questa fascia c'è.
+   */
+  lettura: FormazioneLettura | null = null,
 ): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "screen-container";
@@ -1370,6 +1568,10 @@ export function renderFormazioneScreen(
     );
     return wrap;
   }
+
+  // PRIMA DELLE FORMAZIONI, non dopo: chi legge undici nomi deve incontrare la
+  // loro data prima di fidarsene, non dopo averci creduto.
+  if (lettura !== null) wrap.appendChild(renderLettura(lettura, prova.attiva));
 
   for (const competition of view.competitions) {
     wrap.appendChild(renderCompetition(competition, handlers, save, edit, prova.attiva));

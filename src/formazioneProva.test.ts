@@ -42,6 +42,8 @@ import {
 } from "../packages/league-channel-contract/src/index.js";
 import type { StorageLike } from "./logRecovery.js";
 
+const MOMENTO = { readAt: "2026-09-04T18:00:00.000Z", seriesMatchday: 3 } as const;
+
 // LA PROVA CON UNA SQUADRA DI ESEMPIO, misurata dove si può misurare: funzioni
 // pure, senza browser. Questa suite sorveglia le cose che rendono la prova
 // accettabile invece che pericolosa — il marchio nel dato, la porta chiusa dei
@@ -68,6 +70,15 @@ function vincoli(parziale: Partial<LineupConstraints> = {}): LineupConstraints {
 
 const CANALE_LETTO_VERO: LineupChannelState = {
   kind: "letto",
+  observations: {
+    lineup: MOMENTO,
+    roster: MOMENTO,
+    settings: MOMENTO,
+    leagueTeams: null,
+    calendar: null,
+  },
+  leagueTeams: null,
+  calendar: null,
   roster: { teamId: "t1", players: [{ id: "p1", role: "P" }] },
   settings: {},
   competitions: [],
@@ -321,7 +332,7 @@ describe("l'avvertimento su chi non scende in campo si vede davvero", () => {
 
 describe("i dati veri vincono sempre sulla prova", () => {
   it("con una squadra letta la prova è spenta, anche se richiesta", () => {
-    expect(modalitaProvaAttiva("adesso", CANALE_LETTO_VERO)).toBe(false);
+    expect(modalitaProvaAttiva("chiesta", CANALE_LETTO_VERO)).toBe(false);
     expect(modalitaProvaAttiva("ricordata", CANALE_LETTO_VERO)).toBe(false);
     expect(modalitaProvaAttiva("no", CANALE_LETTO_VERO)).toBe(false);
   });
@@ -331,12 +342,75 @@ describe("i dati veri vincono sempre sulla prova", () => {
     expect(salvaModalitaProva(storage, true)).toBe(true);
     // È il boot della visita successiva: si rilegge l'accensione, e la lega
     // stavolta risponde. La prova non deve poter coprire la squadra vera.
-    const richiesta = caricaModalitaProva(storage);
-    expect(richiesta).toBe(true);
+    expect(modalitaProvaAttiva(caricaModalitaProva(storage), CANALE_LETTO_VERO)).toBe(false);
     expect(modalitaProvaAttiva("ricordata", CANALE_LETTO_VERO)).toBe(false);
     // E con la porta scollegata — l'unico stato in cui si SA che dati veri non
     // ce ne sono — resta invece disponibile.
     expect(modalitaProvaAttiva("ricordata", CANALE_NON_COLLEGATO)).toBe(true);
+  });
+
+  /* ── LA VOLONTÀ E IL RICORDO NON SONO LO STESSO INTERRUTTORE ───────────────
+   *
+   * Finché l'archivio sapeva dire solo «accesa», al secondo avvio una prova
+   * CHIESTA da chi guarda e un'accensione trovata addosso erano lo stesso byte,
+   * e una delle due doveva perdere. Con la porta di lettura collegata perdeva
+   * sempre la prima: la lega risponde `404` — «ho chiesto e non mi hanno
+   * risposto», non «non c'è nessun canale» — e la prova chiesta il minuto prima
+   * si spegneva da sola al primo ricaricamento.
+   */
+  it("una prova CHIESTA sopravvive al ricaricamento, qualunque cosa risponda la lega", () => {
+    const storage = memoria();
+    // Il gesto di chi guarda, e ciò che l'archivio ne conserva.
+    expect(salvaModalitaProva(storage, true)).toBe(true);
+    // Il boot successivo: l'archivio non dice «era accesa», dice «l'ha chiesta».
+    expect(caricaModalitaProva(storage)).toBe("chiesta");
+    for (const cause of [
+      "porta_non_collegata",
+      "risposta_assente",
+      "risposta_illeggibile",
+      "non_diagnosticabile",
+    ] as const) {
+      expect(
+        modalitaProvaAttiva(caricaModalitaProva(storage), {
+          kind: "sconosciuto",
+          cause,
+          detail: "",
+        }),
+        cause,
+      ).toBe(true);
+    }
+  });
+
+  it("uscendo dalla prova l'archivio smette di dichiarare la volontà", () => {
+    const storage = memoria();
+    expect(salvaModalitaProva(storage, true)).toBe(true);
+    expect(salvaModalitaProva(storage, false)).toBe(true);
+    expect(caricaModalitaProva(storage)).toBe("no");
+  });
+
+  it("un archivio della versione precedente dice «accesa» e non «chiesta»: è RICORDATA", () => {
+    // La v1 conosceva solo `attiva`. Un'accensione che non dichiara di essere
+    // stata chiesta non può essere presa per una volontà: resta sotto la regola
+    // 2, e su questa build — dove la porta è collegata — non si riaccende.
+    const storage = memoria();
+    storage.setItem(
+      FORMAZIONE_PROVA_STORAGE_KEY,
+      JSON.stringify({ schemaVersion: 1, attiva: true }),
+    );
+    expect(caricaModalitaProva(storage)).toBe("ricordata");
+    expect(
+      modalitaProvaAttiva(caricaModalitaProva(storage), {
+        kind: "sconosciuto",
+        cause: "risposta_assente",
+        detail: "la lettura della lega non è disponibile (404)",
+      }),
+    ).toBe(false);
+    // E una v1 spenta resta spenta.
+    storage.setItem(
+      FORMAZIONE_PROVA_STORAGE_KEY,
+      JSON.stringify({ schemaVersion: 1, attiva: false }),
+    );
+    expect(caricaModalitaProva(storage)).toBe("no");
   });
 
   it("la prova si accende solo su richiesta: senza richiesta non si accende mai", () => {
@@ -371,7 +445,7 @@ describe("i dati veri vincono sempre sulla prova", () => {
     expect(modalitaProvaAttiva("ricordata", CANALE_NON_COLLEGATO)).toBe(true);
   });
 
-  it("una prova chiesta ADESSO si accende comunque: è un comando, non un ricordo", () => {
+  it("una prova CHIESTA si accende comunque: è una volontà, non un ricordo", () => {
     for (const cause of [
       "porta_non_collegata",
       "risposta_assente",
@@ -379,7 +453,7 @@ describe("i dati veri vincono sempre sulla prova", () => {
       "non_diagnosticabile",
     ] as const) {
       expect(
-        modalitaProvaAttiva("adesso", { kind: "sconosciuto", cause, detail: "" }),
+        modalitaProvaAttiva("chiesta", { kind: "sconosciuto", cause, detail: "" }),
         cause,
       ).toBe(true);
     }
@@ -390,12 +464,15 @@ describe("i dati veri vincono sempre sulla prova", () => {
     for (const raw of [
       "non json",
       "{}",
+      JSON.stringify({ schemaVersion: 99, chiesta: true }),
       JSON.stringify({ schemaVersion: 99, attiva: true }),
-      JSON.stringify({ schemaVersion: FORMAZIONE_PROVA_SCHEMA_VERSION, attiva: "si" }),
-      JSON.stringify({ schemaVersion: FORMAZIONE_PROVA_SCHEMA_VERSION, attiva: true, extra: 1 }),
+      JSON.stringify({ schemaVersion: FORMAZIONE_PROVA_SCHEMA_VERSION, chiesta: "si" }),
+      JSON.stringify({ schemaVersion: FORMAZIONE_PROVA_SCHEMA_VERSION, chiesta: true, extra: 1 }),
+      // La forma di v1 sotto il numero di v2: non è una v1, e non è una v2.
+      JSON.stringify({ schemaVersion: FORMAZIONE_PROVA_SCHEMA_VERSION, attiva: true }),
     ]) {
       storage.setItem(FORMAZIONE_PROVA_STORAGE_KEY, raw);
-      expect(caricaModalitaProva(storage), raw).toBe(false);
+      expect(caricaModalitaProva(storage), raw).toBe("no");
     }
   });
 
@@ -409,7 +486,7 @@ describe("i dati veri vincono sempre sulla prova", () => {
       },
       removeItem: () => undefined,
     };
-    expect(caricaModalitaProva(rotto)).toBe(false);
+    expect(caricaModalitaProva(rotto)).toBe("no");
     expect(salvaModalitaProva(rotto, true)).toBe(false);
   });
 

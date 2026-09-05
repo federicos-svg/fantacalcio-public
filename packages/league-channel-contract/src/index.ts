@@ -8,6 +8,8 @@ export * from "./leagueSettings.js";
 export * from "./ruleReconciliation.js";
 export * from "./roster.js";
 export * from "./calendar.js";
+export * from "./leagueRoster.js";
+export * from "./lineupObservation.js";
 export * from "./lineupSubmission.js";
 export * from "./lineupDraft.js";
 export * from "./pitchLayout.js";
