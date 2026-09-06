@@ -9,7 +9,9 @@ import {
   callScreenVerticalBudgetPx,
 } from "../src/ui/callScreenBudget.js";
 import {
+  apriAsta,
   installSyntheticNetworkGuard,
+  ricaricaAsta,
   sweepCallScreen,
   waitForCallScreenSettled,
 } from "./helpers.js";
@@ -118,11 +120,11 @@ async function documentTop(page: Page, selector: string): Promise<number> {
 
 async function boot(page: Page, viewport: { width: number; height: number }): Promise<void> {
   await page.setViewportSize(viewport);
-  await page.goto("/");
+  await apriAsta(page);
   // Ogni giro riparte da un'asta vuota: il log persiste attraverso un goto(),
   // e uno stato residuo cambierebbe le altezze che questa spec misura.
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
   await page.evaluate(() => window.scrollTo(0, 0));
 }
@@ -361,7 +363,7 @@ test("IL TAVOLO è sempre aperto: nessun gesto lo apre, nessun controllo lo chiu
   await page.locator("#search-player").fill("");
   await expect(body).toBeVisible();
   // E attraverso un reload: nessuna preferenza salvata, nessuno stato azzerato.
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
   await expect(body).toBeVisible();
   await expect(page.locator("#table-detail-toggle")).toHaveCount(0);

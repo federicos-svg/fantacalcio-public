@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { SYNTHETIC_LISTONE_POOL, E2E_TARGET_PLAYER, E2E_PURCHASE_PRICE } from "./fixtures/synthetic-listone.js";
-import { installSyntheticNetworkGuard, selectStatusFilter } from "./helpers.js";
+import { apriAsta, installSyntheticNetworkGuard, selectStatusFilter } from "./helpers.js";
 
 test("the status filter opens a menu, applies the choice and closes on outside click or Escape", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
 
   const trigger = page.locator("#listone-status-filter-trigger");
   const list = page.locator("#listone-status-filter-list");
@@ -47,7 +47,7 @@ test("the status filter opens a menu, applies the choice and closes on outside c
 test("the filter still selects what the listone shows", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
 
   await page.getByText(E2E_TARGET_PLAYER.name, { exact: true }).click();
   await page.getByRole("button", { name: /^Avvia/ }).click();

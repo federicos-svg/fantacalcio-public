@@ -54,13 +54,15 @@
 import { expect, test } from "@playwright/test";
 import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
 import {
-  installSyntheticNetworkGuard,
-  readLocalStorageRaw,
-  waitForServiceWorkerControl,
+  LISTONE_ASSET_PATH,
+  apriAsta,
+  apriCaricamentoManuale,
   evictDataAssetFromServiceWorkerCache,
   expectListoneRows,
-  LISTONE_ASSET_PATH,
-  apriCaricamentoManuale,
+  installSyntheticNetworkGuard,
+  readLocalStorageRaw,
+  ricaricaAsta,
+  waitForServiceWorkerControl,
 } from "./helpers.js";
 
 const SYNTHETIC_LISTONE_NAMES = SYNTHETIC_LISTONE_POOL.map((player) => player.name);
@@ -93,7 +95,7 @@ test.describe("listone pool persistence faults (audit r2, findings 4 and 5)", ()
     const pageErrors: string[] = [];
     page.on("pageerror", (err) => pageErrors.push(err.message));
     await denyPoolStorageWrites(page);
-    await page.goto("/");
+    await apriAsta(page);
 
     // render() is reached: the rows the fetch already produced are on screen,
     // not the empty state the skipped repaint used to leave behind.
@@ -116,7 +118,7 @@ test.describe("listone pool persistence faults (audit r2, findings 4 and 5)", ()
     const pageErrors: string[] = [];
     page.on("pageerror", (err) => pageErrors.push(err.message));
     await denyPoolStorageWrites(page);
-    await page.goto("/");
+    await apriAsta(page);
     await expect(page.getByText(SYNTHETIC_LISTONE_POOL[0]!.name, { exact: true })).toBeVisible();
 
     await apriCaricamentoManuale(page);
@@ -142,7 +144,7 @@ test.describe("listone pool persistence faults (audit r2, findings 4 and 5)", ()
   }) => {
     const externalRequests: string[] = [];
     await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-    await page.goto("/");
+    await apriAsta(page);
     await expectListoneRows(page, SYNTHETIC_LISTONE_NAMES);
     // Prima di toccare le rotte: l'install del worker (e il suo precache) è
     // finito, quindi da qui in poi la cache di questo build contiene ciò che
@@ -156,7 +158,7 @@ test.describe("listone pool persistence faults (audit r2, findings 4 and 5)", ()
     // thing left standing.
     await context.unroute("**/*");
     await installSyntheticNetworkGuard(context, [], externalRequests);
-    await page.reload();
+    await ricaricaAsta(page);
 
     await expectListoneRows(page, SYNTHETIC_LISTONE_NAMES);
     await expect(page.getByText("Nessun listone caricato al momento.")).toHaveCount(0);
@@ -178,7 +180,7 @@ test.describe("listone pool persistence faults (audit r2, findings 4 and 5)", ()
       externalRequests.push(route.request().url());
       return route.abort("blockedbyclient");
     });
-    await page.reload();
+    await ricaricaAsta(page);
     // Righe esatte e in ordine, non "un nome è visibile da qualche parte":
     // è questa forma che distingue la copia salvata da qualunque altro pool
     // (asset spedito compreso) e che toglie il mascheramento di questo repo.

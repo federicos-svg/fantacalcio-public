@@ -19,8 +19,10 @@ import {
   SYNTHETIC_LISTONE_POOL,
 } from "./fixtures/synthetic-listone.js";
 import {
+  apriAsta,
   installSyntheticNetworkGuard,
   readLocalStorageJson,
+  ricaricaAsta,
   selectListoneRowByName,
 } from "./helpers.js";
 
@@ -58,7 +60,7 @@ test("il gesto: sette pastiglie, un clic ciascuna, e la marcatura finisce in cod
 }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
 
   await openAsta(page, E2E_TARGET_PLAYER.name);
 
@@ -110,7 +112,7 @@ test("il gesto: sette pastiglie, un clic ciascuna, e la marcatura finisce in cod
   expect(JSON.stringify(queue)).not.toContain("displayName");
 
   // LA CODA SOPRAVVIVE: un reload non la perde e non la trasforma in altro.
-  await page.reload();
+  await ricaricaAsta(page);
   const afterReload = await readLocalStorageJson<FlagEnvelope>(page, INTEREST_FLAGS_STORAGE_KEY);
   expect(afterReload).toEqual(queue);
 
@@ -123,7 +125,7 @@ test("saltarlo non costa niente: nessuna marcatura, nessun avviso, e la coda lo 
 }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
 
   await openAsta(page, E2E_TARGET_PLAYER.name);
   await expect(page.locator("#interest-flag-summary")).toHaveText("Nessuno marcato");
@@ -164,7 +166,7 @@ test("IL CASO CHE CONTA: se il salvataggio del flag fallisce, l'acquisto si regi
     };
   }, { flagsKey: INTEREST_FLAGS_STORAGE_KEY });
 
-  await page.goto("/");
+  await apriAsta(page);
   await openAsta(page, E2E_TARGET_PLAYER.name);
   await page.locator("#interest-flag-Squadra4").click();
   await registerPurchase(page, E2E_PURCHASE_PRICE);
@@ -217,7 +219,7 @@ test("le marcature appartengono al loro giocatore: cambiare chiamata non le port
 }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
 
   await openAsta(page, E2E_TARGET_PLAYER.name);
   await page.locator("#interest-flag-Squadra2").click();
@@ -247,7 +249,7 @@ test("il posto della risposta lenta dichiara i propri stati e non blocca mai lo 
 }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
 
   await openAsta(page, E2E_TARGET_PLAYER.name);
 

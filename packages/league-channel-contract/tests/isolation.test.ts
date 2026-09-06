@@ -209,6 +209,9 @@ const FORMAZIONE_SURFACE: readonly string[] = [
   "src/formazioneLettura.ts",
   // La schermata.
   "src/ui/formazione.ts",
+  // La decisione della prima pagina: collega la porta, legge, e chiede al
+  // contratto quale schermata apre il sito. Nessuna rete, tre righe.
+  "src/primaPagina.ts",
   // La shell: barra, schermata iniziale, salvataggio.
   "src/main.ts",
 ];
@@ -282,8 +285,8 @@ describe("il contratto di osservazione resta fuori dal prodotto d'asta", () => {
     for (const relative of FORMAZIONE_SURFACE) {
       expect(statSync(join(REPO_ROOT, relative)).isFile(), relative).toBe(true);
     }
-    // Nessuna radice, nessun prefisso: sette file e basta.
-    expect(FORMAZIONE_SURFACE).toHaveLength(7);
+    // Nessuna radice, nessun prefisso: otto file e basta.
+    expect(FORMAZIONE_SURFACE).toHaveLength(8);
     for (const relative of FORMAZIONE_SURFACE) {
       expect(relative.endsWith(".ts")).toBe(true);
     }

@@ -23,8 +23,10 @@ import { SHIPPED_LISTONE, SHIPPED_LISTONE_FIRST_PAGE, SHIPPED_TARGET } from "./s
 // precache completo — sta in e2e/helpers.ts: era in tre copie identiche e ora
 // serve anche alle spec del listone. Nessun timer, nessuna attesa arbitraria.
 import {
+  apriAsta,
   expectListoneRows,
   expectListoneWholePoolLoaded,
+  ricaricaAsta,
   selectListoneRowByName,
   waitForServiceWorkerControl,
 } from "./helpers.js";
@@ -103,7 +105,7 @@ test.describe("BUNDLE-01 — network-free cold start", () => {
     // ── 1. One online visit. This is the only thing the cold start below is
     // allowed to depend on.
     const warm = await context.newPage();
-    await warm.goto("/");
+    await apriAsta(warm);
     await expect(warm.locator("#critical-budget")).toHaveText("500 cr");
     // The real shipped asset, by identity not by hardcoded content (see
     // e2e/shipped-listone.ts): page 1 content, order and exactness, plus
@@ -127,7 +129,7 @@ test.describe("BUNDLE-01 — network-free cold start", () => {
     const coldFailures: string[] = [];
     cold.on("requestfailed", (request) => coldFailures.push(request.url()));
 
-    await cold.goto("/");
+    await apriAsta(cold);
 
     // ── 3. The app is there, with its listone, with no network at all.
     await expect(cold.locator("#critical-budget")).toHaveText("500 cr");
@@ -165,7 +167,7 @@ test.describe("BUNDLE-01 — network-free cold start", () => {
 
     // ── 8. Replay: a full reload, still with no network, restores the state
     // from the persisted log — the app comes back a second time from cache.
-    await cold.reload();
+    await ricaricaAsta(cold);
     await expect(cold.locator("#critical-budget")).toHaveText(`${500 - PRICE} cr`);
     await expect(cold.locator("#critical-spent")).toHaveText(`${PRICE} cr`);
     const storico = cold.locator(".panel", { hasText: "STORICO ACQUISTI" });
@@ -202,7 +204,7 @@ test.describe("BUNDLE-01 — network-free cold start", () => {
     await installOriginOnlyGuard(context, externalRequests);
 
     const warm = await context.newPage();
-    await warm.goto("/");
+    await apriAsta(warm);
     await expectServingThisTree(warm);
     await waitForServiceWorkerControl(warm);
     await assignTarget(warm);
@@ -214,7 +216,7 @@ test.describe("BUNDLE-01 — network-free cold start", () => {
 
     await context.setOffline(true);
     const cold = await context.newPage();
-    await cold.goto("/");
+    await apriAsta(cold);
 
     // Recovery from the last-known-good copy works with no network and no
     // server: the standing purchase is back and the corrupted raw is quarantined.
@@ -242,7 +244,7 @@ test.describe("BUNDLE-01 — cache versioning", () => {
     await installOriginOnlyGuard(context, externalRequests);
 
     const page = await context.newPage();
-    await page.goto("/");
+    await apriAsta(page);
     await waitForServiceWorkerControl(page);
 
     const buildId = await expectServingThisTree(page);
@@ -268,7 +270,7 @@ test.describe("BUNDLE-01 — cache versioning", () => {
       const registration = await navigator.serviceWorker.getRegistration();
       await registration?.unregister();
     });
-    await page.reload();
+    await ricaricaAsta(page);
     await waitForServiceWorkerControl(page);
 
     expect(await page.evaluate(() => caches.keys())).toEqual([`fac-shell-${buildId}`]);
@@ -277,7 +279,7 @@ test.describe("BUNDLE-01 — cache versioning", () => {
     await page.close();
     await context.setOffline(true);
     const cold = await context.newPage();
-    await cold.goto("/");
+    await apriAsta(cold);
     await expect(cold.locator("body")).not.toContainText("STALE SHELL");
     await expect(cold.locator("#critical-budget")).toHaveText("500 cr");
     expect(externalRequests).toEqual([]);

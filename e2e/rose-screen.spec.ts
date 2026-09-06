@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { E2E_PURCHASE_PRICE, E2E_TARGET_PLAYER, SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { gotoScreen, installSyntheticNetworkGuard } from "./helpers.js";
+import { apriAsta, gotoScreen, installSyntheticNetworkGuard } from "./helpers.js";
 
 // First E2E coverage of the Rose screen (#219). It is a read-only recap
 // derived from the real event log (see src/ui/views.ts renderRoseScreen) —
@@ -21,7 +21,7 @@ async function roseGridColumnCount(page: Page): Promise<number> {
 test("Rose screen lists every league team from the real event log, and every slot is a door", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
 
   // One real purchase first, so the screen has to reflect reduce(state.log)
   // rather than just the empty-roster default.
@@ -76,7 +76,7 @@ test("Rose screen grid follows the .teams-grid breakpoints (1 col at 390px, up t
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await apriAsta(page);
   await gotoScreen(page, "Rose");
   await expect(page.locator(".panel--compact")).toHaveCount(8);
   await expect(page.locator(".panel--compact").first()).toBeVisible();

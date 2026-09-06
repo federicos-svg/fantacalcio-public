@@ -7,8 +7,10 @@ import {
 } from "../src/ui/tierBand.js";
 import {
   AA_NORMAL_TEXT,
+  apriAsta,
   gotoScreen,
   installSyntheticNetworkGuard,
+  ricaricaAsta,
   selectListoneRowByName,
   textContrast,
 } from "./helpers.js";
@@ -153,9 +155,9 @@ async function buy(page: Page, name: string, teamId: string, price: number): Pro
 }
 
 async function boot(page: Page): Promise<void> {
-  await page.goto("/");
+  await apriAsta(page);
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
 }
 

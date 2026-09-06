@@ -4,8 +4,10 @@ import { VALUE_SLOT_LABELS, VALUE_UNKNOWN } from "../src/ui/valueBox.js";
 import { VALUE_SLOT_ORDER, VISIBLE_VALUE_SLOT_IDS } from "../src/valueBox.js";
 import {
   AA_NORMAL_TEXT,
+  apriAsta,
   installSyntheticNetworkGuard,
   measureAllText,
+  ricaricaAsta,
   selectListoneRowByName,
   textContrast,
 } from "./helpers.js";
@@ -197,9 +199,9 @@ async function boot(
 ): Promise<void> {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(page.context(), pool, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
 }
 

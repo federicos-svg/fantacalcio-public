@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { E2E_PURCHASE_PRICE, E2E_TARGET_PLAYER, SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
 import {
+  apriAsta,
   expectGateStatesVisible,
   gotoScreen,
   installSyntheticNetworkGuard,
@@ -33,7 +34,7 @@ test("malformed local authority and gated listone fields fail closed", async ({ 
     { name: "Injected Static", role: "A", club: "Club Static", projection: 99 },
   ], externalRequests);
 
-  await page.goto("/");
+  await apriAsta(page);
   await expect(page.locator("#critical-budget")).toHaveText("500 cr");
   await expect(page.locator("#critical-slots")).toHaveText("28");
   // Single ceiling: 500 − (28 − 1) × COST_FLOOR. The hard reserve is not
@@ -51,7 +52,7 @@ test("malformed local authority and gated listone fields fail closed", async ({ 
 test("offline is distinct and the already-loaded accounting core remains usable", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await expect(page.getByText(E2E_TARGET_PLAYER.name, { exact: true })).toBeVisible();
 
   await context.setOffline(true);

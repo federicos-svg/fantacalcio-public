@@ -29,21 +29,72 @@ export type RemoteListoneRoute =
   | { readonly kind: "passthrough" };
 
 /**
+ * Come il guard risponde a `GET /api/formazione`, la porta di lettura della lega
+ * (src/formazioneCanaleRemoto.ts), che il server di anteprima non sa servire.
+ *
+ * - `passthrough` (il default): non si intercetta niente e risponde il server di
+ *   anteprima, cioè `404`. È il comportamento che ogni spec preesistente ha
+ *   sempre avuto, e non cambia di una virgola.
+ * - `unavailable`: lo stesso `404`, ma **quando lo decide la prova**. Serve a
+ *   una cosa sola e non piccola: `delayMs` rende GUARDABILE il tempo fra
+ *   l'apertura del sito e la risposta della lega, che è l'istante in cui il
+ *   sito prima apriva sull'Asta per poi saltare altrove.
+ * - `serve`: un deposito vero, sempre con il suo ritardo, per guardare che cosa
+ *   fa la pagina **quando la lettura arriva**: si riempie restando dov'è.
+ */
+export type RemoteFormazioneRoute =
+  | { readonly kind: "passthrough" }
+  | { readonly kind: "unavailable"; readonly delayMs?: number }
+  | { readonly kind: "serve"; readonly deposit: unknown; readonly delayMs?: number };
+
+export const FORMAZIONE_REMOTE_PATH = "/api/formazione";
+
+/**
  * The only network policy every spec in this suite uses: the synthetic
  * listone fixture for the exact asset path, an explicit answer for the
- * private-deposit endpoint, pass-through for same-origin (the app's own build
- * + the intercepted asset), and a hard abort — recorded, never silently
- * allowed — for anything else. Every spec asserts `externalRequests` is empty
- * at the end.
+ * private-deposit endpoint, an optional explicit answer for the league-channel
+ * endpoint (`RemoteFormazioneRoute` — off by default, so every pre-existing
+ * spec keeps the preview server's own 404), pass-through for same-origin (the
+ * app's own build + the intercepted asset), and a hard abort — recorded, never
+ * silently allowed — for anything else. Every spec asserts `externalRequests`
+ * is empty at the end.
  */
 export async function installSyntheticNetworkGuard(
   context: BrowserContext,
   syntheticListonePool: unknown,
   externalRequests: string[],
   remote: RemoteListoneRoute = { kind: "unavailable" },
+  formazione: RemoteFormazioneRoute = { kind: "passthrough" },
 ): Promise<void> {
   await context.route("**/*", (route) => {
     const url = new URL(route.request().url());
+    if (url.pathname === FORMAZIONE_REMOTE_PATH && formazione.kind !== "passthrough") {
+      const rispondi = (): Promise<void> =>
+        formazione.kind === "serve"
+          ? route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify(formazione.deposit),
+            })
+          : route.fulfill({
+              status: 404,
+              contentType: "application/json",
+              body: JSON.stringify({ error: "not_found" }),
+            });
+      const ritardo = formazione.delayMs ?? 0;
+      if (ritardo === 0) return rispondi();
+      // La risposta ritardata può arrivare a pagina già chiusa (una prova che
+      // ha finito di guardare l'attesa non aspetta anche la risposta): non è un
+      // fallimento della prova, ed è per questo che l'errore muore qui.
+      return new Promise<void>((risolvi) => {
+        setTimeout(() => {
+          void rispondi().then(
+            () => risolvi(),
+            () => risolvi(),
+          );
+        }, ritardo);
+      });
+    }
     if (url.pathname === LISTONE_ASSET_PATH) {
       return route.fulfill({
         status: 200,
@@ -172,6 +223,35 @@ export async function gotoScreen(
   label: "Formazione" | "Asta" | "Rose" | "Impostazioni",
 ): Promise<void> {
   await page.locator("nav").getByText(label, { exact: true }).click();
+}
+
+/**
+ * APRE IL SITO E VA SULL'ASTA — il gesto con cui comincia chi usa l'asta.
+ *
+ * PERCHÉ ADESSO SERVE, E PRIMA NO. La prima pagina del sito è la Formazione:
+ * ci apre sempre, anche mentre la lettura della lega è ancora per aria, e non
+ * cambia più da sola dopo il primo disegno (`src/primaPagina.ts`,
+ * `e2e/formazione-atterraggio.spec.ts`). Prima il sito atterrava sull'Asta —
+ * per un difetto, non per una decisione — e ogni prova d'asta se ne
+ * approfittava senza dirlo. Il gesto che qui diventa esplicito è quello che
+ * fa una persona: si apre il sito, si preme «Asta».
+ *
+ * Sta in un posto solo perché la ragione è una sola: se un giorno la prima
+ * pagina cambia ancora, qui si cambia una riga invece di sessanta file.
+ */
+export async function apriAsta(page: Page, url = "/"): Promise<void> {
+  await page.goto(url);
+  await gotoScreen(page, "Asta");
+}
+
+/**
+ * Ricarica e torna sull'Asta. Un ricaricamento è un'apertura come un'altra: la
+ * prima pagina torna a essere la Formazione, e una prova che dopo il reload
+ * guarda l'asta deve tornarci come ci tornerebbe una persona.
+ */
+export async function ricaricaAsta(page: Page): Promise<void> {
+  await page.reload();
+  await gotoScreen(page, "Asta");
 }
 
 /**

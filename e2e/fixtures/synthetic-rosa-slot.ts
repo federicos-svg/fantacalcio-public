@@ -27,6 +27,7 @@
 // una porta di servizio aperta per i test.
 
 import type { Page } from "@playwright/test";
+import { ricaricaAsta } from "../helpers.js";
 import type { ListonePlayer } from "../../src/ui/listone.js";
 import { listonePlayerKey } from "../../src/ui/listone.js";
 
@@ -130,5 +131,8 @@ export async function seedRosaSlotScene(page: Page): Promise<void> {
       { roster: LEAGUE_ROSTER_KEY, history: AUCTION_HISTORY_KEY },
     ] as const,
   );
-  await page.reload();
+  // Ricaricare riapre il sito sulla Formazione — è la prima pagina, e non
+  // cambia più da sola (src/primaPagina.ts): il seminatore riporta dove
+  // stava, cioè sull'Asta, invece di lasciare la prova su un'altra pagina.
+  await ricaricaAsta(page);
 }

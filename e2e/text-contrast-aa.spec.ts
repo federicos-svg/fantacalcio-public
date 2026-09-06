@@ -4,11 +4,13 @@ import { schedeDeposit } from "./fixtures/synthetic-schede.js";
 import { ROLE_CHIP_CLASS } from "../src/ui/theme.js";
 import {
   AA_NORMAL_TEXT,
+  apriAsta,
   gotoScreen,
   installSyntheticNetworkGuard,
   measureAllText,
   openSettingsSection,
   resolveTokenColors,
+  ricaricaAsta,
   selectStatusFilter,
   textContrast,
 } from "./helpers.js";
@@ -98,9 +100,9 @@ async function callPlayer(page: Page, name: string): Promise<void> {
 }
 
 async function boot(page: Page): Promise<void> {
-  await page.goto("/");
+  await apriAsta(page);
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
   // #333: il segnale di «schermata di chiamata pronta» è il campo di ricerca,
   // che è l'unica ragione per cui la schermata esiste.
   await expect(page.locator("#search-player")).toBeVisible();

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { installSyntheticNetworkGuard } from "./helpers.js";
+import { apriAsta, installSyntheticNetworkGuard, ricaricaAsta } from "./helpers.js";
 import {
   AUCTION_HISTORY_KEY,
   PER_ME_DEPOSIT_POOL,
@@ -58,7 +58,7 @@ const PER_ME_FULL_HEIGHT_CEILING_PX = 35;
 
 /** La scena SERVITA: previsioni sul listone e storico d'asta in memoria. */
 async function bootServed(page: Page): Promise<void> {
-  await page.goto("/");
+  await apriAsta(page);
   await page.evaluate(
     ([key, store]) => {
       localStorage.clear();
@@ -66,7 +66,7 @@ async function bootServed(page: Page): Promise<void> {
     },
     [AUCTION_HISTORY_KEY, syntheticPerMeHistory()] as const,
   );
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator("#per-me-rows")).toBeVisible();
 }
 
@@ -231,9 +231,9 @@ test("senza le previsioni servite il sottoblocco dice QUALE deposito manca", asy
 }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, PER_ME_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
 
   const empty = page.locator("#per-me-empty");
   await expect(empty).toBeVisible();

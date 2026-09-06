@@ -19,9 +19,11 @@ import {
 } from "./fixtures/synthetic-schede.js";
 import {
   AA_NORMAL_TEXT,
+  apriAsta,
   installSyntheticNetworkGuard,
   measureAllText,
   resolveTokenColors,
+  ricaricaAsta,
   textContrast,
 } from "./helpers.js";
 import {
@@ -88,9 +90,9 @@ async function boot(page: Page, context: BrowserContext, route: SchedeRoute): Pr
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
   await routeSchede(context, route);
-  await page.goto("/");
+  await apriAsta(page);
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
   return externalRequests;
 }
@@ -541,9 +543,9 @@ test("il riquadro pieno regge AA e non fa traboccare la schermata a 390, 1280, 1
 
   for (const width of [390, 1280, 1440, 1920]) {
     await page.setViewportSize({ width, height: width < 500 ? 844 : 900 });
-    await page.goto("/");
+    await apriAsta(page);
     await page.evaluate(() => localStorage.clear());
-    await page.reload();
+    await ricaricaAsta(page);
     await expect(page.locator("#search-player")).toBeVisible();
     await callTarget(page);
     await expect(page.locator("#player-insight-prose")).toBeVisible();
@@ -637,9 +639,9 @@ async function bootShortName(page: Page, context: BrowserContext, body: string):
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SHORT_NAME_POOL, externalRequests);
   await routeSchede(context, { kind: "serve", body });
-  await page.goto("/");
+  await apriAsta(page);
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
   return externalRequests;
 }
@@ -715,7 +717,7 @@ test("due schede possibili: l'app chiede, non sceglie — e la risposta resta do
 
   // 3. IL RELOAD. Senza persistenza la stessa domanda tornerebbe a ogni
   // chiamata, e rispondere non varrebbe il tempo speso.
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
   await callShortName(page);
   await expect(page.locator("#player-insight-prose")).toContainText("Seconda scheda");

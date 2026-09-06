@@ -49,12 +49,14 @@ import { listonePlayerKey } from "../src/ui/listone.js";
 import { CONFIRMATIONS_STORAGE_KEY, CONFIRMATIONS_SCHEMA_VERSION } from "../src/confirmationsStore.js";
 import { SYNTHETIC_LISTONE_POOL, E2E_TARGET_PLAYER } from "./fixtures/synthetic-listone.js";
 import {
-  installSyntheticNetworkGuard,
-  readLocalStorageJson,
-  selectStatusFilter,
   LISTONE_REMOTE_PATH,
+  apriAsta,
   apriCaricamentoManuale,
+  installSyntheticNetworkGuard,
   premiNelCaricamentoManuale,
+  readLocalStorageJson,
+  ricaricaAsta,
+  selectStatusFilter,
 } from "./helpers.js";
 
 const LOG_STORAGE_KEY = "fac_log";
@@ -105,7 +107,7 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
     await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests, {
       kind: "unavailable",
     });
-    await page.goto("/");
+    await apriAsta(page);
     await buyTarget(page);
     // Il contatore di scarsità sta dentro IL TAVOLO, che è sempre aperto: la
     // PROBE resta una prova di ciò che si VEDE, e la visibilità è asserita —
@@ -125,7 +127,7 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
       kind: "serve",
       rows: RENAMED_DEPOSIT_POOL,
     });
-    await page.reload();
+    await ricaricaAsta(page);
 
     // The substitution is refused: the listone coherent with the standing log
     // stays on screen, and the operator is told why, in a notice that cannot
@@ -171,7 +173,7 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
     await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests, {
       kind: "unavailable",
     });
-    await page.goto("/");
+    await apriAsta(page);
     await buyTarget(page);
 
     const logAfterPurchase = await readLocalStorageJson<{ playerId: string }[]>(page, LOG_STORAGE_KEY);
@@ -189,7 +191,7 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
       kind: "serve",
       rows: COVERING_DEPOSIT_POOL,
     });
-    await page.reload();
+    await ricaricaAsta(page);
 
     // Applied: the deposit's rows are what the panel shows, and the note under
     // the table names the deposit as the source that actually won.
@@ -259,7 +261,7 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
     await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests, {
       kind: "unavailable",
     });
-    await page.goto("/");
+    await apriAsta(page);
     await expect(page.locator("#critical-budget")).toHaveText(`${500 - PURCHASE_PRICE} cr`);
     expect(await readLocalStorageJson(page, LOG_STORAGE_KEY)).toBeNull();
 
@@ -273,7 +275,7 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
       kind: "serve",
       rows: RENAMED_DEPOSIT_POOL,
     });
-    await page.reload();
+    await ricaricaAsta(page);
 
     // Refused exactly like a standing purchase would be: the listone
     // coherent with the standing riconferma stays on screen, and the
@@ -314,7 +316,7 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
     await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests, {
       kind: "unavailable",
     });
-    await page.goto("/");
+    await apriAsta(page);
     await buyTarget(page);
 
     await context.unroute("**/*");
@@ -322,7 +324,7 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
       kind: "serve",
       rows: RENAMED_DEPOSIT_POOL,
     });
-    await page.reload();
+    await ricaricaAsta(page);
     await expect(page.locator("#pool-notice")).toContainText("Sostituzione automatica del listone rifiutata");
 
     // The explicit way out the notice names: it empties the pool, so there is
@@ -371,7 +373,7 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
         body: JSON.stringify(RENAMED_DEPOSIT_POOL),
       });
     });
-    await page.goto("/");
+    await apriAsta(page);
 
     // Arm the call on the static asset's row and open the asta moment BEFORE
     // the deposit lands.
@@ -398,7 +400,7 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
   }) => {
     const externalRequests: string[] = [];
     await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-    await page.goto("/");
+    await apriAsta(page);
 
     // Armed exactly as the probe had it: the row is selected, "Avvia" is
     // enabled, and the operator then loads the wrong file.

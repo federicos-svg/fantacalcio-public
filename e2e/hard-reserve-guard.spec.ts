@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { E2E_TARGET_PLAYER, SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { installSyntheticNetworkGuard, readLocalStorageJson } from "./helpers.js";
+import { apriAsta, installSyntheticNetworkGuard, readLocalStorageJson } from "./helpers.js";
 
 // Replaces e2e/manual-foreign-scouting.spec.ts. That spec drove the
 // hard-reserve refusal message through the manual-scouting creation form,
@@ -10,7 +10,7 @@ import { installSyntheticNetworkGuard, readLocalStorageJson } from "./helpers.js
 test("a purchase above max_safe is refused with the hard-reserve message and writes no event", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
 
   await page.getByText(E2E_TARGET_PLAYER.name, { exact: true }).click();
   await page.getByRole("button", { name: /^Avvia/ }).click();

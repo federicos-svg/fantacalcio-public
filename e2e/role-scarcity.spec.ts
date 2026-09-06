@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { installSyntheticNetworkGuard } from "./helpers.js";
+import { apriAsta, installSyntheticNetworkGuard } from "./helpers.js";
 
 // #221 (1) — packages/engine/src/auction.ts roleScarcity() wired to the call
 // screen. Two differently-sourced numbers per role: free slots across the whole
@@ -15,7 +15,7 @@ const LEAGUE_SLOTS = { P: 8 * 3, D: 8 * 9, C: 8 * 9, A: 8 * 7 } as const;
 test("role scarcity is on the call screen and follows the real log", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
 
   // #333 — il pannello è ancora sulla schermata di chiamata, dentro IL TAVOLO,
   // sotto il listone: risponde alla domanda «quanto mi serve questo ruolo» dal

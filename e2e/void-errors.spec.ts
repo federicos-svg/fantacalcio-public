@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { E2E_PURCHASE_PRICE, E2E_TARGET_PLAYER, SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { installSyntheticNetworkGuard, readLocalStorageJson } from "./helpers.js";
+import { apriAsta, installSyntheticNetworkGuard, readLocalStorageJson } from "./helpers.js";
 
 async function purchaseAndOpenVoid(page: Page): Promise<void> {
   await page.getByText(E2E_TARGET_PLAYER.name, { exact: true }).click();
@@ -13,7 +13,7 @@ async function purchaseAndOpenVoid(page: Page): Promise<void> {
 test("void storage error is visible and leaves in-memory and persisted purchase unchanged", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await purchaseAndOpenVoid(page);
   await page.evaluate(() => {
     const original = Storage.prototype.setItem;
@@ -37,7 +37,7 @@ test("void storage error is visible and leaves in-memory and persisted purchase 
 test("void partial write activates the blocking LIVE-02 recovery screen", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await purchaseAndOpenVoid(page);
   await page.evaluate(() => {
     const original = Storage.prototype.setItem;

@@ -1,13 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { installSyntheticNetworkGuard,
-  apriCaricamentoManuale,
-} from "./helpers.js";
+import { apriAsta, apriCaricamentoManuale, installSyntheticNetworkGuard } from "./helpers.js";
 
 test("ambiguous proxy rows are rejected explicitly with no silent overwrite", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await apriCaricamentoManuale(page);
   await page.getByText("Carica listone (JSON locale)").locator("input[type=file]").setInputFiles({
     name: "ambiguous-proxy.json",

@@ -4,8 +4,10 @@ import { LOG_STORAGE_KEY } from "../src/logRecovery.js";
 import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
 import {
   AA_NORMAL_TEXT,
+  apriAsta,
   installSyntheticNetworkGuard,
   measureAllText,
+  ricaricaAsta,
   textContrast,
 } from "./helpers.js";
 
@@ -184,7 +186,7 @@ async function bootWithLog(page: Page, log: readonly unknown[]): Promise<void> {
     ([key, events]) => window.localStorage.setItem(key as string, JSON.stringify(events)),
     [LOG_STORAGE_KEY, log] as const,
   );
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator("#critical-max-bid")).toBeVisible();
 }
 
@@ -204,7 +206,7 @@ test("il numero della puntata critica si legge in tutti e quattro i suoi stati",
 }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
 
   const measured = new Map<string, number>();
@@ -278,7 +280,7 @@ test("il numero della puntata critica si legge in tutti e quattro i suoi stati",
 test("il pulsante distruttivo si legge nel momento in cui compare", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
 
   // `.btn--danger` non esiste al primo tempo di nessun flusso: è il SECONDO
@@ -472,7 +474,7 @@ test("il tetto della war board si legge in tutti e tre i suoi stati, in tutte e 
 }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
   await bootWithLog(page, warBoardLog);
 

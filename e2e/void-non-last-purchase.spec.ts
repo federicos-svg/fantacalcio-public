@@ -1,6 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { installSyntheticNetworkGuard, readLocalStorageJson, selectStatusFilter } from "./helpers.js";
+import {
+  apriAsta,
+  installSyntheticNetworkGuard,
+  readLocalStorageJson,
+  ricaricaAsta,
+  selectStatusFilter,
+} from "./helpers.js";
 
 // LIVE-06 — voiding a purchase that is NOT the last one registered.
 // The engine always supported it (voidFeasibility/recordVoid accept any target
@@ -35,7 +41,7 @@ async function buy(page: Page, name: string, price: number): Promise<void> {
 test("a non-last purchase can be voided after an explicit confirmation, and the state is recomputed", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
 
   await buy(page, FIRST.name, FIRST_PRICE);
   await buy(page, SECOND.name, SECOND_PRICE);
@@ -85,7 +91,7 @@ test("a non-last purchase can be voided after an explicit confirmation, and the 
   expect(log?.map((event) => event.type)).toEqual(["PURCHASE", "PURCHASE", "VOID"]);
   expect(log![2]?.targetSeq).toBe(0);
 
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator("#critical-budget")).toHaveText(`${500 - SECOND_PRICE} cr`);
   await expect(page.locator(".panel", { hasText: "STORICO ACQUISTI" })).toContainText(SECOND.name);
   expect(externalRequests).toEqual([]);
@@ -94,7 +100,7 @@ test("a non-last purchase can be voided after an explicit confirmation, and the 
 test("voiding the most recent purchase keeps its own wording and shows no non-last warning", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
 
   await buy(page, FIRST.name, FIRST_PRICE);
   await buy(page, SECOND.name, SECOND_PRICE);

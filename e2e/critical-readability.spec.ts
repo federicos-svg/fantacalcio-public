@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { apriAsta } from "./helpers.js";
 
 const VIEWPORTS = [
   { width: 390, height: 844 },
@@ -29,7 +30,7 @@ test("budget, slots and the safe bid ceiling stay visible in rehearsal viewports
 
   for (const viewport of VIEWPORTS) {
     await page.setViewportSize(viewport);
-    await page.goto("/");
+    await apriAsta(page);
 
     const strip = page.locator("#critical-auction-strip");
     await expect(strip).toBeVisible();

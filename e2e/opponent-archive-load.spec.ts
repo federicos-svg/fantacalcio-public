@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { gotoScreen, installSyntheticNetworkGuard } from "./helpers.js";
+import { apriAsta, gotoScreen, installSyntheticNetworkGuard, ricaricaAsta } from "./helpers.js";
 import {
   AUCTION_HISTORY_KEY,
   CALLED_NAME,
@@ -89,7 +89,7 @@ function jsonFile(name: string, text: string) {
  * servizio che il reload rende comunque meglio.
  */
 async function reloadToChiamata(page: import("@playwright/test").Page): Promise<void> {
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
 }
 
@@ -100,7 +100,7 @@ test("l'archivio avversari entra da Impostazioni, si vede in numeri, sopravvive 
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, PRECEDENT_POOL, externalRequests);
 
-  await page.goto("/");
+  await apriAsta(page);
   // Solo il REGISTRO LEGA è seminato: senza persone ai posti nessun archivio
   // potrebbe produrre una riga, e i partecipanti si assegnano dalla loro
   // schermata, che non è quella sotto esame. Storico e profili NO: quelli
@@ -112,7 +112,7 @@ test("l'archivio avversari entra da Impostazioni, si vede in numeri, sopravvive 
     },
     [LEAGUE_ROSTER_KEY, syntheticRoster()] as const,
   );
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
 
   // ── 1. Prima: il pannello non ha fatti, e lo DICE ─────────────────────────
@@ -246,7 +246,7 @@ test("il pannello archivio sta nello schermo a 390, 768 e 1280, anche a riquadri
 
   for (const viewport of VIEWPORTS) {
     await page.setViewportSize(viewport);
-    await page.goto("/");
+    await apriAsta(page);
     await gotoScreen(page, "Impostazioni");
     await page.locator("#settings-tab-archivio").click();
     await expect(page.locator("#settings-tab-archivio")).toHaveAttribute("aria-selected", "true");

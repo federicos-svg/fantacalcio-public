@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { installSyntheticNetworkGuard } from "./helpers.js";
+import { apriAsta, installSyntheticNetworkGuard } from "./helpers.js";
 
 // #231 audit round 2, finding 7 (D7) — the "Squadra" filter's <select> was
 // populated from the hardcoded SERIE_A_CLUBS_2026_27 list (src/ui/serieA.ts)
@@ -19,7 +19,7 @@ import { installSyntheticNetworkGuard } from "./helpers.js";
 test("the club filter is populated from the loaded pool, not a hardcoded Serie A list", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
 
   const clubSelect = page.locator("#search-club");
   await expect(clubSelect).toBeVisible();

@@ -1,11 +1,13 @@
 import { expect, test } from "@playwright/test";
 import { E2E_PURCHASE_PRICE, E2E_TARGET_PLAYER, SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
 import {
+  apriAsta,
   expectGateStatesVisible,
   gotoScreen,
   installSyntheticNetworkGuard,
   openSettingsSection,
   readLocalStorageJson,
+  ricaricaAsta,
 } from "./helpers.js";
 
 const FORBIDDEN = ["ranking", "projection", "modifier", "target_band", "stretch_cap", "fair_to_me", "ftm"];
@@ -16,7 +18,7 @@ test("real surfaces fail closed even when every promotion gate is force-set in l
 }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
 
   // The frontend has no code path that reads any of these keys back — there
   // is no receipt/promotion matrix wired into this offline build at all.
@@ -32,7 +34,7 @@ test("real surfaces fail closed even when every promotion gate is force-set in l
       "live_ui_ready",
     ]) localStorage.setItem(gate, "true");
   });
-  await page.reload();
+  await ricaricaAsta(page);
 
   await expect(page.locator("#critical-budget")).toHaveText("500 cr");
   // One ceiling for every role: 500 − (28 − 1) × COST_FLOOR.
@@ -55,7 +57,7 @@ test("the loaded core assigns, voids, exports and imports offline, then reloads 
 }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await expect(page.getByText(E2E_TARGET_PLAYER.name, { exact: true })).toBeVisible();
 
   await context.setOffline(true);
@@ -88,7 +90,7 @@ test("the loaded core assigns, voids, exports and imports offline, then reloads 
   // A network-free cold start is packaging work for BUNDLE-01. Reconnect
   // only to reload the already-persisted local state from this dev bundle.
   await context.setOffline(false);
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator("#critical-budget")).toHaveText(`${500 - E2E_PURCHASE_PRICE} cr`);
   await expect(page.locator("#listone-status-filter-trigger")).toBeVisible();
   expect(externalRequests).toEqual([]);

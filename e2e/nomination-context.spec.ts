@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
 import type { ListonePlayer } from "../src/ui/listone.js";
-import { installSyntheticNetworkGuard } from "./helpers.js";
+import { apriAsta, installSyntheticNetworkGuard } from "./helpers.js";
 
 // #221 (4) — "Contesto chiamata" / `nomination_context`, D7 Binario A.
 // Read-only, on-demand, and built only from deterministic facts already in
@@ -31,7 +31,7 @@ async function openContextFor(page: Page, playerName: string): Promise<void> {
 test("the Contesto chiamata panel is on-demand, factual, and never touches the safe bid ceiling", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
 
   // No selected player, no context: the panel has no subject to describe.
   await expect(page.locator("#nomination-context")).toHaveCount(0);
@@ -73,7 +73,7 @@ test("the Contesto chiamata panel is on-demand, factual, and never touches the s
 test("Contesto chiamata reports prices already paid in the role, from the log only", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, POOL_WITH_SPARE_ATTACKER, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
 
   await page.getByText(TARGET.name, { exact: true }).click();
   await page.getByRole("button", { name: /^Avvia/ }).click();

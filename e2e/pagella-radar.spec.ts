@@ -13,8 +13,10 @@ import {
 } from "./fixtures/synthetic-schede.js";
 import {
   AA_NORMAL_TEXT,
+  apriAsta,
   installSyntheticNetworkGuard,
   measureAllText,
+  ricaricaAsta,
 } from "./helpers.js";
 import type { ExpertScheda } from "../src/expertScheda.js";
 import { EXPERT_SCHEDA_SCHEMA_VERSION } from "../src/expertScheda.js";
@@ -65,9 +67,9 @@ async function boot(
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, pool, externalRequests);
   await routeSchede(context, schede);
-  await page.goto("/");
+  await apriAsta(page);
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
   return externalRequests;
 }
@@ -201,7 +203,7 @@ test("il quarto asse cambia col ruolo: porta inviolata al portiere, bonus al mov
   await expect(page.locator("#player-insight-pagella-totale")).toContainText("12/50");
 
   // Stessa schermata, altro giocatore: l'asse è un altro, e si chiama altro.
-  await page.goto("/");
+  await apriAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
   await call(page, TARGET.name);
   await expect(page.locator("#player-insight-pagella-bonus")).toContainText("Bonus");
@@ -289,9 +291,9 @@ test("il radar non sposta il gesto principale: «ASSEGNA A» resta entro il budg
   for (const viewport of VIEWPORTS) {
     const where = `${viewport.width}×${viewport.height}`;
     await page.setViewportSize(viewport);
-    await page.goto("/");
+    await apriAsta(page);
     await page.evaluate(() => localStorage.clear());
-    await page.reload();
+    await ricaricaAsta(page);
     await expect(page.locator("#search-player")).toBeVisible();
     await call(page, LARGE_CALLED.name);
 
@@ -379,7 +381,7 @@ test("nessuno scorrimento laterale a schermo stretto, col radar acceso", async (
   const external = await boot(page, context, [PAGELLA_SCHEDA]);
   for (const width of [390, 560, 768, 900]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.goto("/");
+    await apriAsta(page);
     await expect(page.locator("#search-player")).toBeVisible();
     await call(page, TARGET.name);
     await expect(page.locator("#player-insight-radar")).toHaveCount(1);
@@ -403,7 +405,7 @@ test("ogni testo del blocco pagella si legge: sopra AA, in tutti gli stati", asy
   ]);
 
   for (const who of [TARGET.name, OTHER_PLAYER]) {
-    await page.goto("/");
+    await apriAsta(page);
     await expect(page.locator("#search-player")).toBeVisible();
     await call(page, who);
     await expect(page.locator(PAGELLA)).toBeVisible();

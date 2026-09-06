@@ -15,7 +15,9 @@ import {
 } from "../src/ui/callScreenBudget.js";
 import {
   LISTONE_ASSET_PATH,
+  apriAsta,
   installSyntheticNetworkGuard,
+  ricaricaAsta,
   sweepCallScreen,
   waitForCallScreenSettled,
 } from "./helpers.js";
@@ -113,11 +115,11 @@ const POOL = syntheticPool(POOL_ROWS, FIXTURE_NAME_CHARS);
 
 async function boot(page: Page): Promise<void> {
   await page.setViewportSize({ ...CALL_SCREEN_BUDGET_VIEWPORT });
-  await page.goto("/");
+  await apriAsta(page);
   // Ogni giro riparte da un'asta vuota: il log persiste attraverso un goto(),
   // e uno stato residuo cambierebbe le altezze che questa spec misura.
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
   // IL LISTONE DEVE AVER FINITO DI ARRIVARE, e non è una precauzione
   // generica. Il pool si carica in modo asincrono: `#search-player` è visibile
@@ -181,7 +183,7 @@ async function bootBrokenListone(
     return route.abort("blockedbyclient");
   });
   await page.setViewportSize({ ...CALL_SCREEN_BUDGET_VIEWPORT });
-  await page.goto("/");
+  await apriAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
   await expect(page.getByText("Nessun listone caricato al momento.")).toBeVisible();
   await page.evaluate(() => window.scrollTo(0, 0));

@@ -1,6 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import { SYNTHETIC_LISTONE_POOL, E2E_TARGET_PLAYER, E2E_PURCHASE_PRICE } from "./fixtures/synthetic-listone.js";
-import { installSyntheticNetworkGuard, readLocalStorageJson, selectStatusFilter } from "./helpers.js";
+import {
+  apriAsta,
+  installSyntheticNetworkGuard,
+  readLocalStorageJson,
+  ricaricaAsta,
+  selectStatusFilter,
+} from "./helpers.js";
 
 interface StoredEvent {
   readonly type: "PURCHASE" | "VOID";
@@ -16,7 +22,7 @@ async function selectAndLaunch(page: Page): Promise<void> {
 test("opponent assignment keeps budget, slots, history and player state coherent after reload", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await selectAndLaunch(page);
   await page.locator("#assign-team").selectOption("Squadra2");
   await page.locator("#assign-price").fill(String(E2E_PURCHASE_PRICE));
@@ -41,7 +47,7 @@ test("opponent assignment keeps budget, slots, history and player state coherent
   await selectStatusFilter(page, "assigned");
   await expect(page.locator(".listone-row", { hasText: E2E_TARGET_PLAYER.name })).toContainText("Assegnato");
 
-  await page.reload();
+  await ricaricaAsta(page);
   // E dopo un reload si legge ancora senza gesti: IL TAVOLO non ha uno stato
   // da ripristinare, perché non ha uno stato — è sempre aperto.
   await expect(opponent).toContainText("Squadra2");
@@ -56,7 +62,7 @@ test("opponent assignment keeps budget, slots, history and player state coherent
 test("undo persists a VOID and restores budget, slot, history and player availability after reload", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await selectAndLaunch(page);
   await page.locator("#assign-price").fill(String(E2E_PURCHASE_PRICE));
   await page.getByRole("button", { name: "Registra acquisto", exact: true }).click();
@@ -69,7 +75,7 @@ test("undo persists a VOID and restores budget, slot, history and player availab
   await expect(page.getByText("Nessun gesto registrato.")).toBeVisible();
   await expect(page.getByText(E2E_TARGET_PLAYER.name, { exact: true })).toBeVisible();
 
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator("#critical-budget")).toHaveText("500 cr");
   await expect(page.locator("#critical-spent")).toHaveText("0 cr");
   await expect(page.locator("#critical-roster")).toContainText("0/7");

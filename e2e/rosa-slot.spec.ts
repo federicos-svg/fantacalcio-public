@@ -2,9 +2,11 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { INITIAL_BUDGET } from "../packages/engine/src/types.js";
 import { listonePlayerKey } from "../src/ui/listone.js";
 import {
+  apriAsta,
   gotoScreen,
   installSyntheticNetworkGuard,
   readLocalStorageJson,
+  ricaricaAsta,
   selectStatusFilter,
 } from "./helpers.js";
 import {
@@ -110,7 +112,7 @@ async function apriScenaRose(
   externalRequests: string[],
 ): Promise<void> {
   await installSyntheticNetworkGuard(context, ROSA_SLOT_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await seedRosaSlotScene(page);
   await expect(page.locator("#search-player")).toBeVisible();
   await expect(page.locator(".listone-row")).toHaveCount(ROSA_SLOT_POOL.length);
@@ -543,7 +545,7 @@ test("una scrittura rifiutata lo DICE dentro la modale, invece di lasciarla muta
 }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, ROSA_SLOT_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await seedRosaSlotScene(page);
   await gotoScreen(page, "Rose");
 
@@ -585,7 +587,7 @@ test("dopo un rifiuto il fuoco resta sul bottone premuto, non torna in cima alle
 }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, ROSA_SLOT_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await seedRosaSlotScene(page);
   await gotoScreen(page, "Rose");
 
@@ -730,7 +732,7 @@ test("un rinnovo che sfonda il budget viene rifiutato DENTRO la modale, e non sc
   expect(salvate).toBeNull();
 
   // La prova che regge nel tempo: dopo un reload lo stato e ancora quello.
-  await page.reload();
+  await ricaricaAsta(page);
   await gotoScreen(page, "Rose");
   await expect(page.locator(slotId("Io", "D", 0))).toHaveClass(/roster-slot--empty/);
   expect(await creditiResidui(page, "Io")).toBe(INITIAL_BUDGET - QUASI_TUTTO);

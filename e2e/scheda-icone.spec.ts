@@ -12,7 +12,13 @@ import {
   SCHEDA_PLAYER,
   schedeDeposit,
 } from "./fixtures/synthetic-schede.js";
-import { AA_NORMAL_TEXT, installSyntheticNetworkGuard, measureAllText } from "./helpers.js";
+import {
+  AA_NORMAL_TEXT,
+  apriAsta,
+  installSyntheticNetworkGuard,
+  measureAllText,
+  ricaricaAsta,
+} from "./helpers.js";
 import type { ExpertScheda } from "../src/expertScheda.js";
 
 // LE CINQUE ICONE ACCANTO AL RADAR, SUL DOM VIVO.
@@ -68,9 +74,9 @@ async function boot(
   await context.route(`**${SCHEDE_PATH}`, (r) =>
     r.fulfill({ status: 200, contentType: "application/json", body: schedeDeposit(schede) }),
   );
-  await page.goto("/");
+  await apriAsta(page);
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
   return externalRequests;
 }
@@ -116,7 +122,7 @@ test("le quattro icone si accendono quando il segnale c'è e si spengono quando 
       body: schedeDeposit([ICONE_SCHEDA_SPENTA]),
     }),
   );
-  await page.goto("/");
+  await apriAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
   await call(page, TARGET.name);
 
@@ -160,7 +166,7 @@ test("acceso e spento si leggono SENZA il colore: cornice e riempimento resi", a
       body: schedeDeposit([ICONE_SCHEDA_SPENTA]),
     }),
   );
-  await page.goto("/");
+  await apriAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
   await call(page, TARGET.name);
 
@@ -226,7 +232,7 @@ test("i tre stati dell'icona delle liste: tre disegni diversi e tre colori diver
         body: schedeDeposit([caso.scheda]),
       }),
     );
-    await page.goto("/");
+    await apriAsta(page);
     await expect(page.locator("#search-player")).toBeVisible();
     await call(page, TARGET.name);
 
@@ -476,7 +482,7 @@ test("ogni testo delle icone si legge: sopra AA, nei tre stati dell'icona delle 
     await context.route(`**${SCHEDE_PATH}`, (r) =>
       r.fulfill({ status: 200, contentType: "application/json", body: schedeDeposit([scheda]) }),
     );
-    await page.goto("/");
+    await apriAsta(page);
     await expect(page.locator("#search-player")).toBeVisible();
     await call(page, TARGET.name);
     await expect(page.locator(STRISCIA)).toBeVisible();
@@ -537,7 +543,7 @@ test("alle tre larghezze: una riga sola, dentro la colonna, senza scorrimento la
     for (const viewport of VIEWPORTS) {
       const dove = `${stato.nome} a ${viewport.width}×${viewport.height}`;
       await page.setViewportSize(viewport);
-      await page.goto("/");
+      await apriAsta(page);
       await expect(page.locator("#search-player")).toBeVisible();
       await call(page, TARGET.name);
       await expect(page.locator(STRISCIA)).toBeVisible();
@@ -597,7 +603,7 @@ test("nello stato senza voti — cioè oggi — le icone ci sono e il blocco res
   // vedrebbero su nessun giocatore.
   const external = await boot(page, context, [ICONE_SCHEDA_PIENA]);
   await page.setViewportSize({ width: 1280, height: 720 });
-  await page.goto("/");
+  await apriAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
   await call(page, TARGET.name);
 

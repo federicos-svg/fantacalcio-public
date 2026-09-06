@@ -91,9 +91,11 @@ import {
   seedRiconfermeScene,
 } from "./fixtures/synthetic-listone-riconferme.js";
 import {
+  apriAsta,
   gotoScreen,
   installSyntheticNetworkGuard,
   readLocalStorageJson,
+  ricaricaAsta,
   selectStatusFilter,
 } from "./helpers.js";
 import { listonePlayerKey, type ListonePlayer } from "../src/ui/listone.js";
@@ -134,7 +136,7 @@ async function bootScene(
   externalRequests: string[],
 ): Promise<void> {
   await installSyntheticNetworkGuard(context, RICONFERME_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   // Il listone deve essere DAVVERO caricato prima di toccare il rinnovo: senza
   // righe il pannello direbbe «no-pool», che è un altro silenzio e un'altra
   // prova.
@@ -244,7 +246,7 @@ test("la riconferma entra dalla casella vuota: muove la fascia critica, blocca i
 
   // ACCEPTANCE 6 — reload a metà asta: stato identico. La riconferma E
   // l'acquisto live sopravvivono entrambi, e la «R» resta solo sul primo.
-  await page.reload();
+  await ricaricaAsta(page);
   await gotoScreen(page, "Asta");
   await expect(page.locator("#critical-budget")).toHaveText(`${budgetMidAuction} cr`);
   await gotoScreen(page, "Rose");
@@ -354,7 +356,7 @@ test("i silenzi del pannello dicono quale ostacolo togliere per primo: nessuno s
 }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, RICONFERME_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await expect(page.locator(".listone-row").first()).toBeVisible();
 
   // Senza seminare niente: nessuno storico E nessun posto assegnato. Il motivo
