@@ -46,7 +46,10 @@ import {
   connectLineupChannel,
 } from "./formazioneChannel.js";
 import {
+  depositFaultFromBody,
+  depositFaultSentence,
   matchdayCoherence,
+  DEPOSIT_FAULT_BODY_MAX_CHARS,
   type ChannelUnknownCause,
   type CompetitionLineupState,
   type LineupChannelState,
@@ -824,6 +827,90 @@ export function statoDaDeposito(payload: unknown): LineupChannelState {
   };
 }
 
+/* ────────────────────────────────────────────────────────────────────────────
+   QUANDO LA LETTURA NON RIESCE: QUALE GUASTO, NON SOLO «UN GUASTO»
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * IL DIFETTO CHE QUESTA PARTE CHIUDE. Il messaggio a schermo era costruito dal
+ * solo stato HTTP: «la lettura della lega non è disponibile (502)». Ma dietro
+ * quel `502` ci sono guasti diversi con rimedi opposti — il deposito non c'è,
+ * ce n'è più d'uno, non si è riusciti a cercarlo, non si è riusciti a
+ * scaricarlo, è troppo grande, non è leggibile, l'accesso è stato rifiutato,
+ * oppure il servizio che tiene l'archivio non ha risposto affatto (che non è
+ * un rifiuto: si riprova invece di correggere i permessi) — e chi legge «502»
+ * non può farci niente. Il codice preciso arrivava già al browser, nel corpo
+ * della risposta, e veniva buttato via senza leggerlo.
+ *
+ * LE TRE REGOLE CHE GOVERNANO QUESTA LETTURA, e nessuna è facoltativa:
+ *
+ *  1. **Il corpo viene da fuori: non ci si fida.** Diventa una frase a schermo
+ *     solo se dichiara uno dei codici dell'insieme chiuso del contratto
+ *     (`depositFaultFromBody`), e la frase è quella che il contratto tiene per
+ *     quel codice — testo di questo repository, mai testo arrivato dalla rete.
+ *     Un corpo inatteso, malformato, enorme od ostile non produce niente: si
+ *     torna esattamente al messaggio di prima.
+ *  2. **Leggere il corpo non può rompere la lettura.** La lettura del corpo ha
+ *     un `try` tutto suo, e ogni suo modo di fallire — non arriva, arriva a
+ *     metà, il `text()` lancia — vale `null`, cioè «nessun codice», cioè il
+ *     messaggio di prima. Il peggio che può capitare resta il peggio di ieri:
+ *     mai una pagina rotta al posto di un guasto dichiarato.
+ *  3. **Un corpo enorme non si guarda nemmeno.** Il tetto del contratto vale
+ *     due volte: prima sulla lunghezza dichiarata dall'intestazione, così un
+ *     corpo spropositato non viene nemmeno tirato dentro, poi sul testo
+ *     davvero arrivato, perché un'intestazione può mentire o mancare.
+ *
+ * La causa resta `risposta_assente`: la lega non ha prodotto una lettura, e la
+ * pagina dice questo. Ciò che cambia è che adesso dice anche **quale** guasto,
+ * che è l'unica parte utilizzabile da chi lo legge.
+ */
+function dichiarataTroppoGrande(risposta: Response): boolean {
+  try {
+    const dichiarata = risposta.headers?.get?.("content-length");
+    if (dichiarata === null || dichiarata === undefined) return false;
+    const lunghezza = Number(dichiarata);
+    return Number.isFinite(lunghezza) && lunghezza > DEPOSIT_FAULT_BODY_MAX_CHARS;
+  } catch {
+    // Una risposta senza intestazioni leggibili non è un motivo per rinunciare
+    // al corpo: è solo un riscontro in meno.
+    return false;
+  }
+}
+
+/**
+ * Il corpo della risposta di guasto, o `null` se non lo si è potuto avere in
+ * una forma che valga la pena di guardare. Non lancia mai.
+ */
+async function corpoDelGuasto(risposta: Response): Promise<string | null> {
+  if (dichiarataTroppoGrande(risposta)) return null;
+  try {
+    const testo = await risposta.text();
+    if (typeof testo !== "string" || testo.length > DEPOSIT_FAULT_BODY_MAX_CHARS) return null;
+    return testo;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * IL MESSAGGIO, deciso qui e non nel disegno della pagina.
+ *
+ * Funzione pura — uno stato, un testo — provata senza browser e senza rete: la
+ * schermata riceve una frase già scelta e la dipinge, come fa con tutto il
+ * resto. `corpo` è il testo grezzo della risposta, `null` quando non lo si è
+ * potuto leggere.
+ */
+export function dettaglioLetturaNonRiuscita(status: number, corpo: string | null): string {
+  const codice = depositFaultFromBody(corpo);
+  if (codice === null) {
+    // Nessun codice riconosciuto: si dice ciò che si sa davvero, cioè lo stato
+    // HTTP. È il messaggio che questa pagina ha sempre dato, ed è il peggio
+    // che possa dare.
+    return `la lettura della lega non è disponibile (${status})`;
+  }
+  return `${depositFaultSentence(codice)} — codice tecnico ${codice}, risposta ${status}`;
+}
+
 /** Ciò che serve per chiedere il deposito, iniettato per poterlo provare. */
 export interface LetturaCanaleOpzioni {
   readonly fetchImpl: typeof fetch;
@@ -855,8 +942,10 @@ export async function leggiCanaleDaDeposito(
     if (!risposta.ok) {
       // I codici del layer privato sono fissi e non portano dettagli della
       // piattaforma: riportarli aiuta chi legge il runbook e non dice niente a
-      // nessun altro.
-      return ignoto("risposta_assente", `la lettura della lega non è disponibile (${risposta.status})`);
+      // nessun altro. Il corpo si legge qui e non più oltre — vedi il blocco
+      // «QUANDO LA LETTURA NON RIESCE» sopra per le tre regole che lo
+      // governano.
+      return ignoto("risposta_assente", dettaglioLetturaNonRiuscita(risposta.status, await corpoDelGuasto(risposta)));
     }
     const testoRisposta = await risposta.text();
     let payload: unknown;

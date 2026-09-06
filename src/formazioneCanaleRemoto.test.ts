@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   avviaCanaleDaDeposito,
+  dettaglioLetturaNonRiuscita,
   leggiCanaleDaDeposito,
   statoDaDeposito,
   FORMAZIONE_DEPOSITO_FORMATO,
@@ -12,6 +13,9 @@ import { costruisciLettura } from "./formazioneLettura.js";
 import {
   buildFormazioneView,
   decideInitialScreen,
+  depositFaultSentence,
+  DEPOSIT_FAULT_BODY_MAX_CHARS,
+  DEPOSIT_FAULT_CODES,
   prepareSubmission,
   saveBlockers,
   validateObservedLeagueSettings,
@@ -221,7 +225,7 @@ describe("la richiesta: ogni esito è uno stato dichiarato, mai un'eccezione", (
     expect(stato.kind).toBe("letto");
   });
 
-  it("un codice di guasto del layer privato diventa «la lega non ha risposto», col codice", async () => {
+  it("un codice di guasto del layer privato diventa «la lega non ha risposto», con la sua frase e il suo codice", async () => {
     const fetchImpl = (async () =>
       new Response('{"error":"configuration_missing"}', { status: 503 })) as unknown as typeof fetch;
     const stato = await leggiCanaleDaDeposito({ fetchImpl });
@@ -229,6 +233,9 @@ describe("la richiesta: ogni esito è uno stato dichiarato, mai un'eccezione", (
     if (stato.kind === "sconosciuto") {
       expect(stato.cause).toBe("risposta_assente");
       expect(stato.detail).toContain("503");
+      // Col codice di prima qui c'era SOLO il 503: la frase è la correzione.
+      expect(stato.detail).toContain(depositFaultSentence("configuration_missing"));
+      expect(stato.detail).toContain("configuration_missing");
     }
   });
 
@@ -264,6 +271,200 @@ describe("la richiesta: ogni esito è uno stato dichiarato, mai un'eccezione", (
       expect(stato.cause).toBe("risposta_assente");
       expect(stato.detail).toContain("secondi");
     }
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+   QUALE GUASTO, NON SOLO «UN GUASTO»
+   ────────────────────────────────────────────────────────────────────────────
+   Il difetto: nove guasti diversi, con rimedi diversi, collassavano tutti nello
+   stesso «(502)». Ogni prova qui sotto cambia esito se la correzione viene
+   tolta — o perché la frase non c'è, o perché ci finirebbe testo arrivato dalla
+   rete che non deve arrivarci mai.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+describe("un guasto della lettura dice quale guasto è", () => {
+  const guasto = (corpo: string, status = 502, intestazioni?: Record<string, string>): typeof fetch =>
+    (async () =>
+      new Response(corpo, {
+        status,
+        ...(intestazioni === undefined ? {} : { headers: intestazioni }),
+      })) as unknown as typeof fetch;
+
+  const dettaglioDi = async (fetchImpl: typeof fetch): Promise<string> => {
+    const stato = await leggiCanaleDaDeposito({ fetchImpl });
+    expect(stato.kind).toBe("sconosciuto");
+    if (stato.kind !== "sconosciuto") return "";
+    // La causa non cambia mai: la lega non ha prodotto una lettura, e la
+    // pagina continua a dire quello. Cambia CHE COSA le si può fare.
+    expect(stato.cause).toBe("risposta_assente");
+    return stato.detail;
+  };
+
+  const SOLO_STATO = "la lettura della lega non è disponibile (502)";
+
+  /**
+   * IL CONTROLLO POSITIVO, e perché ogni prova negativa qui sotto ne porta uno.
+   *
+   * «Un corpo ostile non arriva a schermo» era vero anche col codice di prima,
+   * che il corpo non lo leggeva affatto: da sola, quella riga non prova niente.
+   * Diventa una prova quando le sta accanto il caso gemello — stessa forma,
+   * codice noto — che col codice di prima FALLISCE. Le due insieme dicono la
+   * cosa giusta: si legge il corpo, e si legge solo ciò che è dell'insieme.
+   */
+  const controllo = async (fetchImpl: typeof fetch, codice: (typeof DEPOSIT_FAULT_CODES)[number]) => {
+    expect(await dettaglioDi(fetchImpl)).toContain(depositFaultSentence(codice));
+  };
+
+  it("ogni codice noto diventa la sua frase, e la frase non è il codice a parole", async () => {
+    for (const codice of DEPOSIT_FAULT_CODES) {
+      const detail = await dettaglioDi(guasto(JSON.stringify({ error: codice })));
+      const frase = depositFaultSentence(codice);
+      expect(frase.length, codice).toBeGreaterThan(40);
+      expect(detail, codice).toContain(frase);
+      expect(detail, codice).toContain(codice);
+      expect(detail, codice).toContain("502");
+    }
+  });
+
+  it("i codici sono tutti diversi fra loro, e lo sono anche le frasi", () => {
+    // Un elenco con due frasi uguali sarebbe l'errore di prima in piccolo: due
+    // guasti diversi che a schermo si leggono identici.
+    expect(new Set(DEPOSIT_FAULT_CODES).size).toBe(DEPOSIT_FAULT_CODES.length);
+    const frasi = DEPOSIT_FAULT_CODES.map((codice) => depositFaultSentence(codice));
+    expect(new Set(frasi).size).toBe(DEPOSIT_FAULT_CODES.length);
+  });
+
+  it("un codice sconosciuto ricade sullo stato HTTP, e non compare da nessuna parte", async () => {
+    const detail = await dettaglioDi(guasto('{"error":"quota_esaurita_su_marte"}'));
+    expect(detail).toBe(SOLO_STATO);
+    expect(detail).not.toContain("marte");
+    // Il gemello riconosciuto: stessa forma, codice dell'insieme.
+    await controllo(guasto('{"error":"deposit_not_found"}'), "deposit_not_found");
+  });
+
+  it("un corpo che non è JSON non peggiora niente", async () => {
+    const detail = await dettaglioDi(guasto("<html><body>Bad Gateway</body></html>"));
+    expect(detail).toBe(SOLO_STATO);
+    expect(detail).not.toContain("html");
+    await controllo(guasto('{"error":"deposit_download_failed"}'), "deposit_download_failed");
+  });
+
+  it("un corpo vuoto è il caso di ieri, ed è ancora quello", async () => {
+    expect(await dettaglioDi(guasto(""))).toBe(SOLO_STATO);
+    await controllo(guasto('{"error":"deposit_unavailable"}'), "deposit_unavailable");
+  });
+
+  it("un corpo enorme non si guarda nemmeno, e non arriva a schermo", async () => {
+    const zavorra = "z".repeat(DEPOSIT_FAULT_BODY_MAX_CHARS * 2);
+    const enorme = JSON.stringify({ error: "deposit_not_found", zavorra });
+    expect(enorme.length).toBeGreaterThan(DEPOSIT_FAULT_BODY_MAX_CHARS);
+    const detail = await dettaglioDi(guasto(enorme));
+    expect(detail).toBe(SOLO_STATO);
+    expect(detail).not.toContain("z".repeat(50));
+    // LO STESSO CODICE, senza la zavorra, si legge: è il tetto a fermare il
+    // corpo enorme, non l'incapacità di leggere il corpo.
+    await controllo(guasto(JSON.stringify({ error: "deposit_not_found" })), "deposit_not_found");
+  });
+
+  it("una lunghezza dichiarata spropositata basta a non tirarsi dentro il corpo", async () => {
+    // Il primo dei due tetti: l'intestazione. Il corpo qui è corto e onesto,
+    // ma ciò che la risposta dichiara di sé non lo è, e tanto basta.
+    const corpo = '{"error":"deposit_not_found"}';
+    const detail = await dettaglioDi(
+      guasto(corpo, 502, { "content-length": String(DEPOSIT_FAULT_BODY_MAX_CHARS + 1) }),
+    );
+    expect(detail).toBe(SOLO_STATO);
+    // Stesso corpo, lunghezza onesta: il codice arriva.
+    await controllo(guasto(corpo, 502, { "content-length": String(corpo.length) }), "deposit_not_found");
+  });
+
+  it("un corpo ostile non arriva mai a schermo, nemmeno un pezzo", async () => {
+    const ostile = [
+      '{"error":"<img src=x onerror=alert(1)>"}',
+      '{"error":"deposit_not_found\\" onmouseover=\\"alert(1)"}',
+      '{"error":"deposit_not_found<script>alert(1)</script>"}',
+      '{"error":["deposit_not_found"]}',
+      '{"error":{"toString":"deposit_not_found"}}',
+      '["deposit_not_found"]',
+      '"deposit_not_found"',
+      '{"error":null}',
+      "null",
+      "{}",
+    ];
+    for (const corpo of ostile) {
+      const detail = await dettaglioDi(guasto(corpo));
+      expect(detail, corpo).toBe(SOLO_STATO);
+      expect(detail, corpo).not.toContain("<");
+      expect(detail, corpo).not.toContain("alert");
+      expect(detail, corpo).not.toContain("onerror");
+      expect(detail, corpo).not.toContain("script");
+    }
+    // E il corpo onesto della stessa forma passa: la differenza è
+    // l'appartenenza all'insieme, non il fatto di non guardare.
+    await controllo(guasto('{"error":"deposit_too_large"}'), "deposit_too_large");
+  });
+
+  it("una lettura del corpo che fallisce lascia il messaggio di ieri, non una pagina rotta", async () => {
+    // La connessione cade mentre il corpo arriva: `text()` rifiuta. Se questo
+    // rifiuto uscisse dal ramo del guasto, un guasto DICHIARATO diventerebbe
+    // un silenzio senza dettaglio — cioè peggio di prima.
+    const rotta = (async () => ({
+      ok: false,
+      status: 502,
+      headers: { get: () => null },
+      text: async () => {
+        throw new Error("connessione interrotta");
+      },
+    })) as unknown as typeof fetch;
+    expect(await dettaglioDi(rotta)).toBe(SOLO_STATO);
+
+    // La stessa risposta con un corpo che arriva: il codice si legge. Le due
+    // righe insieme dicono che il fallimento è ASSORBITO, non che il corpo non
+    // si legge mai.
+    const intera = (async () => ({
+      ok: false,
+      status: 502,
+      headers: { get: () => null },
+      text: async () => '{"error":"upstream_auth_failed"}',
+    })) as unknown as typeof fetch;
+    await controllo(intera, "upstream_auth_failed");
+  });
+
+  it("una risposta senza intestazioni leggibili non fa perdere il codice", async () => {
+    const fetchImpl = (async () => ({
+      ok: false,
+      status: 502,
+      text: async () => '{"error":"deposit_ambiguous"}',
+    })) as unknown as typeof fetch;
+    await controllo(fetchImpl, "deposit_ambiguous");
+  });
+
+  it("la scelta della frase è pura: nessuna rete, nessun browser", () => {
+    expect(dettaglioLetturaNonRiuscita(502, null)).toBe(
+      "la lettura della lega non è disponibile (502)",
+    );
+    expect(dettaglioLetturaNonRiuscita(503, '{"error":"configuration_invalid"}')).toContain(
+      depositFaultSentence("configuration_invalid"),
+    );
+    expect(dettaglioLetturaNonRiuscita(418, '{"error":"non_esiste"}')).toBe(
+      "la lettura della lega non è disponibile (418)",
+    );
+  });
+
+  it("l'avviso a schermo porta la frase, e la schermata resta la Formazione", async () => {
+    const stato = await leggiCanaleDaDeposito({
+      fetchImpl: guasto('{"error":"deposit_not_found"}'),
+    });
+    const view = buildFormazioneView(stato, new Map());
+    expect(view.known).toBe(false);
+    // Le regole di testa a src/ui/formazione.ts restano tutte: l'avviso
+    // prende il posto della squadra, non le sta accanto.
+    expect(view.competitions).toEqual([]);
+    expect(view.emptyRoster).toBeNull();
+    expect(view.notice?.title).toBe("LA LEGA NON HA RISPOSTO");
+    expect(view.notice?.detail).toContain(depositFaultSentence("deposit_not_found"));
+    expect(decideInitialScreen(stato)).toBe("formazione");
   });
 });
 
