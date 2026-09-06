@@ -740,6 +740,16 @@ export function unmetConstraints(
 export interface FormazionePlayerRow {
   readonly id: string;
   readonly role: Role;
+  /**
+   * Il nome come l'osservazione l'ha dichiarato; `undefined` se non è stato
+   * osservato.
+   *
+   * Viene RIPORTATO dalla rosa osservata, non ricavato: questo modello non sa
+   * costruire un nome e non deve imparare a farlo. Chi disegna ha quindi due
+   * casi da distinguere a vista — un nome letto e un nome che non c'è — e non
+   * un campo che a volte è un nome e a volte un identificativo travestito.
+   */
+  readonly name?: string;
   /** È fra i titolari della formazione mostrata (portiere compreso). */
   readonly starter: boolean;
   /** Dove sta esattamente: la porta è un posto solo, e la panchina è ordinata. */
@@ -1037,6 +1047,10 @@ export function buildFormazioneView(
       return {
         id: player.id,
         role: player.role,
+        // Riportato tale e quale, e SOLO se c'è: un nome non osservato resta
+        // assente fino alla pagina, che è l'unico posto in cui si può dire
+        // «non lo so» a chi sta guardando.
+        ...(player.name === undefined ? {} : { name: player.name }),
         starter: place === "porta" || place === "titolare",
         place,
         benchOrder: benchIndex === -1 ? null : benchIndex + 1,

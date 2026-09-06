@@ -19,6 +19,16 @@
 //     questa rosa comincia con `ESEMPIO-`, quindi ogni riga a schermo — e ogni
 //     messaggio di rifiuto, di conflitto e di legalità, che l'identificativo lo
 //     citano — porta la parola addosso. Ritagliare la pagina non la toglie;
+//  2-bis. IL MARCHIO STA ANCHE FUORI DAL DATO, ed è la difesa che il punto 2
+//     da solo non poteva più reggere. Finché la pagina stampava l'IDENTIFICATIVO
+//     su ogni gettone, il prefisso di cui sopra bastava: il marchio viaggiava
+//     dentro l'unica cosa che si vedesse. Da quando il gettone mostra il NOME
+//     del giocatore quando c'è, quel marchio sarebbe sparito da solo il primo
+//     giorno in cui il deposito porta i nomi — non per una modifica sbagliata,
+//     ma per il funzionamento normale della pagina. Perciò ogni gettone porta
+//     ora una TARGA propria (`PROVA_MARCHIO_GETTONE`), che è un elemento suo e
+//     non dipende da che cosa c'è scritto accanto. Le due difese si sommano e
+//     nessuna delle due è più l'unica;
 //  3. IL MARCHIO NON SI CHIUDE. La cornice che lo dice sta nel corpo della
 //     pagina e non si può congedare: finché la modalità è accesa, è a schermo;
 //  4. I DATI VERI VINCONO SEMPRE. `modalitaProvaAttiva` è una porta chiusa a
@@ -53,6 +63,7 @@ import type {
   LineupConstraints,
   ObservedLeagueSettings,
   ObservedLineup,
+  ObservedPlayer,
   ObservedTeam,
   SubmissionUiState,
 } from "../packages/league-channel-contract/src/index.js";
@@ -70,6 +81,23 @@ import type {
  * di metterla.
  */
 export const PROVA_PREFISSO_ID = "ESEMPIO-";
+
+/**
+ * IL MARCHIO SUL SINGOLO GETTONE, e non dentro ciò che il gettone mostra.
+ *
+ * Il prefisso qui sopra ha marcato ogni gettone finché la pagina stampava
+ * l'IDENTIFICATIVO su ogni riga: il marchio viaggiava dentro il dato, e reggeva
+ * solo perché quel dato era l'unico che si vedesse. Dal momento in cui il
+ * gettone mostra il NOME quando c'è, quel marchio sparirebbe da solo — non per
+ * una modifica sbagliata, ma per il funzionamento normale della pagina il primo
+ * giorno in cui il deposito porta i nomi.
+ *
+ * Questa targa è la stessa promessa resa INDIPENDENTE da ciò che c'è scritto
+ * sul gettone: è un elemento suo, sta su ogni giocatore, e non cambia se domani
+ * cambia il testo accanto. `PROVA_PREFISSO_ID` resta dov'è — le due difese si
+ * sommano, e nessuna delle due è più l'unica.
+ */
+export const PROVA_MARCHIO_GETTONE = "ESEMPIO";
 
 /** Il comando che accende la prova. Non c'è nessun'altra strada per accenderla. */
 export const PROVA_TESTO_COMANDO = "Prova i comandi con una squadra di esempio";
@@ -162,6 +190,42 @@ function id(ruolo: string, numero: number): string {
 }
 
 /**
+ * IL NOME DI UN GIOCATORE DI ESEMPIO — che è la sua etichetta, e la dichiara.
+ *
+ * La squadra di esempio **si dà i nomi da sé**, e per questo li ha: non è una
+ * lettura, è una fixture, e una fixture che lasciasse il nome «non osservato»
+ * farebbe dire alla pagina «nome non letto dalla lega» su venti gettoni di una
+ * squadra che con la lega non ha mai parlato. Sarebbe una frase falsa nel posto
+ * più delicato della schermata — quello che deve insegnare a distinguere un
+ * dato che manca da un dato che c'è.
+ *
+ * Il nome coincide con l'identificativo, e qui è LEGITTIMO proprio perché
+ * altrove non lo è: sul canale vero il nome è un dato letto e non si costruisce
+ * mai dall'id (`ObservedPlayer.name`), mentre qui non si sta ricostruendo
+ * niente — l'etichetta della squadra finta è, letteralmente, quella. Tiene
+ * inoltre la targa `ESEMPIO-` dentro il testo mostrato, che è la difesa che
+ * questa modalità aveva già, ora affiancata dalla targa autonoma sul gettone.
+ */
+function nomeDiEsempio(ruolo: string, numero: number): string {
+  return id(ruolo, numero);
+}
+
+/** Un giocatore di esempio: id ed etichetta sono la stessa cosa dichiarata. */
+function giocatoreDiEsempio(
+  ruolo: string,
+  numero: number,
+  role: ObservedPlayer["role"],
+  availability: ObservedPlayer["availability"],
+): ObservedPlayer {
+  return {
+    id: id(ruolo, numero),
+    role,
+    name: nomeDiEsempio(ruolo, numero),
+    ...(availability === undefined ? {} : { availability }),
+  };
+}
+
+/**
  * LA ROSA DI ESEMPIO, composta perché i comandi si possano provare davvero e
  * non solo guardare.
  *
@@ -183,26 +247,26 @@ function id(ruolo: string, numero: number): string {
 export const PROVA_ROSA: ObservedTeam = {
   teamId: PROVA_SQUADRA_ID,
   players: [
-    { id: id("Portiere", 1), role: "P", availability: "disponibile" },
-    { id: id("Difensore", 1), role: "D", availability: "disponibile" },
-    { id: id("Difensore", 2), role: "D", availability: "disponibile" },
-    { id: id("Difensore", 3), role: "D", availability: "in_dubbio" },
-    { id: id("Difensore", 4), role: "D", availability: "disponibile" },
-    { id: id("Centrocampista", 1), role: "C", availability: "disponibile" },
-    { id: id("Centrocampista", 2), role: "C", availability: "disponibile" },
-    { id: id("Centrocampista", 3), role: "C", availability: "disponibile" },
-    { id: id("Centrocampista", 4), role: "C", availability: "disponibile" },
-    { id: id("Attaccante", 1), role: "A", availability: "disponibile" },
-    { id: id("Attaccante", 2), role: "A", availability: "indisponibile" },
-    { id: id("Portiere", 2), role: "P", availability: "disponibile" },
-    { id: id("Difensore", 5), role: "D", availability: "disponibile" },
-    { id: id("Centrocampista", 5), role: "C", availability: "indisponibile" },
-    { id: id("Attaccante", 3), role: "A", availability: "disponibile" },
-    { id: id("Difensore", 6), role: "D", availability: "disponibile" },
-    { id: id("Centrocampista", 6), role: "C", availability: "disponibile" },
-    { id: id("Centrocampista", 7), role: "C", availability: "disponibile" },
-    { id: id("Attaccante", 4), role: "A", availability: "disponibile" },
-    { id: id("Attaccante", 5), role: "A", availability: "disponibile" },
+    giocatoreDiEsempio("Portiere", 1, "P", "disponibile"),
+    giocatoreDiEsempio("Difensore", 1, "D", "disponibile"),
+    giocatoreDiEsempio("Difensore", 2, "D", "disponibile"),
+    giocatoreDiEsempio("Difensore", 3, "D", "in_dubbio"),
+    giocatoreDiEsempio("Difensore", 4, "D", "disponibile"),
+    giocatoreDiEsempio("Centrocampista", 1, "C", "disponibile"),
+    giocatoreDiEsempio("Centrocampista", 2, "C", "disponibile"),
+    giocatoreDiEsempio("Centrocampista", 3, "C", "disponibile"),
+    giocatoreDiEsempio("Centrocampista", 4, "C", "disponibile"),
+    giocatoreDiEsempio("Attaccante", 1, "A", "disponibile"),
+    giocatoreDiEsempio("Attaccante", 2, "A", "indisponibile"),
+    giocatoreDiEsempio("Portiere", 2, "P", "disponibile"),
+    giocatoreDiEsempio("Difensore", 5, "D", "disponibile"),
+    giocatoreDiEsempio("Centrocampista", 5, "C", "indisponibile"),
+    giocatoreDiEsempio("Attaccante", 3, "A", "disponibile"),
+    giocatoreDiEsempio("Difensore", 6, "D", "disponibile"),
+    giocatoreDiEsempio("Centrocampista", 6, "C", "disponibile"),
+    giocatoreDiEsempio("Centrocampista", 7, "C", "disponibile"),
+    giocatoreDiEsempio("Attaccante", 4, "A", "disponibile"),
+    giocatoreDiEsempio("Attaccante", 5, "A", "disponibile"),
   ],
 };
 

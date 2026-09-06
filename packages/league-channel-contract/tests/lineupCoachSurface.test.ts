@@ -1166,3 +1166,51 @@ describe("un vincolo che oggi non si può applicare non blocca la formazione per
     expect(dopo.lockedStarterIds).toEqual(["p3"]);
   });
 });
+
+describe("il nome del giocatore arriva fino al modello, e la sua assenza pure", () => {
+  // PERCHÉ QUESTO BLOCCO ESISTE. La pagina ha mostrato per mesi
+  // l'IDENTIFICATIVO al posto del nome, e il primo anello a perderlo era
+  // proprio questo: `FormazionePlayerRow` non aveva un campo per il nome,
+  // quindi anche un deposito che lo dichiarava lo vedeva sparire qui, in
+  // silenzio e senza che niente diventasse rosso. Le due righe che seguono
+  // sono la coppia che rende quel silenzio impossibile: una prova che il nome
+  // letto passa, l'altra che il nome assente NON viene inventato.
+
+  const ROSA_CON_NOMI: ObservedTeam = {
+    teamId: ROSA.teamId,
+    players: ROSA.players.map((giocatore, indice) =>
+      // Uno solo resta senza nome, ed è deliberato: il caso misto è quello
+      // vero, e una rosa tutta con nomi o tutta senza non distinguerebbe «il
+      // modello riporta» da «il modello riempie».
+      indice === 0 ? giocatore : { ...giocatore, name: `giocatore sintetico ${indice}` },
+    ),
+  };
+
+  it("un nome osservato arriva alla riga della pagina, tale e quale", () => {
+    const view = buildFormazioneView(
+      letto([campionato({ kind: "letta", lineup: FORMAZIONE })], ROSA_CON_NOMI),
+      new Map(),
+    );
+    const righe = view.competitions[0]?.players ?? [];
+    const conNome = righe.find((riga) => riga.id === "p2");
+    expect(conNome?.name).toBe("giocatore sintetico 1");
+  });
+
+  it("un nome NON osservato resta assente: il modello non lo deduce dall'identificativo", () => {
+    // È la riga che tiene ferma la regola «il nome è un dato letto, non
+    // dedotto». Se un giorno qualcuno facesse cadere l'id dentro `name` come
+    // ripiego, questa prova diventerebbe rossa — ed è l'unico posto in cui quel
+    // ripiego si potrebbe infilare senza rompere nient'altro.
+    const view = buildFormazioneView(
+      letto([campionato({ kind: "letta", lineup: FORMAZIONE })], ROSA_CON_NOMI),
+      new Map(),
+    );
+    const righe = view.competitions[0]?.players ?? [];
+    const senzaNome = righe.find((riga) => riga.id === "p1");
+    expect(senzaNome).toBeDefined();
+    expect(senzaNome?.name).toBeUndefined();
+    // E l'identificativo resta dov'era: è ciò che la pagina mostrerà al posto
+    // del nome, dichiarandolo.
+    expect(senzaNome?.id).toBe("p1");
+  });
+});
