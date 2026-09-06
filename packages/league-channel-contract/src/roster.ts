@@ -1,11 +1,23 @@
-// ROSA OSSERVATA — chi c'è, con che ruolo, e nient'altro.
+// ROSA OSSERVATA — chi c'è, con che ruolo, e come si chiama quando è stato letto.
 //
 // GLI ID SONO OPACHI, ed è una regola di confine prima che di stile. Qui non
-// entrano nomi di giocatori, identificatori di lega o di squadra della
-// piattaforma, né nulla che permetta di risalire alla fonte: `id` è una
-// stringa che il layer privato genera e di cui questo pacchetto non interpreta
-// un solo carattere. Le fixture di questo pacchetto usano `p1`, `t1`, ed è la
-// forma che il contratto si aspetta anche in esercizio.
+// entrano identificatori di lega o di squadra della piattaforma, né nulla che
+// permetta di risalire alla fonte: `id` è una stringa che il layer privato
+// genera e di cui questo pacchetto non interpreta un solo carattere. Le fixture
+// di questo pacchetto usano `p1`, `t1`, ed è la forma che il contratto si
+// aspetta anche in esercizio.
+//
+// IL NOME È UN DATO LETTO, E PER QUESTO È FACOLTATIVO. `name` porta il nome che
+// l'osservazione ha dichiarato, e **niente altro**: non si deduce da `id`, non
+// si costruisce da un'altra fonte e non si riempie con un ripiego. `undefined`
+// significa «non osservato», che non è «senza nome» e non è una stringa vuota:
+// chi disegna mostra l'identificativo e DICHIARA che il nome non è noto, invece
+// di lasciare una casella vuota che sembrerebbe un difetto della pagina.
+//
+// Che il campo esista qui non è una porta aperta ai dati veri in questo
+// repository: le fixture restano sintetiche, e un nome vero non entra nel core
+// pubblico più di quanto ci entri una quotazione vera. Il campo descrive la
+// FORMA di ciò che il layer privato deposita; il contenuto vive solo lì.
 //
 // DOVE FINISCE QUESTO FILE, e comincia qualcun altro. Una rosa osservata NON è
 // una previsione. Sapere che `p3` è un centrocampista disponibile non dice
@@ -41,9 +53,17 @@ export type ObservedAvailability = "disponibile" | "indisponibile" | "in_dubbio"
 
 /** Un giocatore in rosa, con id opaco. */
 export interface ObservedPlayer {
-  /** Identificatore opaco, generato fuori da qui. Mai un nome. */
+  /** Identificatore opaco, generato fuori da qui. Non è il nome. */
   readonly id: string;
   readonly role: Role;
+  /**
+   * Il nome, **se l'osservazione l'ha dichiarato**.
+   *
+   * `undefined` è «non osservato», e va detto a schermo invece di essere
+   * coperto: non esiste nessun ripiego lecito: né l'id travestito da nome, né
+   * una stringa vuota, né un nome preso da un'altra parte.
+   */
+  readonly name?: string;
   /** Squadra reale, se osservata. Opaca anch'essa. */
   readonly realTeamId?: string;
   readonly availability?: ObservedAvailability;

@@ -29,6 +29,53 @@ export function depositoConSquadra(): Record<string, unknown> {
 }
 
 /**
+ * L'identificativo del giocatore a cui `depositoConNomeMancante` toglie il nome.
+ *
+ * È un titolare, non un panchinaro dimenticato in fondo: il caso «nome non
+ * osservato» deve vedersi nel posto più in vista della pagina, perché è lì che
+ * un identificativo travestito da nome farebbe più danno.
+ */
+export const SENZA_NOME_ID = "g-d1";
+
+/**
+ * Una lettura riuscita in cui **di un giocatore il nome non è stato osservato**.
+ *
+ * È il caso che il canale di lega produce davvero oggi, e non un'ipotesi di
+ * laboratorio: la piattaforma dichiara gli identificativi, e il nome può
+ * mancare. Qui manca per uno solo, di proposito — così la stessa schermata
+ * mostra insieme le due cose che devono restare distinguibili a colpo d'occhio:
+ * un nome letto e un nome che non c'è.
+ *
+ * `name` viene **tolto**, non messo a stringa vuota: assente e vuoto sono due
+ * osservazioni diverse, e il contratto tratta solo la prima come «non so».
+ */
+export function depositoConNomeMancante(): Record<string, unknown> {
+  return depositoSenzaNomi(SENZA_NOME_ID);
+}
+
+/**
+ * Come sopra, ma per quanti giocatori si vuole.
+ *
+ * Serve a mettere sotto gli occhi, nella STESSA schermata, i tre stati del
+ * nome: dichiarato dalla lega, riconciliato da un'altra fonte, e ignoto. Con
+ * una sola variante non si potrebbe distinguere «la pagina sa fare il terzo
+ * stato» da «la pagina fa il terzo stato dappertutto».
+ */
+export function depositoSenzaNomi(...ids: readonly string[]): Record<string, unknown> {
+  const payload = copia();
+  const rosa = payload["roster"] as Record<string, unknown>;
+  const giocatori = rosa["players"] as Record<string, unknown>[];
+  for (const id of ids) {
+    const bersaglio = giocatori.find((giocatore) => giocatore["id"] === id);
+    if (bersaglio === undefined) {
+      throw new Error(`la fixture non porta più il giocatore ${id}`);
+    }
+    delete bersaglio["name"];
+  }
+  return payload;
+}
+
+/**
  * Una lettura riuscita che dice: **non hai nessuno**.
  *
  * È lo stato di prima dell'asta e di fine stagione, ed è l'unico caso in cui la

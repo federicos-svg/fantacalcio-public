@@ -141,6 +141,12 @@ function giocatore(valore: unknown): ObservedPlayer | null {
   const nome = testo(grezzo["name"]);
   const squadraReale = testo(grezzo["realTeamId"]);
   const disponibilita = testo(grezzo["availability"]);
+  // NIENTE `as ObservedPlayer` QUI, ed è la correzione che questo file
+  // aspettava: finché il cast c'era, `name` veniva letto, messo nell'oggetto e
+  // poi reso invisibile al compilatore — il valore arrivava fino al browser e
+  // nessuno a valle poteva vederlo, perché il tipo non lo dichiarava. Un cast
+  // che zittisce il controllo su una proprietà in più è esattamente il modo in
+  // cui un dato letto si perde senza che niente diventi rosso.
   return {
     id,
     role: ruolo as Role,
@@ -149,7 +155,7 @@ function giocatore(valore: unknown): ObservedPlayer | null {
     ...(disponibilita === "disponibile" || disponibilita === "indisponibile" || disponibilita === "in_dubbio"
       ? { availability: disponibilita }
       : {}),
-  } as ObservedPlayer;
+  } satisfies ObservedPlayer;
 }
 
 function rosa(valore: unknown): ObservedTeam | null {

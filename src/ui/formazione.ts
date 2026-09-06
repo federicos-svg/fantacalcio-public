@@ -102,12 +102,40 @@ import {
   PROVA_ESITO_SALVATAGGIO,
   PROVA_ETICHETTA_SALVATAGGIO,
   PROVA_INVITO,
+  PROVA_MARCHIO_GETTONE,
   PROVA_NON_PERSISTITA,
   PROVA_SPIEGAZIONE,
   PROVA_TESTO_COMANDO,
   PROVA_TESTO_USCITA,
   PROVA_TITOLO,
 } from "../formazioneProva.js";
+
+/**
+ * QUELLO CHE LA PAGINA DICE QUANDO IL NOME NON È STATO LETTO.
+ *
+ * Non è un ripiego e non è un nome: è la dichiarazione che il nome manca,
+ * accanto all'identificativo che al suo posto si mostra. Serve perché
+ * l'alternativa — stampare l'identificativo e basta — produce una stringa
+ * indistinguibile da un nome, cioè un dato falso con l'aria di un dato vero;
+ * e l'altra alternativa — non stampare niente — produce una casella vuota che
+ * si legge come un difetto del disegno invece che come un'informazione.
+ */
+export const NOME_NON_LETTO = "nome non letto dalla lega";
+
+/**
+ * LA TARGA DEL NOME RICONCILIATO — «questo nome la lega non l'ha detto».
+ *
+ * Il nome che porta questa targa viene dall'anagrafica interna, agganciata al
+ * giocatore sulla stessa chiave con cui la lega lo identifica. È un dato vero e
+ * utile, e NON è un dato della lega: senza la targa il gettone affermerebbe che
+ * la piattaforma ha dichiarato un nome che non ha mai dichiarato, ed è
+ * esattamente il tipo di piccola bugia comoda che questo progetto tiene
+ * separata sotto i nomi «misurato» e «inferito».
+ *
+ * Non è un avvertimento e non è un difetto: è una provenienza, e si legge come
+ * tale.
+ */
+export const NOME_DAL_LISTONE = "nome dall'anagrafica, non dalla lega";
 
 /** I gesti della schermata. Nessuno di loro tocca la rete: li serve la shell. */
 export interface FormazioneHandlers {
@@ -1457,6 +1485,7 @@ function renderPlayerToken(
   handlers: FormazioneHandlers,
   codes: ReadonlyMap<string, string[]>,
   presa: FormazionePresa,
+  prova: boolean,
 ): HTMLButtonElement {
   const held = inMano(competition, presa);
   const preso = held === player.id;
@@ -1472,7 +1501,17 @@ function renderPlayerToken(
 
   const ruolo = ROLE_LABEL[player.role] ?? player.role;
   const disponibilita = player.availability === undefined ? "" : `, ${player.availability}`;
-  const chiSono = `«${player.id}», ${ruolo}, ${postoInParole(player.place)}${disponibilita}`;
+  // CHI È, DETTO A VOCE come è scritto sul gettone: il nome quando c'è, e
+  // altrimenti l'identificativo con la sua dichiarazione. Una `aria-label` che
+  // continuasse a dire l'identificativo mentre lo schermo dice il nome
+  // racconterebbe due storie diverse alla stessa persona.
+  const comeSiChiama =
+    player.name === undefined
+      ? `«${player.id}», ${NOME_NON_LETTO}`
+      : player.nameSource === "listone"
+        ? `${player.name} (${NOME_DAL_LISTONE})`
+        : `${player.name}`;
+  const chiSono = `${comeSiChiama}, ${ruolo}, ${postoInParole(player.place)}${disponibilita}`;
   bottone.setAttribute(
     "aria-label",
     !competition.editable
@@ -1495,17 +1534,86 @@ function renderPlayerToken(
   const testa = document.createElement("span");
   testa.style.cssText = `display:flex;align-items:center;gap:5px;`;
   testa.appendChild(renderRoleChip(player.role));
+
+
+  // IL NOME QUANDO C'È, L'IDENTIFICATIVO QUANDO NON C'È — e la differenza fra i
+  // due si vede, invece di essere lasciata indovinare. Un identificativo
+  // stampato dove ci si aspetta un nome è ciò che questa pagina mostrava prima:
+  // non era un buco, era peggio, perché aveva l'aria di un dato.
   const nome = document.createElement("span");
+  nome.className = "formazione-gettone__nome";
+  // Tre stati, e si distinguono anche dal DOM: una prova che li confondesse
+  // non se ne accorgerebbe leggendo il solo testo.
+  nome.dataset.nome =
+    player.name === undefined ? "non-letto" : player.nameSource === "listone" ? "listone" : "lega";
+  // LA STESSA CASSA DI PRIMA, di proposito. Un nome sta bene anche in
+  // proporzionale — si legge meglio — ma cambiare cassa qui cambia la
+  // larghezza del testo, il testo va a capo un'altra volta e il gettone
+  // cresce: misurato, il campo si allunga e la pagina con lui. Il compito di
+  // oggi è mostrare il nome, non ridisegnare il gettone; la cassa resta quella
+  // che era, e chi vorrà cambiarla lo farà misurando l'altezza.
   nome.style.cssText = `font-family:${C.mono};font-size:11px;font-weight:700;color:${C.textPrimary};overflow-wrap:anywhere;line-height:1.25;`;
-  nome.textContent = player.id;
+  nome.textContent = player.name ?? player.id;
   testa.appendChild(nome);
   bottone.appendChild(testa);
+
+  // ASSENTE NON È ZERO. Quando il nome non è stato letto il gettone porta
+  // l'identificativo E LO DICHIARA: senza questa riga la stessa stringa
+  // sarebbe indistinguibile da un nome che qualcuno si chiama davvero, e chi
+  // guarda concluderebbe che il prodotto ha sbagliato a leggere un nome invece
+  // di capire che quel nome non è mai arrivato.
+  if (player.name === undefined) {
+    const avviso = document.createElement("span");
+    avviso.className = "formazione-gettone__nome-ignoto";
+    avviso.style.cssText = `font-size:9.5px;letter-spacing:0.03em;color:${C.textDim};line-height:1.3;`;
+    avviso.textContent = NOME_NON_LETTO;
+    bottone.appendChild(avviso);
+  } else if (player.nameSource === "listone") {
+    // IL TERZO STATO. Non è l'assenza di un nome e non è il nome della lega: è
+    // un nome che sappiamo da un'altra parte, e la riga lo dice invece di
+    // lasciarlo passare per parola della piattaforma.
+    const fonte = document.createElement("span");
+    fonte.className = "formazione-gettone__nome-fonte";
+    fonte.style.cssText = `font-size:9.5px;letter-spacing:0.03em;color:${C.textDim};line-height:1.3;`;
+    fonte.textContent = NOME_DAL_LISTONE;
+    bottone.appendChild(fonte);
+  }
 
   // I SEGNI CHE IL MODELLO PORTA, e nessun altro. La disponibilità è quella che
   // la lega ha dichiarato, la spunta è quella che qualcuno ha messo: qui non
   // nasce nessun giudizio nuovo sopra un dato mancante.
   const segni = document.createElement("span");
   segni.style.cssText = `display:flex;flex-wrap:wrap;align-items:center;gap:4px;font-size:9.5px;line-height:1.3;`;
+
+  // LA TARGA DELLA PROVA, SU OGNI GETTONE E INDIPENDENTE DAL TESTO ACCANTO.
+  //
+  // Prima il marchio viveva dentro l'identificativo (`ESEMPIO-Portiere-1`) e
+  // reggeva solo finché l'identificativo era ciò che si vedeva. Adesso il
+  // gettone mostra il NOME quando c'è, quindi quel marchio sarebbe sparito da
+  // solo il primo giorno in cui il deposito porta i nomi — senza che nessuno
+  // avesse sbagliato niente. Qui è un elemento suo: non dipende da che cosa c'è
+  // scritto accanto, e un ritaglio di questa schermata resta riconoscibile.
+  //
+  // STA FRA I SEGNI, E NON ACCANTO AL NOME, per una ragione misurata: nella
+  // riga del nome la targa gli rubava larghezza, il nome andava a capo due
+  // volte in più e il gettone passava da 57 a 87 pixel di altezza — mezzo campo
+  // in più su una pagina che si guarda la domenica mattina col telefono in
+  // mano. I segni sono la riga che esiste apposta per le marche brevi, si
+  // avvolge da sé e non contende spazio a niente.
+  if (prova) {
+    const targa = document.createElement("span");
+    targa.className = "formazione-gettone__prova";
+    targa.dataset.prova = "attiva";
+    // A COSTO ZERO IN ALTEZZA, e non per eleganza: il bordo e l'imbottitura
+    // facevano crescere la riga dei segni di tre pixel per gettone, che su
+    // ventidue gettoni diventano una pagina più lunga e un campo più alto.
+    // Il marchio si vede per il colore e per il peso, non perché occupa spazio.
+    targa.style.cssText =
+      `font-weight:700;letter-spacing:0.06em;line-height:1.3;` +
+      `color:${C.textAccent};text-transform:uppercase;`;
+    targa.textContent = PROVA_MARCHIO_GETTONE;
+    segni.appendChild(targa);
+  }
   if (player.availability !== undefined) {
     const stato = document.createElement("span");
     const colore =
@@ -1725,6 +1833,7 @@ function renderPlayerUnit(
   codes: ReadonlyMap<string, string[]>,
   presa: FormazionePresa,
   benchLength: number,
+  prova: boolean,
 ): HTMLElement {
   const unit = document.createElement("div");
   unit.className = "formazione-riga";
@@ -1740,7 +1849,7 @@ function renderPlayerUnit(
     unit.appendChild(ordine);
   }
 
-  unit.appendChild(renderPlayerToken(competition, player, handlers, codes, presa));
+  unit.appendChild(renderPlayerToken(competition, player, handlers, codes, presa, prova));
   unit.appendChild(renderComandiPosto(competition, player, handlers, benchLength));
 
   // IL TRASCINAMENTO PARTE DAL CONTENITORE, NON DAL BOTTONE, e non è una
@@ -1900,6 +2009,7 @@ function renderPitch(
   handlers: FormazioneHandlers,
   codes: ReadonlyMap<string, string[]>,
   presa: FormazionePresa,
+  prova: boolean,
 ): HTMLElement {
   const group = document.createElement("div");
   group.id = `formazione-titolari-${competition.competitionId}`;
@@ -1949,6 +2059,7 @@ function renderPitch(
               codes,
               presa,
               competition.bench.length,
+              prova,
             ),
       );
     }
@@ -1981,7 +2092,7 @@ function renderPitch(
     striscia.style.cssText = `display:flex;flex-wrap:wrap;gap:8px;`;
     for (const player of senzaPosto) {
       striscia.appendChild(
-        renderPlayerUnit(competition, player, handlers, codes, presa, competition.bench.length),
+        renderPlayerUnit(competition, player, handlers, codes, presa, competition.bench.length, prova),
       );
     }
     box.appendChild(striscia);
@@ -2077,6 +2188,7 @@ function renderStrip(
   handlers: FormazioneHandlers,
   codes: ReadonlyMap<string, string[]>,
   presa: FormazionePresa,
+  prova: boolean,
   suffisso: string,
   titolo: string,
   nota: string,
@@ -2106,7 +2218,7 @@ function renderStrip(
   }
   for (const player of righe) {
     striscia.appendChild(
-      renderPlayerUnit(competition, player, handlers, codes, presa, competition.bench.length),
+      renderPlayerUnit(competition, player, handlers, codes, presa, competition.bench.length, prova),
     );
   }
   if (zona !== null) {
@@ -2125,6 +2237,7 @@ function renderRosterOnly(
   handlers: FormazioneHandlers,
   codes: ReadonlyMap<string, string[]>,
   presa: FormazionePresa,
+  prova: boolean,
 ): HTMLElement {
   // NIENTE CAMPO QUI, e non è una dimenticanza: senza una formazione letta non
   // c'è nessun modulo, quindi non ci sono posti da disegnare. Un campo verde con
@@ -2135,6 +2248,7 @@ function renderRosterOnly(
     handlers,
     codes,
     presa,
+    prova,
     "rosa",
     "Rosa",
     "Le spunte dicono chi vuoi in campo e restano anche se non salvi adesso.",
@@ -2296,15 +2410,16 @@ function renderCompetition(
   // sotto ciò che descrivono e sopra il bottone che fermano.
   const codes = codesByPlayer(competition);
   if (competition.lineup === null) {
-    panel.appendChild(renderRosterOnly(competition, handlers, codes, presa));
+    panel.appendChild(renderRosterOnly(competition, handlers, codes, presa, prova));
   } else {
-    panel.appendChild(renderPitch(competition, handlers, codes, presa));
+    panel.appendChild(renderPitch(competition, handlers, codes, presa, prova));
     panel.appendChild(
       renderStrip(
         competition,
         handlers,
         codes,
         presa,
+        prova,
         "panchina",
         "Panchina",
         "L'ordine conta: quando i senza voto sono più delle sostituzioni disponibili entra chi sta più " +
@@ -2319,6 +2434,7 @@ function renderCompetition(
         handlers,
         codes,
         presa,
+        prova,
         "fuori",
         "Fuori dai convocati",
         "In rosa, e non schierati in questa partita.",

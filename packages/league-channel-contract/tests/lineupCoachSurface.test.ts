@@ -1166,3 +1166,119 @@ describe("un vincolo che oggi non si può applicare non blocca la formazione per
     expect(dopo.lockedStarterIds).toEqual(["p3"]);
   });
 });
+
+describe("il nome del giocatore arriva fino al modello, e la sua assenza pure", () => {
+  // PERCHÉ QUESTO BLOCCO ESISTE. La pagina ha mostrato per mesi
+  // l'IDENTIFICATIVO al posto del nome, e il primo anello a perderlo era
+  // proprio questo: `FormazionePlayerRow` non aveva un campo per il nome,
+  // quindi anche un deposito che lo dichiarava lo vedeva sparire qui, in
+  // silenzio e senza che niente diventasse rosso. Le due righe che seguono
+  // sono la coppia che rende quel silenzio impossibile: una prova che il nome
+  // letto passa, l'altra che il nome assente NON viene inventato.
+
+  const ROSA_CON_NOMI: ObservedTeam = {
+    teamId: ROSA.teamId,
+    players: ROSA.players.map((giocatore, indice) =>
+      // Uno solo resta senza nome, ed è deliberato: il caso misto è quello
+      // vero, e una rosa tutta con nomi o tutta senza non distinguerebbe «il
+      // modello riporta» da «il modello riempie».
+      indice === 0 ? giocatore : { ...giocatore, name: `giocatore sintetico ${indice}` },
+    ),
+  };
+
+  it("un nome osservato arriva alla riga della pagina, tale e quale", () => {
+    const view = buildFormazioneView(
+      letto([campionato({ kind: "letta", lineup: FORMAZIONE })], ROSA_CON_NOMI),
+      new Map(),
+    );
+    const righe = view.competitions[0]?.players ?? [];
+    const conNome = righe.find((riga) => riga.id === "p2");
+    expect(conNome?.name).toBe("giocatore sintetico 1");
+  });
+
+  it("un nome NON osservato resta assente: il modello non lo deduce dall'identificativo", () => {
+    // È la riga che tiene ferma la regola «il nome è un dato letto, non
+    // dedotto». Se un giorno qualcuno facesse cadere l'id dentro `name` come
+    // ripiego, questa prova diventerebbe rossa — ed è l'unico posto in cui quel
+    // ripiego si potrebbe infilare senza rompere nient'altro.
+    const view = buildFormazioneView(
+      letto([campionato({ kind: "letta", lineup: FORMAZIONE })], ROSA_CON_NOMI),
+      new Map(),
+    );
+    const righe = view.competitions[0]?.players ?? [];
+    const senzaNome = righe.find((riga) => riga.id === "p1");
+    expect(senzaNome).toBeDefined();
+    expect(senzaNome?.name).toBeUndefined();
+    // E l'identificativo resta dov'era: è ciò che la pagina mostrerà al posto
+    // del nome, dichiarandolo.
+    expect(senzaNome?.id).toBe("p1");
+  });
+});
+
+describe("il nome riconciliato da un'altra fonte, e la sua provenienza", () => {
+  // I TRE STATI del nome, provati qui dove non serve un browser. La pagina ne
+  // disegna tre perché ce ne sono tre: il nome che la lega ha dichiarato, il
+  // nome che sappiamo da un'altra parte, e il nome che non sa nessuno.
+
+  const ROSA_MISTA: ObservedTeam = {
+    teamId: ROSA.teamId,
+    players: ROSA.players.map((giocatore, indice) =>
+      // `p1` senza nome, tutti gli altri col nome della lega.
+      indice === 0 ? giocatore : { ...giocatore, name: `nome di lega ${indice}` },
+    ),
+  };
+
+  it("dove la lega tace, il nome arriva dall'altra fonte E si dichiara tale", () => {
+    const view = buildFormazioneView(
+      letto([campionato({ kind: "letta", lineup: FORMAZIONE })], ROSA_MISTA),
+      new Map(),
+      undefined,
+      undefined,
+      new Map([["p1", "nome riconciliato"]]),
+    );
+    const riga = (view.competitions[0]?.players ?? []).find((r) => r.id === "p1");
+    expect(riga?.name).toBe("nome riconciliato");
+    expect(riga?.nameSource).toBe("listone");
+  });
+
+  it("dove la lega parla, l'altra fonte NON la sovrascrive — nemmeno se dissente", () => {
+    // È il vincolo che tiene la pagina onesta: sulla formazione comanda la
+    // lega. Un'anagrafica che vince sulla fonte su cui si schiera è il modo in
+    // cui una schermata comincia a mostrare una squadra che non è quella vera.
+    const view = buildFormazioneView(
+      letto([campionato({ kind: "letta", lineup: FORMAZIONE })], ROSA_MISTA),
+      new Map(),
+      undefined,
+      undefined,
+      new Map([["p2", "nome che il listone preferirebbe"]]),
+    );
+    const riga = (view.competitions[0]?.players ?? []).find((r) => r.id === "p2");
+    expect(riga?.name).toBe("nome di lega 1");
+    expect(riga?.nameSource).toBe("lega");
+  });
+
+  it("senza riconciliazione il nome ignoto RESTA ignoto: nessun ripiego", () => {
+    // Il terzo ramo non è un caso di laboratorio: sulla formazione misurata
+    // sono 4 giocatori su 28, quelli che l'anagrafica di una stagione fa non
+    // contiene. Deve reggere anche quando la mappa non arriva affatto.
+    const view = buildFormazioneView(
+      letto([campionato({ kind: "letta", lineup: FORMAZIONE })], ROSA_MISTA),
+      new Map(),
+    );
+    const riga = (view.competitions[0]?.players ?? []).find((r) => r.id === "p1");
+    expect(riga?.name).toBeUndefined();
+    expect(riga?.nameSource).toBeUndefined();
+  });
+
+  it("un identificativo che l'altra fonte non conosce resta senza nome", () => {
+    const view = buildFormazioneView(
+      letto([campionato({ kind: "letta", lineup: FORMAZIONE })], ROSA_MISTA),
+      new Map(),
+      undefined,
+      undefined,
+      new Map([["un-id-che-non-e-in-rosa", "nome di nessuno"]]),
+    );
+    const riga = (view.competitions[0]?.players ?? []).find((r) => r.id === "p1");
+    expect(riga?.name).toBeUndefined();
+  });
+});
