@@ -25,7 +25,7 @@ import {
   SYNTHETIC_APPEAL_INDEX_QUALITY,
   SYNTHETIC_APPEAL_INDEX_RECIPE,
 } from "./fixtures/synthetic-listone.js";
-import { installSyntheticNetworkGuard } from "./helpers.js";
+import { apriAsta, installSyntheticNetworkGuard } from "./helpers.js";
 
 // GET /api/listone (functions/api/listone.ts) is always stubbed here — the
 // Vite preview server this suite runs against has no Pages Functions runtime,
@@ -44,7 +44,7 @@ test("the private deposit wins over the static asset and says so, with its date"
     rows: SYNTHETIC_REMOTE_LISTONE_POOL,
     modifiedAt: SYNTHETIC_REMOTE_MODIFIED_AT,
   });
-  await page.goto("/");
+  await apriAsta(page);
 
   for (const player of SYNTHETIC_REMOTE_LISTONE_POOL) {
     await expect(page.getByText(player.name, { exact: true })).toBeVisible();
@@ -80,7 +80,7 @@ test("the private deposit wins over the static asset and says so, with its date"
 test("an unavailable deposit falls back to the static asset and keeps the fallback note", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests, { kind: "unavailable" });
-  await page.goto("/");
+  await apriAsta(page);
 
   for (const player of SYNTHETIC_LISTONE_POOL) {
     await expect(page.getByText(player.name, { exact: true })).toBeVisible();
@@ -96,7 +96,7 @@ test("a deposit answered by the SPA fallback (200 text/html) is refused, not sho
   // No stub for /api/listone: the preview server answers it with index.html at
   // status 200. Only the content-type check keeps that out of the pool.
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests, { kind: "passthrough" });
-  await page.goto("/");
+  await apriAsta(page);
 
   for (const player of SYNTHETIC_LISTONE_POOL) {
     await expect(page.getByText(player.name, { exact: true })).toBeVisible();
@@ -114,7 +114,7 @@ test("a deposit payload the UI validator refuses leaves the static asset on scre
     // A gated decision field — refused wholesale, never partially loaded.
     rows: [{ name: "Gino Vietato", role: "A", club: "ClubSette", quotation: 30, target_band: 42 }],
   });
-  await page.goto("/");
+  await apriAsta(page);
 
   for (const player of SYNTHETIC_LISTONE_POOL) {
     await expect(page.getByText(player.name, { exact: true })).toBeVisible();
@@ -132,7 +132,7 @@ test("the served index is on screen with its quality label, its recipe version a
     rows: SYNTHETIC_REMOTE_LISTONE_POOL_WITH_INDEX,
     modifiedAt: SYNTHETIC_REMOTE_MODIFIED_AT,
   });
-  await page.goto("/");
+  await apriAsta(page);
 
   // Visible without opening the column picker.
   await expect(page.locator(".listone-table-head")).toContainText("Indice");
@@ -167,7 +167,7 @@ test("an index without its quality label is refused, index and rows together", a
       },
     ],
   });
-  await page.goto("/");
+  await apriAsta(page);
 
   for (const player of SYNTHETIC_LISTONE_POOL) {
     await expect(page.getByText(player.name, { exact: true })).toBeVisible();

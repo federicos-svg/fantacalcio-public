@@ -2,10 +2,12 @@ import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
 import { SYNTHETIC_LISTONE_POOL, E2E_TARGET_PLAYER, E2E_PURCHASE_PRICE } from "./fixtures/synthetic-listone.js";
 import {
+  apriAsta,
   expectAssignedEffectsVisible,
   gotoScreen,
   installSyntheticNetworkGuard,
   readLocalStorageRaw,
+  ricaricaAsta,
 } from "./helpers.js";
 import { LOG_STORAGE_KEY } from "../src/logRecovery.js";
 import { CONFIRMATIONS_STORAGE_KEY } from "../src/confirmationsStore.js";
@@ -129,7 +131,7 @@ async function seedLastSeasonRoster(page: Page): Promise<void> {
       },
     ] as const,
   );
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator(".listone-row").first()).toBeVisible();
 }
 
@@ -171,7 +173,7 @@ async function expectRiconfermaOnRoseCard(page: Page): Promise<void> {
 test("exports, confirms replacement, imports, and survives reload without external network", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await page.getByText(E2E_TARGET_PLAYER.name, { exact: true }).click();
   await page.getByRole("button", { name: /^Avvia/ }).click();
   await page.locator("#assign-price").fill(String(E2E_PURCHASE_PRICE));
@@ -214,7 +216,7 @@ test("exports, confirms replacement, imports, and survives reload without extern
   await expect(page.getByText(/semanticamente valido/)).toBeVisible();
   expect(await readLocalStorageRaw(page, LOG_STORAGE_KEY)).toBe(importedRaw);
 
-  await page.reload();
+  await ricaricaAsta(page);
   await expectAssignedEffectsVisible(page, E2E_TARGET_PLAYER.name, E2E_PURCHASE_PRICE, "1/7");
   expect(externalRequests).toEqual([]);
 });
@@ -228,7 +230,7 @@ test("v2 export carries the riconferme batch, and reimporting on a wiped device 
 }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await expect(page.locator(".listone-row").first()).toBeVisible();
 
   // Una riconferma sulla riga di ruolo D del pool iniettato, dal gesto vero:
@@ -269,7 +271,7 @@ test("v2 export carries the riconferme batch, and reimporting on a wiped device 
   // ha riportato. Il batch riconferme viaggia dentro l'envelope e non dentro
   // lo storico d'asta — che è esattamente ciò che questo test misura.
   await page.evaluate(() => window.localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator(".listone-row").first()).toBeVisible();
   await page.locator("#auction-log-import-file").setInputFiles(exportedPath!);
   // Not expectAssignedEffectsVisible: that helper assumes a clean 500 cr
@@ -295,7 +297,7 @@ test("a v1 legacy file with no confirmations key still imports, validated agains
 }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await expect(page.locator(".listone-row").first()).toBeVisible();
 
   // Device already has a riconferma unrelated to the imported (empty) log.
@@ -340,7 +342,7 @@ test("v2 import onto an empty log with riconferme already entered shows the repl
 }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await expect(page.locator(".listone-row").first()).toBeVisible();
 
   await seedLastSeasonRoster(page);

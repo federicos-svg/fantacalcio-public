@@ -23,6 +23,7 @@
 //             una, mai fuse in una media.
 
 import type { Page } from "@playwright/test";
+import { ricaricaAsta } from "../helpers.js";
 import type { ListonePlayer } from "../../src/ui/listone.js";
 import { listonePlayerKey } from "../../src/ui/listone.js";
 import type {
@@ -219,5 +220,8 @@ export async function seedPrecedents(page: Page): Promise<void> {
       },
     ] as const,
   );
-  await page.reload();
+  // Ricaricare riapre il sito sulla Formazione — è la prima pagina, e non
+  // cambia più da sola (src/primaPagina.ts): il seminatore riporta dove
+  // stava, cioè sull'Asta, invece di lasciare la prova su un'altra pagina.
+  await ricaricaAsta(page);
 }

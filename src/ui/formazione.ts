@@ -1,5 +1,13 @@
 // LA SCHERMATA FORMAZIONE — la prima voce della barra, e la pagina che apre il
-// sito quando c'è davvero una squadra da schierare.
+// sito: anche quando la lega non ha ancora risposto, e allora lo dice.
+//
+// E NON SI ARRIVA MAI QUI PER SALTO, né si viene mai portati via da qui. La
+// pagina che apre il sito si decide una volta sola, al primo disegno
+// (`decideInitialScreen`, consumata in `src/primaPagina.ts`); da lì in poi
+// questa schermata si RIEMPIE restando dov'è. I tre modi in cui può non avere
+// una squadra da disegnare — sto chiedendo, non lo so, la rosa è vuota — sono
+// tre cose che questa pagina DICE, non tre ragioni per mandare altrove chi la
+// sta guardando.
 //
 // QUESTO FILE NON DECIDE NIENTE. Riceve un modello già costruito
 // (`buildFormazioneView`, nel contratto di osservazione) e lo dipinge: nessuna
@@ -71,6 +79,8 @@ import type {
   ConstraintConflict,
   ConstraintQuarantine,
   FormazioneCompetitionView,
+  FormazioneEmptyRoster,
+  FormazioneUnknownNotice,
   FormazionePlayerRow,
   FormazioneView,
   LineupDifference,
@@ -284,6 +294,69 @@ function commandButton(
   button.style.cssText = `font-size:11px;padding:2px 8px;${disabled ? "opacity:0.45;" : ""}`;
   if (!disabled) button.addEventListener("click", onClick);
   return button;
+}
+
+/**
+ * L'ATTESA SI VEDE — e non si veste da guasto.
+ *
+ * È il primo secondo di ogni apertura del sito: la porta della lega è
+ * collegata, la richiesta è partita, la risposta non è arrivata. Un pannello
+ * rosso con `role="alert"` direbbe che qualcosa è andato storto, e non è vero;
+ * una pagina muta direbbe «non hai schierato», e sarebbe peggio. Quindi:
+ * `role="status"` con `aria-live="polite"` — si annuncia senza interrompere — e
+ * il colore di una pagina che sta lavorando, non di una che si è rotta.
+ *
+ * Come per l'avviso, qui NON c'è nessuna formazione accanto: il modello non
+ * porta nessuna competizione finché lo stato non è noto, quindi non esiste lo
+ * schermo misto in cui una griglia vuota si legga come «non ho ancora
+ * schierato».
+ */
+function renderLetturaInCorso(notice: FormazioneUnknownNotice): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "formazione-lettura-in-corso";
+  panel.className = "panel";
+  panel.setAttribute("role", "status");
+  panel.setAttribute("aria-live", "polite");
+  panel.setAttribute("aria-label", "Lettura della lega in corso");
+  panel.style.cssText = `border:1px solid ${C.border};display:flex;flex-direction:column;gap:10px;`;
+
+  const title = sectionTitle(notice.title);
+  title.style.cssText = `color:${C.textPrimary};`;
+  panel.appendChild(title);
+  panel.appendChild(paragraph(notice.detail, `color:${C.textPrimary};`));
+  panel.appendChild(
+    paragraph(
+      "Questa pagina resta questa pagina: quando la risposta arriva si riempie qui, senza portarti " +
+        "altrove. L'Asta è raggiungibile dalla barra qui sopra in qualunque momento.",
+      `color:${C.textSec};`,
+    ),
+  );
+  return panel;
+}
+
+/**
+ * LA LEGA HA RISPOSTO, E NON HAI NESSUNO. Non è un guasto — niente rosso,
+ * niente `alert` — ed è la ragione per cui questa pagina non ha niente da
+ * mostrare: prima dell'asta, o a stagione finita, non c'è nessuno da schierare.
+ *
+ * È il caso in cui la regola di apertura avrebbe scelto l'Asta. Quando lo
+ * scopre a pagina già aperta, la Formazione lo DICHIARA e resta dov'è: portare
+ * via chi sta guardando, secondi dopo l'apertura, sarebbe il difetto che questa
+ * schermata ha appena smesso di avere.
+ */
+function renderEmptyRoster(empty: FormazioneEmptyRoster): HTMLElement {
+  const panel = document.createElement("section");
+  panel.id = "formazione-rosa-vuota";
+  panel.className = "panel";
+  panel.setAttribute("role", "status");
+  panel.setAttribute("aria-label", "Nessun giocatore da schierare");
+  panel.style.cssText = `border:1px solid ${C.border};display:flex;flex-direction:column;gap:10px;`;
+
+  const title = sectionTitle(empty.title);
+  title.style.cssText = `color:${C.textPrimary};`;
+  panel.appendChild(title);
+  panel.appendChild(paragraph(empty.detail, `color:${C.textPrimary};`));
+  return panel;
 }
 
 /**
@@ -2421,11 +2494,27 @@ export function renderFormazioneScreen(
   }
 
   if (!view.known) {
-    wrap.appendChild(renderUnknownNotice(view));
+    // L'ATTESA NON È UN GUASTO, e non si disegna come tale: finché la richiesta
+    // è per aria la pagina dice che sta chiedendo. Tutto il resto — nessuna
+    // formazione, nessun salvataggio, l'invito alla prova sotto — è identico,
+    // perché identico è ciò che si sa: niente.
+    if (view.notice?.cause === "lettura_in_corso") {
+      wrap.appendChild(renderLetturaInCorso(view.notice));
+    } else {
+      wrap.appendChild(renderUnknownNotice(view));
+    }
     // L'invito sta SOTTO l'avviso e non al posto suo: la verità sul canale
     // resta la prima cosa che si legge, e la prova è ciò che si può fare
     // intanto. Con la prova già accesa non si offre di riaccenderla.
     if (!prova.attiva) wrap.appendChild(renderProvaInvito(prova));
+    return wrap;
+  }
+
+  // LA LEGA HA RISPOSTO E NON C'È NESSUNO DA SCHIERARE. Si dichiara, e la pagina
+  // resta questa: è il caso in cui l'apertura avrebbe scelto l'Asta, e scoprirlo
+  // dopo non è un motivo per spostare chi sta guardando.
+  if (view.emptyRoster !== null) {
+    wrap.appendChild(renderEmptyRoster(view.emptyRoster));
     return wrap;
   }
 

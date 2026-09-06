@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { gotoScreen, installSyntheticNetworkGuard } from "./helpers.js";
+import { apriAsta, gotoScreen, installSyntheticNetworkGuard, ricaricaAsta } from "./helpers.js";
 
 // #221 — responsive check for the panels added by T12, at the three viewports
 // the task requires: 390 / 768 / 1280. Layout is asserted off the live computed
@@ -34,12 +34,12 @@ test("every new panel is readable at 390, 768 and 1280 without sideways scrollin
 
   for (const viewport of VIEWPORTS) {
     await page.setViewportSize(viewport);
-    await page.goto("/");
+    await apriAsta(page);
     // Each viewport starts from an empty auction: the persisted log survives a
     // goto(), and step 3 below leaves purchases behind that would make the
     // next iteration's listone selections point at already-assigned rows.
     await page.evaluate(() => localStorage.clear());
-    await page.reload();
+    await ricaricaAsta(page);
 
     // 0. La pagina di partenza non scorre di lato a nessuna delle tre
     //    larghezze, prima ancora di aprire qualsiasi pannello.

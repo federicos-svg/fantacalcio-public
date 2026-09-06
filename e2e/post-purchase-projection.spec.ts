@@ -1,6 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { ListonePlayer } from "../src/ui/listone.js";
-import { AA_NORMAL_TEXT, installSyntheticNetworkGuard, textContrast } from "./helpers.js";
+import {
+  AA_NORMAL_TEXT,
+  apriAsta,
+  installSyntheticNetworkGuard,
+  ricaricaAsta,
+  textContrast,
+} from "./helpers.js";
 
 // «QUANTO MI RESTA SE LO PRENDO» — la quarta domanda del tavolo, a schermo.
 //
@@ -90,9 +96,9 @@ async function buy(page: Page, name: string, teamId: string, price: number): Pro
 async function boot(page: Page, context: Parameters<typeof installSyntheticNetworkGuard>[0]): Promise<string[]> {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
   return externalRequests;
 }
 

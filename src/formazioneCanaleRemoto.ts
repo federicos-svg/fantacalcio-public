@@ -14,8 +14,12 @@
 // la rete a ogni riquadro. La lettura invece è una richiesta, e arriva quando
 // arriva. Le due cose si tengono insieme nell'unico modo onesto: la richiesta si
 // fa **una volta**, il suo esito si conserva, e la porta restituisce **quell'
-// esito**. Finché non è arrivato, la porta risponde `risposta_assente` — che è
-// la verità in quel momento, non un segnaposto.
+// esito**. Finché non è arrivato, la porta risponde `lettura_in_corso` — che è
+// la verità in quel momento, non un segnaposto, e non è la stessa cosa di «non
+// ha risposto»: la prima è un'attesa che sta per finire, la seconda è un esito.
+// Su questa distinzione poggia l'apertura del sito: la prima pagina è la
+// Formazione, che nel frattempo dichiara di star chiedendo invece di accusare
+// la lega di un silenzio che non c'è ancora stato.
 //
 // TUTTO CIÒ CHE ARRIVA È SOSPETTO FINCHÉ NON È STATO GUARDATO. `statoDaDeposito`
 // non si fida di niente: un JSON che non è un oggetto, una rosa che non è una
@@ -878,18 +882,20 @@ export async function leggiCanaleDaDeposito(
  * IL GANCIO D'AVVIO: collega la porta, chiede il deposito, e quando arriva
  * chiama `alCambio` perché la pagina si ridisegni con ciò che è arrivato.
  *
- * La porta viene collegata **subito**, prima che la richiesta parta: da quel
- * momento la pagina non dice più «canale non collegato» — quel messaggio
- * descrive una build senza layer privato, e qui il layer c'è — ma «la lega non
- * ha ancora risposto», che è ciò che sta davvero succedendo in quel secondo.
+ * La porta viene collegata **subito**, prima che la richiesta parta, e chi
+ * avvia il canale lo fa **prima che la prima pagina sia decisa** (`src/main.ts`):
+ * da quel momento la pagina non dice più «canale non collegato» — quel
+ * messaggio descrive una build in cui nessuno collega la porta — ma «sto
+ * chiedendo alla lega», che è ciò che sta davvero succedendo in quel secondo.
+ *
+ * `alCambio` NON cambia schermata, e non deve mai farlo: quando la risposta
+ * arriva, la pagina che è a schermo si riempie restando dov'è. La schermata di
+ * apertura si decide una volta sola, al primo disegno.
  */
 export function avviaCanaleDaDeposito(
   opzioni: LetturaCanaleOpzioni & { readonly alCambio: () => void },
 ): Promise<void> {
-  let ultimo: LineupChannelState = ignoto(
-    "risposta_assente",
-    "la lettura della lega non è ancora arrivata",
-  );
+  let ultimo: LineupChannelState = ignoto("lettura_in_corso", "");
   connectLineupChannel({ readState: () => ultimo });
   return leggiCanaleDaDeposito(opzioni).then((stato) => {
     ultimo = stato;

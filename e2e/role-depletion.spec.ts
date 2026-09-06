@@ -4,7 +4,13 @@ import type { ListonePlayer } from "../src/ui/listone.js";
 // deliberato: resta importato perché la spazzata di contrasto sospesa in fondo
 // — sospesa finché il riquadro è nascosto — lo usa, e va rimessa in funzione
 // così com'è scritta il giorno in cui la trappola diventa rossa.
-import { AA_NORMAL_TEXT, installSyntheticNetworkGuard, measureAllText } from "./helpers.js";
+import {
+  AA_NORMAL_TEXT,
+  apriAsta,
+  installSyntheticNetworkGuard,
+  measureAllText,
+  ricaricaAsta,
+} from "./helpers.js";
 
 // IL RUOLO STASERA, SULLO SCHERMO.
 //
@@ -43,9 +49,9 @@ const DIRECTIVE =
 test("il riquadro IL RUOLO STASERA misura il tavolo, e solo il tavolo", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
 
   const panel = page.locator("#role-depletion-panel");
   const headline = page.locator("#role-depletion-headline");

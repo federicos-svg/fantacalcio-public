@@ -18,7 +18,12 @@ import { expect, test } from "@playwright/test";
 import { LOG_STORAGE_KEY } from "../src/logRecovery.js";
 import { CONFIRMATIONS_QUARANTINE_STORAGE_KEY, CONFIRMATIONS_STORAGE_KEY } from "../src/confirmationsStore.js";
 import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { gotoScreen, installSyntheticNetworkGuard, readLocalStorageRaw } from "./helpers.js";
+import {
+  apriAsta,
+  gotoScreen,
+  installSyntheticNetworkGuard,
+  readLocalStorageRaw,
+} from "./helpers.js";
 
 // Deliberately not valid JSON, with non-ASCII content — export must
 // reproduce this exactly.
@@ -77,6 +82,9 @@ test("corrupted confirmations + non-empty log -> blocked screen; explicit two-st
   // Usable again — the STANDING log survived untouched (this action never
   // touches it), only the riconferme were cleared.
   await expect(heading).toHaveCount(0);
+  // Tolta la schermata bloccante torna l'app normale, che apre dove apre il
+  // sito: sulla Formazione (src/primaPagina.ts). L'asta è a un clic.
+  await gotoScreen(page, "Asta");
   await expect(page.locator("#critical-spent")).toHaveText("10 cr");
   const storicoPanel = page.locator(".panel", { hasText: "STORICO ACQUISTI" });
   await expect(storicoPanel).toContainText("10 cr");
@@ -124,7 +132,7 @@ test("corrupted confirmations + empty log -> non-blocking banner, the empty slot
     },
     { confirmationsKey: CONFIRMATIONS_STORAGE_KEY, corrupted: CORRUPTED_CONFIRMATIONS },
   );
-  await page.goto("/");
+  await apriAsta(page);
 
   // Never blocked: the app is fully usable, the notice is a banner.
   await expect(page.getByRole("heading", { name: /riconferme pre-asta non valide/i })).toHaveCount(0);
@@ -199,6 +207,9 @@ test("a throwing getItem scoped to the confirmations key alone renders its own f
   await page.evaluate(() => (window as unknown as { __restoreConfirmationsGetItem: () => void }).__restoreConfirmationsGetItem());
   await page.getByRole("button", { name: "Riprova lettura storage", exact: true }).click();
   await expect(heading).toHaveCount(0);
+  // Tolta la schermata bloccante torna l'app normale, che apre dove apre il
+  // sito: sulla Formazione (src/primaPagina.ts). L'asta è a un clic.
+  await gotoScreen(page, "Asta");
   await expect(page.locator("#critical-budget")).toHaveText("500 cr");
 
   expect(externalRequests).toEqual([]);

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { E2E_PURCHASE_PRICE, E2E_TARGET_PLAYER, SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { installSyntheticNetworkGuard, selectStatusFilter } from "./helpers.js";
+import { apriAsta, installSyntheticNetworkGuard, selectStatusFilter } from "./helpers.js";
 
 // IL CONTATORE DELLE INTERAZIONI NON C'È PIÙ, e con lui la sua asserzione. Era
 // una lettura diagnostica a schermo («Interazioni chiamata: 2») che nessun'altra
@@ -12,7 +12,7 @@ import { installSyntheticNetworkGuard, selectStatusFilter } from "./helpers.js";
 test("live filter, click selection and sold guard work on the synthetic proxy", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
 
   await page.locator("#search-player").fill("Dario");
   await expect(page.locator(".listone-row")).toHaveCount(1);

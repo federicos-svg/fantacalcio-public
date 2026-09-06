@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { ListonePlayer } from "../src/ui/listone.js";
 import { VISIBLE_VALUE_SLOT_IDS } from "../src/valueBox.js";
-import { installSyntheticNetworkGuard } from "./helpers.js";
+import { apriAsta, installSyntheticNetworkGuard, ricaricaAsta } from "./helpers.js";
 
 // #331 punti 2-3 — IL GESTO PRINCIPALE DELLA SCHERMATA D'ASTA NON STA SOTTO LA
 // PIEGA, E QUESTA SPEC È LA MISURA CHE LO TIENE LÌ.
@@ -308,11 +308,11 @@ async function valueBoxLayout(page: Page): Promise<ValueBoxLayout> {
 
 async function boot(page: Page, viewport: { width: number; height: number }): Promise<void> {
   await page.setViewportSize(viewport);
-  await page.goto("/");
+  await apriAsta(page);
   // Ogni giro riparte da un'asta vuota: il log persiste attraverso un goto(),
   // e uno stato residuo cambierebbe le altezze che questa spec misura.
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
 }
 

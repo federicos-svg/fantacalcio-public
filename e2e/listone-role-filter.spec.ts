@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { installSyntheticNetworkGuard } from "./helpers.js";
+import { apriAsta, installSyntheticNetworkGuard } from "./helpers.js";
 
 // I QUATTRO INTERRUTTORI DI RUOLO sulla riga del titolo del listone.
 //
@@ -27,7 +27,7 @@ const RIGHE = ".listone-row";
 test("un interruttore filtra, e premerlo di nuovo lo spegne", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
 
   const gruppo = page.locator("#listone-role-filter");
   const difensori = page.locator("#listone-role-filter-D");
@@ -85,7 +85,7 @@ test("gli interruttori e il menu «Ruolo» restano d'accordo finché il filtro �
   // questo test è lì per quello.
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
 
   const menu = page.locator("#search-role");
 
@@ -132,7 +132,7 @@ test("i quattro restano su una riga sola, anche a 390px, e non fanno scorrere di
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await apriAsta(page);
 
   const cime = await page.locator("#listone-role-filter button").evaluateAll((els) =>
     els.map((el) => Math.round(el.getBoundingClientRect().top)),
@@ -206,7 +206,7 @@ test("il caricamento manuale è nascosto a 390, 768, 1280 e 1920, e non lo trova
 
   for (const width of [390, 768, 1280, 1920]) {
     await page.setViewportSize({ width, height: 844 });
-    await page.goto("/");
+    await apriAsta(page);
     await expect(page.locator("#search-player")).toBeVisible();
 
     const blocco = page.locator("#listone-manual-override");

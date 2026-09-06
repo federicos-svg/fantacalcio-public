@@ -26,6 +26,15 @@
 //    pagina Formazione serve di più. Trattare «formazione assente» come «niente
 //    da fare» significherebbe nascondere la pagina proprio quando è utile.
 //
+// LA PRIMA PAGINA SI DECIDE UNA VOLTA SOLA, e poi non si muove più. Il sito
+// apre sulla Formazione — è la decisione di Pico — e ci apre anche quando la
+// lettura della lega è ancora per aria: in quel momento la pagina dichiara che
+// sta chiedendo. Ciò che la lettura scopre dopo si scrive SU QUESTA PAGINA e
+// non diventa mai una navigazione: una schermata che cambia da sola qualche
+// secondo dopo l'apertura, mentre la si guarda, è il difetto che
+// `decideInitialScreen` e `FormazioneView.emptyRoster` esistono, insieme, per
+// non far tornare.
+//
 // QUANDO NON SI SA, LO SI DICE — E BASTA. Se il canale non risponde, o risponde
 // qualcosa che non si riesce a leggere, la pagina NON mostra una griglia vuota:
 // una griglia vuota si legge come «non ho ancora schierato», che è una
@@ -98,14 +107,31 @@ export const NO_LINEUP_CONSTRAINTS: LineupConstraints = {
    ──────────────────────────────────────────────────────────────────────────── */
 
 /**
- * Perché il canale non dice nulla di utile. I tre casi distinguibili sono
- * distinti; il quarto esiste perché **una diagnosi che non si ha non si
- * inventa**: quando la causa non è accertabile si dichiara che non lo è, con
- * una formula sola, invece di sceglierne una che suoni plausibile.
+ * Perché il canale non dice nulla di utile. I casi distinguibili sono distinti;
+ * l'ultimo esiste perché **una diagnosi che non si ha non si inventa**: quando
+ * la causa non è accertabile si dichiara che non lo è, con una formula sola,
+ * invece di sceglierne una che suoni plausibile.
+ *
+ * «NON SO ANCORA» E «NON HO AVUTO RISPOSTA» SONO DUE COSE DIVERSE, e la prima
+ * non è un guasto: è il primo secondo di ogni apertura del sito. Tenerle sotto
+ * la stessa causa faceva dire alla pagina «la lega non ha risposto» mentre la
+ * richiesta era ancora per aria — un'accusa al posto di un'attesa — e toglieva
+ * a chi guarda l'unica informazione che gli serve in quel momento: che si sta
+ * chiedendo, e che fra un istante si saprà.
  */
 export type ChannelUnknownCause =
   /** Nessuna porta collegata: questa build non ha il canale della lega. */
   | "porta_non_collegata"
+  /**
+   * LA PORTA C'È, LA RICHIESTA È PARTITA, LA RISPOSTA NON È ANCORA ARRIVATA.
+   *
+   * È lo stato in cui il sito si apre sempre — la lettura è una richiesta, e
+   * una richiesta non è mai già tornata nell'istante in cui la prima pagina va
+   * a schermo — e dura quanto dura la risposta. Non è un esito: è l'attesa, e
+   * si dichiara come tale. Se poi la risposta non arriva, o arriva storta, si
+   * finisce in una delle cause qui sotto, che sono esiti veri.
+   */
+  | "lettura_in_corso"
   /** La porta c'è e non ha risposto. */
   | "risposta_assente"
   /** La porta ha risposto qualcosa che non si è potuto leggere. */
@@ -203,24 +229,43 @@ export type InitialScreen = "formazione" | "asta";
 /**
  * QUALE PAGINA APRE IL SITO, dato ciò che il canale della lega ha risposto.
  *
- * Quattro casi, e ognuno per una ragione sua:
+ * SI CHIAMA UNA VOLTA SOLA, e il «una volta sola» è metà della regola. La
+ * risposta di questa funzione è la pagina che va a schermo al primo disegno;
+ * dopo quel disegno **non si ridecide più niente**. Applicarla una seconda
+ * volta, quando la lettura arriva, spostava la pagina sotto gli occhi di chi
+ * la stava guardando — fino a cinque secondi dopo l'apertura, senza che
+ * nessuno avesse toccato niente — ed è il difetto che questa nota esiste per
+ * non far tornare. Ciò che la lettura scopre dopo si DICHIARA sulla pagina
+ * aperta (`buildFormazioneView`), non si trasforma in una navigazione.
+ *
+ * Cinque casi, e ognuno per una ragione sua:
  *
  *  1. rosa VUOTA — prima dell'asta, o a stagione finita: `asta`. Non c'è niente
- *     da schierare, e la pagina che serve è quella che si può usare;
+ *     da schierare, e la pagina che serve è quella che si può usare. Vale
+ *     quando lo stato è già noto al primo disegno — una porta che risponde
+ *     subito. Quando invece la lettura arriva dopo e porta una rosa vuota, la
+ *     Formazione lo dichiara restando aperta (`FormazioneView.emptyRoster`):
+ *     la stessa verità, detta senza portare via nessuno;
  *  2. rosa PIENA — con o senza formazione: `formazione`. «Non ho ancora
  *     schierato» è il momento in cui quella pagina serve di più, non un motivo
  *     per non mostrarla (vedi la nota in testa al file);
- *  3. stato NON NOTO perché la porta non risponde o risponde qualcosa di
+ *  3. LETTURA IN CORSO — la porta è collegata e la risposta non è ancora
+ *     arrivata: `formazione`, con l'avviso che dice che si sta chiedendo. È il
+ *     caso normale di ogni apertura, ed è la decisione di Pico: la prima pagina
+ *     è la Formazione anche quando non si sa ancora, e ciò che non si sa lo si
+ *     scrive lì invece di aprire altrove e poi saltare;
+ *  4. stato NON NOTO perché la porta non risponde o risponde qualcosa di
  *     illeggibile: `formazione`, con l'avviso al posto della squadra. È la
  *     scelta di Pico, ed è deliberatamente il contrario del ripiego comodo: un
  *     canale rotto dietro una schermata che funziona resta rotto per settimane;
- *  4. PORTA NON COLLEGATA: `asta`. Questo caso non è «non so»: è «qui il canale
- *     non c'è», ed è lo stato del solo core pubblico, che il layer privato non
- *     ha ancora completato. Aprire il sito su una pagina che può soltanto
- *     dichiarare la propria assenza non renderebbe visibile nessun problema —
- *     non ce n'è uno — mentre toglierebbe la schermata d'asta a chi la usa.
- *     Nel prodotto reale la porta c'è sempre: se poi tace o risponde storto si
- *     ricade nel caso 3, che è quello che Pico voleva vedere.
+ *  5. PORTA NON COLLEGATA: `asta`. Questo caso non è «non so»: è «qui il canale
+ *     non c'è», ed è lo stato di una build in cui nessuno collega la porta.
+ *     Aprire il sito su una pagina che può soltanto dichiarare la propria
+ *     assenza non renderebbe visibile nessun problema — non ce n'è uno — mentre
+ *     toglierebbe la schermata d'asta a chi la usa. Dove la porta si collega
+ *     (`src/main.ts`) questo caso non si presenta: al primo disegno lo stato è
+ *     il 3, e se poi la lega tace o risponde storto si ricade nel 4, che è
+ *     quello che Pico voleva vedere.
  */
 export function decideInitialScreen(state: LineupChannelState): InitialScreen {
   if (state.kind === "sconosciuto") {
@@ -781,12 +826,43 @@ export interface FormazioneUnknownNotice {
   readonly detail: string;
 }
 
+/**
+ * LA DICHIARAZIONE CHE PRENDE IL POSTO DELLA SQUADRA QUANDO LA ROSA LETTA È VUOTA.
+ *
+ * Non è un avviso di guasto: la lega ha risposto, e ha risposto che non hai
+ * nessun giocatore — prima dell'asta, o a stagione finita. `decideInitialScreen`
+ * conosce questo caso da sempre e, quando lo sa al primo disegno, apre il sito
+ * sull'Asta. Quando invece lo scopre DOPO, a Formazione già a schermo, la stessa
+ * verità si dice qui: la pagina resta dov'è e lo dichiara. Spostare la pagina a
+ * lettura arrivata sarebbe la cosa più fastidiosa che questo sito possa fare —
+ * una schermata che si cambia da sola mentre la guardi — e non è ciò che la
+ * regola vuole: la regola vuole che nessuno cerchi una formazione che non può
+ * esistere.
+ *
+ * Come per l'avviso di canale, la dichiarazione **prende il posto** della
+ * squadra e non le sta accanto: con la rosa vuota `competitions` è vuoto, quindi
+ * non esiste uno schermo in cui questa frase conviva con un campo verde senza
+ * nessuno sopra.
+ */
+export interface FormazioneEmptyRoster {
+  readonly title: string;
+  readonly detail: string;
+}
+
 export interface FormazioneView {
   /** `true` solo quando la lega è stata letta davvero. */
   readonly known: boolean;
   /** Valorizzato se e solo se `known` è `false`. */
   readonly notice: FormazioneUnknownNotice | null;
-  /** VUOTO se e solo se `known` è `false`: l'avviso non convive con la squadra. */
+  /**
+   * Valorizzato se e solo se la lega è stata letta e la rosa è VUOTA. Mai
+   * insieme a `notice`: «non so» e «so, ed è vuota» sono due cose diverse.
+   */
+  readonly emptyRoster: FormazioneEmptyRoster | null;
+  /**
+   * VUOTO se e solo se c'è un `notice` o un `emptyRoster`: ciò che prende il
+   * posto della squadra non le sta mai accanto.
+   */
   readonly competitions: readonly FormazioneCompetitionView[];
   /**
    * GLI IDENTIFICATIVI DI COMPETIZIONE ARRIVATI PIÙ DI UNA VOLTA. Vuoto è la norma.
@@ -826,6 +902,8 @@ function competitionLabel(competition: ObservedCompetition): string {
 const AVVISI: Readonly<Record<ChannelUnknownCause, string>> = {
   porta_non_collegata:
     "Il canale della lega non è collegato in questa versione del sito: la tua squadra non è stata letta, e quello che vedi qui sotto non è una formazione vuota — è l'assenza di una lettura.",
+  lettura_in_corso:
+    "Sto chiedendo alla lega la tua squadra e la tua formazione: la risposta non è ancora arrivata. Qui non compare nessuna formazione perché non se ne conosce ancora nessuna — non perché tu non abbia schierato — e fra un istante questa pagina si riempie da sé, restando questa pagina.",
   risposta_assente:
     "La lega non ha risposto: la tua squadra e la tua formazione non sono state lette. Questa pagina non mostra una formazione perché non ne conosce nessuna, non perché tu non abbia schierato.",
   risposta_illeggibile:
@@ -840,6 +918,7 @@ const AVVISI: Readonly<Record<ChannelUnknownCause, string>> = {
 
 const TITOLI: Readonly<Record<ChannelUnknownCause, string>> = {
   porta_non_collegata: "CANALE DELLA LEGA NON COLLEGATO",
+  lettura_in_corso: "STO CHIEDENDO ALLA LEGA",
   risposta_assente: "LA LEGA NON HA RISPOSTO",
   risposta_illeggibile: "RISPOSTA DELLA LEGA NON LEGGIBILE",
   giornata_non_corrispondente: "FORMAZIONE DI UN'ALTRA GIORNATA",
@@ -853,7 +932,9 @@ const TITOLI: Readonly<Record<ChannelUnknownCause, string>> = {
  *
  * INVARIANTE, e i test lo sorvegliano: `known === false` implica
  * `competitions.length === 0`. Non c'è modo di rappresentare uno schermo con
- * l'avviso e mezza formazione insieme.
+ * l'avviso e mezza formazione insieme. Lo stesso vale per la rosa vuota
+ * (`emptyRoster`): ciò che prende il posto della squadra non le sta accanto,
+ * qualunque sia la ragione per cui la squadra non c'è.
  *
  * SECONDA INVARIANTE: `competitions` non contiene mai due volte lo stesso
  * `competitionId`. Gli id ripetuti dalla lettura finiscono in `duplicated` e
@@ -883,6 +964,27 @@ export function buildFormazioneView(
     return {
       known: false,
       notice: { cause: state.cause, title: TITOLI[state.cause], detail },
+      emptyRoster: null,
+      competitions: [],
+      duplicated: [],
+    };
+  }
+
+  // LA LEGA HA RISPOSTO, E DICE CHE NON HAI NESSUNO. Non è un guasto e non è
+  // «non ho ancora schierato»: è che non c'è niente da schierare. Si dichiara
+  // qui, con la pagina che resta la pagina, invece di essere trasformato nel
+  // salto su un'altra schermata che nessuno ha chiesto.
+  if (state.roster.players.length === 0) {
+    return {
+      known: true,
+      notice: null,
+      emptyRoster: {
+        title: "NESSUN GIOCATORE DA SCHIERARE",
+        detail:
+          "La lega ha risposto e la tua rosa è vuota: prima dell'asta, o a stagione finita, non c'è " +
+          "nessun giocatore da mandare in campo. Qui non compare nessuna formazione — nemmeno vuota — " +
+          "perché non ci sarebbe nessuno da metterci dentro. L'Asta è raggiungibile dalla barra qui sopra.",
+      },
       competitions: [],
       duplicated: [],
     };
@@ -988,7 +1090,7 @@ export function buildFormazioneView(
     } satisfies FormazioneCompetitionView;
   });
 
-  return { known: true, notice: null, competitions, duplicated };
+  return { known: true, notice: null, emptyRoster: null, competitions, duplicated };
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

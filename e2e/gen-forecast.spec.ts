@@ -15,7 +15,7 @@ import {
   SYNTHETIC_LISTONE_POOL,
   SYNTHETIC_REMOTE_LISTONE_POOL_WITH_GEN_FORECAST,
 } from "./fixtures/synthetic-listone.js";
-import { installSyntheticNetworkGuard } from "./helpers.js";
+import { apriAsta, installSyntheticNetworkGuard, ricaricaAsta } from "./helpers.js";
 import {
   GEN_FORECAST_CAP_LABEL,
   GEN_FORECAST_CAP_MARKER,
@@ -55,9 +55,9 @@ async function boot(page: Page, context: Parameters<typeof installSyntheticNetwo
     kind: "serve",
     rows: SYNTHETIC_REMOTE_LISTONE_POOL_WITH_GEN_FORECAST,
   });
-  await page.goto("/");
+  await apriAsta(page);
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
   await expect(page.getByText(WITH_CAP.name, { exact: true })).toBeVisible();
   return externalRequests;

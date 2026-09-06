@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { gotoScreen, installSyntheticNetworkGuard } from "./helpers.js";
+import { apriAsta, gotoScreen, installSyntheticNetworkGuard, ricaricaAsta } from "./helpers.js";
 
 // #231 tranche 3, corsia B — war board TAVOLO in two variants, as decided by
 // Owner (2026-08-14 ~12:50Z, bacheca #222 voce 18): MINI during the live
@@ -35,7 +35,7 @@ test("the war board shows the COMPLETE variant while choosing, the MINI strip wh
 }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
 
   // ── Momento chiamata: the full board, and only it ─────────────────────────
   // #333 — the COMPLETE board is still a chiamata-moment block; it sits inside
@@ -145,11 +145,11 @@ test("both war board variants stay readable at 390, 768 and 1280 without sideway
     { width: 1280, height: 720 },
   ] as const) {
     await page.setViewportSize(viewport);
-    await page.goto("/");
+    await apriAsta(page);
     // Each viewport starts from an empty auction — a persisted log would make
     // the next iteration's listone selection point at an assigned row.
     await page.evaluate(() => localStorage.clear());
-    await page.reload();
+    await ricaricaAsta(page);
 
     // COMPLETE: same 1/2/4 grid as the Rose screen and AVVERSARI TIER-1.
     // Nessun gesto dentro il ciclo: IL TAVOLO è sempre aperto, quindi il

@@ -16,7 +16,7 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { buildListoneLiveBundle } from "../packages/xlsx-adapter/src/listoneLiveBundle.js";
 import { createHash } from "node:crypto";
 import { SHIPPED_LISTONE, SHIPPED_LISTONE_FIRST_PAGE } from "./shipped-listone.js";
-import { expectListoneRows, expectListoneWholePoolLoaded } from "./helpers.js";
+import { apriAsta, expectListoneRows, expectListoneWholePoolLoaded } from "./helpers.js";
 
 test.use({ serviceWorkers: "block" });
 
@@ -194,7 +194,7 @@ test.describe("BUNDLE-01 — runtime hash verification", () => {
   test("a bundle whose sha256 matches its manifest is verified and loaded", async ({ page, context }) => {
     const externalRequests: string[] = [];
     await installBundleRoutes(context, externalRequests);
-    await page.goto("/");
+    await apriAsta(page);
 
     for (const row of ROWS) {
       await expect(page.getByText(row.name, { exact: true })).toBeVisible();
@@ -212,7 +212,7 @@ test.describe("BUNDLE-01 — runtime hash verification", () => {
     // in the page, over the exact bytes served, equals `bundle_sha256`.
     const externalRequests: string[] = [];
     await installBundleRoutes(context, externalRequests);
-    await page.goto("/");
+    await apriAsta(page);
     await expect.poll(() => integrityStatus(page)).toBe("verified");
 
     const inBrowser = await page.evaluate(async (assetPath) => {
@@ -358,7 +358,7 @@ test.describe("BUNDLE-01 — runtime hash verification", () => {
       externalRequests.push(route.request().url());
       return route.abort("blockedbyclient");
     });
-    await page.goto("/");
+    await apriAsta(page);
 
     await expect(page.locator("#critical-budget")).toHaveText("500 cr");
     // The real shipped asset (public/data/listone_2025_26.json), by identity

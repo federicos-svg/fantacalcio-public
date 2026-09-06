@@ -8,7 +8,7 @@ import { readFile } from "node:fs/promises";
 import { test, expect } from "@playwright/test";
 import { LOG_STORAGE_KEY, QUARANTINE_STORAGE_KEY } from "../src/logRecovery.js";
 import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { installSyntheticNetworkGuard, readLocalStorageRaw } from "./helpers.js";
+import { gotoScreen, installSyntheticNetworkGuard, readLocalStorageRaw } from "./helpers.js";
 
 // Deliberately not valid JSON, with non-ASCII content — the export must
 // reproduce this exactly, not just "close enough".
@@ -74,6 +74,10 @@ test("blocks with a real recovery screen when no valid copy exists, and only sta
   // never a silently-fabricated one, since it was only reached through the
   // explicit confirm click above.
   await expect(heading).toHaveCount(0);
+  // Tolta la schermata bloccante torna l'app normale, che apre dove apre il
+  // sito: sulla Formazione (src/primaPagina.ts). L'asta è a un clic, come per
+  // chiunque la usi.
+  await gotoScreen(page, "Asta");
   await expect(page.locator("#critical-budget")).toHaveText("500 cr");
   const storicoPanel = page.locator(".panel", { hasText: "STORICO ACQUISTI" });
   await expect(storicoPanel).toContainText("Nessun gesto registrato.");

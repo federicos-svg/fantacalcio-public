@@ -200,7 +200,6 @@ import {
 import {
   benchMoveConflict,
   buildFormazioneView,
-  decideInitialScreen,
   editsBlockedReason,
   fillSlot,
   moduleChangeConflict,
@@ -244,6 +243,9 @@ import {
 // il layer privato, e il core pubblico non sa altro che il percorso. La prosa
 // intera sta in testa a ./formazioneCanaleRemoto.ts.
 import { avviaCanaleDaDeposito } from "./formazioneCanaleRemoto.js";
+// LA PRIMA PAGINA, decisa una volta sola e con la porta già collegata: l'ordine
+// che quel file tiene insieme è ciò che toglie il salto di schermata all'avvio.
+import { decidiPrimaPagina } from "./primaPagina.js";
 import { costruisciLettura } from "./formazioneLettura.js";
 import {
   formazioneConstraintsNotice,
@@ -440,8 +442,11 @@ const FANTA_TEAM_IDS: readonly string[] = [
 const KEY_POOL = "fac_pool";
 
 // ── App state ──────────────────────────────────────────────────────────────────
-// FORMAZIONE È LA PRIMA, e non solo nella barra: quando la lega risponde e la
-// rosa non è vuota è anche la schermata che apre il sito (decideInitialScreen).
+// FORMAZIONE È LA PRIMA, e non solo nella barra: è la schermata che apre il
+// sito (decideInitialScreen, consumata una volta sola in ./primaPagina.ts),
+// compreso il caso in cui la lega non ha ancora risposto — allora apre lo
+// stesso, dichiarando che sta chiedendo. L'Asta apre il sito soltanto quando si
+// sa già, al primo disegno, che non c'è nessuno da schierare.
 type Screen = "formazione" | "asta" | "rose" | "impostazioni";
 type Moment = "chiamata" | "asta";
 
@@ -1168,29 +1173,45 @@ const bootSchedaDrafts = loadSchedaDrafts(browserStorage);
 // riga lo dice senza allarmare: la contabilità dell'asta non è toccata.
 const bootInterestFlags = loadInterestFlags(browserStorage);
 
-// LA LEGA, CHIESTA UNA VOLTA AL BOOT — ma **dopo** che la prima pagina è stata
-// decisa, e la distinzione non è di stile.
+// LA LEGA, CHIESTA UNA VOLTA AL BOOT — e chiesta **prima** che la prima pagina
+// sia decisa. L'ordine è la correzione, non un dettaglio di stile.
 //
-// La porta si collega nel blocco di avvio in fondo al file, non qui. Se si
-// collegasse prima di questa riga, lo stato al boot diventerebbe «la lega non ha
-// ancora risposto» invece di «porta non collegata», e `decideInitialScreen`
-// aprirebbe il sito sulla Formazione **sempre**: la richiesta non può essere
-// arrivata nel momento in cui la prima pagina va a schermo. Sarebbe un
-// cambiamento di prodotto — quale schermata apre il sito — ottenuto per effetto
-// collaterale, e per giunta deciso su un dato che non c'è ancora.
+// Prima la porta si collegava nel blocco di avvio in fondo al file, cioè DOPO
+// questa riga: al primo disegno lo stato era «porta non collegata» — che
+// descrive una build senza canale, non questa — e il sito apriva sull'Asta. Poi,
+// a pagina già a video, arrivava la risposta della lega e la regola veniva
+// riapplicata: chi stava guardando l'Asta senza aver toccato niente si vedeva
+// cambiare la pagina sotto le mani, fino a cinque secondi dopo l'apertura.
 //
-// Quindi: il boot resta quello di prima, e la regola di prodotto che c'è già si
-// riapplica **quando la lettura arriva davvero**, e solo se Pico non ha ancora
-// cambiato pagina da sé — una sua navigazione non viene mai annullata da un dato
-// che arriva dopo.
+// La decisione di Pico è un'altra: **la prima pagina è la Formazione**, e quando
+// ancora non si sa se c'è una squadra è la Formazione lo stesso, con l'avviso
+// che dichiara di non sapere. Quindi si collega la porta, si guarda che cosa
+// risponde in questo istante — «sto chiedendo alla lega» — e si decide una volta
+// sola (`./primaPagina.ts`). Da qui in avanti la schermata la cambia soltanto
+// chi naviga: ciò che la lettura scopre dopo lo dichiara la Formazione restando
+// la pagina aperta.
+//
+// La richiesta parte da qui ma non può tornare qui: il suo `then` gira dopo che
+// questo file ha finito di essere valutato, quindi `state` e `render` — che il
+// gancio usa — esistono già quando viene chiamato.
 //
 // I vincoli salvati si rileggono comunque — sono di Pico, non della lega — e un
 // archivio illeggibile riparte VUOTO con una riga che lo dice, mai a metà.
-const bootLineupChannel = readLineupChannelState();
-// La schermata che la regola di prodotto ha scelto **finora**: serve a
-// riconoscere una navigazione di Pico da una pagina che nessuno ha ancora
-// toccato, quando la lettura arriva.
-let schermoDecisoAlBoot: Screen = decideInitialScreen(bootLineupChannel);
+const bootPrimaPagina = decidiPrimaPagina(() => {
+  void avviaCanaleDaDeposito({
+    fetchImpl: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init),
+    // LA LETTURA ARRIVA E LA PAGINA SI RIEMPIE **RESTANDO DOV'È**. Nessuna
+    // schermata cambia qui, in nessun caso: né quando la lega risponde, né
+    // quando tace, né quando la risposta dice che la rosa è vuota. Quest'ultimo
+    // caso — l'unico in cui la regola di apertura avrebbe detto «Asta» — la
+    // Formazione lo dichiara da sé (`FormazioneView.emptyRoster`).
+    alCambio: () => {
+      state.lineupChannel = readLineupChannelState();
+      render();
+    },
+  });
+});
+const bootLineupChannel = bootPrimaPagina.stato;
 const bootFormazioneConstraints = loadFormazioneConstraints(browserStorage);
 
 function interestFlagsBootNotice(
@@ -1214,11 +1235,13 @@ function interestFlagsBootNotice(
 const state: AppState = {
   // LA PAGINA INIZIALE NON È UNA COSTANTE: è una funzione dello stato del
   // canale di lega (decideInitialScreen, e la prosa che lo motiva sta accanto
-  // alla funzione). Rosa vuota — prima dell'asta, o a stagione finita — apre
-  // sull'Asta; rosa piena apre sulla Formazione anche quando la formazione non
-  // c'è ancora; un canale che non risponde apre sulla Formazione con l'avviso
-  // al posto della squadra.
-  screen: schermoDecisoAlBoot,
+  // alla funzione), calcolata una volta sola con la porta già collegata. Rosa
+  // vuota — prima dell'asta, o a stagione finita — apre sull'Asta; rosa piena
+  // apre sulla Formazione anche quando la formazione non c'è ancora; una
+  // lettura ancora per aria, che è il caso di ogni apertura, apre sulla
+  // Formazione con l'avviso che dice che si sta chiedendo. Dopo questo istante
+  // nessun dato che arriva cambia più la schermata.
+  screen: bootPrimaPagina.schermata,
   lineupChannel: bootLineupChannel,
   lineupConstraints: new Map(bootFormazioneConstraints.byCompetition),
   lineupDrafts: new Map(),
@@ -9406,36 +9429,12 @@ render();
 void autoLoadListonePool();
 void autoLoadExpertSchede();
 
-// LA LEGA — la porta si collega qui, a prima pagina già decisa (il perché sta
-// accanto a `bootLineupChannel`). Da questo istante lo stato non è più «porta
-// non collegata» — che descrive una build senza layer privato — ma «la lega non
-// ha ancora risposto», che è ciò che sta succedendo davvero: si aggiorna subito
-// e si ridisegna, così chi apre la Formazione in questo secondo legge la verità
-// invece di un messaggio che riguarda un'altra build.
-void avviaCanaleDaDeposito({
-  fetchImpl: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init),
-  alCambio: () => {
-    state.lineupChannel = readLineupChannelState();
-    // LA PAGINA SI RIDECIDE SOLO SE LA LEGA È STATA LETTA DAVVERO, e mai su una
-    // pagina che Pico ha già scelto da sé.
-    //
-    // `decideInitialScreen` manda sulla Formazione anche un canale che non
-    // risponde — è una scelta di Pico, e serve a non lasciare un canale rotto
-    // dietro una schermata che funziona. Ma quella regola decide **quale pagina
-    // APRE il sito**: applicarla di nuovo a lettura fallita significherebbe
-    // portare via Pico dalla pagina che sta usando per annunciargli un guasto,
-    // qualche secondo dopo che il sito si è aperto. Il guasto lo dichiara la
-    // Formazione quando ci va, e la barra è sempre lì.
-    if (state.lineupChannel.kind === "letto" && state.screen === schermoDecisoAlBoot) {
-      const scelto = decideInitialScreen(state.lineupChannel);
-      state.screen = scelto;
-      schermoDecisoAlBoot = scelto;
-    }
-    render();
-  },
-});
-state.lineupChannel = readLineupChannelState();
-render();
+// LA LEGA NON SI COLLEGA PIÙ QUI. La porta si collega — e la richiesta parte —
+// **prima** che la prima pagina sia decisa, accanto a `bootPrimaPagina`, dove
+// sta anche il perché per esteso. Qui non resta niente da fare: nessuna
+// rilettura e nessun secondo `render()`, perché lo stato con cui il sito si è
+// aperto è già quello che la porta risponde adesso, e nessuna schermata cambia
+// dopo il primo disegno.
 
 window.addEventListener("offline", () => {
   state.offline = true;

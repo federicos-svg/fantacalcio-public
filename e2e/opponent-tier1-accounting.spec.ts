@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { gotoScreen, installSyntheticNetworkGuard } from "./helpers.js";
+import { apriAsta, gotoScreen, installSyntheticNetworkGuard } from "./helpers.js";
 
 // #221 (2) — packages/engine/src/auction.ts opponentTier1() wired back to a
 // screen after PR #86 removed its panel, as a pure accounting view.
@@ -13,7 +13,7 @@ const TARGET = SYNTHETIC_LISTONE_POOL[3]!; // role A
 test("the Tier-1 opponent accounting view lives on Rose, never on the Asta screen", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
 
   await expect(page.locator("#opponent-tier1-panel")).toHaveCount(0);
 

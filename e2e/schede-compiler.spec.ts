@@ -33,9 +33,11 @@ import {
 } from "./fixtures/synthetic-schede.js";
 import {
   AA_NORMAL_TEXT,
+  apriAsta,
   gotoScreen,
   installSyntheticNetworkGuard,
   openSettingsSection,
+  ricaricaAsta,
   textContrast,
 } from "./helpers.js";
 import {
@@ -116,7 +118,7 @@ async function writeScheda(page: Page, option: string, titolarita: string, nota?
 /** Svuota il browser come farebbe una cronologia cancellata o un'altra macchina. */
 async function wipeBrowser(page: Page): Promise<void> {
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
   await openSchede(page);
 }
@@ -128,7 +130,7 @@ async function openSchede(page: Page): Promise<void> {
 }
 
 async function boot(page: Page): Promise<void> {
-  await page.goto("/");
+  await apriAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
   await openSchede(page);
 }
@@ -213,7 +215,7 @@ test("il giro completo: scelgo, compilo, salvo, ricarico, scarico — e il file 
   await expect(page.locator("#schede-persist-error")).toHaveCount(0);
 
   // ── IL LAVORO NON SI PERDE ────────────────────────────────────────────────
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
   await openSchede(page);
   await expect(page.locator("#schede-progress-count")).toHaveText(

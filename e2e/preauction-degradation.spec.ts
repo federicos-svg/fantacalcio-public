@@ -59,11 +59,13 @@ import {
   E2E_PURCHASE_PRICE,
 } from "./fixtures/synthetic-listone.js";
 import {
-  installSyntheticNetworkGuard,
-  readLocalStorageRaw,
-  readLocalStorageJson,
-  selectStatusFilter,
   LISTONE_REMOTE_PATH,
+  apriAsta,
+  installSyntheticNetworkGuard,
+  readLocalStorageJson,
+  readLocalStorageRaw,
+  ricaricaAsta,
+  selectStatusFilter,
 } from "./helpers.js";
 
 const LOG_KEY = "fac_log";
@@ -185,7 +187,7 @@ test.describe("#237 — il deposito privato che risponde male, e che cosa resta 
     await routeDeposit(context, { kind: "slow", delayMs: DEPOSIT_TIMEOUT_MS + 1500 });
 
     const startedAt = Date.now();
-    await page.goto("/");
+    await apriAsta(page);
     // LA MISURA CHE CONTA: le righe locali sono a schermo BEN PRIMA che il
     // timeout del deposito scada. Se il boot aspettasse il deposito, questa
     // attesa non potrebbe chiudersi entro il timeout.
@@ -216,7 +218,7 @@ test.describe("#237 — il deposito privato che risponde male, e che cosa resta 
     await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
     await routeDeposit(context, { kind: "truncated-json" });
 
-    await page.goto("/");
+    await apriAsta(page);
     await expectStaticPoolStatedHonestly(page);
     // Il JSON troncato non è arrivato a `JSON.parse` senza rete di sicurezza:
     // nessun errore non gestito ha ucciso il render.
@@ -239,7 +241,7 @@ test.describe("#237 — il deposito privato che risponde male, e che cosa resta 
     await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
     await routeDeposit(context, { kind: "server-error" });
 
-    await page.goto("/");
+    await apriAsta(page);
     await expectStaticPoolStatedHonestly(page);
     expect(pageErrors).toEqual([]);
     expect(externalRequests).toEqual([]);
@@ -253,7 +255,7 @@ test.describe("#237 — la memoria del browser che si riempie MENTRE l'asta è i
   }) => {
     const externalRequests: string[] = [];
     await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-    await page.goto("/");
+    await apriAsta(page);
 
     // PRIMO acquisto con storage sano: l'asta è già in corso quando il guasto
     // arriva, che è la sola forma in cui questo guasto conta davvero.
@@ -343,7 +345,7 @@ test.describe("#237 — la memoria del browser che si riempie MENTRE l'asta è i
     //    Qui `#critical-budget` torna a essere la lettura giusta senza che
     //    nessuno apra niente per farlo comparire: il reload riporta l'app nel
     //    momento chiamata, che è il momento in cui la striscia critica vive.
-    await page.reload();
+    await ricaricaAsta(page);
     await expect(page.locator(".panel", { hasText: "STORICO ACQUISTI" })).toContainText(
       E2E_TARGET_PLAYER.name,
     );
@@ -357,7 +359,7 @@ test.describe("#237 — la memoria del browser che si riempie MENTRE l'asta è i
   }) => {
     const externalRequests: string[] = [];
     await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-    await page.goto("/");
+    await apriAsta(page);
     await purchase(page, E2E_TARGET_PLAYER.name, E2E_PURCHASE_PRICE);
     await expect(page.locator(".panel", { hasText: "STORICO ACQUISTI" })).toContainText(
       E2E_TARGET_PLAYER.name,
@@ -400,7 +402,7 @@ test.describe("#237 — la rete che cade a metà asta, con acquisti già registr
   }) => {
     const externalRequests: string[] = [];
     await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-    await page.goto("/");
+    await apriAsta(page);
 
     // Primo acquisto: rete su, tutto normale.
     await purchase(page, E2E_TARGET_PLAYER.name, E2E_PURCHASE_PRICE);
@@ -436,7 +438,7 @@ test.describe("#237 — la rete che cade a metà asta, con acquisti già registr
 
     // IL RELOAD DA OFFLINE — il gesto che fa più paura la sera dell'asta.
     // L'app riparte dalla copia locale e ritrova lo stato esatto, VOID incluso.
-    await page.reload();
+    await ricaricaAsta(page);
     await expect(page.locator(".panel", { hasText: "STORICO ACQUISTI" })).toContainText(
       E2E_TARGET_PLAYER.name,
     );

@@ -24,7 +24,7 @@ import { expect, test, type Page } from "@playwright/test";
 // e2e/offline-cold-start.spec.ts, e ora anche le spec del listone che devono
 // aspettare la fine del precache). Una sola, in e2e/helpers.ts: tre copie della
 // stessa attesa possono divergere proprio sulla condizione che fa da guardia.
-import { waitForServiceWorkerControl } from "./helpers.js";
+import { apriAsta, waitForServiceWorkerControl } from "./helpers.js";
 
 const LISTONE_PATH = "/data/listone_2025_26.json";
 const PRECACHED_MARKER = '[{"name":"Cache Precaricata","role":"P","club":"ClubCache","quotation":1}]';
@@ -43,7 +43,7 @@ test.describe("service worker cache lookup — regression guards", () => {
     page,
     context,
   }) => {
-    await page.goto("/");
+    await apriAsta(page);
     await waitForServiceWorkerControl(page);
     const cacheName = await currentCacheName(page);
 
@@ -93,7 +93,7 @@ test.describe("service worker cache lookup — regression guards", () => {
     // leaves the promise neither resolved nor rejected — the `catch` that does
     // the cache fallback is never reached, and the app hangs WHILE HOLDING a
     // perfectly good copy. Nothing about this needs the device to be offline.
-    await page.goto("/");
+    await apriAsta(page);
     await waitForServiceWorkerControl(page);
     const cacheName = await currentCacheName(page);
 
@@ -149,7 +149,7 @@ test.describe("service worker cache lookup — regression guards", () => {
     // needed it. Nothing wraps this one: no integrity gate, no outer bound, so
     // the worker's own timeout is the only thing standing between the page and
     // an unbounded wait.
-    await page.goto("/");
+    await apriAsta(page);
     await waitForServiceWorkerControl(page);
     const cacheName = await currentCacheName(page);
 
@@ -204,7 +204,7 @@ test.describe("service worker cache lookup — regression guards", () => {
     // this spec removes: the precache list is the complete inventory of the
     // built artifact, so a `/assets/` path missing from it is proof of absence,
     // and the worker answers it itself.
-    await page.goto("/");
+    await apriAsta(page);
     await waitForServiceWorkerControl(page);
 
     // The URL the APP really asks for, taken from the rendered badge rather
@@ -287,7 +287,7 @@ test.describe("service worker cache lookup — regression guards", () => {
   });
 
   test("a foreign cache is never consulted, even when this build's cache has a hole", async ({ page, context }) => {
-    await page.goto("/");
+    await apriAsta(page);
     await waitForServiceWorkerControl(page);
     const cacheName = await currentCacheName(page);
 

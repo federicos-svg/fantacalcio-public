@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { E2E_PURCHASE_PRICE, E2E_TARGET_PLAYER, SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { installSyntheticNetworkGuard } from "./helpers.js";
+import { apriAsta, installSyntheticNetworkGuard, ricaricaAsta } from "./helpers.js";
 
 // LA FASCIA CRITICA È UNA BANDA DELL'INTESTAZIONE, E SOLO NELLA CHIAMATA.
 //
@@ -46,9 +46,9 @@ const ROLE_PROGRESS: readonly (readonly [string, string, string])[] = [
 ];
 
 async function boot(page: Page): Promise<void> {
-  await page.goto("/");
+  await apriAsta(page);
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
   // #333: il segnale "la schermata di chiamata è pronta" è il campo di
   // ricerca, non più il pannello scarsità — che ora sta dietro il gesto IL
   // TAVOLO. Il campo di ricerca è un segnale migliore anche nel merito: è

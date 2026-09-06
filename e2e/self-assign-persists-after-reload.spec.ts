@@ -14,7 +14,13 @@ import {
   E2E_TARGET_PLAYER,
   E2E_PURCHASE_PRICE,
 } from "./fixtures/synthetic-listone.js";
-import { installSyntheticNetworkGuard, readLocalStorageJson, expectAssignedEffectsVisible } from "./helpers.js";
+import {
+  apriAsta,
+  expectAssignedEffectsVisible,
+  installSyntheticNetworkGuard,
+  readLocalStorageJson,
+  ricaricaAsta,
+} from "./helpers.js";
 
 const LOG_STORAGE_KEY = "fac_log";
 const POOL_STORAGE_KEY = "fac_pool";
@@ -42,7 +48,7 @@ test.describe("Self assignment persists across reload (UI-TEST-01 — first slic
     // (Deliberately not an addInitScript localStorage.clear(): that would
     // re-fire on the reload in step 7 too, wiping the very persistence this
     // test exists to check — a real trap, not a hypothetical one.)
-    await page.goto("/");
+    await apriAsta(page);
     expect(await readLocalStorageJson(page, LOG_STORAGE_KEY)).toBeNull();
 
     // 2. Synthetic listone loads (intercepted fetch, never the real asset).
@@ -83,7 +89,7 @@ test.describe("Self assignment persists across reload (UI-TEST-01 — first slic
     });
 
     // 7. Full reload.
-    await page.reload();
+    await ricaricaAsta(page);
 
     // 8. The valid event survives the reload; budget/history/status stay
     // coherent — re-checked via the same UI-only assertions as step 6.

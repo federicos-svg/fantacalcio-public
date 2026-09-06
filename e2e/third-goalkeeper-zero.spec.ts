@@ -3,8 +3,10 @@ import type { ListonePlayer } from "../src/ui/listone.js";
 import { MAX_BID_LABEL } from "../src/ui/budgetLabels.js";
 import {
   AA_NORMAL_TEXT,
+  apriAsta,
   installSyntheticNetworkGuard,
   readLocalStorageJson,
+  ricaricaAsta,
   selectListoneRowByName,
   textContrast,
 } from "./helpers.js";
@@ -71,9 +73,9 @@ interface StoredEvent {
  * spec sorelle usano su questa schermata.
  */
 async function boot(page: Page): Promise<void> {
-  await page.goto("/");
+  await apriAsta(page);
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
 }
 
@@ -204,7 +206,7 @@ test("il bottone del terzo portiere a 0 registra l'acquisto, e lo storico dice c
 
   // Rileggendo domani (ricarica: stato ricostruito dal log) lo 0 si spiega
   // ancora da sé.
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(storico(page).locator(".badge--declared-zero")).toHaveText("terzo portiere dichiarato");
   await expect(page.locator("#critical-budget")).toHaveText("485 cr");
 

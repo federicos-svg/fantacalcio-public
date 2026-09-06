@@ -2,8 +2,10 @@ import { expect, test, type Page } from "@playwright/test";
 import type { ListonePlayer } from "../src/ui/listone.js";
 import {
   AA_NORMAL_TEXT,
+  apriAsta,
   gotoScreen,
   installSyntheticNetworkGuard,
+  ricaricaAsta,
   textContrast,
 } from "./helpers.js";
 import {
@@ -108,9 +110,9 @@ test("the live moment carries scarcity, the market census and an honest empty pr
 }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, LIVE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
 
   // ── Stato vuoto: asta appena aperta ───────────────────────────────────────
   await callPlayer(page, CALLED);
@@ -241,9 +243,9 @@ test("ruolo esaurito e budget esaurito restano due fatti distinti, e restano VIS
   // informazione: se una delle due sparisse, questo test diventerebbe rosso.
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, LIVE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
 
   // Squadra2 riempie i suoi 3 slot P al minimo: ruolo pieno, budget intatto.
   await buy(page, "Primo Portiere", "Squadra2", 1);
@@ -329,7 +331,7 @@ test("i precedenti d'asta, con la prova accanto e la numerosità in vista", asyn
   // validazione e join posto→persona, non una porta di servizio.
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, LIVE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await page.evaluate(() => localStorage.clear());
   await seedPrecedents(page);
   await callPlayer(page, CALLED);
@@ -413,7 +415,7 @@ test("uno storico corrotto non degrada in silenzio: il pannello dice che non ha 
 }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, LIVE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await page.evaluate(() => localStorage.clear());
   // Una stagione scritta «23-24» invece che «2023/24»: ordinerebbe in silenzio
   // dopo il 2025/26. Il lettore è fail-closed e rende una lista VUOTA, mai una
@@ -437,7 +439,7 @@ test("uno storico corrotto non degrada in silenzio: il pannello dice che non ha 
       }),
     );
   });
-  await page.reload();
+  await ricaricaAsta(page);
   await callPlayer(page, CALLED);
 
   await expect(page.locator("#opponent-precedents-headline")).toContainText(
@@ -461,9 +463,9 @@ test("senza listone caricato la disponibilità resta n/d, mai uno 0 travestito d
   // deposito privato non è raggiungibile. Gli slot liberi vengono dal log e
   // restano un numero; la disponibilità a listone non esiste e lo dice.
   await installSyntheticNetworkGuard(context, [], externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
 
   // Senza pool non c'è riga da cliccare: il momento asta si raggiunge
   // dall'inserimento manuale del giocatore chiamato.
@@ -488,9 +490,9 @@ test("senza listone caricato la disponibilità resta n/d, mai uno 0 travestito d
 test("offline non regredisce: i due blocchi restano pieni e corretti", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, LIVE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.getByText(CALLED, { exact: true })).toBeVisible();
 
   await context.setOffline(true);
@@ -532,7 +534,7 @@ test("i due blocchi restano leggibili a 390, 768 e 1280 senza scroll orizzontale
     { width: 1280, height: 720 },
   ] as const) {
     await page.setViewportSize(viewport);
-    await page.goto("/");
+    await apriAsta(page);
     await page.evaluate(() => localStorage.clear());
     // Con lo storico seminato il pannello è nel suo stato PIENO: misurare la
     // responsività sullo stato vuoto sarebbe misurare la scatola, non ciò che

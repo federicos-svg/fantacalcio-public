@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { E2E_PURCHASE_PRICE, E2E_TARGET_PLAYER, SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
-import { installSyntheticNetworkGuard } from "./helpers.js";
+import { apriAsta, installSyntheticNetworkGuard } from "./helpers.js";
 
 const VIEWPORTS = [
   { width: 390, height: 844 },
@@ -41,7 +41,7 @@ test("assignment, undo and import confirmations preserve critical visibility and
 
   for (const viewport of VIEWPORTS) {
     await page.setViewportSize(viewport);
-    await page.goto("/");
+    await apriAsta(page);
     await purchase(page);
 
     const strip = page.locator("#critical-auction-strip");

@@ -9,7 +9,7 @@ import {
   SCHEDA_PLAYER,
   schedeDeposit,
 } from "./fixtures/synthetic-schede.js";
-import { installSyntheticNetworkGuard } from "./helpers.js";
+import { apriAsta, installSyntheticNetworkGuard, ricaricaAsta } from "./helpers.js";
 import { LISTONE_COLUMN_PREFS_STORAGE_KEY } from "../src/listoneColumnPrefs.js";
 import {
   LISTONE_IDENTITY_COLUMN_KEYS,
@@ -86,7 +86,7 @@ async function routeSchede(context: BrowserContext, schede: readonly unknown[]):
 }
 
 async function boot(page: Page): Promise<void> {
-  await page.goto("/");
+  await apriAsta(page);
   await expect(page.locator("#search-player")).toBeVisible();
   await expect(page.locator(".listone-row").first()).toBeVisible();
 }
@@ -164,7 +164,7 @@ test("una colonna nascosta si riaccende, resta accesa dopo un reload e si può r
   expect(saved, "la scelta deve essere scritta nel browser, non solo in memoria").not.toBeNull();
   expect(JSON.parse(saved!)).toMatchObject({ hidden: [], shown: ["quotation"] });
 
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator(".listone-row").first()).toBeVisible();
   expect(await headerTexts(page)).toEqual([...DEFAULT_HEADERS, "Quotazione"]);
 
@@ -177,7 +177,7 @@ test("una colonna nascosta si riaccende, resta accesa dopo un reload e si può r
   );
   expect(await headerTexts(page)).toEqual([...DEFAULT_HEADERS]);
 
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator(".listone-row").first()).toBeVisible();
   expect(await headerTexts(page)).toEqual([...DEFAULT_HEADERS]);
   expect(externalRequests).toEqual([]);
@@ -195,7 +195,7 @@ test("spegnere una colonna di default la nasconde, e anche quello si ricorda", a
   await page.locator("#listone-column-toggle-scheda_angoli").click();
   expect(await headerTexts(page)).toEqual(DEFAULT_HEADERS.filter((h) => h !== "Angoli"));
 
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator(".listone-row").first()).toBeVisible();
   expect(await headerTexts(page)).toEqual(DEFAULT_HEADERS.filter((h) => h !== "Angoli"));
   expect(externalRequests).toEqual([]);
@@ -364,7 +364,7 @@ test("il marcatore si legge senza mouse, e non aggiunge nemmeno una fermata al T
   // fermate. È la prova del «zero stop aggiunti», non una dichiarazione.
   await context.unroute(`**${SCHEDE_PATH}`);
   await routeSchede(context, []);
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator(".listone-row").first()).toBeVisible();
   await expect(page.locator(".listone-row .listone-axis-tag")).toHaveCount(0);
   expect(await tabStops(page, "#listone-block")).toBe(stopsConMarcatori);
@@ -648,7 +648,7 @@ test("il tentativo di spegnere un'identità non scrive niente, nemmeno dopo un r
 
   // NESSUN EFFETTO DOPO IL RELOAD: è l'altra metà: una preferenza scritta e
   // non onorata mentirebbe al prossimo avvio.
-  await page.reload();
+  await ricaricaAsta(page);
   await expect(page.locator(".listone-row").first()).toBeVisible();
   expect(await headerTexts(page)).toEqual([...DEFAULT_HEADERS]);
   expect(await saved()).toBeNull();

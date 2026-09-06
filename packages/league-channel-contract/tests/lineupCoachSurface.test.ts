@@ -100,8 +100,74 @@ describe("quale pagina apre il sito", () => {
     }
   });
 
+  it("la LETTURA ANCORA IN CORSO apre sulla formazione: è il caso di ogni apertura", () => {
+    // È la riga che toglie il salto. Nell'istante in cui la prima pagina va a
+    // schermo la richiesta alla lega è appena partita: se questo caso dicesse
+    // «asta», il sito aprirebbe sull'Asta e poi — a lettura arrivata —
+    // qualcuno dovrebbe spostare la pagina sotto gli occhi di chi la guarda.
+    // Dice «formazione», e non c'è più niente da spostare.
+    expect(decideInitialScreen(sconosciuto("lettura_in_corso"))).toBe("formazione");
+  });
+
   it("la porta non collegata apre sull'asta: non è «non so», è «qui il canale non c'è»", () => {
     expect(decideInitialScreen(sconosciuto("porta_non_collegata"))).toBe("asta");
+  });
+});
+
+describe("l'attesa si vede, e non si veste da guasto", () => {
+  it("la lettura in corso ha un avviso suo, distinto da «la lega non ha risposto»", () => {
+    // «Sto chiedendo» e «non mi hanno risposto» sono due cose diverse con due
+    // rimedi diversi — la prima non ne ha nessuno, si aspetta — e finché
+    // passavano dalla stessa causa la pagina accusava la lega di un silenzio
+    // che non c'era ancora stato.
+    const attesa = buildFormazioneView(sconosciuto("lettura_in_corso"), new Map());
+    const muta = buildFormazioneView(sconosciuto("risposta_assente"), new Map());
+    expect(attesa.notice?.cause).toBe("lettura_in_corso");
+    expect(attesa.notice?.title).not.toBe(muta.notice?.title);
+    expect(attesa.notice?.detail).not.toBe(muta.notice?.detail);
+    // E dice che si sta chiedendo, non che qualcosa è andato storto.
+    expect(attesa.notice?.detail).toContain("chiedendo");
+  });
+
+  it("nemmeno durante l'attesa si disegna una formazione: non se ne conosce nessuna", () => {
+    const view = buildFormazioneView(sconosciuto("lettura_in_corso"), new Map());
+    expect(view.known).toBe(false);
+    expect(view.competitions).toEqual([]);
+    expect(view.emptyRoster).toBeNull();
+  });
+});
+
+describe("la lega risponde che non hai nessuno: si dichiara, e la pagina resta", () => {
+  it("rosa vuota letta: la dichiarazione c'è, e non è un avviso di guasto", () => {
+    const view = buildFormazioneView(
+      letto([campionato({ kind: "letta", lineup: null })], ROSA_VUOTA),
+      new Map(),
+    );
+    expect(view.known).toBe(true);
+    // Non è «non so»: si sa, ed è vuota. Le due cose non si confondono.
+    expect(view.notice).toBeNull();
+    expect(view.emptyRoster?.title.length ?? 0).toBeGreaterThan(0);
+    expect(view.emptyRoster?.detail).toContain("rosa è vuota");
+  });
+
+  it("la dichiarazione PRENDE IL POSTO della squadra: nessun campo vuoto accanto", () => {
+    // Senza questa riga la pagina mostrerebbe le competizioni con undici posti
+    // vuoti e nessuno da metterci: un campo verde vuoto si legge «non ho ancora
+    // schierato», che qui sarebbe falso due volte.
+    const view = buildFormazioneView(
+      letto(
+        [campionato({ kind: "letta", lineup: null }), campionato({ kind: "letta", lineup: null })],
+        ROSA_VUOTA,
+      ),
+      new Map(),
+    );
+    expect(view.competitions).toEqual([]);
+  });
+
+  it("la stessa lettura con una rosa PIENA disegna le competizioni, e non dichiara niente", () => {
+    const view = buildFormazioneView(letto([campionato({ kind: "letta", lineup: null })]), new Map());
+    expect(view.emptyRoster).toBeNull();
+    expect(view.competitions).toHaveLength(1);
   });
 });
 
@@ -109,6 +175,7 @@ describe("quando lo stato non è noto, l'avviso prende il posto della squadra", 
   it("nessuna competizione viene costruita: non esiste lo schermo misto", () => {
     for (const cause of [
       "porta_non_collegata",
+      "lettura_in_corso",
       "risposta_assente",
       "risposta_illeggibile",
       "non_diagnosticabile",

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { installSyntheticNetworkGuard } from "./helpers.js";
+import { apriAsta, installSyntheticNetworkGuard, ricaricaAsta } from "./helpers.js";
 import { PRECEDENT_POOL, seedPrecedents } from "./fixtures/synthetic-precedents.js";
 import { BAIT_TITLE, BAIT_TITLE_SHORT } from "../src/ui/baitRow.js";
 import { PER_ME_TITLE_SHORT } from "../src/ui/perMeRow.js";
@@ -72,7 +72,7 @@ async function expectNoDrift(page: Page, where: string): Promise<void> {
 }
 
 async function boot(page: Page): Promise<void> {
-  await page.goto("/");
+  await apriAsta(page);
   await page.evaluate(() => localStorage.clear());
   await seedPrecedents(page);
   await expect(page.locator("#bait-rows")).toBeVisible();
@@ -384,9 +384,9 @@ test("senza storico il sottoblocco dice «non lo so», e non «nessuno»", async
 }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, PRECEDENT_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
   await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  await ricaricaAsta(page);
 
   const empty = page.locator("#bait-empty");
   await expect(empty).toBeVisible();

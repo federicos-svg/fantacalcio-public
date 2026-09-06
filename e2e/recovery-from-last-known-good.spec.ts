@@ -15,10 +15,11 @@ import { listonePlayerKey, type ListonePlayer } from "../src/ui/listone.js";
 import { LOG_STORAGE_KEY, LAST_KNOWN_GOOD_STORAGE_KEY, QUARANTINE_STORAGE_KEY } from "../src/logRecovery.js";
 import { SYNTHETIC_LISTONE_POOL, E2E_TARGET_PLAYER, E2E_PURCHASE_PRICE } from "./fixtures/synthetic-listone.js";
 import {
-  installSyntheticNetworkGuard,
-  readLocalStorageRaw,
-  readLocalStorageJson,
+  apriAsta,
   expectAssignedEffectsVisible,
+  installSyntheticNetworkGuard,
+  readLocalStorageJson,
+  readLocalStorageRaw,
   selectStatusFilter,
 } from "./helpers.js";
 
@@ -72,7 +73,7 @@ test("recovers from a valid last-known-good copy when the canonical log is corru
     },
   );
 
-  await page.goto("/");
+  await apriAsta(page);
 
   // Recovery notice visible and accessible (role=alert), explains a
   // recovery happened — never silently hidden.

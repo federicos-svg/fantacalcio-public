@@ -16,11 +16,13 @@
 import { expect, test } from "@playwright/test";
 import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
 import {
-  installSyntheticNetworkGuard,
-  waitForServiceWorkerControl,
+  LISTONE_ASSET_PATH,
+  apriAsta,
   evictDataAssetFromServiceWorkerCache,
   expectListoneRows,
-  LISTONE_ASSET_PATH,
+  installSyntheticNetworkGuard,
+  ricaricaAsta,
+  waitForServiceWorkerControl,
 } from "./helpers.js";
 
 const SYNTHETIC_LISTONE_NAMES = SYNTHETIC_LISTONE_POOL.map((player) => player.name);
@@ -28,7 +30,7 @@ const SYNTHETIC_LISTONE_NAMES = SYNTHETIC_LISTONE_POOL.map((player) => player.na
 test("a live-bundle-shaped static payload preloads and survives asset failure via local cache", async ({ page, context }) => {
   const externalRequests: string[] = [];
   await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
-  await page.goto("/");
+  await apriAsta(page);
 
   await expectListoneRows(page, SYNTHETIC_LISTONE_NAMES);
   await waitForServiceWorkerControl(page);
@@ -49,7 +51,7 @@ test("a live-bundle-shaped static payload preloads and survives asset failure vi
     return route.abort("blockedbyclient");
   });
 
-  await page.reload();
+  await ricaricaAsta(page);
   await expectListoneRows(page, SYNTHETIC_LISTONE_NAMES);
   expect(JSON.parse((await page.evaluate(() => window.localStorage.getItem("fac_pool"))) ?? "[]")).toEqual(
     SYNTHETIC_LISTONE_POOL,

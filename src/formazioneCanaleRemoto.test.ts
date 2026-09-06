@@ -1,14 +1,17 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import {
+  avviaCanaleDaDeposito,
   leggiCanaleDaDeposito,
   statoDaDeposito,
   FORMAZIONE_DEPOSITO_FORMATO,
   FORMAZIONE_ENDPOINT,
 } from "./formazioneCanaleRemoto.js";
+import { connectLineupChannel, readLineupChannelState } from "./formazioneChannel.js";
 import { costruisciLettura } from "./formazioneLettura.js";
 import {
   buildFormazioneView,
+  decideInitialScreen,
   prepareSubmission,
   saveBlockers,
   validateObservedLeagueSettings,
@@ -265,6 +268,57 @@ describe("la richiesta: ogni esito è uno stato dichiarato, mai un'eccezione", (
 });
 
 /* ────────────────────────────────────────────────────────────────────────────
+   L'ATTESA HA UN NOME, E APRE LA FORMAZIONE
+   ──────────────────────────────────────────────────────────────────────────── */
+
+describe("mentre la richiesta è per aria la porta dichiara l'attesa, non un silenzio", () => {
+  afterEach(() => {
+    connectLineupChannel(null);
+  });
+
+  it("prima che la risposta arrivi lo stato è «lettura in corso», e la prima pagina è la Formazione", async () => {
+    // È l'istante in cui il sito si apre, ed è l'istante che il difetto
+    // sbagliava: la porta non era ancora collegata, quindi lo stato era «qui il
+    // canale non c'è» e il sito apriva sull'Asta. Adesso la porta è collegata
+    // dal primo momento e dice la verità di quel momento — sto chiedendo — che
+    // apre sulla Formazione. Con `risposta_assente` al suo posto la pagina
+    // direbbe «la lega non ha risposto» mentre la richiesta è ancora per aria.
+    let rispondi: (risposta: Response) => void = () => undefined;
+    const risposta = new Promise<Response>((risolvi) => {
+      rispondi = risolvi;
+    });
+    const fetchImpl = (() => risposta) as unknown as typeof fetch;
+
+    const finita = avviaCanaleDaDeposito({ fetchImpl, alCambio: () => undefined });
+    const attesa = readLineupChannelState();
+    expect(attesa.kind).toBe("sconosciuto");
+    if (attesa.kind === "sconosciuto") expect(attesa.cause).toBe("lettura_in_corso");
+    expect(decideInitialScreen(attesa)).toBe("formazione");
+
+    rispondi(new Response(JSON.stringify(ESEMPIO), { status: 200 }));
+    await finita;
+
+    // E quando arriva, arriva davvero: l'attesa è uno stato di passaggio, non
+    // un posto in cui si resta.
+    expect(readLineupChannelState().kind).toBe("letto");
+  });
+
+  it("l'attesa non è un esito: se la lega poi tace, lo stato diventa «non ha risposto»", async () => {
+    const fetchImpl = (async () => new Response("", { status: 404 })) as unknown as typeof fetch;
+    await avviaCanaleDaDeposito({ fetchImpl, alCambio: () => undefined });
+    const stato = readLineupChannelState();
+    expect(stato.kind).toBe("sconosciuto");
+    if (stato.kind === "sconosciuto") {
+      expect(stato.cause).toBe("risposta_assente");
+      expect(stato.detail).toContain("404");
+    }
+    // E la pagina resta la Formazione: nessuno degli esiti della lettura
+    // cambia la schermata.
+    expect(decideInitialScreen(stato)).toBe("formazione");
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
    LE IMPOSTAZIONI DI LEGA — l'unico campo che non era validato
    ──────────────────────────────────────────────────────────────────────────── */
 
@@ -515,8 +569,17 @@ function qualcosaDaDipingere(stato: LineupChannelState): boolean {
       });
     }
   }
+  // TRE MODI DI AVERE QUALCOSA DA DIPINGERE, e nessuno è una griglia vuota: le
+  // competizioni quando c'è una squadra; la dichiarazione «non hai nessuno da
+  // schierare» quando la lega ha risposto e la rosa è vuota; l'avviso quando lo
+  // stato non è noto — compreso il primo secondo, in cui l'avviso dice che si
+  // sta chiedendo.
+  const dichiarazione = vista.emptyRoster;
   return vista.known
-    ? vista.competitions.length > 0
+    ? vista.competitions.length > 0 ||
+        (dichiarazione !== null &&
+          dichiarazione.title.length > 0 &&
+          dichiarazione.detail.length > 0)
     : vista.notice !== null && vista.notice.title.length > 0 && vista.notice.detail.length > 0;
 }
 
