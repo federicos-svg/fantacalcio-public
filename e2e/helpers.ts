@@ -41,11 +41,22 @@ export type RemoteListoneRoute =
  *   sito prima apriva sull'Asta per poi saltare altrove.
  * - `serve`: un deposito vero, sempre con il suo ritardo, per guardare che cosa
  *   fa la pagina **quando la lettura arriva**: si riempie restando dov'è.
+ * - `guasto`: uno stato e un CORPO decisi dalla prova, letterali. È l'unico
+ *   modo di guardare la cosa che conta qui — che cosa la pagina scrive quando
+ *   il layer privato dichiara un guasto — e il corpo è una stringa e non un
+ *   oggetto proprio perché deve poter essere anche ciò che un oggetto non può
+ *   essere: mezzo JSON, niente JSON, un corpo enorme, un corpo ostile.
  */
 export type RemoteFormazioneRoute =
   | { readonly kind: "passthrough" }
   | { readonly kind: "unavailable"; readonly delayMs?: number }
-  | { readonly kind: "serve"; readonly deposit: unknown; readonly delayMs?: number };
+  | { readonly kind: "serve"; readonly deposit: unknown; readonly delayMs?: number }
+  | {
+      readonly kind: "guasto";
+      readonly status: number;
+      readonly body: string;
+      readonly delayMs?: number;
+    };
 
 export const FORMAZIONE_REMOTE_PATH = "/api/formazione";
 
@@ -69,18 +80,27 @@ export async function installSyntheticNetworkGuard(
   await context.route("**/*", (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === FORMAZIONE_REMOTE_PATH && formazione.kind !== "passthrough") {
-      const rispondi = (): Promise<void> =>
-        formazione.kind === "serve"
-          ? route.fulfill({
-              status: 200,
-              contentType: "application/json",
-              body: JSON.stringify(formazione.deposit),
-            })
-          : route.fulfill({
-              status: 404,
-              contentType: "application/json",
-              body: JSON.stringify({ error: "not_found" }),
-            });
+      const rispondi = (): Promise<void> => {
+        if (formazione.kind === "serve") {
+          return route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify(formazione.deposit),
+          });
+        }
+        if (formazione.kind === "guasto") {
+          return route.fulfill({
+            status: formazione.status,
+            contentType: "application/json",
+            body: formazione.body,
+          });
+        }
+        return route.fulfill({
+          status: 404,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "not_found" }),
+        });
+      };
       const ritardo = formazione.delayMs ?? 0;
       if (ritardo === 0) return rispondi();
       // La risposta ritardata può arrivare a pagina già chiusa (una prova che

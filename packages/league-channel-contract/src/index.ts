@@ -4,6 +4,7 @@
 // acquisizione, nessun host, nessun endpoint, nessun header, nessuna
 // credenziale. È il ponte fra la lettura della piattaforma (privata) e
 // `packages/league-gameweek`, che calcola.
+export * from "./depositFault.js";
 export * from "./leagueSettings.js";
 export * from "./ruleReconciliation.js";
 export * from "./roster.js";
