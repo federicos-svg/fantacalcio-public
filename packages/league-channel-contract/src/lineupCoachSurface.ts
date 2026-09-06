@@ -741,15 +741,30 @@ export interface FormazionePlayerRow {
   readonly id: string;
   readonly role: Role;
   /**
-   * Il nome come l'osservazione l'ha dichiarato; `undefined` se non è stato
-   * osservato.
+   * Il nome da mostrare; `undefined` quando non lo sa nessuna delle due fonti.
    *
-   * Viene RIPORTATO dalla rosa osservata, non ricavato: questo modello non sa
-   * costruire un nome e non deve imparare a farlo. Chi disegna ha quindi due
-   * casi da distinguere a vista — un nome letto e un nome che non c'è — e non
-   * un campo che a volte è un nome e a volte un identificativo travestito.
+   * Viene RIPORTATO, non ricavato: questo modello non sa costruire un nome e
+   * non deve imparare a farlo. Non è mai l'identificativo travestito.
    */
   readonly name?: string;
+  /**
+   * DA DOVE VIENE IL NOME, e senza questo campo il nome sarebbe una bugia
+   * comoda.
+   *
+   * `"lega"` è il nome che l'osservazione della piattaforma ha dichiarato.
+   * `"listone"` è un nome che la lega **non** ha dato: è stato riconciliato
+   * dall'anagrafica interna sulla chiave del giocatore, che è la stessa chiave
+   * (misurato: 24 identificativi su 28 ritrovati, 24 accordi di ruolo su 24 —
+   * i 4 assenti sono la copertura di un listone di una stagione fa, non un
+   * altro spazio di identificativi).
+   *
+   * Le due cose NON si fondono in un campo solo. Un nome riconciliato è un
+   * dato di un'altra fonte, e chi guarda ha diritto di sapere che la lega quel
+   * nome non l'ha mai detto — è la stessa disciplina che in questo progetto
+   * tiene separato «misurato» da «inferito». Presente esattamente quando
+   * `name` è presente.
+   */
+  readonly nameSource?: "lega" | "listone";
   /** È fra i titolari della formazione mostrata (portiere compreso). */
   readonly starter: boolean;
   /** Dove sta esattamente: la porta è un posto solo, e la panchina è ordinata. */
@@ -968,6 +983,22 @@ export function buildFormazioneView(
    * = si guarda ciò che la piattaforma riporta, che è il caso normale.
    */
   draftsByCompetition?: ReadonlyMap<string, ObservedLineup>,
+  /**
+   * I NOMI CHE UN'ALTRA FONTE CONOSCE, per identificativo di giocatore.
+   *
+   * Si usano **soltanto** dove la lega non ha dichiarato un nome, e non
+   * sovrascrivono mai il suo: sulla formazione comanda la lega, e questa mappa
+   * non è autorizzata a contraddirla — nemmeno quando ha ragione. Vale anche
+   * per il ruolo, che non passa affatto di qui: due giocatori di questa lega
+   * sono `T;A` e `W;A` nell'anagrafica e la lega li schiera attaccanti, quindi
+   * un ruolo preso dal listone direbbe «centrocampista» di chi gioca davanti.
+   *
+   * Assente = nessuna riconciliazione, e la pagina mostra l'identificativo
+   * dichiarandolo. È lo stato normale in cui gira il core pubblico da solo, ed
+   * è anche ciò che succede quando l'anagrafica non è arrivata: il ramo «nome
+   * ignoto» resta indispensabile e non è un caso di laboratorio.
+   */
+  reconciledNames?: ReadonlyMap<string, string>,
 ): FormazioneView {
   if (state.kind === "sconosciuto") {
     const detail = state.detail.length === 0 ? AVVISI[state.cause] : `${AVVISI[state.cause]} (${state.detail})`;
@@ -1044,13 +1075,23 @@ export function buildFormazioneView(
     const players = state.roster.players.map((player) => {
       const place: LineupPlace = lineup === null ? "fuori" : placeOf(lineup, player.id);
       const benchIndex = lineup === null ? -1 : lineup.benchIds.indexOf(player.id);
+      // IL NOME DELLA LEGA VIENE PRIMA, SEMPRE. La riconciliazione si guarda
+      // solo dove la lega tace: se la lega ha detto un nome, quello è il nome,
+      // anche se l'anagrafica ne conosce un altro. Un'anagrafica che
+      // sovrascrive la fonte su cui si schiera è esattamente il modo in cui una
+      // pagina comincia a mostrare una squadra che non è quella della lega.
+      const nomeDallaLega = player.name;
+      const nomeRiconciliato =
+        nomeDallaLega === undefined ? reconciledNames?.get(player.id) : undefined;
+      const nome = nomeDallaLega ?? nomeRiconciliato;
       return {
         id: player.id,
         role: player.role,
-        // Riportato tale e quale, e SOLO se c'è: un nome non osservato resta
-        // assente fino alla pagina, che è l'unico posto in cui si può dire
-        // «non lo so» a chi sta guardando.
-        ...(player.name === undefined ? {} : { name: player.name }),
+        // `name` e `nameSource` viaggiano SEMPRE insieme: un nome senza la sua
+        // provenienza è la bugia comoda che questo campo esiste per impedire.
+        ...(nome === undefined
+          ? {}
+          : { name: nome, nameSource: nomeDallaLega === undefined ? "listone" : "lega" }),
         starter: place === "porta" || place === "titolare",
         place,
         benchOrder: benchIndex === -1 ? null : benchIndex + 1,

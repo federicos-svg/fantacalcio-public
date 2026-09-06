@@ -1214,3 +1214,71 @@ describe("il nome del giocatore arriva fino al modello, e la sua assenza pure", 
     expect(senzaNome?.id).toBe("p1");
   });
 });
+
+describe("il nome riconciliato da un'altra fonte, e la sua provenienza", () => {
+  // I TRE STATI del nome, provati qui dove non serve un browser. La pagina ne
+  // disegna tre perché ce ne sono tre: il nome che la lega ha dichiarato, il
+  // nome che sappiamo da un'altra parte, e il nome che non sa nessuno.
+
+  const ROSA_MISTA: ObservedTeam = {
+    teamId: ROSA.teamId,
+    players: ROSA.players.map((giocatore, indice) =>
+      // `p1` senza nome, tutti gli altri col nome della lega.
+      indice === 0 ? giocatore : { ...giocatore, name: `nome di lega ${indice}` },
+    ),
+  };
+
+  it("dove la lega tace, il nome arriva dall'altra fonte E si dichiara tale", () => {
+    const view = buildFormazioneView(
+      letto([campionato({ kind: "letta", lineup: FORMAZIONE })], ROSA_MISTA),
+      new Map(),
+      undefined,
+      undefined,
+      new Map([["p1", "nome riconciliato"]]),
+    );
+    const riga = (view.competitions[0]?.players ?? []).find((r) => r.id === "p1");
+    expect(riga?.name).toBe("nome riconciliato");
+    expect(riga?.nameSource).toBe("listone");
+  });
+
+  it("dove la lega parla, l'altra fonte NON la sovrascrive — nemmeno se dissente", () => {
+    // È il vincolo che tiene la pagina onesta: sulla formazione comanda la
+    // lega. Un'anagrafica che vince sulla fonte su cui si schiera è il modo in
+    // cui una schermata comincia a mostrare una squadra che non è quella vera.
+    const view = buildFormazioneView(
+      letto([campionato({ kind: "letta", lineup: FORMAZIONE })], ROSA_MISTA),
+      new Map(),
+      undefined,
+      undefined,
+      new Map([["p2", "nome che il listone preferirebbe"]]),
+    );
+    const riga = (view.competitions[0]?.players ?? []).find((r) => r.id === "p2");
+    expect(riga?.name).toBe("nome di lega 1");
+    expect(riga?.nameSource).toBe("lega");
+  });
+
+  it("senza riconciliazione il nome ignoto RESTA ignoto: nessun ripiego", () => {
+    // Il terzo ramo non è un caso di laboratorio: sulla formazione misurata
+    // sono 4 giocatori su 28, quelli che l'anagrafica di una stagione fa non
+    // contiene. Deve reggere anche quando la mappa non arriva affatto.
+    const view = buildFormazioneView(
+      letto([campionato({ kind: "letta", lineup: FORMAZIONE })], ROSA_MISTA),
+      new Map(),
+    );
+    const riga = (view.competitions[0]?.players ?? []).find((r) => r.id === "p1");
+    expect(riga?.name).toBeUndefined();
+    expect(riga?.nameSource).toBeUndefined();
+  });
+
+  it("un identificativo che l'altra fonte non conosce resta senza nome", () => {
+    const view = buildFormazioneView(
+      letto([campionato({ kind: "letta", lineup: FORMAZIONE })], ROSA_MISTA),
+      new Map(),
+      undefined,
+      undefined,
+      new Map([["un-id-che-non-e-in-rosa", "nome di nessuno"]]),
+    );
+    const riga = (view.competitions[0]?.players ?? []).find((r) => r.id === "p1");
+    expect(riga?.name).toBeUndefined();
+  });
+});

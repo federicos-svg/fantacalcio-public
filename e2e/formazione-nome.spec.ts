@@ -1,8 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
-import { SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
+import {
+  SYNTHETIC_ANAGRAFICA_FORMAZIONE,
+  SYNTHETIC_LISTONE_POOL,
+} from "./fixtures/synthetic-listone.js";
 import {
   depositoConNomeMancante,
   depositoConSquadra,
+  depositoSenzaNomi,
   SENZA_NOME_ID,
 } from "./fixtures/synthetic-formazione.js";
 import { gotoScreen, installSyntheticNetworkGuard } from "./helpers.js";
@@ -68,7 +72,7 @@ test("il gettone porta il NOME del giocatore, non l'identificativo", async ({ pa
   await expect(portiere).toBeVisible();
   const nome = portiere.locator(".formazione-gettone__nome");
   await expect(nome).toHaveText("Portiere Uno");
-  await expect(nome).toHaveAttribute("data-nome", "letto");
+  await expect(nome).toHaveAttribute("data-nome", "lega");
 
   // E NON dice l'identificativo: è la metà della prova che si romperebbe se
   // qualcuno rimettesse `player.id` come testo del gettone. Senza questa riga
@@ -181,6 +185,86 @@ test("fuori dalla prova nessun gettone porta la targa", async ({ page, context }
 
   await expect(page.locator(".formazione-gettone__prova")).toHaveCount(0);
   await expect(page.locator("#formazione-prova-marchio")).toHaveCount(0);
+
+  expect(externalRequests).toEqual([]);
+});
+
+test("i TRE stati del nome convivono nella stessa schermata, e si distinguono", async ({
+  page,
+  context,
+}) => {
+  // Il caso vero, quello che il committente avrà davanti: di qualcuno la lega
+  // dà il nome, di qualcun altro no e lo sappiamo da un'altra parte, e di
+  // qualcuno non lo sa nessuno. Sulla formazione misurata i tre gruppi erano
+  // rispettivamente 0, 24 e 4 su 28: il terzo non è un caso di laboratorio.
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(
+    context,
+    SYNTHETIC_LISTONE_POOL,
+    externalRequests,
+    { kind: "serve", rows: SYNTHETIC_ANAGRAFICA_FORMAZIONE },
+    { kind: "serve", deposit: depositoSenzaNomi("g-d1", "g-d2") },
+  );
+  await page.goto("/");
+  await gotoScreen(page, "Formazione");
+  await expect(page.locator(`#formazione-competizione-${CAMPIONATO}`)).toBeVisible();
+
+  // 1) NOME DELLA LEGA: si vede, e non porta nessuna targa di provenienza —
+  // la lega è la fonte normale, non una da dichiarare.
+  const dallaLega = page.locator(gettone(CAMPIONATO, "g-p1"));
+  await expect(dallaLega.locator(".formazione-gettone__nome")).toHaveText("Portiere Uno");
+  await expect(dallaLega.locator(".formazione-gettone__nome")).toHaveAttribute("data-nome", "lega");
+  await expect(dallaLega.locator(".formazione-gettone__nome-fonte")).toHaveCount(0);
+  await expect(dallaLega.locator(".formazione-gettone__nome-ignoto")).toHaveCount(0);
+
+  // 2) NOME RICONCILIATO: si vede il nome, E si dichiara da dove viene. Senza
+  // la seconda riga il gettone affermerebbe che la lega ha detto un nome che
+  // non ha mai detto.
+  const riconciliato = page.locator(gettone(CAMPIONATO, "g-d1"));
+  await expect(riconciliato.locator(".formazione-gettone__nome")).toHaveText("Nome Riconciliato");
+  await expect(riconciliato.locator(".formazione-gettone__nome")).toHaveAttribute(
+    "data-nome",
+    "listone",
+  );
+  await expect(riconciliato.locator(".formazione-gettone__nome-fonte")).toBeVisible();
+  await expect(riconciliato.locator(".formazione-gettone__nome-ignoto")).toHaveCount(0);
+
+  // 3) NOME IGNOTO: sopravvive all'arrivo della riconciliazione. È il ramo dei
+  // 4 su 28 che l'anagrafica non copre, e la prova che lo sorveglia non si
+  // tocca: se un giorno qualcuno lo riempisse con un ripiego, questa riga
+  // diventerebbe rossa.
+  const ignoto = page.locator(gettone(CAMPIONATO, "g-d2"));
+  await expect(ignoto.locator(".formazione-gettone__nome")).toHaveText("g-d2");
+  await expect(ignoto.locator(".formazione-gettone__nome")).toHaveAttribute("data-nome", "non-letto");
+  await expect(ignoto.locator(".formazione-gettone__nome-ignoto")).toBeVisible();
+  await expect(ignoto.locator(".formazione-gettone__nome-fonte")).toHaveCount(0);
+
+  expect(externalRequests).toEqual([]);
+});
+
+test("l'anagrafica non sovrascrive MAI il nome che la lega ha dichiarato", async ({
+  page,
+  context,
+}) => {
+  // Sulla formazione comanda la lega. Qui l'anagrafica conosce `g-d1` con un
+  // nome suo, ma la lega per `g-d1` un nome ce l'ha: deve vincere la lega, e il
+  // gettone non deve portare nessuna targa di provenienza.
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(
+    context,
+    SYNTHETIC_LISTONE_POOL,
+    externalRequests,
+    { kind: "serve", rows: SYNTHETIC_ANAGRAFICA_FORMAZIONE },
+    { kind: "serve", deposit: depositoConSquadra() },
+  );
+  await page.goto("/");
+  await gotoScreen(page, "Formazione");
+  await expect(page.locator(`#formazione-competizione-${CAMPIONATO}`)).toBeVisible();
+
+  const conteso = page.locator(gettone(CAMPIONATO, "g-d1"));
+  await expect(conteso.locator(".formazione-gettone__nome")).toHaveText("Difensore Uno");
+  await expect(conteso.locator(".formazione-gettone__nome")).not.toHaveText("Nome Riconciliato");
+  await expect(conteso.locator(".formazione-gettone__nome-fonte")).toHaveCount(0);
 
   expect(externalRequests).toEqual([]);
 });

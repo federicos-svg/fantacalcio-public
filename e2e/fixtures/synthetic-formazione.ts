@@ -50,14 +50,28 @@ export const SENZA_NOME_ID = "g-d1";
  * osservazioni diverse, e il contratto tratta solo la prima come «non so».
  */
 export function depositoConNomeMancante(): Record<string, unknown> {
+  return depositoSenzaNomi(SENZA_NOME_ID);
+}
+
+/**
+ * Come sopra, ma per quanti giocatori si vuole.
+ *
+ * Serve a mettere sotto gli occhi, nella STESSA schermata, i tre stati del
+ * nome: dichiarato dalla lega, riconciliato da un'altra fonte, e ignoto. Con
+ * una sola variante non si potrebbe distinguere «la pagina sa fare il terzo
+ * stato» da «la pagina fa il terzo stato dappertutto».
+ */
+export function depositoSenzaNomi(...ids: readonly string[]): Record<string, unknown> {
   const payload = copia();
   const rosa = payload["roster"] as Record<string, unknown>;
   const giocatori = rosa["players"] as Record<string, unknown>[];
-  const bersaglio = giocatori.find((giocatore) => giocatore["id"] === SENZA_NOME_ID);
-  if (bersaglio === undefined) {
-    throw new Error(`la fixture non porta più il giocatore ${SENZA_NOME_ID}`);
+  for (const id of ids) {
+    const bersaglio = giocatori.find((giocatore) => giocatore["id"] === id);
+    if (bersaglio === undefined) {
+      throw new Error(`la fixture non porta più il giocatore ${id}`);
+    }
+    delete bersaglio["name"];
   }
-  delete bersaglio["name"];
   return payload;
 }
 

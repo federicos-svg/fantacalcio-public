@@ -117,3 +117,28 @@ export const SYNTHETIC_REMOTE_LISTONE_POOL_WITH_GEN_FORECAST: readonly ListonePl
   },
   { name: SYNTHETIC_GEN_FORECAST_ABSENT_PLAYER, role: "D", club: "ClubSette", quotation: 9 },
 ];
+
+/**
+ * L'ANAGRAFICA SINTETICA CHE CONOSCE QUALCHE GIOCATORE DELLA FORMAZIONE.
+ *
+ * Stessa forma dell'anagrafica vera — l'identificativo di piattaforma non è un
+ * campo «core» della riga, quindi viaggia fra gli `extra` sotto la chiave `Id`
+ * — con identificativi che combaciano con quelli della fixture del deposito
+ * (`fixtures/league-channel-observation.example.json`, `g-*`).
+ *
+ * Ne conosce ALCUNI e non tutti, di proposito: è la situazione reale — sulla
+ * formazione misurata l'anagrafica ne copriva 24 su 28 — ed è l'unica in cui si
+ * può vedere, nella stessa schermata, che il ramo «nome ignoto» sopravvive
+ * all'arrivo della riconciliazione invece di essere assorbito da lei.
+ *
+ * Nomi inventati, come ogni altra fixture di questa suite.
+ */
+// Tipata come forma DI FILO, non come `ListonePlayer`: sul filo gli extra sono
+// chiavi di primo livello (`Id` accanto a `name`), e l'oggetto `extra` lo
+// costruisce il parser dopo averle validate. Servire una riga gia' nella forma
+// parsata la fa RIFIUTARE — `isListonePlayer` non ammette un oggetto dentro una
+// colonna extra — e il pool remoto perderebbe in silenzio contro l'asset
+// statico, con la prova che passa senza misurare niente.
+export const SYNTHETIC_ANAGRAFICA_FORMAZIONE: readonly Record<string, string | number>[] = [
+  { name: "Nome Riconciliato", role: "D", club: "ClubSette", quotation: 9, Id: "g-d1" },
+];

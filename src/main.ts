@@ -267,6 +267,7 @@ import {
   salvaModalitaProva,
   type ProvaRichiesta,
 } from "./formazioneProva.js";
+import { nomiPerIdentificativo } from "./formazioneNomiListone.js";
 import {
   renderFormazioneScreen,
   NESSUNA_MODIFICA_IN_SOSPESO,
@@ -4144,7 +4145,30 @@ function renderFormazione(): HTMLElement {
   const produttore = prova
     ? { reports: provaProducerReports(constraints, shownLineup(PROVA_COMPETITION_ID)), failure: "" }
     : lineupProducerReports(channel, constraints);
-  const view = buildFormazioneView(channel, constraints, produttore.reports, drafts);
+  // I NOMI DALL'ANAGRAFICA, e solo dove la lega tace.
+  //
+  // `state.pool` è l'anagrafica che la pagina ha DAVVERO in mano adesso, non il
+  // file incorporato nel build: `resolveListonePool` mette davanti il deposito
+  // privato servito a runtime e usa l'asset statico solo come ripiego. Passare
+  // di qui significa quindi riconciliare contro l'anagrafica CORRENTE quando
+  // c'è, e non contro un seme di una stagione fa.
+  //
+  // In prova non si riconcilia niente: la squadra di esempio si dà i nomi da
+  // sé, e prestarle quelli di giocatori veri mescolerebbe finzione e realtà
+  // proprio nella schermata che esiste per tenerle separate.
+  //
+  // Quando l'anagrafica non è arrivata la mappa è vuota, e non è un guasto: i
+  // gettoni restano nel ramo «nome non noto», che è già disegnato e provato.
+  const nomiRiconciliati = prova
+    ? undefined
+    : nomiPerIdentificativo(state.pool);
+  const view = buildFormazioneView(
+    channel,
+    constraints,
+    produttore.reports,
+    drafts,
+    nomiRiconciliati,
+  );
   // L'avviso sull'archivio dei vincoli riguarda le spunte VERE: sopra una
   // squadra di esempio, che non ne scrive nessuna, sarebbe fuori posto.
   const avviso = [prova ? "" : state.lineupConstraintsNotice, produttore.failure].filter(

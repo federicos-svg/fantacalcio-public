@@ -122,6 +122,21 @@ import {
  */
 export const NOME_NON_LETTO = "nome non letto dalla lega";
 
+/**
+ * LA TARGA DEL NOME RICONCILIATO — «questo nome la lega non l'ha detto».
+ *
+ * Il nome che porta questa targa viene dall'anagrafica interna, agganciata al
+ * giocatore sulla stessa chiave con cui la lega lo identifica. È un dato vero e
+ * utile, e NON è un dato della lega: senza la targa il gettone affermerebbe che
+ * la piattaforma ha dichiarato un nome che non ha mai dichiarato, ed è
+ * esattamente il tipo di piccola bugia comoda che questo progetto tiene
+ * separata sotto i nomi «misurato» e «inferito».
+ *
+ * Non è un avvertimento e non è un difetto: è una provenienza, e si legge come
+ * tale.
+ */
+export const NOME_DAL_LISTONE = "nome dall'anagrafica, non dalla lega";
+
 /** I gesti della schermata. Nessuno di loro tocca la rete: li serve la shell. */
 export interface FormazioneHandlers {
   readonly onToggleLockedStarter: (competitionId: string, playerId: string) => void;
@@ -1491,7 +1506,11 @@ function renderPlayerToken(
   // continuasse a dire l'identificativo mentre lo schermo dice il nome
   // racconterebbe due storie diverse alla stessa persona.
   const comeSiChiama =
-    player.name === undefined ? `«${player.id}», ${NOME_NON_LETTO}` : `${player.name}`;
+    player.name === undefined
+      ? `«${player.id}», ${NOME_NON_LETTO}`
+      : player.nameSource === "listone"
+        ? `${player.name} (${NOME_DAL_LISTONE})`
+        : `${player.name}`;
   const chiSono = `${comeSiChiama}, ${ruolo}, ${postoInParole(player.place)}${disponibilita}`;
   bottone.setAttribute(
     "aria-label",
@@ -1523,7 +1542,10 @@ function renderPlayerToken(
   // non era un buco, era peggio, perché aveva l'aria di un dato.
   const nome = document.createElement("span");
   nome.className = "formazione-gettone__nome";
-  nome.dataset.nome = player.name === undefined ? "non-letto" : "letto";
+  // Tre stati, e si distinguono anche dal DOM: una prova che li confondesse
+  // non se ne accorgerebbe leggendo il solo testo.
+  nome.dataset.nome =
+    player.name === undefined ? "non-letto" : player.nameSource === "listone" ? "listone" : "lega";
   // LA STESSA CASSA DI PRIMA, di proposito. Un nome sta bene anche in
   // proporzionale — si legge meglio — ma cambiare cassa qui cambia la
   // larghezza del testo, il testo va a capo un'altra volta e il gettone
@@ -1546,6 +1568,15 @@ function renderPlayerToken(
     avviso.style.cssText = `font-size:9.5px;letter-spacing:0.03em;color:${C.textDim};line-height:1.3;`;
     avviso.textContent = NOME_NON_LETTO;
     bottone.appendChild(avviso);
+  } else if (player.nameSource === "listone") {
+    // IL TERZO STATO. Non è l'assenza di un nome e non è il nome della lega: è
+    // un nome che sappiamo da un'altra parte, e la riga lo dice invece di
+    // lasciarlo passare per parola della piattaforma.
+    const fonte = document.createElement("span");
+    fonte.className = "formazione-gettone__nome-fonte";
+    fonte.style.cssText = `font-size:9.5px;letter-spacing:0.03em;color:${C.textDim};line-height:1.3;`;
+    fonte.textContent = NOME_DAL_LISTONE;
+    bottone.appendChild(fonte);
   }
 
   // I SEGNI CHE IL MODELLO PORTA, e nessun altro. La disponibilità è quella che
