@@ -168,6 +168,11 @@ import {
   scenarioObjectiveValue,
 } from "./competitionObjective.js";
 import {
+  type PlayerDistribution,
+  assertPlayerDistribution,
+  samplePlayerLine,
+} from "./playerScenario.js";
+import {
   type WeightedOpponentLineup,
   drawOpponentLineupIndices,
   lineupKey,
@@ -198,6 +203,19 @@ export interface PlayerForecast {
     /** Rigore sbagliato atteso: §21 esclude anche lui. OBBLIGATORIO. */
     readonly missedPenalty: boolean;
   };
+  /**
+   * LA PREVISIONE A DISTRIBUZIONI di §6.1 del disegno — voto base, eventi,
+   * fattispecie del senza voto, `asOf`, qualità della fonte. È FACOLTATIVA:
+   * chi non la porta lascia il produttore esattamente com'era, con la sola
+   * riga modale e gli scenari che variano soltanto gioca/non-gioca.
+   *
+   * Quando c'è, la riga modale NON diventa un doppione: continua ad alimentare
+   * il livello 1 e la schermata, e la distribuzione alimenta il livello 2. Le
+   * due dichiarazioni devono però coincidere dove parlano della stessa cosa —
+   * `pPlays` con `voteProbability`, il voto base modale con un massimo della
+   * distribuzione — e `assertForecasts` lo verifica invece di sperarlo.
+   */
+  readonly distribution?: PlayerDistribution;
 }
 
 export interface OpponentForecast {
@@ -491,6 +509,18 @@ function assertForecasts(players: readonly PlayerForecast[], where: string): voi
       throw new Error(
         `${where}: receivedAnyBonus e missedPenalty sono obbligatori per ${f.id}. ` +
           "§21 esclude dal modificatore attacco chi ha preso un bonus: «non dichiarato» non è «falso».",
+      );
+    }
+    if (f.distribution !== undefined) {
+      assertPlayerDistribution(
+        {
+          id: f.id,
+          role: f.role,
+          voteProbability: f.voteProbability,
+          modalBaseVote: f.expected.baseVote,
+        },
+        f.distribution,
+        where,
       );
     }
     if (f.expected.fantasyScore > f.expected.baseVote && !f.expected.receivedAnyBonus) {
@@ -1149,8 +1179,21 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
   // conto è identico a quello di prima, che è il modo in cui il caso degenere
   // resta il caso di sempre.
   const uncertain = everyone.filter((f) => f.voteProbability > 0 && f.voteProbability < 1);
+  // ── CHI VARIA DA UNO SCENARIO ALL'ALTRO. Senza distribuzioni sono esattamente
+  // gli incerti di sempre, nello stesso ordine, e ciascuno consuma un numero
+  // casuale solo: è così che le proposte già registrate restano rifacibili bit
+  // a bit. Con una distribuzione varia anche chi gioca di sicuro, perché a
+  // variare non è più solo la presenza ma il voto e i bonus.
+  const stochastic = everyone.filter(
+    (f) => f.distribution !== undefined || (f.voteProbability > 0 && f.voteProbability < 1),
+  );
+  // Una distribuzione non si enumera: le combinazioni di voto ed eventi non
+  // stanno in nessun budget, e fingere di enumerarle vorrebbe dire troncarle.
+  const anyDistribution = stochastic.some((f) => f.distribution !== undefined);
   const exact =
-    uncertain.length <= 30 && Math.pow(2, uncertain.length) * opponentCandidates.length <= scenarioBudget;
+    !anyDistribution &&
+    uncertain.length <= 30 &&
+    Math.pow(2, uncertain.length) * opponentCandidates.length <= scenarioBudget;
   const method: "exact" | "sampled" = exact ? "exact" : "sampled";
   const usedSeed = exact ? null : requestedSeed;
 
@@ -1210,7 +1253,7 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
     const locked = input.currentLineup as Lineup;
     const scenarios = buildScenarios(
       everyone,
-      uncertain,
+      stochastic,
       exact,
       scenarioBudget,
       requestedSeed,
@@ -1312,7 +1355,7 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
   // Si generano UNA volta sola e valgono per ogni candidata.
   const scenarios = buildScenarios(
     everyone,
-    uncertain,
+    stochastic,
     exact,
     scenarioBudget,
     requestedSeed,
@@ -1672,32 +1715,36 @@ function replan(
  */
 function buildScenarios(
   everyone: readonly PlayerForecast[],
-  uncertain: readonly PlayerForecast[],
+  stochastic: readonly PlayerForecast[],
   exact: boolean,
   budget: number,
   seed: number,
   expectedPlayers: ReadonlyMap<string, PlayerLine>,
   opponentWeights: readonly number[],
 ): readonly Scenario[] {
-  // Base: chi è certo di giocare e chi è certo di non giocare non cambia mai.
+  // Base: chi non varia da uno scenario all'altro. Senza distribuzioni sono chi
+  // è certo di giocare e chi è certo di non giocare, come è sempre stato.
+  const varying = new Set(stochastic.map((f) => f.id));
   const base = new Map<string, PlayerLine>();
   for (const f of everyone) {
-    if (f.voteProbability >= 1) base.set(f.id, expectedPlayers.get(f.id) as PlayerLine);
-    else if (f.voteProbability <= 0) base.set(f.id, absentLine(f));
+    if (varying.has(f.id)) continue;
+    base.set(f.id, f.voteProbability >= 1 ? (expectedPlayers.get(f.id) as PlayerLine) : absentLine(f));
   }
-  const playing = uncertain.map(expectedLine);
-  const absent = uncertain.map(absentLine);
+  const playing = stochastic.map(expectedLine);
+  const absent = stochastic.map(absentLine);
 
   const out: Scenario[] = [];
   if (exact) {
-    const total = Math.pow(2, uncertain.length);
+    // L'enumerazione esiste solo senza distribuzioni, e lì `stochastic` è
+    // esattamente l'insieme degli incerti: una maschera di bit per giocatore.
+    const total = Math.pow(2, stochastic.length);
     for (let mask = 0; mask < total; mask += 1) {
       const players = new Map(base);
       let weight = 1;
-      for (let i = 0; i < uncertain.length; i += 1) {
+      for (let i = 0; i < stochastic.length; i += 1) {
         const plays = (mask & (1 << i)) !== 0;
-        players.set(uncertain[i]!.id, plays ? playing[i]! : absent[i]!);
-        weight *= plays ? uncertain[i]!.voteProbability : 1 - uncertain[i]!.voteProbability;
+        players.set(stochastic[i]!.id, plays ? playing[i]! : absent[i]!);
+        weight *= plays ? stochastic[i]!.voteProbability : 1 - stochastic[i]!.voteProbability;
       }
       // Prodotto cartesiano: la stessa disponibilità contro ciascuna formazione
       // avversaria, col peso congiunto. Le due estrazioni sono indipendenti per
@@ -1718,8 +1765,19 @@ function buildScenarios(
   const weight = 1 / budget;
   for (let s = 0; s < budget; s += 1) {
     const players = new Map(base);
-    for (let i = 0; i < uncertain.length; i += 1) {
-      players.set(uncertain[i]!.id, random() < uncertain[i]!.voteProbability ? playing[i]! : absent[i]!);
+    for (let i = 0; i < stochastic.length; i += 1) {
+      const f = stochastic[i] as PlayerForecast;
+      // Senza distribuzione l'estrazione è quella di sempre: UN numero casuale,
+      // gioca alla riga attesa o è un senza voto puro. Con la distribuzione la
+      // riga la costruisce §6.1, e §13 resta codice in un posto solo.
+      players.set(
+        f.id,
+        f.distribution === undefined
+          ? random() < f.voteProbability
+            ? (playing[i] as PlayerLine)
+            : (absent[i] as PlayerLine)
+          : samplePlayerLine(f, f.distribution, random),
+      );
     }
     out.push({ weight, players, opponentIndex: opponentIndices[s] as number });
   }
