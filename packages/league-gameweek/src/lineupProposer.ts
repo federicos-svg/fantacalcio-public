@@ -159,6 +159,27 @@ import {
   moduleShape,
 } from "./leagueGameweek.js";
 import { LEAGUE_POINTS, bestLineupExPost, leaguePointsOf } from "./lineupOptimizer.js";
+import {
+  type CompetitionObjective,
+  type CompetitionObjectiveKind,
+  LEAGUE_OBJECTIVE,
+  type ObjectiveUnit,
+  describeCompetitionObjective,
+  scenarioObjectiveValue,
+} from "./competitionObjective.js";
+import {
+  type PlayerDistribution,
+  assertPlayerDistribution,
+  samplePlayerLine,
+} from "./playerScenario.js";
+import {
+  type WeightedOpponentLineup,
+  drawOpponentLineupIndices,
+  lineupKey,
+  modalOpponentIndex,
+  normalisedOpponentWeights,
+  playerDrawSubSeed,
+} from "./opponentDistribution.js";
 
 /** Previsione per un singolo giocatore. Chi la produce sta fuori da qui. */
 export interface PlayerForecast {
@@ -182,17 +203,46 @@ export interface PlayerForecast {
     /** Rigore sbagliato atteso: §21 esclude anche lui. OBBLIGATORIO. */
     readonly missedPenalty: boolean;
   };
+  /**
+   * LA PREVISIONE A DISTRIBUZIONI di §6.1 del disegno — voto base, eventi,
+   * fattispecie del senza voto, `asOf`, qualità della fonte. È FACOLTATIVA:
+   * chi non la porta lascia il produttore esattamente com'era, con la sola
+   * riga modale e gli scenari che variano soltanto gioca/non-gioca.
+   *
+   * Quando c'è, la riga modale NON diventa un doppione: continua ad alimentare
+   * il livello 1 e la schermata, e la distribuzione alimenta il livello 2. Le
+   * due dichiarazioni devono però coincidere dove parlano della stessa cosa —
+   * `pPlays` con `voteProbability`, il voto base modale con un massimo della
+   * distribuzione — e `assertForecasts` lo verifica invece di sperarlo.
+   */
+  readonly distribution?: PlayerDistribution;
 }
 
 export interface OpponentForecast {
   /**
-   * La formazione avversaria assunta. Chi la fornisce decide — per §16 la
+   * La formazione avversaria MODALE. Chi la fornisce decide — per §16 la
    * baseline naturale è quella della giornata precedente, che il regolamento
    * stesso rende l'esito in mancanza di comunicazione — e il produttore NON la
    * deduce.
+   *
+   * Con `lineupDistribution` assente questa formazione È la distribuzione: un
+   * solo elemento a peso 1. Con la distribuzione presente, questa deve essere
+   * la sua modale (peso maggiore, parità rotta dall'ordine dichiarato): il
+   * produttore lo VERIFICA invece di ricavarla di nascosto, perché è la
+   * formazione con cui si innesca il livello 1 e chi legge il risultato deve
+   * poter sapere quale fosse senza rifare il conto dei pesi.
    */
   readonly lineup: Lineup;
   readonly players: readonly PlayerForecast[];
+  /**
+   * LA DISTRIBUZIONE DELLE FORMAZIONI AVVERSARIE (§8.4 del disegno). Assente =
+   * la sola `lineup`, a peso 1: è il caso degenere, non un ramo separato, e i
+   * chiamanti che non la passano ottengono esattamente il calcolo di prima.
+   *
+   * I pesi sono relativi e li normalizza il produttore; l'ordine è parte del
+   * contratto perché rompe le parità di peso nella scelta della modale.
+   */
+  readonly lineupDistribution?: readonly WeightedOpponentLineup[];
 }
 
 /**
@@ -298,6 +348,16 @@ export interface LineupProposalInput {
    */
   readonly constraints?: LineupConstraints;
   /**
+   * CHE COSA SI STA GIOCANDO (§3.3 del disegno). Assente = campionato, che è
+   * anche il ripiego dichiarato di `cup_unknown`: la differenza fra i due non è
+   * nel numero, è in ciò che l'etichetta dice a chi legge.
+   *
+   * Non si deduce dalla giornata: le giornate di coppa **si osservano**
+   * (LEAGUE_RULES §23, emendamento del 2026-09-04), e questo produttore non ha
+   * un calendario da leggere né il permesso di indovinarlo.
+   */
+  readonly competition?: CompetitionObjective;
+  /**
    * La formazione di partenza — quella che il fantallenatore ha già in mano.
    * Serve SOLO a `constraints.locked: true`, che la restituisce così com'è;
    * altrove è ignorata, perché la ricerca parte dalla previsione puntuale e non
@@ -326,11 +386,41 @@ export interface LineupProposal {
     readonly method: "exact" | "sampled";
     readonly scenarios: number;
     readonly seed: number | null;
+    /**
+     * IL NUMERO CHE DECIDE, nell'unità dichiarata da `objectiveUnit`. In
+     * campionato e nei gironi di coppa coincide con `expectedLeaguePoints`;
+     * nelle eliminazioni dirette è una probabilità, e confondere le due cose
+     * significa confrontare due competizioni diverse.
+     */
+    readonly objectiveValue: number;
+    readonly objectiveKind: CompetitionObjectiveKind;
+    readonly objectiveUnit: ObjectiveUnit;
+    /**
+     * La massa di scenari che il regolamento NON copre (oggi: solo la parità
+     * anche nella somma dei punteggi di un doppio confronto, §23
+     * `cup_tie_break_two_legged_second_level: UNSPECIFIED`). Non è attribuita a
+     * nessuno: finché è > 0, `objectiveValue` è un MINORANTE dichiarato.
+     */
+    readonly undecidedWeight: number;
     readonly expectedLeaguePoints: number;
     readonly winProbability: number;
     readonly drawProbability: number;
     readonly lossProbability: number;
     readonly expectedOurTotal: number;
+    /**
+     * Varianza del NOSTRO punteggio sugli scenari. È il terzo criterio di §3.2
+     * — a parità di obiettivo e di punteggio atteso si preferisce la formazione
+     * meno ballerina — ed è esposta perché quella preferenza sia verificabile
+     * invece che creduta.
+     */
+    readonly ourTotalVariance: number;
+    /**
+     * Quante formazioni avversarie compone la distribuzione, e con che quota di
+     * scenari ciascuna è stata realmente estratta (nell'ordine dichiarato). Con
+     * una formazione sola è `[1]`, che è il caso di sempre.
+     */
+    readonly opponentLineups: number;
+    readonly opponentLineupShare: readonly number[];
     /** `false` se anche UNO scenario ha incontrato un valore fuori tabella. */
     readonly fullyTabulated: boolean;
     /** `false` se anche UNO scenario ha prodotto `resolved:false`. */
@@ -421,6 +511,18 @@ function assertForecasts(players: readonly PlayerForecast[], where: string): voi
           "§21 esclude dal modificatore attacco chi ha preso un bonus: «non dichiarato» non è «falso».",
       );
     }
+    if (f.distribution !== undefined) {
+      assertPlayerDistribution(
+        {
+          id: f.id,
+          role: f.role,
+          voteProbability: f.voteProbability,
+          modalBaseVote: f.expected.baseVote,
+        },
+        f.distribution,
+        where,
+      );
+    }
     if (f.expected.fantasyScore > f.expected.baseVote && !f.expected.receivedAnyBonus) {
       throw new Error(
         `${where}: ${f.id} ha un punteggio atteso ${f.expected.fantasyScore} sopra il voto base ` +
@@ -460,6 +562,32 @@ function assertInput(input: LineupProposalInput): void {
   const violations = lineupViolations(input.opponent.lineup, theirExpected);
   if (violations.length > 0) {
     throw new Error(`la formazione avversaria assunta non è legale: ${violations.join("; ")}`);
+  }
+
+  // ── LA DISTRIBUZIONE DELLE FORMAZIONI AVVERSARIE. Ogni elemento è una
+  // formazione a sé e va legale come la modale: una candidata illegale non è
+  // «meno probabile», è impossibile, e simularla produrrebbe un punteggio che
+  // nella lega non può esistere.
+  const distribution = input.opponent.lineupDistribution;
+  if (distribution !== undefined) {
+    const weights = normalisedOpponentWeights(distribution, "distribuzione delle formazioni avversarie");
+    distribution.forEach((candidate, index) => {
+      const bad = lineupViolations(candidate.lineup, theirExpected);
+      if (bad.length > 0) {
+        throw new Error(
+          `la formazione avversaria n. ${index + 1} della distribuzione non è legale: ${bad.join("; ")}`,
+        );
+      }
+    });
+    const modal = modalOpponentIndex(weights);
+    if (lineupKey((distribution[modal] as WeightedOpponentLineup).lineup) !== lineupKey(input.opponent.lineup)) {
+      throw new Error(
+        `opponent.lineup non è la modale della distribuzione: la modale è la n. ${modal + 1} (peso ` +
+          `${weights[modal] as number}). La modale è la formazione con cui si innesca il livello 1 (§10 del ` +
+          "disegno): ricavarla di nascosto renderebbe invisibile da dove è partita la ricerca, e dichiararne " +
+          "una diversa da quella dei pesi farebbe partire la ricerca da un'ipotesi che i pesi smentiscono.",
+      );
+    }
   }
 
   // I VINCOLI SI CONTROLLANO SU DUE PIANI DIVERSI, E LA DIFFERENZA CONTA.
@@ -858,12 +986,30 @@ function startingBench(squad: readonly PlayerForecast[], chosen: ReadonlySet<str
 interface Scenario {
   readonly weight: number;
   readonly players: ReadonlyMap<string, PlayerLine>;
+  /**
+   * Quale formazione avversaria vale in QUESTO scenario. È un indice nel
+   * vettore delle candidate avversarie, estratto una volta sola per giornata
+   * prima della ricerca: nessuna formazione nostra può cambiarlo, ed è per
+   * questo che il confronto fra due nostre candidate misura le formazioni e non
+   * il campionamento.
+   */
+  readonly opponentIndex: number;
 }
 
-interface Valuation {
+/**
+ * La stima di una formazione sugli scenari. È esportata perché §3.2 — l'ordine
+ * dei criteri fini — sia verificabile da un test invece che creduta sulla
+ * parola.
+ */
+export interface LineupValuation {
+  /** Il numero che decide, nell'unità della competizione dichiarata. */
+  readonly objectiveValue: number;
+  /** Massa di scenari che il regolamento non copre: non attribuita a nessuno. */
+  readonly undecidedWeight: number;
   readonly expectedLeaguePoints: number;
   readonly expectedOurTotal: number;
-  readonly expectedGoalDifference: number;
+  /** Varianza del nostro punteggio: terzo criterio di §3.2. */
+  readonly ourTotalVariance: number;
   readonly winProbability: number;
   readonly drawProbability: number;
   readonly lossProbability: number;
@@ -872,16 +1018,26 @@ interface Valuation {
 }
 
 /**
- * Ordine lessicografico dei criteri di §22 portati agli attesi: punti di lega
- * attesi, poi punteggio totale nostro atteso, poi differenza reti attesa.
- * Positivo se `a` è meglio di `b`.
+ * I CRITERI FINI DI §3.2, in ordine: obiettivo, poi punteggio atteso maggiore,
+ * poi VARIANZA MINORE. Positivo se `a` è meglio di `b`.
+ *
+ * La differenza reti attesa non è più un criterio, ed è un cambio dichiarato:
+ * era il terzo criterio finché l'obiettivo era «i punti di lega attesi» letti
+ * come una media, e ricalcava l'ordine di §22. Con l'obiettivo sugli scenari il
+ * terzo criterio è la varianza — §3.2 del disegno — e la ragione è che a parità
+ * di punti attesi e di punteggio atteso ciò che distingue due formazioni è
+ * quanto ballano, non un decimale di differenza reti che la conversione a fasce
+ * ha già contato dentro i punti.
+ *
+ * La varianza NON entra come «meno rischio è meglio» in generale: entra solo
+ * dopo che obiettivo e punteggio atteso hanno pareggiato. Con 3 / 1 / 0 da
+ * sfavoriti conviene alzare la varianza, e quel guadagno è già dentro il primo
+ * criterio — che è il punto per cui l'obiettivo si calcola sugli scenari.
  */
-function compareValuations(a: Valuation, b: Valuation): number {
-  if (a.expectedLeaguePoints !== b.expectedLeaguePoints) {
-    return a.expectedLeaguePoints - b.expectedLeaguePoints;
-  }
+export function compareLineupValuations(a: LineupValuation, b: LineupValuation): number {
+  if (a.objectiveValue !== b.objectiveValue) return a.objectiveValue - b.objectiveValue;
   if (a.expectedOurTotal !== b.expectedOurTotal) return a.expectedOurTotal - b.expectedOurTotal;
-  return a.expectedGoalDifference - b.expectedGoalDifference;
+  return b.ourTotalVariance - a.ourTotalVariance;
 }
 
 /**
@@ -892,33 +1048,47 @@ function compareValuations(a: Valuation, b: Valuation): number {
  */
 function valuationOf(
   lineup: Lineup,
-  theirLineup: Lineup,
+  opponentLineups: readonly Lineup[],
   context: GameweekContext,
   scenarios: readonly Scenario[],
-): Valuation {
+  competition: CompetitionObjective,
+): LineupValuation {
+  let objectiveValue = 0;
+  let undecidedWeight = 0;
   let expectedLeaguePoints = 0;
   let expectedOurTotal = 0;
-  let expectedGoalDifference = 0;
+  let expectedOurTotalSquared = 0;
   let win = 0;
   let draw = 0;
   let loss = 0;
   let fullyTabulated = true;
   let allResolved = true;
   for (const scenario of scenarios) {
+    const theirLineup = opponentLineups[scenario.opponentIndex] as Lineup;
     const outcome = simulateGameweek({ ourLineup: lineup, theirLineup, players: scenario.players, context });
+    const contribution = scenarioObjectiveValue(outcome, competition, LEAGUE_POINTS);
+    if (contribution.decided) objectiveValue += scenario.weight * contribution.value;
+    else undecidedWeight += scenario.weight;
     expectedLeaguePoints += scenario.weight * leaguePointsOf(outcome, LEAGUE_POINTS).value;
     expectedOurTotal += scenario.weight * outcome.ours.total;
-    expectedGoalDifference += scenario.weight * (outcome.ourGoals - outcome.theirGoals);
+    expectedOurTotalSquared += scenario.weight * outcome.ours.total * outcome.ours.total;
     if (outcome.ourGoals > outcome.theirGoals) win += scenario.weight;
     else if (outcome.ourGoals === outcome.theirGoals) draw += scenario.weight;
     else loss += scenario.weight;
     if (!outcome.fullyTabulated) fullyTabulated = false;
     if (!outcome.resolved) allResolved = false;
   }
+  // Varianza come E[X²] − E[X]². Il massimo con zero non nasconde niente: i
+  // pesi sommano a uno, quindi l'unica differenza negativa possibile è
+  // l'errore di virgola mobile, e una varianza di −1e−13 sarebbe un criterio di
+  // ordinamento fatto di rumore.
+  const ourTotalVariance = Math.max(0, expectedOurTotalSquared - expectedOurTotal * expectedOurTotal);
   return {
+    objectiveValue,
+    undecidedWeight,
     expectedLeaguePoints,
     expectedOurTotal,
-    expectedGoalDifference,
+    ourTotalVariance,
     winProbability: win,
     drawProbability: draw,
     lossProbability: loss,
@@ -928,20 +1098,44 @@ function valuationOf(
 }
 
 /**
+ * La quota di scenari realmente toccata da ciascuna formazione avversaria, nel
+ * suo ordine dichiarato. Si legge dagli scenari e non dai pesi: con il
+ * campionamento le due cose non coincidono, e chi verifica una proposta deve
+ * vedere il campione, non l'intenzione.
+ */
+function opponentShareOf(scenarios: readonly Scenario[], candidates: number): number[] {
+  const share = new Array<number>(candidates).fill(0);
+  for (const scenario of scenarios) share[scenario.opponentIndex] = (share[scenario.opponentIndex] as number) + scenario.weight;
+  return share;
+}
+
+/**
  * Nessuna formazione, nessuno scenario valutato: gli attesi sono zeri
  * DICHIARATI, non una stima. `method` e `seed` dicono comunque che cosa si
  * SAREBBE usato, perché dipendono solo dagli input.
  */
-function emptyEstimate(method: "exact" | "sampled", seed: number | null): LineupProposal["estimate"] {
+function emptyEstimate(
+  method: "exact" | "sampled",
+  seed: number | null,
+  objective: { readonly kind: CompetitionObjectiveKind; readonly unit: ObjectiveUnit },
+  opponentLineups: number,
+): LineupProposal["estimate"] {
   return {
     method,
     scenarios: 0,
     seed,
+    objectiveValue: 0,
+    objectiveKind: objective.kind,
+    objectiveUnit: objective.unit,
+    undecidedWeight: 0,
     expectedLeaguePoints: 0,
     winProbability: 0,
     drawProbability: 0,
     lossProbability: 0,
     expectedOurTotal: 0,
+    ourTotalVariance: 0,
+    opponentLineups,
+    opponentLineupShare: [],
     fullyTabulated: true,
     allResolved: true,
     refinementCapReached: false,
@@ -954,9 +1148,16 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
   const { squad, opponent, context } = input;
   const scenarioBudget = input.scenarioBudget ?? DEFAULT_SCENARIO_BUDGET;
   const requestedSeed = input.seed ?? DEFAULT_SEED;
-  const objectiveLabel =
-    `punti di lega attesi (V ${LEAGUE_POINTS.win} / N ${LEAGUE_POINTS.draw} / P ${LEAGUE_POINTS.loss}), ` +
-    "pareggi rotti da punteggio totale atteso e differenza reti attesa (criteri di classifica §22)";
+  const competition = input.competition ?? LEAGUE_OBJECTIVE;
+  const objective = describeCompetitionObjective(competition, LEAGUE_POINTS);
+  const objectiveLabel = objective.label;
+
+  // ── LE FORMAZIONI AVVERSARIE. Senza distribuzione c'è la sola modale a peso
+  // 1: il caso di sempre, non un ramo separato.
+  const opponentCandidates: readonly WeightedOpponentLineup[] =
+    opponent.lineupDistribution ?? [{ lineup: opponent.lineup, weight: 1 }];
+  const opponentLineups = opponentCandidates.map((candidate) => candidate.lineup);
+  const opponentWeights = normalisedOpponentWeights(opponentCandidates, "distribuzione delle formazioni avversarie");
 
   const byId = new Map(squad.map((f) => [f.id, f]));
   const everyone: readonly PlayerForecast[] = [...squad, ...opponent.players];
@@ -971,8 +1172,28 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
   const expectedSquadLines = squad.map((f) => expectedPlayers.get(f.id) as PlayerLine);
 
   // ── Scenari: si generano UNA volta sola e valgono per ogni candidata.
+  //
+  // L'esattezza ora comprende anche l'avversario: uno scenario esatto è una
+  // coppia (disponibilità, formazione avversaria), e il loro prodotto
+  // cartesiano deve stare nel budget. Con una formazione avversaria sola il
+  // conto è identico a quello di prima, che è il modo in cui il caso degenere
+  // resta il caso di sempre.
   const uncertain = everyone.filter((f) => f.voteProbability > 0 && f.voteProbability < 1);
-  const exact = uncertain.length <= 30 && Math.pow(2, uncertain.length) <= scenarioBudget;
+  // ── CHI VARIA DA UNO SCENARIO ALL'ALTRO. Senza distribuzioni sono esattamente
+  // gli incerti di sempre, nello stesso ordine, e ciascuno consuma un numero
+  // casuale solo: è così che le proposte già registrate restano rifacibili bit
+  // a bit. Con una distribuzione varia anche chi gioca di sicuro, perché a
+  // variare non è più solo la presenza ma il voto e i bonus.
+  const stochastic = everyone.filter(
+    (f) => f.distribution !== undefined || (f.voteProbability > 0 && f.voteProbability < 1),
+  );
+  // Una distribuzione non si enumera: le combinazioni di voto ed eventi non
+  // stanno in nessun budget, e fingere di enumerarle vorrebbe dire troncarle.
+  const anyDistribution = stochastic.some((f) => f.distribution !== undefined);
+  const exact =
+    !anyDistribution &&
+    uncertain.length <= 30 &&
+    Math.pow(2, uncertain.length) * opponentCandidates.length <= scenarioBudget;
   const method: "exact" | "sampled" = exact ? "exact" : "sampled";
   const usedSeed = exact ? null : requestedSeed;
 
@@ -1019,7 +1240,7 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
         `[${check.rejections.map((r) => r.code).join(", ")}]: ` +
         check.rejections.map((r) => r.message).join(" "),
       pointForecast: { lineup: null, outcome: null },
-      estimate: emptyEstimate(method, usedSeed),
+      estimate: emptyEstimate(method, usedSeed, objective, opponentCandidates.length),
       evaluated: 0,
       objectiveLabel,
       constraints: reportOf(false),
@@ -1030,8 +1251,16 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
   // ── FORMAZIONE INTERA BLOCCATA — non si cerca, si valuta e si consegna.
   if (constraints.locked) {
     const locked = input.currentLineup as Lineup;
-    const scenarios = buildScenarios(everyone, uncertain, exact, scenarioBudget, requestedSeed, expectedPlayers);
-    const value = valuationOf(locked, opponent.lineup, context, scenarios);
+    const scenarios = buildScenarios(
+      everyone,
+      stochastic,
+      exact,
+      scenarioBudget,
+      requestedSeed,
+      expectedPlayers,
+      opponentWeights,
+    );
+    const value = valuationOf(locked, opponentLineups, context, scenarios, competition);
     const outcome = simulateGameweek({
       ourLineup: locked,
       theirLineup: opponent.lineup,
@@ -1043,19 +1272,31 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
       feasible: true,
       reason:
         "FORMAZIONE BLOCCATA: NESSUNA RICERCA E NESSUNA OTTIMIZZAZIONE. La formazione consegnata è " +
-        `quella ricevuta, valutata su ${scenarios.length} scenari (${method}) soltanto per dirne i ` +
-        `numeri; ${constraintsLabel}` +
+        `quella ricevuta, valutata su ${scenarios.length} scenari (${method}) contro ` +
+        `${opponentCandidates.length} formazione/i avversaria/e pesata/e, soltanto per dirne i ` +
+        `numeri; criterio: ${objectiveLabel}; ${constraintsLabel}` +
+        (value.undecidedWeight > 0
+          ? `; MASSA NON ATTRIBUITA ${value.undecidedWeight}: scenari che il regolamento non copre, ` +
+            "l'obiettivo qui sopra è un minorante"
+          : "") +
         (check.warnings.length > 0 ? `; AVVERTIMENTI: ${check.warnings.map((w) => w.code).join(", ")}` : ""),
       pointForecast: { lineup: locked, outcome },
       estimate: {
         method,
         scenarios: scenarios.length,
         seed: usedSeed,
+        objectiveValue: value.objectiveValue,
+        objectiveKind: objective.kind,
+        objectiveUnit: objective.unit,
+        undecidedWeight: value.undecidedWeight,
         expectedLeaguePoints: value.expectedLeaguePoints,
         winProbability: value.winProbability,
         drawProbability: value.drawProbability,
         lossProbability: value.lossProbability,
         expectedOurTotal: value.expectedOurTotal,
+        ourTotalVariance: value.ourTotalVariance,
+        opponentLineups: opponentCandidates.length,
+        opponentLineupShare: opponentShareOf(scenarios, opponentCandidates.length),
         fullyTabulated: value.fullyTabulated,
         allResolved: value.allResolved,
         refinementCapReached: false,
@@ -1073,6 +1314,17 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
   // Gli imposti entrano come `mustStart`, il modulo imposto come `onlyModule`:
   // senza vincoli i due argomenti sono `undefined` e la chiamata è quella di
   // sempre.
+  //
+  // IL LIVELLO 1 RESTA SOLO UN INNESCO, E CONTRO LA SOLA MODALE (§10 del
+  // disegno). La sua decomposizione per ruolo — difensori e attaccanti scelti
+  // massimizzando il nostro totale, centrocampo per ultimo — poggia su una
+  // monotonia che vale a FORMAZIONE AVVERSARIA FISSATA. Con una distribuzione
+  // quella proprietà non è dimostrata, e spostarci dentro la distribuzione
+  // significherebbe usare un teorema fuori dalle sue ipotesi. Quindi qui entra
+  // la modale, a previsione puntuale, e con l'obiettivo del campionato anche
+  // quando la competizione è un'altra: è il punto da cui la ricerca parte, non
+  // quello che decide. A decidere è il livello 2, che valuta ogni candidata
+  // sugli scenari con la distribuzione intera e l'obiettivo dichiarato.
   const tierOne = bestLineupExPost({
     squad: expectedSquadLines,
     theirLineup: opponent.lineup,
@@ -1090,7 +1342,7 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
         `nessuna formazione proponibile a previsione puntuale: ${tierOne.reason}` +
         (constraintsActive ? ` (${constraintsLabel})` : ""),
       pointForecast: { lineup: null, outcome: null },
-      estimate: emptyEstimate(method, usedSeed),
+      estimate: emptyEstimate(method, usedSeed, objective, opponentCandidates.length),
       evaluated: tierOne.evaluated,
       objectiveLabel,
       constraints: reportOf(true),
@@ -1101,7 +1353,15 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
   // Gli scenari si costruiscono SOLO quando c'è una formazione da valutare: con
   // `feasible:false` sarebbero migliaia di mappe generate per non essere lette.
   // Si generano UNA volta sola e valgono per ogni candidata.
-  const scenarios = buildScenarios(everyone, uncertain, exact, scenarioBudget, requestedSeed, expectedPlayers);
+  const scenarios = buildScenarios(
+    everyone,
+    stochastic,
+    exact,
+    scenarioBudget,
+    requestedSeed,
+    expectedPlayers,
+    opponentWeights,
+  );
 
   // L'ordine dei titolari è dichiarato (3) in testa al file); la panchina arriva
   // dal piano e NON viene riscritta qui: riscriverla annullerebbe le mosse (d).
@@ -1124,9 +1384,9 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
 
   let evaluated = tierOne.evaluated;
 
-  const valueOf = (lineup: Lineup): Valuation => {
+  const valueOf = (lineup: Lineup): LineupValuation => {
     evaluated += 1;
-    return valuationOf(lineup, opponent.lineup, context, scenarios);
+    return valuationOf(lineup, opponentLineups, context, scenarios, competition);
   };
 
   const startPlan: LineupPlan = {
@@ -1162,7 +1422,7 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
       capReached = true;
       break;
     }
-    let bestMove: { plan: LineupPlan; lineup: Lineup; value: Valuation } | null = null;
+    let bestMove: { plan: LineupPlan; lineup: Lineup; value: LineupValuation } | null = null;
     for (const plan of neighbours(current, squad, byId, lockedIds, constraints.lockedModule)) {
       const lineup = buildLineup(plan);
       const value = valueOf(lineup);
@@ -1170,12 +1430,12 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
         bestMove = { plan, lineup, value };
         continue;
       }
-      const cmp = compareValuations(value, bestMove.value);
+      const cmp = compareLineupValuations(value, bestMove.value);
       if (cmp > 0 || (cmp === 0 && tieBreakKey(lineup) < tieBreakKey(bestMove.lineup))) {
         bestMove = { plan, lineup, value };
       }
     }
-    if (bestMove === null || compareValuations(bestMove.value, currentValue) <= 0) break;
+    if (bestMove === null || compareLineupValuations(bestMove.value, currentValue) <= 0) break;
     current = bestMove.plan;
     currentLineup = bestMove.lineup;
     currentValue = bestMove.value;
@@ -1210,8 +1470,14 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
   }
 
   const reason =
-    `previsione puntuale con l'ottimizzatore esatto (${tierOne.reason}), poi raffinamento hill climbing ` +
-    `su ${scenarios.length} scenari (${method}) con ${iterations} mossa/e accettata/e; criterio: ${objectiveLabel}` +
+    `innesco a previsione puntuale con l'ottimizzatore esatto sulla formazione avversaria modale ` +
+    `(${tierOne.reason}), poi raffinamento hill climbing su ${scenarios.length} scenari (${method}) ` +
+    `contro ${opponentCandidates.length} formazione/i avversaria/e pesata/e, con ${iterations} ` +
+    `mossa/e accettata/e; criterio: ${objectiveLabel}` +
+    (currentValue.undecidedWeight > 0
+      ? `; MASSA NON ATTRIBUITA ${currentValue.undecidedWeight}: scenari che il regolamento non copre, ` +
+        "l'obiettivo qui sopra è un minorante"
+      : "") +
     (constraintsActive
       ? `; ${constraintsLabel}, rispettati per intero e mai messi in discussione dalla ricerca: la ` +
         "proposta è la migliore CHE LI RISPETTA, e può valere meno della migliore senza vincoli"
@@ -1228,11 +1494,18 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
       method,
       scenarios: scenarios.length,
       seed: usedSeed,
+      objectiveValue: currentValue.objectiveValue,
+      objectiveKind: objective.kind,
+      objectiveUnit: objective.unit,
+      undecidedWeight: currentValue.undecidedWeight,
       expectedLeaguePoints: currentValue.expectedLeaguePoints,
       winProbability: currentValue.winProbability,
       drawProbability: currentValue.drawProbability,
       lossProbability: currentValue.lossProbability,
       expectedOurTotal: currentValue.expectedOurTotal,
+      ourTotalVariance: currentValue.ourTotalVariance,
+      opponentLineups: opponentCandidates.length,
+      opponentLineupShare: opponentShareOf(scenarios, opponentCandidates.length),
       fullyTabulated: currentValue.fullyTabulated,
       allResolved: currentValue.allResolved,
       refinementCapReached: capReached,
@@ -1427,51 +1700,86 @@ function replan(
 }
 
 /**
- * Gli scenari di disponibilità. Con pochi giocatori incerti si enumerano tutti
- * con la loro probabilità prodotto; oltre il budget si campiona con il PRNG a
- * seme, e ogni campione pesa `1/budget`.
+ * Gli scenari. Uno scenario è una coppia: chi gioca fra i giocatori delle due
+ * rose, e QUALE formazione l'avversario ha schierato. Con pochi giocatori
+ * incerti e poche formazioni avversarie si enumerano tutte le coppie con la
+ * loro probabilità prodotto; oltre il budget si campiona con il PRNG a seme, e
+ * ogni campione pesa `1/budget`.
+ *
+ * I DUE FLUSSI SONO SEPARATI, e non è un dettaglio di implementazione. Il
+ * sorteggio della formazione avversaria pesca dal suo sotto-seme e produce il
+ * vettore delle formazioni PRIMA che i giocatori vengano estratti: così il
+ * vettore delle disponibilità non dipende da quante formazioni avversarie ci
+ * sono, e due giornate con lo stesso seme hanno gli stessi scenari qualunque
+ * sia il numero di candidate e l'ordine con cui la ricerca le visita.
  */
 function buildScenarios(
   everyone: readonly PlayerForecast[],
-  uncertain: readonly PlayerForecast[],
+  stochastic: readonly PlayerForecast[],
   exact: boolean,
   budget: number,
   seed: number,
   expectedPlayers: ReadonlyMap<string, PlayerLine>,
+  opponentWeights: readonly number[],
 ): readonly Scenario[] {
-  // Base: chi è certo di giocare e chi è certo di non giocare non cambia mai.
+  // Base: chi non varia da uno scenario all'altro. Senza distribuzioni sono chi
+  // è certo di giocare e chi è certo di non giocare, come è sempre stato.
+  const varying = new Set(stochastic.map((f) => f.id));
   const base = new Map<string, PlayerLine>();
   for (const f of everyone) {
-    if (f.voteProbability >= 1) base.set(f.id, expectedPlayers.get(f.id) as PlayerLine);
-    else if (f.voteProbability <= 0) base.set(f.id, absentLine(f));
+    if (varying.has(f.id)) continue;
+    base.set(f.id, f.voteProbability >= 1 ? (expectedPlayers.get(f.id) as PlayerLine) : absentLine(f));
   }
-  const playing = uncertain.map(expectedLine);
-  const absent = uncertain.map(absentLine);
+  const playing = stochastic.map(expectedLine);
+  const absent = stochastic.map(absentLine);
 
   const out: Scenario[] = [];
   if (exact) {
-    const total = Math.pow(2, uncertain.length);
+    // L'enumerazione esiste solo senza distribuzioni, e lì `stochastic` è
+    // esattamente l'insieme degli incerti: una maschera di bit per giocatore.
+    const total = Math.pow(2, stochastic.length);
     for (let mask = 0; mask < total; mask += 1) {
       const players = new Map(base);
       let weight = 1;
-      for (let i = 0; i < uncertain.length; i += 1) {
+      for (let i = 0; i < stochastic.length; i += 1) {
         const plays = (mask & (1 << i)) !== 0;
-        players.set(uncertain[i]!.id, plays ? playing[i]! : absent[i]!);
-        weight *= plays ? uncertain[i]!.voteProbability : 1 - uncertain[i]!.voteProbability;
+        players.set(stochastic[i]!.id, plays ? playing[i]! : absent[i]!);
+        weight *= plays ? stochastic[i]!.voteProbability : 1 - stochastic[i]!.voteProbability;
       }
-      out.push({ weight, players });
+      // Prodotto cartesiano: la stessa disponibilità contro ciascuna formazione
+      // avversaria, col peso congiunto. Le due estrazioni sono indipendenti per
+      // costruzione — l'avversario schiera senza vedere i nostri infortuni — e
+      // la mappa dei giocatori si condivide fra le copie perché nessuno la muta
+      // dopo che è stata costruita.
+      for (let o = 0; o < opponentWeights.length; o += 1) {
+        out.push({ weight: weight * (opponentWeights[o] as number), players, opponentIndex: o });
+      }
     }
     return out;
   }
 
-  const random = mulberry32(seed);
+  // Il vettore delle formazioni avversarie: una volta sola, prima di tutto il
+  // resto, sul suo sotto-seme.
+  const opponentIndices = drawOpponentLineupIndices(opponentWeights, budget, seed, mulberry32);
+  const random = mulberry32(playerDrawSubSeed(seed));
   const weight = 1 / budget;
   for (let s = 0; s < budget; s += 1) {
     const players = new Map(base);
-    for (let i = 0; i < uncertain.length; i += 1) {
-      players.set(uncertain[i]!.id, random() < uncertain[i]!.voteProbability ? playing[i]! : absent[i]!);
+    for (let i = 0; i < stochastic.length; i += 1) {
+      const f = stochastic[i] as PlayerForecast;
+      // Senza distribuzione l'estrazione è quella di sempre: UN numero casuale,
+      // gioca alla riga attesa o è un senza voto puro. Con la distribuzione la
+      // riga la costruisce §6.1, e §13 resta codice in un posto solo.
+      players.set(
+        f.id,
+        f.distribution === undefined
+          ? random() < f.voteProbability
+            ? (playing[i] as PlayerLine)
+            : (absent[i] as PlayerLine)
+          : samplePlayerLine(f, f.distribution, random),
+      );
     }
-    out.push({ weight, players });
+    out.push({ weight, players, opponentIndex: opponentIndices[s] as number });
   }
   return out;
 }

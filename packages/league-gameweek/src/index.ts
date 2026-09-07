@@ -4,4 +4,7 @@
 export * from "./leagueGameweek.js";
 export * from "./gameweekSimulator.js";
 export * from "./lineupOptimizer.js";
+export * from "./competitionObjective.js";
+export * from "./opponentDistribution.js";
+export * from "./playerScenario.js";
 export * from "./lineupProposer.js";
