@@ -18,9 +18,39 @@
 // Qui la differenza non è affidata a un commento: è nei TIPI. Le politiche
 // ex-ante prendono `LineupProposalInput` — gli stessi ingressi del produttore,
 // cioè previsioni — e non hanno modo di leggere un voto vero. Il tetto prende
-// `ExPostCeilingInput`, che chiede `PlayerLine` con i voti della giornata già
-// dentro, e porta `ExPost` nel nome della funzione, nel campo `information` e
-// nella ragione che restituisce. Passare l'uno dove va l'altro non compila.
+// `ExPostCeilingInput`, che chiede righe `ObservedPlayerLine` — voti
+// OSSERVATI, non una previsione — e porta `ExPost` nel nome della funzione, nel
+// campo `information` e nella ragione che restituisce.
+//
+// ── QUESTA RIGA DICEVA PIÙ DI QUEL CHE MANTENEVA, FINO AL 2026-09-07 ────────
+//
+// Fin qui il capoverso chiudeva così: «passare l'uno dove va l'altro non
+// compila». DICHIARAVA una garanzia del compilatore, ed era vera solo a metà.
+// Una review indipendente del 2026-09-07 ha verificato quale metà mancava: il
+// tetto chiedeva `PlayerLine`, che è lo STESSO IDENTICO SHAPE sia che venga da
+// `expectedLine()` del produttore sia che venga da un parser di voti veri.
+// Passare `prepared.expectedSquadLines` / `prepared.expectedPlayers` a
+// `bestElevenExPostPolicy` compilava, e restituiva un «tetto» costruito sulla
+// previsione. Non un errore: un numero plausibile — la classe di guasto
+// peggiore, perché non ha sintomi.
+//
+// PERCHÉ QUEL VARCO COSTAVA CARO. Il tetto entra nel RIMPIANTO (§2.4), e il
+// rimpianto è il numero con cui il motore ricco entra o non entra in campo da
+// solo. Un tetto contaminato dalla previsione è più BASSO del vero, quindi il
+// rimpianto è più basso del vero, quindi il motore sembra migliore di quanto
+// sia: il difetto non avrebbe prodotto un guasto, avrebbe prodotto una
+// promozione ingiustificata che nessuno vede.
+//
+// COSA LO RENDE VERO ADESSO. `ObservedPlayerLine` non è `PlayerLine` con un
+// commento sopra: è `PlayerLine` più un `origin: "OBSERVED"` leggibile e più un
+// SIGILLO che nessun letterale può nominare, perché il simbolo che gli fa da
+// chiave non è esportato. L'unica porta è `observedLines()`, che pretende la
+// provenienza dei voti e la scrive nella ragione del tetto. Una riga di
+// previsione non è assegnabile a una osservata: `tsc --noEmit` — il primo
+// comando di `npm run verify` — la rifiuta, e le guardie di tipo in fondo al
+// blocco del tetto pinnano proprio quel rifiuto. Restare onesti costa una
+// chiamata; barare costa una bugia scritta a mano nella provenienza, che si
+// vede nel diff e resta stampata nella ragione della politica.
 //
 // ── NIENTE DEFAULT, MAI ─────────────────────────────────────────────────────
 //
@@ -263,18 +293,117 @@ function assertNoConstraints(constraints: LineupConstraints | undefined, policy:
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Gli ingressi del TETTO: i voti VERI della giornata, non una previsione. Il
- * tipo è diverso da `LineupProposalInput` apposta — non è un'inconvenienza, è
- * la guardia: una politica ex-ante non può ricevere questi campi per sbaglio, e
- * questa non può ricevere previsioni.
+ * IL SIGILLO DELLE RIGHE OSSERVATE — e il motivo per cui NON è esportato.
+ *
+ * `PlayerLine` non distingue un voto letto da un voto previsto: è la stessa
+ * forma, e nessun controllo di runtime potrebbe separarli, perché a voti noti e
+ * a previsione i campi sono gli stessi numeri. L'unica separazione possibile è
+ * NOMINALE, e in TypeScript si ottiene con una chiave che il chiamante non può
+ * scrivere: questo simbolo esiste solo nel tipo — `declare const` non emette
+ * niente — e vive solo dentro questo modulo. Fuori di qui nessun letterale può
+ * nominarlo, quindi nessun letterale può fabbricare una riga osservata.
+ *
+ * È una proprietà FANTASMA: a runtime non esiste, e non deve esistere. Non
+ * serve a controllare qualcosa dopo, serve a impedirlo prima.
+ */
+declare const OBSERVED_VOTE_SEAL: unique symbol;
+
+/**
+ * UNA RIGA DI GIORNATA A VOTI OSSERVATI. È una `PlayerLine` a tutti gli effetti
+ * — il simulatore la legge com'è — più due cose che una previsione non ha e non
+ * può darsi da sola:
+ *
+ * - `origin` e `provenance`, LEGGIBILI: sopravvivono a un dump, a un JSON, a un
+ *   log, e dicono a chi guarda un numero da dove vengono i voti che l'hanno
+ *   prodotto;
+ * - il sigillo, INVISIBILE a runtime e invalicabile a compilazione: è ciò che
+ *   rende il tipo nominale invece che strutturale, cioè ciò che fa fallire
+ *   `tsc --noEmit` su una riga di previsione passata al tetto.
+ *
+ * Le due cose insieme, e non una sola: `origin` da solo lo scriverebbe chiunque
+ * in un letterale, il sigillo da solo non si vedrebbe leggendo un risultato.
+ */
+export interface ObservedPlayerLine extends PlayerLine {
+  /** Voti letti dopo la giornata. Non c'è un altro valore: non è una scelta. */
+  readonly origin: "OBSERVED";
+  /** Chi ha pubblicato questi voti, come lo dichiara chi li ha letti. */
+  readonly provenance: string;
+  readonly [OBSERVED_VOTE_SEAL]: true;
+}
+
+/**
+ * L'UNICA PORTA per ottenere righe osservate, e il posto in cui la provenienza
+ * si dichiara invece di essere sottintesa.
+ *
+ * Le righe devono venire da un PARSER DI VOTI VERI — la lettura della giornata,
+ * che in questo repository non vive (il core pubblico non acquisisce dati) e
+ * arriva dal layer privato — mai da `expectedLine()` o da
+ * `prepareGameweek(...).expectedSquadLines`, che sono la previsione.
+ *
+ * Questo modulo non può VERIFICARLO: una riga letta e una riga prevista hanno
+ * gli stessi campi, e nessun controllo saprebbe dire quale delle due ha in
+ * mano. Quindi fa l'unica cosa onesta — la stessa che il pavimento fa con la
+ * fantamedia, e che `engineProposalPolicy` fa con il motore della previsione:
+ * PRETENDE una targa e la porta fino in fondo, dentro la ragione della
+ * politica. Chi passasse di qui una previsione non incapperebbe più in una
+ * svista di tipi: dovrebbe scrivere a mano una provenienza falsa, che resta nel
+ * diff e resta stampata sotto il numero che ha prodotto.
+ */
+export function observedLines(input: {
+  /** Le righe lette dopo la giornata: nostre, loro, o entrambe. */
+  readonly lines: readonly PlayerLine[];
+  /** Da dove vengono i voti, in chiaro. */
+  readonly provenance: string;
+}): readonly ObservedPlayerLine[] {
+  const { lines, provenance } = input;
+  if (typeof provenance !== "string" || provenance.trim().length === 0) {
+    throw new Error(
+      "righe osservate: la provenienza dei voti non è dichiarata. Il tetto ex-post ha senso solo se è " +
+        "costruito su voti REALMENTE OSSERVATI, e questo modulo non può distinguerli da una previsione — " +
+        "hanno gli stessi campi. La provenienza è ciò che rende la differenza leggibile a chi guarderà il " +
+        "rimpianto: senza, il tetto sarebbe un numero senza mondo dietro.",
+    );
+  }
+  const declared = provenance.trim();
+  return lines.map(
+    (line) => ({ ...line, origin: "OBSERVED", provenance: declared }) as ObservedPlayerLine,
+  );
+}
+
+/** Le righe osservate indicizzate per id, nella forma che il simulatore vuole. */
+export function observedPlayerMap(
+  lines: readonly ObservedPlayerLine[],
+): ReadonlyMap<string, ObservedPlayerLine> {
+  const map = new Map<string, ObservedPlayerLine>();
+  for (const line of lines) {
+    const previous = map.get(line.id);
+    if (previous !== undefined) {
+      throw new Error(
+        `righe osservate: due righe di giornata per ${line.id}. Due voti per lo stesso giocatore non ` +
+          "sono un dato più ricco: sono una lettura che non si sa comporre, e il tetto non deve sceglierne " +
+          "una in silenzio.",
+      );
+    }
+    map.set(line.id, line);
+  }
+  return map;
+}
+
+/**
+ * Gli ingressi del TETTO: i voti OSSERVATI della giornata, non una previsione.
+ * Il tipo è diverso da `LineupProposalInput` apposta — non è un'inconvenienza,
+ * è la guardia: una politica ex-ante non può ricevere questi campi per sbaglio,
+ * e questa non può ricevere previsioni, perché `PlayerLine` non è assegnabile a
+ * `ObservedPlayerLine`. Fino al 2026-09-07 questi due campi erano `PlayerLine`,
+ * e la garanzia era solo scritta nel commento in testa al file.
  */
 export interface ExPostCeilingInput {
-  /** Le righe di giornata della nostra rosa, a voti noti. */
-  readonly squadLines: readonly PlayerLine[];
+  /** Le righe di giornata della nostra rosa, a voti osservati. */
+  readonly squadLines: readonly ObservedPlayerLine[];
   /** La formazione VERA dell'avversario, letta dopo la giornata. */
   readonly theirLineup: Lineup;
-  /** Le righe di giornata di tutti, nostre e loro. */
-  readonly players: ReadonlyMap<string, PlayerLine>;
+  /** Le righe di giornata di tutti, nostre e loro, a voti osservati. */
+  readonly players: ReadonlyMap<string, ObservedPlayerLine>;
   readonly context: GameweekContext;
   /** Omesso: i punti di lega dichiarati. `null`: l'ordinamento surrogato. */
   readonly points?: DeclaredLeaguePoints | null;
@@ -296,6 +425,14 @@ export function bestElevenExPostPolicy(input: ExPostCeilingInput): ReferencePoli
     context: input.context,
     ...(input.points === undefined ? {} : { points: input.points }),
   });
+  // LA PROVENIENZA DEI VOTI VIAGGIA FINO ALLA RAGIONE, e non si ferma al tipo.
+  // Il sigillo impedisce l'errore di integrazione; la targa serve a chi, mesi
+  // dopo, leggerà un rimpianto in tabella e dovrà sapere su quali voti quel
+  // tetto è stato costruito senza risalire al chiamante. Distinte e ordinate:
+  // nostre righe e righe avversarie possono venire da letture diverse.
+  const declared = [
+    ...new Set([...input.squadLines, ...input.players.values()].map((line) => line.provenance)),
+  ].sort();
   return {
     policy: "BEST_EX_POST",
     information: "EX_POST",
@@ -303,12 +440,55 @@ export function bestElevenExPostPolicy(input: ExPostCeilingInput): ReferencePoli
     feasible: result.feasible,
     reason:
       "TETTO EX-POST, non una proposta: scelto A VOTI NOTI, cioè con informazioni che prima della " +
-      `scadenza non esistevano. ${result.reason}`,
+      "scadenza non esistevano. Voti OSSERVATI, provenienza dichiarata: " +
+      `${declared.length === 0 ? "nessuna riga" : declared.join(" + ")}. ${result.reason}`,
     evaluated: result.evaluated,
     exPost: result,
     leagueRuleVersion: LEAGUE_RULE_VERSION,
   };
 }
+
+// ─── LE GUARDIE DI TIPO DEL TETTO ────────────────────────────────────────────
+//
+// Mordono a `tsc --noEmit`, cioè al PRIMO comando di `npm run verify`, senza
+// eseguire una riga di vitest; e vivono ACCANTO alla dichiarazione, quindi
+// finiscono nello stesso hunk di diff di chi riaprisse la porta. Stessa
+// famiglia delle tre guardie di `packages/opponent-profiles/src/expectedSpend.ts`
+// e con lo stesso limite dichiarato: chi vuole riaprire il varco può cancellare
+// anche queste righe — ma allora lo sta facendo APPOSTA, sotto gli occhi di chi
+// rilegge il diff, e non per una svista di tipi che compilava.
+
+/**
+ * UNA RIGA DI PREVISIONE NON È UNA RIGA OSSERVATA. È esattamente il varco che
+ * fino al 2026-09-07 era aperto: `PlayerLine` — ciò che `expectedLine()`
+ * produce — non deve essere assegnabile a `ObservedPlayerLine`.
+ */
+type AssertForecastLineIsNotObserved = PlayerLine extends ObservedPlayerLine ? never : true;
+const _forecastLineIsNotObserved: AssertForecastLineIsNotObserved = true;
+void _forecastLineIsNotObserved;
+
+/**
+ * ...e nell'altro verso invece sì: una riga osservata RESTA una riga di
+ * giornata, altrimenti il simulatore e l'ottimizzatore non potrebbero leggerla
+ * e la separazione sarebbe stata comprata con una copia dell'aritmetica.
+ */
+type AssertObservedLineIsAPlayerLine = ObservedPlayerLine extends PlayerLine ? true : never;
+const _observedLineIsAPlayerLine: AssertObservedLineIsAPlayerLine = true;
+void _observedLineIsAPlayerLine;
+
+/** E il tetto chiede proprio quelle: se un giorno tornasse a `PlayerLine`, qui è rosso. */
+type AssertCeilingWantsObservedLines = readonly PlayerLine[] extends ExPostCeilingInput["squadLines"]
+  ? never
+  : true;
+const _ceilingWantsObservedLines: AssertCeilingWantsObservedLines = true;
+void _ceilingWantsObservedLines;
+
+/** Anche dalla porta di servizio: la mappa di tutti, non solo l'elenco della rosa. */
+type AssertCeilingWantsObservedMap = ReadonlyMap<string, PlayerLine> extends ExPostCeilingInput["players"]
+  ? never
+  : true;
+const _ceilingWantsObservedMap: AssertCeilingWantsObservedMap = true;
+void _ceilingWantsObservedMap;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // IL PAVIMENTO — migliori 11 per fantamedia.

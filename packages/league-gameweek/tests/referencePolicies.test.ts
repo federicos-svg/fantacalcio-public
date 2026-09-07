@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   FIRST_GOAL_THRESHOLD,
   GOAL_BAND_WIDTH,
@@ -6,8 +7,10 @@ import {
   MODULES,
   REFERENCE_POLICIES,
   RULE_OF_72_THRESHOLD,
+  type ExPostCeilingInput,
   type GameweekContext,
   type Lineup,
+  type ObservedPlayerLine,
   type PlayerForecast,
   type PlayerLine,
   type Role,
@@ -16,6 +19,10 @@ import {
   engineProposalPolicy,
   fieldedLineupPolicy,
   leaguePointsOf,
+  lineupRegret,
+  observedLines,
+  observedPlayerMap,
+  prepareGameweek,
   proposeLineup,
   referencePolicy,
   ruleOf72Policy,
@@ -497,9 +504,34 @@ describe("migliori 11 per fantamedia — il pavimento di §11.1", () => {
 // IL TETTO — e la garanzia che non si confonda con una politica giocabile.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * La targa dei voti «veri» di questa fixture. Sintetica come tutto il resto del
+ * file: qui non c'è nessun parser di voti reali — il core pubblico non
+ * acquisisce dati — e la provenienza serve a mostrare che il tetto la pretende
+ * e la ripete, non a certificare una fonte.
+ */
+const REAL_VOTES = "fixture sintetica: voti di giornata letti dopo la scadenza";
+
+/**
+ * QUANTO VALE L'ERRORE, in fantapunti, su questa fixture. Numeri pinnati e non
+ * calcolati dal test: se un giorno cambiassero, la differenza fra un tetto
+ * onesto e uno contaminato sarebbe cambiata, e va riletta invece che riadattata.
+ */
+const CEILING_GAP = 6;
+const TRUE_SCORE_REGRET = 6;
+const UNDERSTATED_SCORE_REGRET = 0;
+
 describe("il tetto ex-post", () => {
-  /** Righe di giornata A VOTI NOTI: non è una previsione, ed è il punto. */
-  function knownLines(): { squad: PlayerLine[]; all: Map<string, PlayerLine> } {
+  /**
+   * Righe di giornata A VOTI NOTI: non è una previsione, ed è il punto. Dal
+   * 2026-09-07 «non è una previsione» non è più una promessa del commento:
+   * passano da `observedLines()`, l'unica porta che produce righe osservate, e
+   * portano la provenienza fino nella ragione della politica.
+   */
+  function knownLines(): {
+    squad: readonly ObservedPlayerLine[];
+    all: ReadonlyMap<string, ObservedPlayerLine>;
+  } {
     const squad: PlayerLine[] = [
       { id: "P1", role: "P", baseVote: 7, fantasyScore: 7 },
       { id: "D1", role: "D", baseVote: 7, fantasyScore: 7 },
@@ -515,18 +547,20 @@ describe("il tetto ex-post", () => {
       { id: "A1", role: "A", baseVote: 6, fantasyScore: 6 },
       { id: "A2", role: "A", baseVote: 6, fantasyScore: 6 },
     ];
-    const all = new Map<string, PlayerLine>(squad.map((line) => [line.id, line]));
-    for (const f of opponentAt76()) {
-      all.set(f.id, {
-        id: f.id,
-        role: f.role,
-        baseVote: f.expected.baseVote,
-        fantasyScore: f.expected.fantasyScore,
-        receivedAnyBonus: f.expected.receivedAnyBonus,
-        missedPenalty: f.expected.missedPenalty,
-      });
-    }
-    return { squad, all };
+    const theirs: PlayerLine[] = opponentAt76().map((f) => ({
+      id: f.id,
+      role: f.role,
+      baseVote: f.expected.baseVote,
+      fantasyScore: f.expected.fantasyScore,
+      receivedAnyBonus: f.expected.receivedAnyBonus,
+      missedPenalty: f.expected.missedPenalty,
+    }));
+    const observedSquad = observedLines({ lines: squad, provenance: REAL_VOTES });
+    const all = observedPlayerMap([
+      ...observedSquad,
+      ...observedLines({ lines: theirs, provenance: REAL_VOTES }),
+    ]);
+    return { squad: observedSquad, all };
   }
 
   it("golden: schiera chi ha davvero segnato, e si dichiara EX-POST tre volte", () => {
@@ -584,6 +618,185 @@ describe("il tetto ex-post", () => {
       context: CONTEXT,
     });
     expect(ceiling.exPost.outcome?.ours.total).toBeGreaterThanOrEqual(realised.ours.total);
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // IL VARCO CHIUSO IL 2026-09-07 — dichiarato dal commento, non garantito.
+  //
+  // Una review indipendente ha verificato che `PlayerLine` era lo stesso shape
+  // che venisse da `expectedLine()` o da un parser di voti veri: passare
+  // `prepared.expectedSquadLines` al tetto COMPILAVA. I quattro test qui sotto
+  // sono esattamente ciò che mancava — «nessun test di questo pacchetto lo
+  // rivelerebbe» era l'altra metà del rilievo.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /**
+   * LA STESSA GIORNATA, VISTA PRIMA. La previsione non sa del gol di C5 e dà
+   * tutti i centrocampisti a 6: ex-ante è una previsione senza colpe, ed è
+   * proprio per questo che usarla come tetto è un imbroglio silenzioso.
+   */
+  function exAnteInput() {
+    return {
+      squad: [
+        fc("P1", "P", 7, 7),
+        fc("D1", "D", 7, 7),
+        fc("D2", "D", 7, 7),
+        fc("D3", "D", 7, 7),
+        fc("D4", "D", 7, 7),
+        fc("C1", "C", 6, 6),
+        fc("C2", "C", 6, 6),
+        fc("C3", "C", 6, 6),
+        fc("C4", "C", 6, 6),
+        fc("C5", "C", 6, 6),
+        fc("A1", "A", 6, 6),
+        fc("A2", "A", 6, 6),
+      ],
+      opponent: { lineup: OPPONENT_LINEUP_76, players: opponentAt76() },
+      context: CONTEXT,
+    };
+  }
+
+  it("le righe della previsione non entrano nel tetto: `tsc --noEmit` le rifiuta", () => {
+    // COME SI LEGGE QUESTO TEST. Le tre `@ts-expect-error` qui sotto sono
+    // asserzioni del COMPILATORE, non di vitest: se una di queste costruzioni
+    // tornasse a compilare, `tsc` segnalerebbe una direttiva inutilizzata e
+    // `npm run typecheck` — il PRIMO comando di `npm run verify` — sarebbe
+    // rosso prima ancora che vitest parta. Il corpo del test esiste per tenere
+    // le tre costruzioni dentro un file che si esegue davvero, e per dire ad
+    // alta voce che gli oggetti rifiutati non sono inventati: sono quelli che
+    // il produttore consegna ogni giornata.
+    const prepared = prepareGameweek(exAnteInput());
+
+    // 1) L'ERRORE DI INTEGRAZIONE CHE LA REVIEW HA TROVATO, per intero e com'era
+    //    scrivibile prima: le righe attese del produttore passate al tetto. La
+    //    funzione non viene mai chiamata — esiste per essere COMPILATA, ed è il
+    //    compilatore a bocciarla, due volte: dall'elenco della rosa e dalla
+    //    mappa di tutti.
+    const wouldNotCompile = (): unknown =>
+      bestElevenExPostPolicy({
+        // @ts-expect-error — righe di PREVISIONE dove il tetto vuole voti osservati.
+        squadLines: prepared.expectedSquadLines,
+        theirLineup: OPPONENT_LINEUP_76,
+        // @ts-expect-error — e la stessa cosa dalla porta di servizio, la mappa di tutti.
+        players: prepared.expectedPlayers,
+        context: CONTEXT,
+      });
+
+    // 2) E i tipi dei due campi lo dicono anche fuori dalla chiamata: se un
+    //    giorno tornassero `PlayerLine`, queste due direttive diventerebbero
+    //    inutilizzate e `tsc` lo segnalerebbe come errore.
+    // @ts-expect-error — il campo non accetta più righe di previsione.
+    const asCeilingSquad: ExPostCeilingInput["squadLines"] = prepared.expectedSquadLines;
+    // @ts-expect-error — e nemmeno la mappa.
+    const asCeilingPlayers: ExPostCeilingInput["players"] = prepared.expectedPlayers;
+
+    // 3) Il sigillo non si falsifica a mano: `origin: "OBSERVED"` scritto in un
+    //    letterale non basta, perché la chiave che chiude il tipo è un simbolo
+    //    che questo file non può nominare. L'unica porta resta `observedLines`.
+    // @ts-expect-error — manca il sigillo, e nessun letterale può nominarlo.
+    const forged: ObservedPlayerLine = {
+      id: "C5",
+      role: "C",
+      baseVote: 6,
+      fantasyScore: 12,
+      origin: "OBSERVED",
+      provenance: "targa scritta a mano su una riga qualunque",
+    };
+
+    expect(typeof wouldNotCompile).toBe("function");
+    expect(asCeilingSquad).toHaveLength(12);
+    expect(asCeilingPlayers.size).toBe(23);
+    expect(forged.origin).toBe("OBSERVED");
+  });
+
+  it("le guardie di tipo del tetto esistono, e una loro rimozione si vede nel diff", () => {
+    // Mordono a `tsc --noEmit` e vivono accanto alla dichiarazione; questo test
+    // impedisce che spariscano in silenzio insieme al varco che riaprirebbero.
+    const SOURCE = readFileSync(new URL("../src/referencePolicies.ts", import.meta.url), "utf8");
+    expect(SOURCE).toContain("type AssertForecastLineIsNotObserved");
+    expect(SOURCE).toContain("type AssertObservedLineIsAPlayerLine");
+    expect(SOURCE).toContain("type AssertCeilingWantsObservedLines");
+    expect(SOURCE).toContain("type AssertCeilingWantsObservedMap");
+    // Il sigillo NON esce dal modulo: se venisse esportato, un letterale
+    // qualunque potrebbe nominarlo e il tipo tornerebbe strutturale, cioè
+    // tornerebbe a essere il commento di prima.
+    expect(SOURCE).toContain("declare const OBSERVED_VOTE_SEAL: unique symbol;");
+    expect(SOURCE).not.toContain("export declare const OBSERVED_VOTE_SEAL");
+  });
+
+  it("senza provenienza dichiarata non si ottengono righe osservate", () => {
+    expect(() => observedLines({ lines: [], provenance: "   " })).toThrowError(
+      /la provenienza dei voti non è dichiarata/,
+    );
+  });
+
+  it("un tetto costruito sulla previsione dà un ALTRO numero, e abbassa il rimpianto", () => {
+    // QUANTO COSTA L'ERRORE, in fantapunti, invece di doverlo immaginare.
+    //
+    // Il tetto ora si può sbagliare solo di proposito — servono una chiamata a
+    // `observedLines` e una provenienza scritta a mano che dice il falso — e
+    // questo test fa proprio quella bugia, una volta, per misurarla.
+    const { squad, all } = knownLines();
+    const honest = bestElevenExPostPolicy({
+      squadLines: squad,
+      theirLineup: OPPONENT_LINEUP_76,
+      players: all,
+      context: CONTEXT,
+    });
+
+    // La bugia: righe di PREVISIONE targate come osservate.
+    const LIE = "PREVISIONE spacciata per voti osservati — solo per misurare il danno";
+    const prepared = prepareGameweek(exAnteInput());
+    const contaminated = bestElevenExPostPolicy({
+      squadLines: observedLines({ lines: prepared.expectedSquadLines, provenance: LIE }),
+      theirLineup: OPPONENT_LINEUP_76,
+      players: observedPlayerMap(
+        observedLines({ lines: [...prepared.expectedPlayers.values()], provenance: LIE }),
+      ),
+      context: CONTEXT,
+    });
+
+    // I due tetti NON sono lo stesso numero: il vero sa del gol di C5, il finto
+    // no, e a previsione i cinque centrocampisti sono intercambiabili.
+    const honestTotal = honest.exPost.outcome?.ours.total as number;
+    const contaminatedTotal = contaminated.exPost.outcome?.ours.total as number;
+    expect(honestTotal).toBeGreaterThan(contaminatedTotal);
+    expect(honestTotal - contaminatedTotal).toBe(CEILING_GAP);
+
+    // E LA CONSEGUENZA CHE CONTA, quella di §2.4: il rimpianto misurato contro
+    // il tetto finto è PIÙ PICCOLO del vero. Qui la formazione schierata è un
+    // 4-4-2 con i quattro centrocampisti intercambiabili e C5 in panchina —
+    // ex-ante una scelta senza colpe, perché del suo gol non sapeva nessuno, ed
+    // è esattamente ciò che il rimpianto esiste per misurare.
+    const fielded: Lineup = {
+      module: "442",
+      goalkeeperId: "P1",
+      starterIds: ["D1", "D2", "D3", "D4", "C1", "C2", "C3", "C4", "A1", "A2"],
+      benchIds: ["C5"],
+    };
+    const realised = simulateGameweek({
+      ourLineup: fielded,
+      theirLineup: OPPONENT_LINEUP_76,
+      players: all,
+      context: CONTEXT,
+    });
+    const trueRegret = lineupRegret(realised, honest.exPost);
+    const understatedRegret = lineupRegret(realised, contaminated.exPost);
+
+    // Sei fantapunti persi diventano zero. Non «un po' meno»: il tetto finto
+    // coincide col punteggio davvero fatto, quindi quella giornata entrerebbe
+    // nel ledger come una formazione PERFETTA. Un motore misurato così non
+    // sbaglia mai, e nessuno vede niente di rotto: è la ragione per cui il
+    // varco andava chiuso adesso e non «ce ne ricorderemo prima di WP-9».
+    expect(trueRegret.scoreRegret).toBe(TRUE_SCORE_REGRET);
+    expect(understatedRegret.scoreRegret).toBe(UNDERSTATED_SCORE_REGRET);
+    expect(understatedRegret.scoreRegret).toBeLessThan(trueRegret.scoreRegret);
+    expect(contaminatedTotal).toBe(realised.ours.total);
+
+    // La provenienza resta stampata sotto il numero: chi legge la ragione del
+    // tetto finto vede la bugia scritta, non deve dedurla.
+    expect(honest.reason).toContain(REAL_VOTES);
+    expect(contaminated.reason).toContain(LIE);
   });
 });
 
