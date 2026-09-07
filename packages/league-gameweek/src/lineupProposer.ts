@@ -942,8 +942,13 @@ function compareByExpectedAsc(a: PlayerForecast, b: PlayerForecast): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
-/** Una formazione in corso di valutazione, prima di diventare un `Lineup`. */
-interface LineupPlan {
+/**
+ * Una formazione in corso di valutazione, prima di diventare un `Lineup`. È
+ * esportata insieme al vicinato per la stessa ragione degli scenari: una
+ * politica di riferimento che cercasse con un vicinato proprio confronterebbe
+ * due ricerche diverse invece di due obiettivi diversi.
+ */
+export interface LineupPlan {
   readonly module: Module;
   readonly keeperId: string;
   /** Insieme dei titolari di movimento, senza ordine significativo. */
@@ -963,6 +968,34 @@ function neverPlays(f: PlayerForecast): boolean {
 }
 
 /**
+ * Da piano a formazione: l'ordine dei titolari è quello dichiarato (3) in testa
+ * al file), la panchina arriva dal piano e NON viene riscritta — riscriverla
+ * annullerebbe le mosse (d) del vicinato.
+ *
+ * Sta a livello di modulo, e non dentro `proposeLineup`, perché le politiche di
+ * riferimento di §11.1 consegnano formazioni che devono essere confrontabili con
+ * quelle del produttore: due ordini diversi degli stessi undici sarebbero due
+ * formazioni diverse per `lineupKey`, e il confronto storico ne uscirebbe
+ * sporco senza che nessuno se ne accorga.
+ */
+export function buildLineupFromPlan(plan: LineupPlan, byId: ReadonlyMap<string, PlayerForecast>): Lineup {
+  const starters: string[] = [];
+  for (const role of OUTFIELD_ROLES) {
+    const ofRole = plan.starterIds
+      .map((id) => byId.get(id) as PlayerForecast)
+      .filter((f) => f.role === role)
+      .sort(compareByExpectedDesc);
+    for (const f of ofRole) starters.push(f.id);
+  }
+  return {
+    module: plan.module,
+    goalkeeperId: plan.keeperId,
+    starterIds: starters,
+    benchIds: [...plan.benchIds],
+  };
+}
+
+/**
  * L'ordine INIZIALE della panchina: chi un voto può prenderlo davanti a chi non
  * può prenderlo in nessuno scenario, poi il criterio dichiarato. È un punto di
  * partenza euristico, non la risposta: la ricerca lo rimette in discussione.
@@ -975,7 +1008,7 @@ function compareForBenchStart(a: PlayerForecast, b: PlayerForecast): number {
 }
 
 /** La panchina di partenza per un insieme di undici già scelto. */
-function startingBench(squad: readonly PlayerForecast[], chosen: ReadonlySet<string>): string[] {
+export function startingBench(squad: readonly PlayerForecast[], chosen: ReadonlySet<string>): string[] {
   return squad
     .filter((f) => !chosen.has(f.id))
     .slice()
@@ -983,7 +1016,13 @@ function startingBench(squad: readonly PlayerForecast[], chosen: ReadonlySet<str
     .map((f) => f.id);
 }
 
-interface Scenario {
+/**
+ * UNO SCENARIO. È esportato perché le politiche di riferimento di §11.1 devono
+ * valutare le loro formazioni sugli STESSI scenari del produttore: se ognuna si
+ * costruisse i propri, il confronto di §11 misurerebbe il campionamento invece
+ * della decisione, che è esattamente ciò che quel confronto esiste per evitare.
+ */
+export interface Scenario {
   readonly weight: number;
   readonly players: ReadonlyMap<string, PlayerLine>;
   /**
@@ -1142,7 +1181,48 @@ function emptyEstimate(
   };
 }
 
-export function proposeLineup(input: LineupProposalInput): LineupProposal {
+/**
+ * TUTTO CIÒ CHE DIPENDE SOLO DAGLI INGRESSI DELLA GIORNATA, in un posto solo.
+ *
+ * PERCHÉ È ESPORTATA. Le politiche di riferimento di §11.1 del disegno — il
+ * pavimento, la regola dei 72, il tetto — esistono per misurare il produttore, e
+ * una misura vale solo se le due cose confrontate hanno visto lo stesso mondo:
+ * la stessa previsione, gli stessi scenari, lo stesso simulatore, lo stesso
+ * seme. Se ogni politica si ricostruisse il proprio preambolo, il giorno in cui
+ * uno dei due divergesse il confronto continuerebbe a produrre numeri — numeri
+ * di due giornate diverse — e nessun test lo direbbe. Qui c'è una preparazione
+ * sola, e chi la usa non può sbagliarla.
+ *
+ * GLI SCENARI SONO PIGRI, e non è un'ottimizzazione qualunque: `proposeLineup`
+ * li costruisce SOLO quando esiste una formazione da valutare, perché con
+ * `feasible:false` sarebbero migliaia di mappe generate per non essere lette. La
+ * funzione li costruisce alla prima chiamata e poi restituisce sempre lo stesso
+ * vettore: chiamarla due volte non è campionare due volte.
+ */
+export interface GameweekPreparation {
+  readonly squad: readonly PlayerForecast[];
+  readonly byId: ReadonlyMap<string, PlayerForecast>;
+  /** Le due rose insieme: la nostra e quella avversaria. */
+  readonly everyone: readonly PlayerForecast[];
+  readonly context: GameweekContext;
+  readonly competition: CompetitionObjective;
+  readonly objective: ReturnType<typeof describeCompetitionObjective>;
+  /** Le formazioni avversarie nell'ordine dichiarato; una sola = il caso di sempre. */
+  readonly opponentCandidates: readonly WeightedOpponentLineup[];
+  readonly opponentLineups: readonly Lineup[];
+  readonly opponentWeights: readonly number[];
+  /** Le righe della previsione puntuale, per entrambe le rose. */
+  readonly expectedPlayers: ReadonlyMap<string, PlayerLine>;
+  readonly expectedSquadLines: readonly PlayerLine[];
+  readonly method: "exact" | "sampled";
+  readonly scenarioBudget: number;
+  /** Il seme davvero usato: `null` quando gli scenari si enumerano. */
+  readonly seed: number | null;
+  readonly requestedSeed: number;
+  readonly scenarios: () => readonly Scenario[];
+}
+
+export function prepareGameweek(input: LineupProposalInput): GameweekPreparation {
   assertInput(input);
 
   const { squad, opponent, context } = input;
@@ -1150,7 +1230,6 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
   const requestedSeed = input.seed ?? DEFAULT_SEED;
   const competition = input.competition ?? LEAGUE_OBJECTIVE;
   const objective = describeCompetitionObjective(competition, LEAGUE_POINTS);
-  const objectiveLabel = objective.label;
 
   // ── LE FORMAZIONI AVVERSARIE. Senza distribuzione c'è la sola modale a peso
   // 1: il caso di sempre, non un ramo separato.
@@ -1196,6 +1275,60 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
     Math.pow(2, uncertain.length) * opponentCandidates.length <= scenarioBudget;
   const method: "exact" | "sampled" = exact ? "exact" : "sampled";
   const usedSeed = exact ? null : requestedSeed;
+
+  let built: readonly Scenario[] | null = null;
+  const scenarios = (): readonly Scenario[] => {
+    if (built === null) {
+      built = buildScenarios(
+        everyone,
+        stochastic,
+        exact,
+        scenarioBudget,
+        requestedSeed,
+        expectedPlayers,
+        opponentWeights,
+      );
+    }
+    return built;
+  };
+
+  return {
+    squad,
+    byId,
+    everyone,
+    context,
+    competition,
+    objective,
+    opponentCandidates,
+    opponentLineups,
+    opponentWeights,
+    expectedPlayers,
+    expectedSquadLines,
+    method,
+    scenarioBudget,
+    seed: usedSeed,
+    requestedSeed,
+    scenarios,
+  };
+}
+
+export function proposeLineup(input: LineupProposalInput): LineupProposal {
+  const prepared = prepareGameweek(input);
+  const {
+    squad,
+    byId,
+    context,
+    competition,
+    objective,
+    opponentCandidates,
+    opponentLineups,
+    expectedPlayers,
+    expectedSquadLines,
+    method,
+    seed: usedSeed,
+  } = prepared;
+  const opponent = input.opponent;
+  const objectiveLabel = objective.label;
 
   // ── VINCOLI. Assenti, tutto quel che segue è identico a prima che
   // esistessero: `NO_CONSTRAINTS` non è un default con effetti, è il nulla.
@@ -1251,15 +1384,7 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
   // ── FORMAZIONE INTERA BLOCCATA — non si cerca, si valuta e si consegna.
   if (constraints.locked) {
     const locked = input.currentLineup as Lineup;
-    const scenarios = buildScenarios(
-      everyone,
-      stochastic,
-      exact,
-      scenarioBudget,
-      requestedSeed,
-      expectedPlayers,
-      opponentWeights,
-    );
+    const scenarios = prepared.scenarios();
     const value = valuationOf(locked, opponentLineups, context, scenarios, competition);
     const outcome = simulateGameweek({
       ourLineup: locked,
@@ -1353,34 +1478,11 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
   // Gli scenari si costruiscono SOLO quando c'è una formazione da valutare: con
   // `feasible:false` sarebbero migliaia di mappe generate per non essere lette.
   // Si generano UNA volta sola e valgono per ogni candidata.
-  const scenarios = buildScenarios(
-    everyone,
-    stochastic,
-    exact,
-    scenarioBudget,
-    requestedSeed,
-    expectedPlayers,
-    opponentWeights,
-  );
+  const scenarios = prepared.scenarios();
 
   // L'ordine dei titolari è dichiarato (3) in testa al file); la panchina arriva
   // dal piano e NON viene riscritta qui: riscriverla annullerebbe le mosse (d).
-  const buildLineup = (plan: LineupPlan): Lineup => {
-    const starters: string[] = [];
-    for (const role of OUTFIELD_ROLES) {
-      const ofRole = plan.starterIds
-        .map((id) => byId.get(id) as PlayerForecast)
-        .filter((f) => f.role === role)
-        .sort(compareByExpectedDesc);
-      for (const f of ofRole) starters.push(f.id);
-    }
-    return {
-      module: plan.module,
-      goalkeeperId: plan.keeperId,
-      starterIds: starters,
-      benchIds: [...plan.benchIds],
-    };
-  };
+  const buildLineup = (plan: LineupPlan): Lineup => buildLineupFromPlan(plan, byId);
 
   let evaluated = tierOne.evaluated;
 
@@ -1524,7 +1626,7 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
  * a scegliere sarebbe l'ordine di generazione del vicinato: deterministico, sì,
  * ma illeggibile e fragile a ogni riordino del codice.
  */
-function tieBreakKey(lineup: Lineup): string {
+export function tieBreakKey(lineup: Lineup): string {
   const moduleIndex = MODULES.indexOf(lineup.module);
   return (
     `${String(moduleIndex).padStart(2, "0")}|${lineup.goalkeeperId}|${lineup.starterIds.join(",")}` +
@@ -1560,7 +1662,7 @@ function tieBreakKey(lineup: Lineup): string {
  * contiene NESSUNA formazione che violi un vincolo: la garanzia è strutturale,
  * non un controllo a valle che si potrebbe dimenticare.
  */
-function neighbours(
+export function neighbours(
   current: LineupPlan,
   squad: readonly PlayerForecast[],
   byId: ReadonlyMap<string, PlayerForecast>,
