@@ -436,3 +436,58 @@ describe("determinismo e scenari condivisi", () => {
     expect(propose({ scenarioBudget: 4096 }).estimate.method).toBe("sampled");
   });
 });
+
+// LE SINGOLE PROBABILITÀ FUORI RANGE: IL RAMO C'ERA, LA PROVA NO.
+//
+// PERCHÉ QUESTO BLOCCO CONTA. La suite provava che le distribuzioni SOMMANO a
+// uno, e che il vecchio campo modale `voteProbability` sta in [0,1]; ma il
+// controllo sul SINGOLO numero dei campi nuovi — ogni `p…` di §6.1, uno per
+// uno — non era attraversato da nessun test. È un controllo diverso: una
+// somma può tornare a uno con un addendo a 1,5 e un altro a −0,5, e un `pGoal`
+// a 1,5 non fa saltare nessuna somma perché gli eventi non sono una
+// distribuzione, sono sette probabilità indipendenti. Senza queste prove il
+// campionatore accetterebbe un numero che rende `random() < p` sempre vero e
+// pagherebbe un gol a ogni scenario.
+//
+// OGNI TEST VERIFICA IL MESSAGGIO, e non solo che qualcosa venga lanciato: la
+// convalida controlla una dozzina di campi in fila, e un test che accetta
+// qualunque errore direbbe verde anche quando il rifiuto arriva da un altro
+// campo — cioè quando la guardia che vuole provare non esiste più.
+describe("una probabilità che non è una probabilità si rifiuta, campo per campo", () => {
+  const convalida = (patch: Partial<PlayerDistribution>) =>
+    assertPlayerDistribution(
+      { id: "X", role: "C", voteProbability: patch.pPlays ?? 1, modalBaseVote: 6 },
+      { ...DISTRIBUTION_BASE, ...patch },
+      "rosa",
+    );
+  const eventi = (patch: Partial<PlayerDistribution["events"]>) => ({
+    events: { ...DISTRIBUTION_BASE.events, ...patch },
+  });
+
+  it("una probabilità di gol maggiore di uno si rifiuta, e il messaggio dice quale campo", () => {
+    expect(() => convalida(eventi({ pGoal: 1.5 }))).toThrow(/pGoal fuori da \[0,1\] \(1\.5\)/);
+  });
+
+  it("una probabilità di prendere voto negativa si rifiuta, e non viene «arrotondata» a zero", () => {
+    expect(() => convalida({ pPlays: -0.1 })).toThrow(/pPlays fuori da \[0,1\] \(-0\.1\)/);
+  });
+
+  it("gli altri eventi di §12 hanno la stessa guardia, e ciascuno si nomina", () => {
+    // Non è ridondanza: i controlli sono sette chiamate distinte, e dimenticarne
+    // una sarebbe invisibile provando solo la prima.
+    expect(() => convalida(eventi({ pAssist: -0.5 }))).toThrow(/pAssist fuori da \[0,1\] \(-0\.5\)/);
+    expect(() => convalida(eventi({ pYellow: 1.5 }))).toThrow(/pYellow fuori da \[0,1\] \(1\.5\)/);
+    expect(() => convalida(eventi({ pRed: 2 }))).toThrow(/pRed fuori da \[0,1\] \(2\)/);
+  });
+
+  it("NaN non è una probabilità: un confronto con NaN è sempre falso, e l'evento non accadrebbe mai", () => {
+    expect(() => convalida(eventi({ pGoal: Number.NaN }))).toThrow(/pGoal fuori da \[0,1\] \(NaN\)/);
+    expect(() => convalida({ pPlays: Number.NaN })).toThrow(/pPlays fuori da \[0,1\] \(NaN\)/);
+  });
+
+  it("Infinity non è una probabilità: renderebbe l'evento certo senza che nessuno l'abbia scritto", () => {
+    expect(() => convalida(eventi({ pGoal: Number.POSITIVE_INFINITY }))).toThrow(
+      /pGoal fuori da \[0,1\] \(Infinity\)/,
+    );
+  });
+});

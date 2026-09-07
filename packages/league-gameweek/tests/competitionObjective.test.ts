@@ -579,3 +579,67 @@ describe("i due sotto-semi, e il vettore avversario che non dipende dalla ricerc
     expect(lunga.estimate.opponentLineupShare).toEqual(corta.estimate.opponentLineupShare);
   });
 });
+
+// I RAMI DI RIFIUTO DELLA DISTRIBUZIONE AVVERSARIA: ESISTEVANO, NON ERANO PROVATI.
+//
+// PERCHÉ QUESTO BLOCCO CONTA. La distribuzione vuota e i pesi che non sono
+// pesi erano già fail-closed nel codice, ma nessun test li attraversava: un
+// ramo di rifiuto senza prova è indistinguibile da un ramo che il prossimo che
+// passa toglie «perché non lo copre niente», e il giorno in cui sparisce una
+// distribuzione vuota diventa una divisione per zero che nessuno vede.
+//
+// E OGNI TEST VERIFICA IL MESSAGGIO, non solo che qualcosa venga lanciato: in
+// queste fixture ci sono molti modi di far fallire `proposeLineup` — una
+// formazione illegale, una modale smentita, un seme fuori intervallo — e un
+// test che accetta qualunque errore resterebbe verde anche il giorno in cui la
+// convalida che vuole provare non c'è più.
+describe("la distribuzione avversaria vuota, e i pesi che non sono pesi", () => {
+  const proponi = (distribution: readonly WeightedOpponentLineup[]) =>
+    proposeLineup({
+      squad: SQUAD,
+      opponent: { lineup: OPPONENT_LINEUP, players: OPPONENT_PLAYERS, lineupDistribution: distribution },
+      context: CONTEXT,
+      constraints: { lockedStarterIds: [], locked: true },
+      currentLineup: LINEUP_B,
+    });
+
+  it("una distribuzione vuota non è «nessuna assunzione»: è nessun avversario, e si rifiuta", () => {
+    expect(() => normalisedOpponentWeights([], "x")).toThrow(
+      /x: la distribuzione delle formazioni avversarie è vuota\..*è nessun avversario/,
+    );
+  });
+
+  it("la distribuzione vuota la incontra anche il chiamante vero, non solo il contratto interno", () => {
+    // Un rifiuto dentro `normalisedOpponentWeights` non prova che chi la usa ci
+    // arrivi davvero: `lineupDistribution: []` non è `undefined`, e il ramo che
+    // distingue i due casi — «distribuzione assente» da «distribuzione
+    // dichiarata e vuota» — è proprio quello che qui si attraversa.
+    expect(() => proponi([])).toThrow(/la distribuzione delle formazioni avversarie è vuota/);
+  });
+
+  it("un peso NEGATIVO si rifiuta come lo zero: relativo non vuol dire di segno libero", () => {
+    // Lo zero era già provato; il negativo no, ed è il caso peggiore dei due:
+    // sommato agli altri abbassa il totale invece di aumentarlo, e le quote
+    // normalizzate uscirebbero fuori da [0,1] senza che nulla se ne accorga.
+    expect(() =>
+      normalisedOpponentWeights([{ lineup: OPPONENT_LINEUP, weight: -3 }], "x"),
+    ).toThrow(/peso non valido \(-3\)/);
+    expect(() => proponi([{ lineup: OPPONENT_LINEUP, weight: -3 }])).toThrow(/peso non valido \(-3\)/);
+  });
+
+  it("un peso NaN si rifiuta: normalizzato darebbe quote NaN a tutta la distribuzione", () => {
+    expect(() =>
+      normalisedOpponentWeights([{ lineup: OPPONENT_LINEUP, weight: Number.NaN }], "x"),
+    ).toThrow(/peso non valido \(NaN\)/);
+    expect(() => proponi([{ lineup: OPPONENT_LINEUP, weight: Number.NaN }])).toThrow(/peso non valido \(NaN\)/);
+  });
+
+  it("un peso infinito si rifiuta: darebbe uno a lui e zero a ogni altra formazione", () => {
+    expect(() =>
+      normalisedOpponentWeights([{ lineup: OPPONENT_LINEUP, weight: Number.POSITIVE_INFINITY }], "x"),
+    ).toThrow(/peso non valido \(Infinity\)/);
+    expect(() => proponi([{ lineup: OPPONENT_LINEUP, weight: Number.POSITIVE_INFINITY }])).toThrow(
+      /peso non valido \(Infinity\)/,
+    );
+  });
+});
