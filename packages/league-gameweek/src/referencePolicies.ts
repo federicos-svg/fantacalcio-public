@@ -416,10 +416,17 @@ export function observedPlayerMap(
 /**
  * Gli ingressi del TETTO: i voti OSSERVATI della giornata, non una previsione.
  * Il tipo è diverso da `LineupProposalInput` apposta — non è un'inconvenienza,
- * è la guardia: una politica ex-ante non può ricevere questi campi per sbaglio,
- * e questa non può ricevere previsioni, perché `PlayerLine` non è assegnabile a
- * `ObservedPlayerLine`. Fino al 2026-09-07 questi due campi erano `PlayerLine`,
- * e la garanzia era solo scritta nel commento in testa al file.
+ * è la guardia: una politica ex-ante non può ricevere questi campi per sbaglio.
+ *
+ * Che cosa ESCLUDE questo tipo: l'ASSEGNAZIONE di righe di previsione, perché
+ * `PlayerLine` non è assegnabile a `ObservedPlayerLine`. Che cosa NON esclude:
+ * un cast esplicito, che lo attraversa. A valle c'è `assertDeclaredProvenance`,
+ * che pretende la targa; il ragionamento per esteso — e il rischio che resta
+ * aperto — stanno in testa al file, §«COSA LO RENDE VERO ADESSO, E FIN DOVE»,
+ * e non si ripetono qui per non divergerne al primo cambiamento.
+ *
+ * Fino al 2026-09-07 questi due campi erano `PlayerLine`, e nemmeno
+ * l'assegnazione era esclusa: la garanzia era solo scritta in un commento.
  */
 export interface ExPostCeilingInput {
   /** Le righe di giornata della nostra rosa, a voti osservati. */
@@ -452,6 +459,11 @@ export interface ExPostCeilingInput {
  */
 function assertDeclaredProvenance(lines: Iterable<ObservedPlayerLine>): void {
   for (const line of lines) {
+    // `line?.` NON È UNA SVISTA, E NON VA «PULITO». Il tipo dice che queste
+    // righe sono `ObservedPlayerLine`, quindi non nulle e con `provenance`
+    // stringa: ma questa guardia esiste proprio perché ci si arriva con un cast,
+    // cioè perché il tipo qui può mentire. Fidarsi del tipo dentro il controllo
+    // che lo verifica lo renderebbe un controllo che non controlla niente.
     const provenance = line?.provenance;
     if (typeof provenance === "string" && provenance.trim().length > 0) {
       continue;
