@@ -172,7 +172,9 @@ export const REFERENCE_POLICIES: readonly ReferencePolicyDescriptor[] = [
     decidedHere: true,
     note:
       "La fantamedia NON si calcola qui: è un ingresso dichiarato, con la sua provenienza. " +
-      "Questo pacchetto non ha voti storici e non deve averli.",
+      "Questo pacchetto non ha voti storici e non deve averli. Dal 2026-09-08 (decisione di Pico) il " +
+      "pavimento NON schiera chi ha probabilità di voto zero: fino a quel giorno lo faceva, e un pavimento " +
+      "che spreca un posto su un assente certo è più facile da battere — cioè un metro compiacente.",
   },
   {
     id: "RULE_OF_72",
@@ -530,52 +532,146 @@ interface ElevenByValue {
   readonly total: number;
 }
 
+/** Il nome del reparto in italiano: serve a chi legge un rifiuto, non al codice. */
+const ROLE_DEPARTMENT: Readonly<Record<Role, string>> = {
+  P: "portiere",
+  D: "difensori",
+  C: "centrocampisti",
+  A: "attaccanti",
+};
+
+/** Un reparto che non si riempie: quanti ne chiede il modulo, quanti ce ne sono. */
+interface RoleShortage {
+  readonly role: Role;
+  readonly needed: number;
+  readonly available: number;
+}
+
+/**
+ * L'esito di un modulo: gli undici, oppure i reparti che restano scoperti.
+ *
+ * PERCHÉ NON PIÙ `null`. Finché il pavimento sceglieva sull'intera rosa, «non
+ * riempibile» voleva dire «la rosa è troppo corta», e chi leggeva il rifiuto lo
+ * capiva da solo. Da quando il pavimento esclude chi certamente non prende voto
+ * (2026-09-08), lo stesso `null` può voler dire due cose molto diverse — la
+ * rosa è corta, oppure gli indisponibili hanno svuotato un reparto — e un
+ * rifiuto che non distingue le due lascia chi guarda senza la sola informazione
+ * che gli serve. Quindi il motivo viene fin qui, invece di essere ricostruito
+ * a valle.
+ */
+type ElevenForModule =
+  | { readonly ok: true; readonly eleven: ElevenByValue }
+  | { readonly ok: false; readonly shortages: readonly RoleShortage[] };
+
 /**
  * Gli undici di un modulo scelti per valore: il migliore fra i portieri e i
- * migliori di ciascun ruolo di movimento. `null` quando la rosa non riempie il
- * modulo — che non è un errore, è un modulo non praticabile.
+ * migliori di ciascun ruolo di movimento. Quando la rosa non riempie il modulo
+ * non è un errore — è un modulo non praticabile — e l'esito dice QUALI reparti
+ * mancano, tutti, non solo il primo incontrato: un rifiuto che si ferma al
+ * primo buco farebbe credere risolvibile una rosa che ne ha tre.
  */
 function bestElevenForModule(
   module: Module,
   candidates: readonly PlayerForecast[],
   value: (f: PlayerForecast) => number,
-): ElevenByValue | null {
+): ElevenForModule {
   const shape = moduleShape(module);
   const sorted = [...candidates].sort(byValueThenId(value));
   const ofRole = (role: Role): PlayerForecast[] => sorted.filter((f) => f.role === role);
-  const keeper = ofRole("P")[0];
-  if (keeper === undefined) return null;
   const wanted: ReadonlyArray<readonly [Role, number]> = [
+    ["P", 1],
     ["D", shape.defenders],
     ["C", shape.midfielders],
     ["A", shape.strikers],
   ];
-  const starters: PlayerForecast[] = [];
+  const shortages: RoleShortage[] = [];
+  const picked = new Map<Role, readonly PlayerForecast[]>();
   for (const [role, n] of wanted) {
     const pool = ofRole(role);
-    if (pool.length < n) return null;
-    for (const f of pool.slice(0, n)) starters.push(f);
+    if (pool.length < n) {
+      shortages.push({ role, needed: n, available: pool.length });
+      continue;
+    }
+    picked.set(role, pool.slice(0, n));
+  }
+  if (shortages.length > 0) return { ok: false, shortages };
+  const keeper = (picked.get("P") ?? [])[0];
+  if (keeper === undefined) return { ok: false, shortages: [{ role: "P", needed: 1, available: 0 }] };
+  const starters: PlayerForecast[] = [];
+  for (const role of ["D", "C", "A"] as const) {
+    for (const f of picked.get(role) ?? []) starters.push(f);
   }
   return {
-    keeperId: keeper.id,
-    starterIds: starters.map((f) => f.id),
-    total: [keeper, ...starters].reduce((sum, f) => sum + value(f), 0),
+    ok: true,
+    eleven: {
+      keeperId: keeper.id,
+      starterIds: starters.map((f) => f.id),
+      total: [keeper, ...starters].reduce((sum, f) => sum + value(f), 0),
+    },
   };
+}
+
+/**
+ * CHI CERTAMENTE NON PRENDE VOTO — e perché la soglia è ZERO e non un numero
+ * scelto da qualcuno.
+ *
+ * Zero è il solo caso che non richiede una decisione: la previsione dice che in
+ * NESSUNO scenario quel giocatore riceve un voto, quindi schierarlo è regalare
+ * un posto. Qualunque altra soglia — «sotto il 20 %», «sotto il 50 %» — sarebbe
+ * una scelta di prodotto che nessuno ha preso e che il disegno non contiene:
+ * chi un giorno la volesse la porti in modale, non qui.
+ *
+ * `prepareGameweek` ha già convalidato `voteProbability` dentro [0, 1], quindi
+ * questo `=== 0` e il `<= 0` con cui il produttore definisce lo stesso concetto
+ * (`neverPlays`) dicono esattamente la stessa cosa. Non si importa quella
+ * funzione perché non è esportata e il produttore è fuori dallo scope di questa
+ * modifica: questo commento è il posto in cui i due criteri si tengono
+ * allineati, e chi cambiasse l'uno deve guardare l'altro.
+ */
+function certainlyAbsent(f: PlayerForecast): boolean {
+  return f.voteProbability === 0;
 }
 
 /**
  * MIGLIORI 11 PER FANTAMEDIA — il pavimento di §11.1.
  *
- * QUESTA POLITICA È CIECA, E LA SUA CECITÀ È IL PUNTO. Non guarda l'avversario
- * (lo dice §11.1), non guarda la previsione della giornata e — lettura
- * dichiarata di chi scrive, contestabile — non guarda nemmeno la
- * DISPONIBILITÀ: §11.1 la definisce sui soli valori di fantamedia, e §11.3 la
- * usa per costruire le formazioni di rose fittizie dove la disponibilità è un
- * oracolo. Aggiungerle un filtro sugli infortunati la renderebbe una politica
- * migliore, e quindi un pavimento più alto di quello che il disegno ha
- * scelto: il confronto ne uscirebbe più severo per il motore senza che nessuno
- * l'abbia deciso. Se un giorno si vorrà quel filtro, sarà un'altra riga di
- * §11.1, non questa cambiata di nascosto.
+ * QUESTA POLITICA È CIECA ALL'AVVERSARIO, E QUELLA CECITÀ È IL PUNTO. Non
+ * guarda la formazione altrui (lo dice §11.1) e non guarda la previsione di
+ * giornata: sceglie sui soli valori di fantamedia, e questa parte della
+ * definizione non è cambiata e non deve cambiare.
+ *
+ * ── LA DISPONIBILITÀ: FINO AL 2026-09-08 IL PAVIMENTO NON LA GUARDAVA ───────
+ *
+ * Fin qui questa funzione schierava i migliori 11 per fantamedia ANCHE quando
+ * la previsione diceva che uno di loro certamente non avrebbe preso voto. Era
+ * una lettura dichiarata e contestabile: §11.1 definisce il pavimento sui soli
+ * valori di fantamedia, e §11.3 lo usa su rose fittizie dove la disponibilità è
+ * un oracolo.
+ *
+ * PERCHÉ NON REGGEVA. Il pavimento non è una politica qualsiasi: è uno dei
+ * metri con cui il motore ricco si promuoverà da solo. Un pavimento che spreca
+ * un posto su un assente certo è più FACILE DA BATTERE, quindi il motore
+ * sembra migliore di quanto sia — la stessa classe di guasto del tetto
+ * contaminato descritta in testa al file: nessun sintomo, solo un numero più
+ * bello del vero e una promozione che nessuno vede arrivare.
+ *
+ * COSA FA ADESSO, E CHI L'HA DECISO. Pico ha scelto in modale il 2026-09-08:
+ * il pavimento NON considera schierabile chi ha probabilità di voto ZERO. La
+ * motivazione registrata è che un metro compiacente è peggio di nessun metro, e
+ * che l'asticella deve essere quella che un fantallenatore ragionevole userebbe
+ * davvero — nessuno schiera di proposito un infortunato certo. Gli esclusi non
+ * spariscono dalla rosa: restano in panchina, dove il regolamento li lascia già
+ * senza effetto (chi non ha voto non entra), e la ragione della politica dice
+ * quanti sono e chi sono.
+ *
+ * LA SOGLIA È ZERO E NON È UNA SCELTA: vedi `certainlyAbsent`. Nessun «sotto il
+ * 20 %», che sarebbe una decisione di prodotto che nessuno ha preso.
+ *
+ * FAIL-CLOSED. Se, tolti gli indisponibili certi, nessun modulo è più
+ * riempibile, la politica RIFIUTA e dice quale reparto è scoperto. Non ripiega
+ * sul comportamento vecchio e non riammette gli assenti per far tornare i
+ * conti: un pavimento costruito riammettendoli sarebbe di nuovo il metro
+ * compiacente che Pico ha appena tolto di mezzo, e per giunta in silenzio.
  *
  * IL MODULO si sceglie per somma maggiore delle undici fantamedie; a parità
  * vince il primo nell'ordine dichiarato di `MODULES`. L'ORDINE DELLA PANCHINA
@@ -630,33 +726,77 @@ export function topElevenBySeasonAveragePolicy(
   }
   const value = (f: PlayerForecast): number => averages.get(f.id) as number;
 
+  // LA DISPONIBILITÀ, dal 2026-09-08 (decisione di Pico in modale). La
+  // fantamedia si pretende da TUTTA la rosa — il controllo qui sopra non si
+  // ammorbidisce — perché il dato mancante resta un difetto dell'ingresso anche
+  // per chi non giocherà; l'esclusione riguarda solo CHI SI PUÒ SCHIERARE.
+  const excludedIds = squad.filter(certainlyAbsent).map((f) => f.id);
+  const eligible = squad.filter((f) => !certainlyAbsent(f));
+  const availability =
+    excludedIds.length === 0
+      ? "Disponibilità: nessuno escluso, ogni giocatore della rosa può prendere voto."
+      : `Disponibilità: ${
+          excludedIds.length === 1
+            ? "escluso 1 giocatore che certamente non prenderà voto"
+            : `esclusi ${excludedIds.length} giocatori che certamente non prenderanno voto`
+        } ` +
+        `(${[...excludedIds].sort().join(", ")}): in panchina, mai fra gli undici. ` +
+        "Dal 2026-09-08 (decisione di Pico): un pavimento che schiera un assente certo spreca un posto ed " +
+        "è più facile da battere, e un metro compiacente è peggio di nessun metro.";
+
   let best: { module: Module; eleven: ElevenByValue } | null = null;
-  const unusable: string[] = [];
+  const unusable: { module: Module; shortages: readonly RoleShortage[] }[] = [];
   for (const module of MODULES) {
-    const eleven = bestElevenForModule(module, squad, value);
-    if (eleven === null) {
-      unusable.push(module);
+    const attempt = bestElevenForModule(module, eligible, value);
+    if (!attempt.ok) {
+      unusable.push({ module, shortages: attempt.shortages });
       continue;
     }
     // Somma maggiore; a parità vince il primo modulo dell'ordine dichiarato,
     // perché `>` non sostituisce il precedente a parità.
-    if (best === null || eleven.total > best.eleven.total) best = { module, eleven };
+    if (best === null || attempt.eleven.total > best.eleven.total) best = { module, eleven: attempt.eleven };
   }
   if (best === null) {
+    // FAIL-CLOSED, e il rifiuto NOMINA IL REPARTO. Chi legge deve poter dire
+    // subito se manca gente o se mancano gli abili, e in quale ruolo: senza il
+    // reparto, «non riempibile» è una diagnosi che costringe a rifare il conto
+    // a mano. I reparti scoperti distinti vengono prima, il dettaglio per
+    // modulo dopo.
+    const uncovered = [
+      ...new Set(unusable.flatMap((entry) => entry.shortages.map((s) => ROLE_DEPARTMENT[s.role]))),
+    ];
+    const detail = unusable
+      .map(
+        (entry) =>
+          `${entry.module} (` +
+          entry.shortages
+            .map((s) => `${ROLE_DEPARTMENT[s.role]}: ne servono ${s.needed}, schierabili ${s.available}`)
+            .join("; ") +
+          ")",
+      )
+      .join(", ");
     return {
       policy: "TOP_ELEVEN_BY_SEASON_AVERAGE",
       information: "EX_ANTE",
       lineup: null,
       feasible: false,
       reason:
-        `nessuno dei sette moduli di §9 è riempibile con questa rosa (${unusable.join(", ")}): ` +
-        "il pavimento non esiste per questa giornata, e non lo si costruisce con dieci giocatori.",
+        "nessuno dei sette moduli di §9 è riempibile con i giocatori schierabili di questa rosa. " +
+        `Reparti scoperti: ${uncovered.join(", ")}. Modulo per modulo: ${detail}. ${availability} ` +
+        "Il pavimento non esiste per questa giornata: non lo si costruisce con dieci giocatori, e non lo si " +
+        "costruisce riammettendo gli assenti certi per far tornare i conti.",
       evaluated: 0,
       leagueRuleVersion: LEAGUE_RULE_VERSION,
     };
   }
 
   const chosen = new Set([best.eleven.keeperId, ...best.eleven.starterIds]);
+  // LA PANCHINA RESTA TUTTO IL RESTO DELLA ROSA, esclusi compresi: una
+  // formazione si consegna con la rosa che si ha, e togliere di lì un assente
+  // certo non aggiungerebbe niente — chi non ha voto non entra comunque (§ le
+  // sostituzioni del simulatore lo saltano). L'ordine è quello dichiarato da
+  // questa funzione e non cambia: riordinarlo per disponibilità sarebbe una
+  // seconda modifica, non richiesta e non decisa.
   const bench = [...squad]
     .filter((f) => !chosen.has(f.id))
     .sort(byValueThenId(value))
@@ -689,8 +829,8 @@ export function topElevenBySeasonAveragePolicy(
     reason:
       `migliori 11 per fantamedia (${averagesProvenance}), modulo ${best.module} con somma ` +
       `${best.eleven.total} — la maggiore fra i moduli riempibili, parità rotta dall'ordine dichiarato di ` +
-      "MODULES. Nessuno sguardo all'avversario, alla previsione di giornata o alla disponibilità: è il " +
-      "pavimento di §11.1, e la sua cecità è la sua definizione. Ordine della panchina scelto da questa " +
+      "MODULES. Nessuno sguardo all'avversario né alla previsione di giornata: è il pavimento di §11.1, e " +
+      `quella cecità è la sua definizione. ${availability} Ordine della panchina scelto da questa ` +
       "funzione — fantamedia decrescente, poi id — perché il disegno tace e una formazione senza panchina " +
       "non è consegnabile.",
     evaluated: MODULES.length - unusable.length,
@@ -772,8 +912,12 @@ export function ruleOf72Policy(input: LineupProposalInput): ReferencePolicyLineu
   // un senza voto certo, e la stessa guardia vale nel vicinato del produttore.
   const eligible = squad.filter((f) => f.voteProbability > 0);
   const planFor = (module: Module): LineupPlan | null => {
-    const eleven = bestElevenForModule(module, eligible, (f) => f.expected.fantasyScore);
-    if (eleven === null) return null;
+    // L'esito dell'aiutante dice anche QUALI reparti mancano (serve al
+    // pavimento, che su quello rifiuta); qui il modulo non praticabile si salta
+    // com'è sempre stato, e il comportamento di questa politica non cambia.
+    const attempt = bestElevenForModule(module, eligible, (f) => f.expected.fantasyScore);
+    if (!attempt.ok) return null;
+    const eleven = attempt.eleven;
     const chosen = new Set([eleven.keeperId, ...eleven.starterIds]);
     return {
       module,

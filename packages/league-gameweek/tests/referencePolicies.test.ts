@@ -430,20 +430,133 @@ describe("migliori 11 per fantamedia — il pavimento di §11.1", () => {
     expect(second.lineup).toEqual(first.lineup);
   });
 
-  it("non guarda la disponibilità, ed è la sua definizione: schiera anche chi non giocherà", () => {
-    // A1 ha la fantamedia più alta e una probabilità di voto NULLA. §11.1
-    // definisce il pavimento sulle sole fantamedie: filtrare gli indisponibili
-    // lo renderebbe una politica migliore, cioè un pavimento diverso da quello
-    // che il disegno ha scelto.
-    const squad = squadForFloor().map((f) =>
+  /** La stessa rosa della fixture, con A1 — la fantamedia più alta — che certamente non prende voto. */
+  function squadWithCertainAbsentee(): PlayerForecast[] {
+    return squadForFloor().map((f) =>
       f.id === "A1" ? fc("A1", "A", 6, 6, { voteProbability: 0 }) : f,
     );
-    const result = topElevenBySeasonAveragePolicy({
-      ...floorInput(),
-      proposal: { ...floorInput().proposal, squad },
+  }
+
+  function floorWithCertainAbsentee() {
+    const base = floorInput();
+    return topElevenBySeasonAveragePolicy({
+      ...base,
+      proposal: { ...base.proposal, squad: squadWithCertainAbsentee() },
     });
-    expect(result.lineup?.starterIds).toContain("A1");
-    expect(result.reason).toContain("disponibilità");
+  }
+
+  it("non schiera chi certamente non prenderà voto, e la ragione dice quanti ne ha esclusi", () => {
+    // COSA PROVAVA QUESTO TEST FINO AL 2026-09-08, E PERCHÉ NON PIÙ.
+    //
+    // Fino a quel giorno questo test si chiamava «non guarda la disponibilità,
+    // ed è la sua definizione: schiera anche chi non giocherà» e pretendeva
+    // l'OPPOSTO di quel che pretende adesso: che A1 — fantamedia più alta della
+    // rosa e probabilità di voto ZERO — comparisse fra i titolari del pavimento.
+    // Era il comportamento vero della politica, e il test lo documentava
+    // onestamente: §11.1 definisce il pavimento sulle sole fantamedie.
+    //
+    // Una review indipendente ha però mostrato la conseguenza di prodotto: un
+    // pavimento che spreca un posto su un assente certo è PIÙ FACILE DA BATTERE,
+    // e il pavimento è uno dei metri con cui il motore ricco si promuoverà da
+    // solo. Pico ha deciso in modale il 2026-09-08 che il pavimento esclude chi
+    // non gioca — un metro compiacente è peggio di nessun metro, e l'asticella
+    // deve essere quella che un fantallenatore ragionevole userebbe davvero.
+    //
+    // Il test non è stato cancellato: è stato cambiato NELL'ATTESA, perché il
+    // caso che copre — l'indisponibile certo fra i migliori per fantamedia —
+    // è esattamente lo stesso, ed è il caso che decide se il metro è onesto.
+    const result = floorWithCertainAbsentee();
+    expect(result.feasible).toBe(true);
+    expect(result.lineup?.starterIds).not.toContain("A1");
+    expect(result.lineup?.goalkeeperId).not.toBe("A1");
+    // Non sparisce dalla rosa: resta in panchina, dove non ha effetto.
+    expect(result.lineup?.benchIds).toContain("A1");
+    // La ragione lo DICE: chi legge un confronto deve sapere che il pavimento
+    // ha escluso qualcuno, e quanti.
+    expect(result.reason).toContain("escluso 1 giocatore che certamente non prenderà voto");
+    expect(result.reason).toContain("A1");
+  });
+
+  it("con un assente certo fra i migliori il pavimento cambia formazione, e si alza", () => {
+    // La stessa rosa, la stessa fantamedia, un solo bit di differenza: A1 può
+    // prendere voto oppure no. Il pavimento cieco di prima non se ne accorgeva e
+    // consegnava la stessa identica formazione; questo è il test che dice di
+    // quanto il metro era compiacente.
+    const blind = topElevenBySeasonAveragePolicy(floorInput()); // il pavimento di prima
+    const sighted = floorWithCertainAbsentee(); // il pavimento di adesso
+
+    // PRIMA: 3-4-3 con A1 titolare — il posto in attacco buttato via.
+    expect(blind.lineup?.module).toBe("343");
+    expect(blind.lineup?.starterIds).toContain("A1");
+    // DOPO: il 3-4-3 non è più riempibile con due soli attaccanti schierabili, e
+    // il modulo migliore diventa il 3-5-2. La formazione cambia davvero.
+    expect(sighted.lineup?.module).toBe("352");
+    expect(sighted.lineup).not.toEqual(blind.lineup);
+
+    // E IL CONFRONTO COL MOTORE È DIVENTATO PIÙ SEVERO, in fantapunti veri:
+    // sulla previsione modale di questa giornata il pavimento cieco vale 60 —
+    // A1 non prende voto e in panchina non c'è un attaccante che lo rimpiazzi,
+    // quindi resta un buco — e quello nuovo vale 66. Sei punti che il motore
+    // prima non doveva guadagnarsi. Numeri pinnati e non ricalcolati dal test:
+    // se cambiassero, è cambiato quanto costava la cecità, e va riletto.
+    const prepared = prepareGameweek({
+      squad: squadWithCertainAbsentee(),
+      opponent: { lineup: OPPONENT_LINEUP_76, players: opponentAt76() },
+      context: CONTEXT,
+    });
+    const scoreOf = (lineup: Lineup): number =>
+      simulateGameweek({
+        ourLineup: lineup,
+        theirLineup: OPPONENT_LINEUP_76,
+        players: prepared.expectedPlayers,
+        context: CONTEXT,
+      }).ours.total;
+    expect(scoreOf(blind.lineup as Lineup)).toBe(60);
+    expect(scoreOf(sighted.lineup as Lineup)).toBe(66);
+  });
+
+  it("non lo fa guardare l'avversario di rimbalzo: resta cieco anche escludendo gli assenti", () => {
+    // La guardia contro l'effetto collaterale di questa modifica. Il pavimento
+    // ora guarda una cosa in più — la disponibilità — e §11.1 dice che
+    // dell'avversario non deve guardare NIENTE: questo test tiene ferme le due
+    // affermazioni insieme, con un assente certo in rosa.
+    const first = floorWithCertainAbsentee();
+    const base = floorInput();
+    const weakOpponent = opponentAt76().map((f) =>
+      fc(f.id, f.role, f.expected.baseVote, f.expected.baseVote),
+    );
+    const second = topElevenBySeasonAveragePolicy({
+      ...base,
+      proposal: {
+        ...base.proposal,
+        squad: squadWithCertainAbsentee(),
+        opponent: { lineup: OPPONENT_LINEUP_76, players: weakOpponent },
+      },
+    });
+    expect(second.lineup).toEqual(first.lineup);
+    expect(second.reason).toBe(first.reason);
+  });
+
+  it("se gli assenti certi scoprono un reparto rifiuta, e dice quale — non riammette nessuno", () => {
+    // FAIL-CLOSED. Rosa che basterebbe per il 4-4-2, se non che tre difensori su
+    // quattro sono indisponibili certi: nessun modulo di §9 chiede meno di tre
+    // difensori, quindi il pavimento non esiste. La politica lo dichiara e
+    // NOMINA IL REPARTO invece di ripiegare in silenzio sui migliori 11 ciechi.
+    const squad = squadForFloor().map((f) =>
+      ["D2", "D3", "D4"].includes(f.id) ? fc(f.id, "D", 6, 6, { voteProbability: 0 }) : f,
+    );
+    const base = floorInput();
+    const result = topElevenBySeasonAveragePolicy({
+      ...base,
+      proposal: { ...base.proposal, squad },
+    });
+    expect(result.feasible).toBe(false);
+    expect(result.lineup).toBeNull();
+    expect(result.reason).toContain("Reparti scoperti: difensori");
+    expect(result.reason).toContain("difensori: ne servono 3, schierabili 1");
+    // Dice anche chi ha escluso: il rifiuto non è un mistero da ricostruire.
+    expect(result.reason).toContain("D2, D3, D4");
+    expect(result.reason).toContain("non lo si costruisce riammettendo gli assenti certi");
   });
 
   it("una fantamedia mancante ferma la politica invece di essere sostituita", () => {
