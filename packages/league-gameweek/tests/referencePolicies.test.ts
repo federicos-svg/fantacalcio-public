@@ -638,8 +638,8 @@ describe("il tetto ex-post", () => {
   /**
    * Righe di giornata A VOTI NOTI: non è una previsione, ed è il punto. Dal
    * 2026-09-07 «non è una previsione» non è più una promessa del commento:
-   * passano da `observedLines()`, l'unica porta che produce righe osservate, e
-   * portano la provenienza fino nella ragione della politica.
+   * passano da `observedLines()`, la porta prevista, e portano la provenienza
+   * fino nella ragione della politica.
    */
   function knownLines(): {
     squad: readonly ObservedPlayerLine[];
@@ -806,7 +806,7 @@ describe("il tetto ex-post", () => {
 
     // 3) Il sigillo non si falsifica a mano: `origin: "OBSERVED"` scritto in un
     //    letterale non basta, perché la chiave che chiude il tipo è un simbolo
-    //    che questo file non può nominare. L'unica porta resta `observedLines`.
+    //    che questo file non può nominare. La porta prevista resta `observedLines`.
     // @ts-expect-error — manca il sigillo, e nessun letterale può nominarlo.
     const forged: ObservedPlayerLine = {
       id: "C5",
