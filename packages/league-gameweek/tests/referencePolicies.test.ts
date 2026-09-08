@@ -770,14 +770,15 @@ describe("il tetto ex-post", () => {
   }
 
   it("le righe della previsione non entrano nel tetto: `tsc --noEmit` le rifiuta", () => {
-    // COME SI LEGGE QUESTO TEST. Le tre `@ts-expect-error` qui sotto sono
-    // asserzioni del COMPILATORE, non di vitest: se una di queste costruzioni
-    // tornasse a compilare, `tsc` segnalerebbe una direttiva inutilizzata e
-    // `npm run typecheck` — il PRIMO comando di `npm run verify` — sarebbe
-    // rosso prima ancora che vitest parta. Il corpo del test esiste per tenere
-    // le tre costruzioni dentro un file che si esegue davvero, e per dire ad
-    // alta voce che gli oggetti rifiutati non sono inventati: sono quelli che
-    // il produttore consegna ogni giornata.
+    // COME SI LEGGE QUESTO TEST. Tre tentativi numerati qui sotto, CINQUE
+    // `@ts-expect-error` in tutto — il primo tentativo ne consuma due, il
+    // secondo due, il terzo una — e sono asserzioni del COMPILATORE, non di
+    // vitest: se una di quelle costruzioni tornasse a compilare, `tsc`
+    // segnalerebbe una direttiva inutilizzata e `npm run typecheck` — il PRIMO
+    // comando di `npm run verify` — sarebbe rosso prima ancora che vitest
+    // parta. Il corpo del test esiste per tenere i tre tentativi dentro un file
+    // che si esegue davvero, e per dire ad alta voce che gli oggetti rifiutati
+    // non sono inventati: sono quelli che il produttore consegna ogni giornata.
     const prepared = prepareGameweek(exAnteInput());
 
     // 1) L'ERRORE DI INTEGRAZIONE CHE LA REVIEW HA TROVATO, per intero e com'era
@@ -841,6 +842,73 @@ describe("il tetto ex-post", () => {
     expect(() => observedLines({ lines: [], provenance: "   " })).toThrowError(
       /la provenienza dei voti non è dichiarata/,
     );
+  });
+
+  it("un cast attraversa il tipo ma non la guardia: senza targa il tetto si ferma", () => {
+    // IL VARCO CHE IL SIGILLO NON CHIUDE, E CHI LO CHIUDE AL SUO POSTO. Una
+    // review indipendente del 2026-09-08 ha compilato `forecastLine as
+    // ObservedPlayerLine` con exit 0, senza `@ts-expect-error` e con un solo
+    // `as`: il tipo nominale ferma l'ASSEGNAZIONE — il difetto storico, pinnato
+    // dal test qui sopra — non chi scrive il cast. Qui il cast si scrive
+    // apposta, ed è la guardia a runtime del tetto a doverlo fermare.
+    const prepared = prepareGameweek(exAnteInput());
+    const forced = prepared.expectedSquadLines.map((line) => line as ObservedPlayerLine);
+    const forcedAll = new Map<string, ObservedPlayerLine>(
+      [...prepared.expectedPlayers].map(([id, line]) => [id, line as ObservedPlayerLine]),
+    );
+
+    let message = "";
+    try {
+      bestElevenExPostPolicy({
+        squadLines: forced,
+        theirLineup: OPPONENT_LINEUP_76,
+        players: forcedAll,
+        context: CONTEXT,
+      });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    // L'errore dice CHE COSA manca, PERCHÉ conta e DOVE si passa invece: chi lo
+    // legge a mezzanotte deve capire il rimedio senza aprire il sorgente.
+    expect(message).toContain("non porta una provenienza dichiarata");
+    expect(message).toContain("observedLines()");
+    expect(message).toContain("§2.4");
+    // E nomina la riga colpevole — la prima della rosa — senza esporre altro.
+    expect(message).toContain(forced[0]?.id as string);
+
+    // Una targa fatta di soli spazi non è una targa: vale come assente.
+    const blank = knownLines();
+    const blankSquad = blank.squad.map(
+      (line) => ({ ...line, provenance: "   " }) as ObservedPlayerLine,
+    );
+    expect(() =>
+      bestElevenExPostPolicy({
+        squadLines: blankSquad,
+        theirLineup: OPPONENT_LINEUP_76,
+        players: blank.all,
+        context: CONTEXT,
+      }),
+    ).toThrowError(/non porta una provenienza dichiarata/);
+  });
+
+  it("la porta legittima resta aperta: con `observedLines()` il tetto si costruisce", () => {
+    // UNA GUARDIA CHE BLOCCA ANCHE L'USO CORRETTO È PEGGIO DEL BUCO CHE CHIUDE.
+    // Questo test è ciò che dimostra che quella della riga qui sopra non lo fa:
+    // stessa giornata, righe passate dalla porta, tetto che esce come prima.
+    const { squad, all } = knownLines();
+    const result = bestElevenExPostPolicy({
+      squadLines: squad,
+      theirLineup: OPPONENT_LINEUP_76,
+      players: all,
+      context: CONTEXT,
+    });
+    expect(result.policy).toBe("BEST_EX_POST");
+    expect(result.information).toBe("EX_POST");
+    expect(result.lineup).not.toBeNull();
+    // C5 è il centrocampista che ha davvero segnato: il tetto lo schiera.
+    expect(result.lineup?.starterIds).toContain("C5");
+    // E la targa arriva fino alla ragione, dove chi legge il rimpianto la vede.
+    expect(result.reason).toContain(REAL_VOTES);
   });
 
   it("un tetto costruito sulla previsione dà un ALTRO numero, e abbassa il rimpianto", () => {

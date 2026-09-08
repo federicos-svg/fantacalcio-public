@@ -41,16 +41,38 @@
 // sia: il difetto non avrebbe prodotto un guasto, avrebbe prodotto una
 // promozione ingiustificata che nessuno vede.
 //
-// COSA LO RENDE VERO ADESSO. `ObservedPlayerLine` non è `PlayerLine` con un
-// commento sopra: è `PlayerLine` più un `origin: "OBSERVED"` leggibile e più un
-// SIGILLO che nessun letterale può nominare, perché il simbolo che gli fa da
-// chiave non è esportato. L'unica porta è `observedLines()`, che pretende la
-// provenienza dei voti e la scrive nella ragione del tetto. Una riga di
-// previsione non è assegnabile a una osservata: `tsc --noEmit` — il primo
-// comando di `npm run verify` — la rifiuta, e le guardie di tipo in fondo al
-// blocco del tetto pinnano proprio quel rifiuto. Restare onesti costa una
-// chiamata; barare costa una bugia scritta a mano nella provenienza, che si
-// vede nel diff e resta stampata nella ragione della politica.
+// COSA LO RENDE VERO ADESSO, E FIN DOVE. `ObservedPlayerLine` non è
+// `PlayerLine` con un commento sopra: è `PlayerLine` più un `origin: "OBSERVED"`
+// leggibile e più un SIGILLO che nessun letterale può nominare, perché il
+// simbolo che gli fa da chiave non è esportato. La porta prevista è
+// `observedLines()`, che pretende la provenienza dei voti e la scrive nella
+// ragione del tetto.
+//
+// Quel sigillo ferma UNA cosa, ed è la cosa che è successa davvero: passare
+// `prepared.expectedSquadLines` al tetto — l'ASSEGNAZIONE ACCIDENTALE, senza
+// cast — non compila, `tsc --noEmit` risponde TS2739 e le guardie di tipo in
+// fondo al blocco del tetto pinnano proprio quel rifiuto. È il difetto storico,
+// ed è chiuso.
+//
+// Quel sigillo NON ferma un cast esplicito. Una review indipendente del
+// 2026-09-08 lo ha dimostrato compilando `forecastLine as ObservedPlayerLine`
+// con exit 0, senza `@ts-expect-error` e con un solo `as`: un tipo nominale in
+// TypeScript è una promessa fra chi scrive e chi rilegge, non una barriera che
+// il compilatore difende contro chi la vuole attraversare. Chi scrive quel cast
+// esce dal perimetro del tipo, e nessuna forma di `ObservedPlayerLine` potrebbe
+// impedirglielo.
+//
+// A quel punto interviene, DENTRO `bestElevenExPostPolicy`, una guardia a
+// runtime: ogni riga deve portare una `provenance` non vuota, cioè la targa che
+// solo `observedLines()` appiccica. Il cast dimentico — quello che aggira il
+// tipo ma non pensa alla provenienza — muore lì, con un errore che dice perché.
+// Ma quella guardia chiede una TARGA, non una PROVA: questo modulo non può
+// sapere se un voto è vero, perché una riga letta e una riga prevista hanno gli
+// stessi campi. Un cast che inventa anche la provenienza passa, e resta un
+// rischio ACCETTATO e DICHIARATO — barare costa una bugia scritta a mano, che si
+// vede nel diff e resta stampata nella ragione della politica. Chi legge deve
+// chiudere questo file sapendo che qui non c'è protezione contro chi mente
+// apposta: c'è protezione contro chi sbaglia.
 //
 // ── NIENTE DEFAULT, MAI ─────────────────────────────────────────────────────
 //
@@ -412,6 +434,43 @@ export interface ExPostCeilingInput {
 }
 
 /**
+ * LA TARGA PRETESA A RUNTIME, DOVE IL TIPO NON ARRIVA.
+ *
+ * Il sigillo di `ObservedPlayerLine` ferma l'ASSEGNAZIONE accidentale — il
+ * difetto storico, quello che è costato — ma non un cast esplicito:
+ * `forecastLine as ObservedPlayerLine` compila, exit 0, e una review
+ * indipendente del 2026-09-08 lo ha dimostrato. Questa guardia intercetta il
+ * cast DIMENTICO, cioè chi attraversa il tipo senza passare da
+ * `observedLines()` e quindi non porta nemmeno la provenienza.
+ *
+ * QUELLO CHE QUESTA GUARDIA NON FA, e non potrebbe fare: affermare che i voti
+ * sono veri. Una riga letta e una riga prevista hanno gli stessi campi, e
+ * nessun controllo di runtime saprebbe separarle. Pretende una TARGA, non una
+ * PROVA. Un cast che inventa anche la provenienza passa di qui: è un rischio
+ * ACCETTATO e DICHIARATO — la bugia resta nel diff e resta stampata nella
+ * ragione della politica — e questa funzione non finge di averlo chiuso.
+ */
+function assertDeclaredProvenance(lines: Iterable<ObservedPlayerLine>): void {
+  for (const line of lines) {
+    const provenance = line?.provenance;
+    if (typeof provenance === "string" && provenance.trim().length > 0) {
+      continue;
+    }
+    const which =
+      typeof line?.id === "string" && line.id.length > 0 ? `la riga ${line.id}` : "una riga";
+    throw new Error(
+      `tetto ex-post: ${which} non porta una provenienza dichiarata, quindi non è passata da ` +
+        "`observedLines()` — l'unica porta che quella targa la pretende e la scrive. Il sigillo di " +
+        "`ObservedPlayerLine` ferma l'assegnazione accidentale, non un cast esplicito, e senza targa " +
+        "questo tetto potrebbe essere costruito su una PREVISIONE: un tetto contaminato è più BASSO del " +
+        "vero, quindi abbassa il rimpianto di §2.4 e fa sembrare il motore migliore di quanto sia, senza " +
+        "che nessun errore lo dica. La targa non prova che i voti siano osservati — questo modulo non " +
+        "può saperlo — dice solo che qualcuno l'ha dichiarata, e la dichiarazione resta leggibile.",
+    );
+  }
+}
+
+/**
  * IL TETTO A VOTI NOTI. Non è una politica giocabile e non deve mai comparire
  * come proposta: è il termine di paragone del rimpianto (§11.2).
  *
@@ -420,6 +479,10 @@ export interface ExPostCeilingInput {
 export function bestElevenExPostPolicy(input: ExPostCeilingInput): ReferencePolicyLineup & {
   readonly exPost: BestLineupResult;
 } {
+  // PRIMA DI QUALUNQUE USO DELLE RIGHE: la targa. Nostre e avversarie, perché il
+  // tetto le legge entrambe e un tetto è contaminato anche da metà previsione.
+  assertDeclaredProvenance(input.squadLines);
+  assertDeclaredProvenance(input.players.values());
   const result = bestLineupExPost({
     squad: input.squadLines,
     theirLineup: input.theirLineup,
