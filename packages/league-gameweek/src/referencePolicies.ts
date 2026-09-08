@@ -325,7 +325,8 @@ function assertNoConstraints(constraints: LineupConstraints | undefined, policy:
  * NOMINALE, e in TypeScript si ottiene con una chiave che il chiamante non può
  * scrivere: questo simbolo esiste solo nel tipo — `declare const` non emette
  * niente — e vive solo dentro questo modulo. Fuori di qui nessun letterale può
- * nominarlo, quindi nessun letterale può fabbricare una riga osservata.
+ * nominarlo, quindi nessun letterale può soddisfare il tipo (un cast sì: §«COSA
+ * LO RENDE VERO ADESSO, E FIN DOVE», in testa al file).
  *
  * È una proprietà FANTASMA: a runtime non esiste, e non deve esistere. Non
  * serve a controllare qualcosa dopo, serve a impedirlo prima.
@@ -340,9 +341,10 @@ declare const OBSERVED_VOTE_SEAL: unique symbol;
  * - `origin` e `provenance`, LEGGIBILI: sopravvivono a un dump, a un JSON, a un
  *   log, e dicono a chi guarda un numero da dove vengono i voti che l'hanno
  *   prodotto;
- * - il sigillo, INVISIBILE a runtime e invalicabile a compilazione: è ciò che
- *   rende il tipo nominale invece che strutturale, cioè ciò che fa fallire
- *   `tsc --noEmit` su una riga di previsione passata al tetto.
+ * - il sigillo, INVISIBILE a runtime: è ciò che rende il tipo nominale invece
+ *   che strutturale, cioè ciò che fa fallire `tsc --noEmit` sull'ASSEGNAZIONE
+ *   di una riga di previsione al tetto. Non su un cast — §«COSA LO RENDE VERO
+ *   ADESSO, E FIN DOVE», in testa al file.
  *
  * Le due cose insieme, e non una sola: `origin` da solo lo scriverebbe chiunque
  * in un letterale, il sigillo da solo non si vedrebbe leggendo un risultato.
@@ -356,8 +358,8 @@ export interface ObservedPlayerLine extends PlayerLine {
 }
 
 /**
- * L'UNICA PORTA per ottenere righe osservate, e il posto in cui la provenienza
- * si dichiara invece di essere sottintesa.
+ * LA PORTA PREVISTA per ottenere righe osservate, e il posto in cui la
+ * provenienza si dichiara invece di essere sottintesa.
  *
  * Le righe devono venire da un PARSER DI VOTI VERI — la lettura della giornata,
  * che in questo repository non vive (il core pubblico non acquisisce dati) e
