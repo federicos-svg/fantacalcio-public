@@ -365,6 +365,45 @@ describe("previsione base — giocare e rendere restano due domande diverse", ()
     expect((d?.pStarter as number) + (d?.pSub as number)).toBeCloseTo(d?.pPlays as number, P12);
     expect((d?.pStarter as number) + (d?.pSub as number)).toBeLessThanOrEqual(1);
   });
+
+  it("la quota di titolarità è condizionata a GIOCARE: pStarter e pSub, uno per uno", () => {
+    // PERCHÉ LA SOMMA NON BASTA. `pStarter + pSub = pPlays` è vera PER
+    // COSTRUZIONE — il modulo ricava `pSub` per sottrazione — quindi resta vera
+    // qualunque sia la quota di titolarità, anche una sbagliata. Qui i due
+    // numeri si pinnano SEPARATAMENTE, col conto a mano.
+    //
+    // IL CONTO. Tutto il corpo della prova sta in `STAGIONE_0`, cioè a peso 1.
+    // Ruolo C:
+    //   giornate CON VOTO   40 (C_RUOLO) + 30 (LUNGO) + 2 (DUE) + 3 (PANCHINARO) = 75
+    //   di quelle, da titolare                                                    75
+    //   giornate A DISPOSIZIONE  75 + 10 (C_RUOLO_SV) + 27 (PANCHINARO)          = 112
+    // La quota di titolarità del ruolo è condizionata a giocare, quindi
+    // 75/75 = 1 — e NON 75/112 = 0,6696…, che è invece la disponibilità.
+    //
+    // PANCHINARO, 3 giornate con voto (tutte da titolare) su 30 a disposizione:
+    //   quota titolare = (3 + 10·1) / (3 + 10)          = 13/13 = 1
+    //   pPlays         = (3 + 10·75/112) / (30 + 10)    = 1086/4480 = 0,2424107…
+    //   pStarter       = pPlays · 1                     = 1086/4480
+    //   pSub           = pPlays − pStarter              = 0
+    // LUNGO, 30 su 30 tutte da titolare:
+    //   quota titolare = (30 + 10·1) / (30 + 10)        = 1
+    //   pStarter       = pPlays = 411/448 = 0,9174107… ; pSub = 0
+    //
+    // CHE COSA VEDE QUESTA PROVA. Se il denominatore della quota di titolarità
+    // diventasse la disponibilità — cioè se «quanto spesso gioca» rientrasse
+    // dentro «quando gioca, parte titolare?» — PANCHINARO avrebbe quota
+    // titolare (3 + 10·75/112)/(30 + 10) = 0,2424107… invece di 1, quindi
+    // pStarter = 0,2424107…² ≈ 0,058763 e un pSub inventato di ≈ 0,183648. Le
+    // righe qui sotto diventano rosse; la somma, no.
+    const map = forecasts();
+    const panca = map.get("PANCHINARO") as BaseForecast;
+    const lungo = map.get("LUNGO") as BaseForecast;
+
+    expect(panca.forecast.distribution?.pStarter).toBeCloseTo(1086 / 4480, P12);
+    expect(panca.forecast.distribution?.pSub).toBeCloseTo(0, P12);
+    expect(lungo.forecast.distribution?.pStarter).toBeCloseTo(411 / 448, P12);
+    expect(lungo.forecast.distribution?.pSub).toBeCloseTo(0, P12);
+  });
 });
 
 describe("previsione base — ciò che il regolamento paga a sé", () => {
@@ -755,6 +794,24 @@ describe("previsione base — la riga modale e la distribuzione dicono la stessa
     });
     const bomber = built[0] as BaseForecast;
     const infallibile = built[1] as BaseForecast;
+
+    // IL TASSO DI EVENTO, PINNATO A MANO. I due limiti larghi qui sotto dicono
+    // solo «sta fra 0,2 e 0,5»: un tasso calcolato sul denominatore sbagliato
+    // ci starebbe comodamente dentro. Il conto esatto, invece, è questo.
+    // Ruolo A in QUESTA storia — A_RUOLO (8 con voto, 2 senza), BOMBER (20 con
+    // voto), INFALLIBILE (20 con voto), tutte in `STAGIONE_0` cioè a peso 1:
+    //   giornate CON VOTO      8 + 20 + 20 = 48
+    //   giornate A DISPOSIZIONE 10 + 20 + 20 = 50
+    //   giornate con gol        0 +  8 + 18 = 26
+    // Il tasso è condizionato a GIOCARE, quindi la quota di ruolo è
+    // 26/48 = 13/24 = 0,541666… e NON 26/50 = 0,52. Con K = 10:
+    //   pGoal(BOMBER)      = (8  + 10·13/24) / (20 + 10) = (161/12)/30 = 161/360 = 0,447222…
+    //   pGoal(INFALLIBILE) = (18 + 10·13/24) / (20 + 10) = (281/12)/30 = 281/360 = 0,780555…
+    // Col denominatore della disponibilità verrebbero 13,2/30 = 0,44 e
+    // 23,2/30 = 0,773333…: dentro i limiti larghi, cioè invisibili senza
+    // queste due righe.
+    expect(bomber.forecast.distribution?.events.pGoal).toBeCloseTo(161 / 360, P12);
+    expect(infallibile.forecast.distribution?.events.pGoal).toBeCloseTo(281 / 360, P12);
 
     expect(bomber.forecast.distribution?.events.pGoal).toBeGreaterThan(0.2);
     expect(bomber.forecast.distribution?.events.pGoal).toBeLessThan(0.5);
