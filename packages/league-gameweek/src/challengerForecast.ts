@@ -167,13 +167,48 @@
 //    pacchetti appartiene a WP-6, non alla traccia del motore ricco. Chiamarla
 //    «famiglia dello sfidante» era mio, ed era sbagliato.
 //
-//    PEGGIO: LO STESSO CALCOLO ESISTE GIÀ ALTROVE, E LÌ SA DI PIÙ.
-//    `leagueBehaviourProfile.ts` implementa la STESSA matematica con un
-//    contratto dati PIÙ RICCO di questo: distingue la formazione BOZZA da
-//    quella SCHIERATA e tratta quella distinzione come regola cardine.
-//    `OpponentGameweek` qui sotto NON la fa, e quindi conta come abitudine
-//    anche ciò che un fantallenatore aveva solo abbozzato. Fra le due
-//    implementazioni, questa è quella che sa meno.
+//    LO STESSO CALCOLO ESISTE GIÀ NELL'ALBERO, ACCANTO A QUESTO FILE.
+//    `leagueBehaviourProfile.ts` (§8.3/§8.4, WP-6) stima la quantità
+//    `moduleFielded` — la distribuzione dei moduli di una squadra della lega —
+//    con lo shrink a due livelli di §8.4 e con gli stessi due numeri, che oggi
+//    il barile esporta DUE VOLTE sotto due nomi: `TEAM_PSEUDO_GAMEWEEKS` = 4 e
+//    `LEAGUE_PSEUDO_GAMEWEEKS` = 8 di là, `OPPONENT_PRIOR_GAMEWEEKS` = 4 e
+//    `LEAGUE_PRIOR_GAMEWEEKS` = 8 qui. È la stessa formula scritta due volte.
+//
+//    E DOVE I DUE DIFFERISCONO, DIFFERISCONO NEI DUE VERSI. Va detto per intero,
+//    perché una dichiarazione di doppione che descrive male il doppione è essa
+//    stessa un'affermazione falsa.
+//
+//    DI LÀ C'È, E QUI NO — ed è la parte che pesa di più:
+//    - `LineupRecordStatus`, obbligatorio e senza ripiego: `confermata` (la
+//      formazione SCHIERATA, letta dopo la scadenza) contro `non_confermata`
+//      (lettura anticipata o divergente), con le non confermate tenute FUORI da
+//      ogni conteggio e riportate in chiaro. `OpponentGameweek` qui sotto non
+//      ha quel campo: conta come abitudine anche una lettura che nessuno
+//      garantisce fosse definitiva;
+//    - altre tre quantità di §8.3 («ripete l'undici», «cambia modulo dopo una
+//      sconfitta», «il più quotato disponibile era in campo») dove qui c'è solo
+//      il modulo;
+//    - `notMeasurable`, le occasioni che una quantità non ha potuto misurare,
+//      dichiarate invece che confuse con un «no».
+//
+//    QUI C'È, E DI LÀ NO — e per questo la riconciliazione è lavoro vero, non
+//    una cancellazione:
+//    - il DECADIMENTO. Di là i conteggi non decadono affatto; qui pesano
+//      `0,5^(giornate fa / 60)`, cioè lentissimo ma non nullo;
+//    - la separazione CAMPIONATO/COPPA che §8.3 pretende (`competition`), che
+//      di là non c'è;
+//    - la restrizione ai MODULI LEGALI con la rosa del momento, con
+//      rinormalizzazione — il passo 4 di §8.4 — che di là non c'è, perché di là
+//      le categorie sono i moduli tutti;
+//    - la dimensione STAGIONE, ereditata da `ObservedHistory` con la sua
+//      finestra di 3 stagioni; di là la giornata è un intero dentro una
+//      competizione sola.
+//
+//    Il saldo resta a sfavore di questo file: la differenza che conta per la
+//    verità del numero — schierata contro non confermata — ce l'ha l'altro, e
+//    le tre cose che ha questo sono aggiunte alla formula, non alla qualità del
+//    dato che la alimenta.
 //
 //    OGGI È INNOCUA PERCHÉ NESSUNO LA CHIAMA. `challengerOpponentHabits` non è
 //    invocata da nessuna riga di questo repository: non alimenta il produttore,
@@ -181,10 +216,12 @@
 //    codice disconnesso, e per questo non blocca niente.
 //
 //    LA RIGA CHE DEVE FERMARE CHI PASSA DI QUI FRA UN MESE: **questa funzione
-//    duplica §8.4 con un contratto più povero del modulo sorella, e va
+//    duplica §8.4 con un contratto dati più povero del modulo sorella, e va
 //    RICONCILIATA con `leagueBehaviourProfile.ts` PRIMA che una delle due venga
 //    collegata a qualunque produzione.** Cablarla com'è significherebbe mandare
-//    in campo la versione che non distingue una bozza da una formazione.
+//    in campo la versione che non sa se quella formazione era stata davvero
+//    schierata. La riconciliazione è un lavoro suo, con la sua revisione: non si
+//    fa di soppiatto dentro la PR del motore sfidante.
 //
 // g) LA DUPLICAZIONE CON `baseForecast.ts` È VOLUTA E COSTOSA. Convalida delle
 //    righe, pool pesati, shrink, normalizzazione: sono riscritti qui perché il
@@ -280,10 +317,11 @@ export interface ChallengerFamilies {
   readonly recentForm: boolean;
   /**
    * LE ABITUDINI DELL'AVVERSARIO — **NON è una famiglia di §6.3: è §8.4, e
-   * DUPLICA `leagueBehaviourProfile.ts` con un contratto più povero (non
-   * distingue la formazione BOZZA da quella SCHIERATA). Va riconciliata con
-   * quel modulo PRIMA che una delle due venga collegata a qualunque
-   * produzione** — scelta (f-bis) in testa al file.
+   * DUPLICA la quantità `moduleFielded` di `leagueBehaviourProfile.ts` con un
+   * contratto dati più povero (nessun `LineupRecordStatus`: non sa se quella
+   * formazione fosse confermata o solo letta). Va riconciliata con quel modulo
+   * PRIMA che una delle due venga collegata a qualunque produzione** — scelta
+   * (f-bis) in testa al file.
    *
    * Accesa: i conteggi dell'avversario entrano nella stima dei suoi moduli.
    * Spenta: la stima resta il RIFERIMENTO (lega e uniforme), e l'avversario non
@@ -1227,15 +1265,24 @@ function forecastOne(
 // │                                                                         │
 // │ QUESTO NON È §6.3, È §8.4 — che nella tabella dei pacchetti appartiene   │
 // │ a WP-6 e non alla traccia del motore ricco. La formula qui sotto è       │
-// │ quella di §8.4 riga per riga: stessi `k = 4` e `k' = 8`, stessa          │
-// │ struttura a due livelli.                                                │
+// │ quella di §8.4: stessi `k = 4` e `k' = 8`, stessa struttura a due        │
+// │ livelli.                                                                │
 // │                                                                         │
-// │ E LO STESSO CALCOLO ESISTE GIÀ IN `leagueBehaviourProfile.ts`, CON UN    │
-// │ CONTRATTO PIÙ RICCO DI QUESTO: quel modulo distingue la formazione       │
-// │ BOZZA da quella SCHIERATA, e tratta la distinzione come regola cardine.  │
-// │ `OpponentGameweek` qui sotto NON la fa: conta come abitudine anche ciò   │
-// │ che un fantallenatore aveva soltanto abbozzato. Fra le due, questa è     │
-// │ l'implementazione che sa MENO.                                          │
+// │ E LO STESSO CALCOLO È GIÀ NELL'ALBERO, IN `leagueBehaviourProfile.ts`:   │
+// │ la sua quantità `moduleFielded` è questa stessa distribuzione dei        │
+// │ moduli, con lo stesso shrink e con gli stessi due numeri — che il        │
+// │ barile ora esporta due volte sotto due nomi.                            │
+// │                                                                         │
+// │ IL SUO CONTRATTO DATI È PIÙ RICHIESTIVO DEL MIO, ED È LA DIFFERENZA CHE  │
+// │ CONTA PER LA VERITÀ DEL NUMERO: `LineupRecordStatus` obbligatorio,       │
+// │ `confermata` (schierata, letta dopo la scadenza) contro                 │
+// │ `non_confermata`, e le non confermate tenute FUORI da ogni conteggio.   │
+// │ `OpponentGameweek` qui sotto quel campo non ce l'ha.                    │
+// │                                                                         │
+// │ Nei due versi: di là ci sono anche altre tre quantità di §8.3 e le       │
+// │ occasioni non misurabili in chiaro; qui ci sono il decadimento lento,    │
+// │ la separazione campionato/coppa e i moduli legali con rinormalizzazione, │
+// │ che di là non ci sono. Il saldo resta a sfavore di questo file.          │
 // │                                                                         │
 // │ Oggi è innocua perché NESSUNO LA CHIAMA: `challengerOpponentHabits` non  │
 // │ è invocata da nessuna riga di questo repository, non alimenta il         │
@@ -1243,8 +1290,8 @@ function forecastOne(
 // │                                                                         │
 // │ **VA RICONCILIATA CON `leagueBehaviourProfile.ts` PRIMA CHE UNA DELLE    │
 // │ DUE VENGA COLLEGATA A QUALUNQUE PRODUZIONE.** Cablarla com'è             │
-// │ significherebbe mandare in campo la versione che non distingue una       │
-// │ bozza da una formazione.                                                │
+// │ significherebbe mandare in campo la versione che non sa se quella        │
+// │ formazione era stata davvero schierata.                                 │
 // └─────────────────────────────────────────────────────────────────────────┘
 //
 // Ciò che resta valido di questo blocco è la LETTURA della quantità — poca, e
@@ -1316,10 +1363,12 @@ export interface OpponentHabitsInput {
  * LA STIMA DELLE ABITUDINI.
  *
  * **DOPPIONE DICHIARATO: questa funzione implementa §8.4 (non §6.3) e duplica
- * `leagueBehaviourProfile.ts` con un contratto dati più povero — non distingue
- * la formazione BOZZA da quella SCHIERATA. Nessuno la chiama, ed è così che
- * deve restare finché le due implementazioni non sono riconciliate: non
- * collegarla a nessuna produzione prima di quella riconciliazione.**
+ * la quantità `moduleFielded` di `leagueBehaviourProfile.ts` con un contratto
+ * dati più povero — `OpponentGameweek` non porta il `LineupRecordStatus` di là,
+ * quindi conta come abitudine anche una formazione che nessuno garantisce
+ * fosse quella schierata. Nessuno la chiama, ed è così che deve restare finché
+ * le due implementazioni non sono riconciliate: non collegarla a nessuna
+ * produzione prima di quella riconciliazione.**
  *
  * Funzione pura, nessun orologio, nessun `Math.random`.
  *
