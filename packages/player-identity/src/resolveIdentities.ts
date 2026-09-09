@@ -107,6 +107,7 @@ import {
   abbreviationCompatible,
   identifierAgreement,
   isComparableName,
+  nameCoverage,
   normalizedName,
   normalizedTokens,
   teamAgreementOf,
@@ -216,7 +217,13 @@ function nameEvidenceHolds(
   const rightName = normalizedName(right);
   if (evidence === "exact_name") return leftName === rightName;
   if (leftName === rightName) return false;
-  return abbreviationCompatible(leftTokens, rightTokens);
+  if (evidence === "abbreviated_name") return abbreviationCompatible(leftTokens, rightTokens);
+  // I due gradi del confronto per token — copertura piena e copertura parziale
+  // — si escludono a vicenda: una coppia produce un arco in UNO SOLO dei due
+  // ranghi, mai in entrambi. `NameEvidence` e `NameCoverage` condividono i due
+  // nomi apposta, così il confronto qui resta una riga invece di una tabella
+  // che un giorno divergerebbe.
+  return nameCoverage(leftTokens, rightTokens) === evidence;
 }
 
 /**

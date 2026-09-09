@@ -29,6 +29,15 @@
 //    più di «risulta un'altra», perché la seconda può essere un omonimo in
 //    un'altra rosa.
 //
+// 4. I DUE RANGHI DEL CONFRONTO PER TOKEN si intercalano fra quelli del nome
+//    abbreviato invece di stare in coda, e per una ragione che va detta: quei
+//    due livelli di evidenza esistono SOLO nella variante «stessa squadra»
+//    (§(a) più sotto), quindi non c'è un terzetto di squadra da ordinare al
+//    loro interno e la regola «prima il nome, poi la squadra» non li può
+//    collocare da sola. Si ordinano allora per evidenza complessiva — nome più
+//    squadra — e la scala di certezza resta monotona lungo i ranghi, che è la
+//    sola proprietà su cui un filtro a valle può contare.
+//
 // ── LA SQUADRA CAMBIA DURANTE LA STAGIONE, E QUESTO È IL PUNTO ──────────────
 //
 // Un giocatore ceduto a gennaio è lo stesso giocatore. Se la squadra fosse un
@@ -80,6 +89,95 @@
 // invece di due regole che un giorno divergono. Un nome fatto di sole iniziali
 // non è un errore del chiamante: esce fra i non risolti con la propria
 // ragione, che è un buco visibile.
+//
+// ── UN NOME CORTO CONTRO UN NOME COMPLETO, DENTRO UNA SQUADRA ───────────────
+//
+// I criteri qui sopra confrontano nomi INTERI: «Marlo Zurbetti» contro «Marlo
+// Zurbetti», oppure «M. Zurbetti» contro «Marlo Zurbetti» token per token
+// nella stessa posizione e nello stesso numero. Una piattaforma di lega non
+// scrive però nomi interi: scrive «Zurbetti», oppure «Zurbetti M.» — il
+// cognome, più l'iniziale quando serve a distinguere. Contro un deposito che
+// porta «Marlo Zurbetti» nessuno dei criteri sul nome intero aggancia, e non
+// perché i due nomi siano di due persone: perché uno dei due è più corto
+// dell'altro. Su un'anagrafica misurata di 594 voci, 408 portano una sola
+// parola e 91 portano un'iniziale puntata: non è un caso di bordo, è la forma
+// normale del dato.
+//
+// I due ranghi che seguono confrontano quindi i TOKEN, senza pretendere né
+// l'ordine né lo stesso numero. Quattro scelte, tutte mie e tutte
+// contestabili:
+//
+// (a) LA SQUADRA È COSTITUTIVA, NON UN RAFFINAMENTO. Un cognome condiviso su
+//     una lista intera non è evidenza su cui agire; dentro una rosa reale —
+//     insieme piccolo e chiuso — lo diventa. Perciò di questi due livelli di
+//     evidenza esiste SOLO la variante «stessa squadra dichiarata»: le altre
+//     due — «non confrontabile» e «un'altra» — non ci sono, e la loro assenza
+//     è una decisione, non una dimenticanza. Il costo è dichiarato: un
+//     trasferito che una fonte conosce solo per cognome non viene agganciato
+//     da qui, e resta un buco visibile. Nota che la dottrina «la squadra non
+//     esclude mai» (§sopra) non è contraddetta: là la squadra non poteva
+//     ESCLUDERE una coppia che il nome sosteneva da sé, qui il nome da sé non
+//     sostiene niente e la squadra è metà della prova.
+//
+// (b) UN TOKEN PIENO SI CONFRONTA SOLO PER UGUAGLIANZA, MAI PER PREFISSO.
+//     «Vasch» e «Vaschin» sono due cognomi, non due grafie dello stesso: chi
+//     aggancia per prefisso aggancia ogni cognome corto a tutti i cognomi
+//     lunghi che lo contengono, e lo fa in silenzio. L'unico confronto per
+//     prima lettera che questo file conosce riguarda le iniziali puntate, e
+//     solo nel verso descritto qui sotto.
+//
+// (c) L'INIZIALE PUNTATA NON È UN NOME, E QUI PUÒ SOLO TOGLIERE. «Zurbetti M.»
+//     dice una lettera, non un nome proprio. Quindi: (i) un'iniziale non fa
+//     mai da ancora — serve almeno un token pieno uguale, come per il nome
+//     abbreviato; (ii) un'iniziale non aggiunge MAI un candidato che il solo
+//     nome corto non avesse già, può solo toglierne. «Zurbetti M.» vede i
+//     candidati di «Zurbetti» meno quelli in cui l'iniziale non copre nessun
+//     token. L'eccezione, che va detta perché la frase senza di essa sarebbe
+//     falsa: quando l'altro nome è «Zurbetti» in persona, «Zurbetti» contro
+//     «Zurbetti» non è copertura ma NOME IDENTICO (rango 2), e la coppia
+//     ricompare qui come copertura parziale (rango 9) — cioè con MENO forza,
+//     mai con più, e mai come coppia nuova per il risolutore.
+//     Ed è un rifiuto secco, non un declassamento: «Zurbetti Q.» contro
+//     «Marlo Zurbetti» non ricade
+//     nel rango del solo cognome ignorando la Q — esce non risolto. Il costo
+//     dichiarato è che un'iniziale che si riferisce a un secondo nome assente
+//     dall'altra fonte fa perdere l'aggancio; il verso è quello giusto.
+//     Quel che l'iniziale separa sono due persone che condividono il COGNOME,
+//     mai due che condividono il nome intero: quelle restano ambigue, e
+//     §«GLI OMONIMI» qui sopra vale ancora parola per parola.
+//
+// (d) DUE GRADI, PERCHÉ SONO DUE EVIDENZE DIVERSE.
+//       - `unordered_name`: il nome corto rende conto di OGNI token del nome
+//         lungo — ciascuno è lo stesso token, oppure è coperto da un'iniziale
+//         di cui è la prima lettera. «Zurbetti M.» rende conto di «Marlo
+//         Zurbetti» per intero. Coprire tutto impone che i token siano
+//         TANTI QUANTI — ciascuno ne consuma esattamente uno — quindi questo
+//         grado è il nome abbreviato senza l'ipotesi sull'ordine, e nient'altro
+//         di più: stessa evidenza, stessa targa, `moderate`. Ci cade dentro
+//         anche la pura permutazione — «Zurbetti Marlo» contro «Marlo
+//         Zurbetti» — che i criteri sul nome intero non agganciano perché
+//         confrontano stringhe.
+//       - `partial_name`: i token del nome corto stanno tutti nel nome lungo,
+//         ma il nome lungo porta token che il corto non conferma — il caso del
+//         solo cognome, che nell'anagrafica misurata è la forma di 408 voci su
+//         594. La targa è `weak`,
+//         e non per prudenza generica: la scala di questo file è già
+//         calibrata, e se «cognome più iniziale nella stessa squadra» vale
+//         `moderate` (rango 5), «cognome nudo nella stessa squadra» sta sotto,
+//         e sotto `moderate` c'è `weak`. Conseguenza da guardare in faccia:
+//         chi a valle scarta il debole non aggancia le voci che portano il
+//         solo cognome, che sono le più numerose. La targa dice quanta
+//         evidenza c'è, non quanta se ne vorrebbe.
+//
+// E una cosa che questi due ranghi NON sanno: quale token sia il cognome.
+// Nessuna funzione qui sotto si chiama `surname`, e nessuna targa lo dice: la
+// piattaforma scrive il cognome per convenzione, ma il modulo vede token e
+// dichiara solo ciò che vede — «i token del nome corto stanno in quello
+// lungo». Chiamarlo cognome sarebbe una promessa che il codice non mantiene,
+// e la prima conseguenza pratica è che un nome proprio condiviso dentro una
+// squadra produce una coppia esattamente come un cognome condiviso: per
+// questo `partial_name` è debole e per questo l'esclusività resta l'unica
+// cosa che ne autorizza l'accettazione.
 
 import { NAME_OVERLAP_LOW_BAND } from "../../identity-policy/src/candidateKeyPolicy.js";
 import {
@@ -122,7 +220,12 @@ export function isComparableName(tokens: readonly string[]): boolean {
 }
 
 /** Che cosa dicono i nomi. */
-export type NameEvidence = "shared_identifier" | "exact_name" | "abbreviated_name";
+export type NameEvidence =
+  | "shared_identifier"
+  | "exact_name"
+  | "abbreviated_name"
+  | "unordered_name"
+  | "partial_name";
 
 /** Che cosa dice la squadra, con «non lo so» distinto da «un'altra». */
 export type TeamAgreement = "same_declared_team" | "team_not_comparable" | "different_declared_team";
@@ -136,8 +239,10 @@ export type MatchCriterionCode =
   | "exact_name_team_not_comparable"
   | "exact_name_other_team"
   | "abbreviated_name_same_team"
+  | "unordered_name_same_team"
   | "abbreviated_name_team_not_comparable"
-  | "abbreviated_name_other_team";
+  | "abbreviated_name_other_team"
+  | "partial_name_same_team";
 
 export interface MatchCriterion {
   readonly code: MatchCriterionCode;
@@ -152,7 +257,7 @@ export interface MatchCriterion {
 }
 
 /**
- * L'ORDINE DEI CRITERI, COME DATO. Sette righe, provate dall'alto in basso.
+ * L'ORDINE DEI CRITERI, COME DATO. Nove righe, provate dall'alto in basso.
  * Cambiare quest'ordine è una decisione, non un refactoring: un test la pinna.
  */
 export const MATCH_CRITERIA: readonly MatchCriterion[] = [
@@ -199,8 +304,19 @@ export const MATCH_CRITERIA: readonly MatchCriterion[] = [
     evidence: "nome abbreviato compatibile con nome esteso, stessa squadra dichiarata",
   },
   {
-    code: "abbreviated_name_team_not_comparable",
+    code: "unordered_name_same_team",
     rank: 6,
+    nameEvidence: "unordered_name",
+    teamAgreement: "same_declared_team",
+    certainty: "moderate",
+    evidence:
+      "il nome corto rende conto di ogni token del nome lungo — tanti token quanti, ciascuno lo stesso " +
+      "token oppure coperto dall'iniziale di cui è la prima lettera, in qualunque ordine — e la squadra " +
+      "dichiarata è la stessa",
+  },
+  {
+    code: "abbreviated_name_team_not_comparable",
+    rank: 7,
     nameEvidence: "abbreviated_name",
     teamAgreement: "team_not_comparable",
     certainty: "weak",
@@ -208,11 +324,21 @@ export const MATCH_CRITERIA: readonly MatchCriterion[] = [
   },
   {
     code: "abbreviated_name_other_team",
-    rank: 7,
+    rank: 8,
     nameEvidence: "abbreviated_name",
     teamAgreement: "different_declared_team",
     certainty: "weak",
     evidence: "nome abbreviato compatibile con nome esteso ma squadre dichiarate diverse",
+  },
+  {
+    code: "partial_name_same_team",
+    rank: 9,
+    nameEvidence: "partial_name",
+    teamAgreement: "same_declared_team",
+    certainty: "weak",
+    evidence:
+      "i token del nome corto stanno tutti nel nome lungo, che però porta token che il corto non " +
+      "conferma (il caso del solo cognome), e la squadra dichiarata è la stessa",
   },
 ];
 
@@ -259,6 +385,119 @@ export function abbreviationCompatible(a: readonly string[], b: readonly string[
     return false;
   }
   return abbreviated && fullAnchor;
+}
+
+/**
+ * QUANTO UN NOME CORTO COPRE DI UN NOME LUNGO — i due gradi, e nient'altro in
+ * mezzo. `unordered_name` è la copertura piena, `partial_name` quella parziale;
+ * l'assenza di copertura è `null`. Vedi §(d) in testa al file.
+ */
+export type NameCoverage = "unordered_name" | "partial_name";
+
+/**
+ * UN SOLO VERSO: i token di `inner` stanno in quelli di `outer`?
+ *
+ * Il conto è su MULTINSIEMI, non su insiemi: un token che compare due volte a
+ * destra ne copre due a sinistra e non tre. Le regole, tutte già dichiarate in
+ * testa al file:
+ *   - un token PIENO di `inner` deve comparire IDENTICO in `outer` (§(b));
+ *   - un token di un solo carattere che non compare identico è un'INIZIALE, e
+ *     deve coprire un token di `outer` ancora libero di cui è la prima lettera;
+ *     se non ne copre nessuno il verso è chiuso (§(c));
+ *   - se alla fine `outer` non ha più niente di scoperto la copertura è piena,
+ *     altrimenti è parziale (§(d)).
+ *
+ * L'ANCORA (§(c)(i)) non è un controllo a parte, ed è deliberato: `inner`
+ * arriva qui solo da `nameCoverage()`, che rifiuta i nomi senza token pieni; e
+ * un token pieno o compare identico in `outer` o chiude il verso. Ne segue che
+ * ogni copertura accettata condivide almeno un token pieno — un `if` in più
+ * qui non aggiungerebbe niente, sarebbe irraggiungibile, e nessun test
+ * potrebbe diventare rosso rompendolo. Chi toglie il gate di comparabilità
+ * toglie l'ancora: è quel gate a portarla, e un test la pinna come proprietà
+ * dell'esito invece che come riga di codice.
+ *
+ * NON normalizza niente: riceve token già normalizzati da `normalizedTokens()`
+ * su ENTRAMBI i lati. Normalizzare qui un lato solo — o riceverne uno grezzo —
+ * è il difetto che aggancia cose diverse senza lasciare traccia, ed è per
+ * questo che questa funzione non vede mai una `displayName`.
+ */
+function coverageOfInnerInOuter(
+  inner: readonly string[],
+  outer: readonly string[],
+): NameCoverage | null {
+  if (inner.length === 0 || outer.length === 0) return null;
+  if (inner.length > outer.length) return null;
+
+  const free = new Map<string, number>();
+  for (const token of outer) free.set(token, (free.get(token) ?? 0) + 1);
+
+  const initials: string[] = [];
+  for (const token of inner) {
+    const available = free.get(token) ?? 0;
+    if (available > 0) {
+      free.set(token, available - 1);
+      continue;
+    }
+    // Un token pieno che il nome lungo non porta chiude il verso: nessun
+    // prefisso, nessuna indulgenza.
+    if (token.length > 1) return null;
+    initials.push(token);
+  }
+
+  // Le iniziali rimaste coprono, una per una, un token ancora libero che
+  // comincia con quella lettera. Il conto PER LETTERA è esatto, non
+  // un'euristica: due iniziali diverse non possono coprire lo stesso token —
+  // «m» copre solo token che cominciano per «m» — quindi gli insiemi dei
+  // candidati di lettere diverse sono DISGIUNTI, e a pari lettera consumare un
+  // token o un altro lascia lo stesso numero di token scoperti. L'esito non
+  // dipende quindi da quale token si scelga, e non c'è nessuno spareggio da
+  // dichiarare.
+  const needed = new Map<string, number>();
+  for (const initial of initials) needed.set(initial, (needed.get(initial) ?? 0) + 1);
+  for (const [letter, count] of needed) {
+    let covered = 0;
+    for (const [token, available] of free) {
+      if (available <= 0 || !token.startsWith(letter)) continue;
+      const used = Math.min(available, count - covered);
+      free.set(token, available - used);
+      covered += used;
+      if (covered === count) break;
+    }
+    // Un'iniziale che non copre niente RIFIUTA la coppia. È l'unico potere che
+    // ha, ed è quello di togliere.
+    if (covered < count) return null;
+  }
+
+  let uncovered = 0;
+  for (const available of free.values()) uncovered += available;
+  return uncovered === 0 ? "unordered_name" : "partial_name";
+}
+
+/**
+ * LA COPERTURA FRA DUE NOMI, nel verso che ne esce meglio — perché quale dei
+ * due lati sia il corto è una proprietà del dato, non delle liste: la
+ * piattaforma scrive corto e il deposito lungo, ma questo modulo non sa quale
+ * lista gli sia stata passata a sinistra. Simmetrica per costruzione, e un
+ * test lo pinna.
+ *
+ * Si rifiuta in due casi, entrambi voluti:
+ *   - un nome senza token pieni non è confrontabile (§«UN NOME È CONFRONTABILE
+ *     SOLO SE PORTA UN TOKEN PIENO»);
+ *   - due nomi identici token per token: quelli hanno un rango loro, più alto,
+ *     e duplicarli qui vorrebbe dire scrivere due volte la stessa evidenza con
+ *     due targhe diverse.
+ */
+export function nameCoverage(
+  a: readonly string[],
+  b: readonly string[],
+): NameCoverage | null {
+  if (!isComparableName(a) || !isComparableName(b)) return null;
+  if (a.length === b.length && a.every((token, index) => token === b[index])) return null;
+  const forward = coverageOfInnerInOuter(a, b);
+  const backward = coverageOfInnerInOuter(b, a);
+  if (forward === "unordered_name" || backward === "unordered_name") return "unordered_name";
+  if (forward === "partial_name" || backward === "partial_name") return "partial_name";
+  return null;
 }
 
 /**
