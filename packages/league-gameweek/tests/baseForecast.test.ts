@@ -404,6 +404,58 @@ describe("previsione base — giocare e rendere restano due domande diverse", ()
     expect(lungo.forecast.distribution?.pStarter).toBeCloseTo(411 / 448, P12);
     expect(lungo.forecast.distribution?.pSub).toBeCloseTo(0, P12);
   });
+
+  it("un subentrante vero: la quota di titolarità non è né 0 né 1, e i due numeri lo dicono", () => {
+    // PERCHÉ SERVE QUESTA FIXTURE. Nel corpo storico della prova ogni giornata
+    // con voto è da titolare: la quota di titolarità vale 1 dappertutto e
+    // `pSub` è esattamente zero. Così si collauda il DENOMINATORE della quota,
+    // ma non il suo VALORE — un canale che vale zero in ogni prova è un canale
+    // su cui nessuno si accorgerebbe di niente. `SUBENTRANTE` è l'unico che
+    // entra dalla panchina, ed è sbilanciato apposta: la sua quota cade lontano
+    // sia da 0 sia da 1, altrimenti la prova tornerebbe cieca in un altro modo.
+    //
+    // LA FIXTURE. Tutto in `STAGIONE_0`, cioè a peso 1:
+    //   20 giornate con voto, di cui 5 da titolare e 15 da subentrante;
+    //    5 giornate senza voto `clean`;
+    //   → 25 giornate a disposizione.
+    //
+    // IL RUOLO C, con `SUBENTRANTE` dentro:
+    //   con voto        75 (corpo della prova) + 20 =  95
+    //   da titolare     75                     +  5 =  80
+    //   a disposizione 112                     + 25 = 137
+    //
+    // IL CONTO, con K = 10:
+    //   quota di ruolo = 80/95 = 16/19
+    //   quota titolare = (5 + 10·16/19) / (20 + 10)  = (255/19)/30   = 17/38     = 0,447368…
+    //   pPlays         = (20 + 10·95/137) / (25 + 10) = (3690/137)/35 = 738/959   = 0,769551…
+    //   pStarter       = 738/959 · 17/38              = 6273/18221              = 0,344273…
+    //   pSub           = 738/959 − 6273/18221         = 7749/18221              = 0,425278…
+    // Il verso conta: questo giocatore SUBENTRA più spesso di quanto parta
+    // titolare, e i due numeri devono dirlo separatamente.
+    //
+    // CHE COSA VEDE QUESTA PROVA. Col denominatore della disponibilità la quota
+    // di ruolo diventerebbe 80/137 e la quota titolare (5 + 10·80/137)/(25 + 10)
+    // = 297/959 = 0,309697…, quindi pStarter ≈ 0,238328 e pSub ≈ 0,531223: le
+    // righe pinnate qui sotto diventano rosse, e la somma no.
+    const extra: PlayerAppearance[] = [];
+    for (const gw of range(1, 5)) extra.push(voted("SUBENTRANTE", "C", S0, gw, 6, {}, true));
+    for (const gw of range(6, 20)) extra.push(voted("SUBENTRANTE", "C", S0, gw, 6, {}, false));
+    for (const gw of range(21, 25)) extra.push(missed("SUBENTRANTE", "C", S0, gw, "clean"));
+
+    const built = buildBaseForecasts({
+      history: history({ appearances: [...corpusAppearances(), ...extra] }),
+      players: [{ playerId: "SUBENTRANTE", role: "C", teamId: "SQUADRA_1" }],
+      asOf: ASOF,
+    });
+    const d = (built[0] as BaseForecast).forecast.distribution;
+
+    expect(d?.pPlays).toBeCloseTo(738 / 959, P12);
+    expect(d?.pStarter).toBeCloseTo(6273 / 18221, P12);
+    expect(d?.pSub).toBeCloseTo(7749 / 18221, P12);
+    // E il verso, perché due numeri scambiati sommerebbero comunque a `pPlays`.
+    expect(d?.pSub as number).toBeGreaterThan(d?.pStarter as number);
+    expect((d?.pStarter as number) + (d?.pSub as number)).toBeCloseTo(d?.pPlays as number, P12);
+  });
 });
 
 describe("previsione base — ciò che il regolamento paga a sé", () => {
