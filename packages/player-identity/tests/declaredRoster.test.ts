@@ -57,6 +57,38 @@ describe("la porta d'ingresso pretende ciò che il risolutore non può dedurre",
     ).toThrow(/vocabolario/i);
   });
 
+  it("rifiuta una riga senza nome, e lo dice nominando la riga", () => {
+    // Fino al 2026-09-09 questa riga non veniva fermata qui: esplodeva più a
+    // valle, dentro la normalizzazione, senza dire QUALE riga, e faceva
+    // abortire il confronto fra le due liste intere. Una riga sporca su
+    // migliaia bloccava tutto il lotto.
+    expect(() =>
+      declareRoster({
+        sourceId: "listone",
+        provenance: "lettura sintetica",
+        records: [
+          record("L1", "Marlo Zurbetti"),
+          { ref: "L2", displayName: null as unknown as string },
+        ],
+      }),
+    ).toThrow(/"L2"/);
+  });
+
+  it("un nome VUOTO invece passa la porta: è un dato povero, non una riga rotta", () => {
+    // La distinzione è la sostanza della riparazione: nullo = contratto
+    // violato, si ferma alla porta; vuoto = buco puntuale, prosegue ed esce
+    // fra i non risolti con la propria ragione, senza toccare le altre righe.
+    const declared = roster("listone", [record("L1", "   ", "ALFA"), record("L2", "Marlo Zurbetti", "ALFA")]);
+    const resolution = resolveIdentities(
+      declared,
+      roster("piattaforma", [record("R2", "Marlo Zurbetti", "ALFA")]),
+    );
+    expect(resolution.matches.map((match) => [match.leftRef, match.rightRef])).toEqual([["L2", "R2"]]);
+    expect(resolution.unresolved.map((item) => [item.ref, item.reason])).toEqual([
+      ["L1", "name_not_comparable"],
+    ]);
+  });
+
   it("accetta una lista completa e le attacca la targa", () => {
     const declared = roster("piattaforma", [record("R1", "Marlo Zurbetti", "ALFA", "P-0001")], {
       identifierSpace: PLATFORM_IDENTIFIER_SPACE,

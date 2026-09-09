@@ -186,6 +186,26 @@ export function declareRoster(input: RosterDeclaration): DeclaredRoster {
       );
     }
     seen.add(record.ref);
+    // UN NOME NULLO NON È UN NOME VUOTO, e le due cose finiscono in due posti
+    // diversi apposta. Un nome VUOTO («   ») è un dato povero: la riga passa,
+    // non aggancia niente, ed esce fra i non risolti con la propria ragione —
+    // un buco puntuale, che è il modo giusto di fallire su una riga sporca fra
+    // mille pulite. Un nome NULLO o non stringa è invece una violazione del
+    // contratto del chiamante: il tipo dice `string`, e un parser non tipizzato
+    // a monte che consegna `null` non ha prodotto una riga povera, ha prodotto
+    // una riga rotta. Fino al 2026-09-09 non veniva fermata qui: esplodeva più
+    // a valle, dentro la normalizzazione, SENZA DIRE QUALE RIGA, e faceva
+    // abortire il confronto fra le due liste intere. Adesso muore alla porta,
+    // con la chiave scritta, come ogni altra premessa che questo modulo non
+    // può dedurre.
+    if (typeof record.displayName !== "string") {
+      throw new Error(
+        `lista dichiarata (${input.sourceId}): la riga "${record.ref}" non porta un nome. Un nome vuoto ` +
+          "sarebbe un dato povero e uscirebbe come non risolto; un nome assente è una riga rotta, e " +
+          "riconoscerla qui costa una riga sola invece di far abortire il confronto fra le due liste " +
+          "intere in un punto che non sa nemmeno dire quale riga fosse.",
+      );
+    }
     if (nonEmpty(record.identifier)) identifierPresent = true;
     if (nonEmpty(record.teamKey)) teamPresent = true;
   }

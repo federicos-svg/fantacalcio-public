@@ -25,6 +25,52 @@
 // coppia possibile. È il verso giusto in cui sbagliare — §«un abbinamento
 // sbagliato è peggio di un abbinamento mancante», in `declaredRoster.ts`.
 //
+// ── L'ESCLUSIVITÀ SI MISURA SUL GRUPPO DI PARTENZA ──────────────────────────
+//
+// «Esclusiva da entrambi i lati» si misura sulle LISTE INTERE, non su ciò che
+// resta dopo che un criterio più forte ha portato via qualcuno. La differenza
+// non è teorica: fino al 2026-09-09 questo file contava i candidati sugli
+// insiemi ancora aperti, e produceva questo —
+//
+//   SINISTRA:  L1 «Rossi Mario» ALFA id=ID-1  |  L2 «Rossi Mario» ALFA
+//   DESTRA:    R1 «Rossi Mario» ALFA id=ID-1  |  R2 «Rossi Mario» ALFA
+//
+//   L1/R1  shared_identifier  certain   ← giusto
+//   L2/R2  exact_name_same_team STRONG  ← INVENTATO
+//
+// L2 e R2 non hanno NESSUNA prova di identità oltre a un nome e una squadra
+// che condividono con altri due. Passavano perché il rango 1 aveva consumato
+// L1 e R1 e li aveva tolti dagli insiemi aperti: al giro dopo restavano soli,
+// e l'esclusività reciproca li promuoveva. Non perché fossero distinguibili,
+// ma perché l'algoritmo aveva ripulito il campo prima di guardarli.
+//
+// PERCHÉ ERA LA COSA PEGGIORE POSSIBILE. La copertura PARZIALE degli
+// identificativi fra due fonti è il caso NORMALE che questo modulo dichiara di
+// gestire, non un limite remoto: quasi ogni coppia di liste vere ha qualche
+// riga con identificativo e molte senza. Se L2 e R2 sono davvero due persone
+// diverse, i voti dell'una finiscono sulla riga dell'altra con targa `strong`,
+// `matches` pieno, conto che torna, e nessun sintomo — mai.
+//
+// PERCHÉ L'ELIMINAZIONE NON È UN RAGIONAMENTO VALIDO QUI. «Se L1 è R1, allora
+// L2 non può che essere R2» vale solo se i due gruppi sono CHIUSI e COMPLETI:
+// se cioè si sa che ogni omonimo di sinistra ha una controparte a destra e
+// viceversa. Questo modulo non lo sa e non lo può sapere — «presente in una
+// fonte e assente nell'altra» è un caso previsto, con la sua ragione e la sua
+// prova. Su liste che possono essere incomplete, l'eliminazione non è una
+// deduzione: è una scommessa che non lascia traccia.
+//
+// COME SI MISURA ADESSO. A ogni criterio i candidati di ciascuna riga si
+// contano su TUTTE le righe dell'altra lista, aperte o già consumate; una
+// coppia si accetta solo se entrambi i conti fanno uno E entrambe le righe
+// sono ancora aperte. Una riga che nel gruppo di partenza aveva più di un
+// candidato esce come ambigua anche se oggi quel candidato è rimasto solo, e
+// `resolvedElsewhere` dice quali dei suoi candidati erano già stati agganciati
+// altrove — cioè risponde alla domanda «perché è ambigua se sembra sola?».
+//
+// È una regola sola, nel ciclo generico, quindi vale per OGNI criterio per
+// costruzione: il gemello del difetto sul nome abbreviato e quello sul
+// trasferito muoiono con lo stesso codice, non con tre rattoppi.
+//
 // ── NON ESISTE «IL PRIMO CANDIDATO» ─────────────────────────────────────────
 //
 // In nessun punto di questo file un elenco di candidati viene ridotto
@@ -48,6 +94,7 @@ import {
   type RosterHandle,
   type SourcePlayerRecord,
   assertDeclaredProvenance,
+  isDeclared,
   rosterHandle,
 } from "./declaredRoster.js";
 import {
@@ -59,6 +106,7 @@ import {
   type TeamAgreement,
   abbreviationCompatible,
   identifierAgreement,
+  isComparableName,
   normalizedName,
   normalizedTokens,
   teamAgreementOf,
@@ -91,8 +139,19 @@ export interface AmbiguousRecord {
   readonly criterion: MatchCriterionCode;
   readonly rank: number;
   readonly reason: AmbiguityReason;
-  /** I candidati, per chiave, ordinati: un elenco, mai una scelta. */
+  /**
+   * I candidati a questo criterio sulla lista INTERA, per chiave, ordinati: un
+   * elenco, mai una scelta. Comprende i candidati che un criterio più forte ha
+   * già agganciato altrove — è il gruppo di partenza, non il residuo.
+   */
   readonly candidates: readonly string[];
+  /**
+   * Quali di quei candidati erano già usciti dal giro a un criterio più forte —
+   * agganciati, oppure a loro volta dichiarati ambigui. Vuoto nel caso normale;
+   * non vuoto è la risposta alla domanda «perché questa riga è ambigua se il
+   * candidato che resta è uno solo?».
+   */
+  readonly resolvedElsewhere: readonly string[];
   readonly detail: string;
 }
 
@@ -146,102 +205,125 @@ function nameEvidenceHolds(
   if (evidence === "shared_identifier") {
     return identifierAgreement(left, right, leftSpace, rightSpace) === "identifier_match";
   }
+  const leftTokens = normalizedTokens(left);
+  const rightTokens = normalizedTokens(right);
+  // Un nome entra nei criteri solo se porta almeno un token pieno: «M» contro
+  // «M» è la stessa iniziale, non lo stesso nome. Il criterio del nome
+  // abbreviato pretende già la sua ancora; qui la stessa regola copre anche il
+  // nome esatto, che altrimenti promuoverebbe un troncamento a targa `strong`.
+  if (!isComparableName(leftTokens) || !isComparableName(rightTokens)) return false;
   const leftName = normalizedName(left);
   const rightName = normalizedName(right);
-  if (leftName.length === 0 || rightName.length === 0) return false;
   if (evidence === "exact_name") return leftName === rightName;
   if (leftName === rightName) return false;
-  return abbreviationCompatible(normalizedTokens(left), normalizedTokens(right));
+  return abbreviationCompatible(leftTokens, rightTokens);
 }
 
 /**
- * IL PASSAGGIO ZERO — i conflitti d'identificativo, prima di ogni abbinamento.
+ * IL PASSAGGIO ZERO — gli identificativi che non reggono, prima di ogni
+ * abbinamento, e con il VALORE dell'identificativo come unità.
  *
- * Due righe che portano lo stesso identificativo nello stesso spazio
- * dichiarato ma nomi che non si sostengono sono una premessa rotta, non una
- * coppia difficile: o lo spazio non è quello che qualcuno ha dichiarato, o
- * l'identificativo è stato riusato. In entrambi i casi l'unica risposta
- * onesta è togliere ENTRAMBE le righe dal giro, prima che un criterio più
- * debole le agganci ad altro sulla base di una grafia — cioè prima che il
- * dubbio più grave venga risolto dal segnale più leggero.
+ * Due righe che portano lo stesso identificativo nello stesso spazio dichiarato
+ * ma nomi che non si sostengono sono una premessa rotta, non una coppia
+ * difficile: o lo spazio non è quello che qualcuno ha dichiarato, o
+ * l'identificativo è stato riusato.
+ *
+ * L'unità non è però la COPPIA, è il VALORE. Se un identificativo sbaglia su
+ * una coppia, non è affidabile su nessuna: escono dal giro TUTTE le righe che
+ * lo portano, su entrambi i lati — compresa la terza, che con quel conflitto
+ * non c'entrava. Agganciarla al rango 1 significherebbe scrivere `certain`
+ * sotto un abbinamento fondato su un identificativo che abbiamo appena visto
+ * sbagliare, ed è proprio la targa che non deve mai mentire. Il costo è
+ * dichiarato: una riga innocente può perdere un aggancio che avrebbe avuto. Il
+ * verso è quello giusto — un buco visibile invece di una certezza falsa — e la
+ * ragione che quella riga porta dice che a saltare è stato l'identificativo,
+ * non il suo nome.
  */
-function sweepIdentifierConflicts(
+function sweepUnreliableIdentifiers(
   left: DeclaredRoster,
   right: DeclaredRoster,
   openLeft: Set<string>,
   openRight: Set<string>,
   unresolved: UnresolvedRecord[],
 ): void {
-  const leftConflicts = new Map<string, { reason: UnresolvedReason; counterparts: Set<string> }>();
-  const rightConflicts = new Map<string, { reason: UnresolvedReason; counterparts: Set<string> }>();
+  if (!isDeclared(left.identifierSpace) || !isDeclared(right.identifierSpace)) return;
+  if (left.identifierSpace !== right.identifierSpace) return;
 
-  for (const leftRecord of left.records) {
-    for (const rightRecord of right.records) {
-      const agreement = identifierAgreement(
-        leftRecord,
-        rightRecord,
-        left.identifierSpace,
-        right.identifierSpace,
-      );
-      if (agreement !== "identifier_name_conflict" && agreement !== "identifier_without_comparable_name") {
-        continue;
-      }
-      const reason: UnresolvedReason = agreement;
-      const l = leftConflicts.get(leftRecord.ref) ?? { reason, counterparts: new Set<string>() };
-      l.counterparts.add(rightRecord.ref);
-      leftConflicts.set(leftRecord.ref, l);
-      const r = rightConflicts.get(rightRecord.ref) ?? { reason, counterparts: new Set<string>() };
-      r.counterparts.add(leftRecord.ref);
-      rightConflicts.set(rightRecord.ref, r);
+  const byValue = (records: readonly SourcePlayerRecord[]): ReadonlyMap<string, SourcePlayerRecord[]> => {
+    const map = new Map<string, SourcePlayerRecord[]>();
+    for (const record of records) {
+      if (!isDeclared(record.identifier)) continue;
+      const value = record.identifier.trim();
+      const bucket = map.get(value) ?? [];
+      bucket.push(record);
+      map.set(value, bucket);
     }
-  }
+    return map;
+  };
 
-  const detailOf = (reason: UnresolvedReason): string =>
-    reason === "identifier_name_conflict"
-      ? "stesso identificativo nello stesso spazio dichiarato, ma i nomi non si sostengono: più " +
-        "probabilmente uno spazio dichiarato male o un identificativo riusato che due grafie lontane. " +
-        "Nessuna delle due righe viene agganciata, qui o altrove."
-      : "stesso identificativo nello stesso spazio dichiarato, ma almeno una delle due righe non ha un " +
-        "nome confrontabile: l'identificativo non si può controincrociare, e da solo non basta.";
+  const leftByValue = byValue(left.records);
+  const rightByValue = byValue(right.records);
 
-  for (const [ref, entry] of leftConflicts) {
-    openLeft.delete(ref);
-    unresolved.push({
-      side: "left",
-      ref,
-      reason: entry.reason,
-      counterparts: sortedRefs(entry.counterparts),
-      detail: detailOf(entry.reason),
-    });
-  }
-  for (const [ref, entry] of rightConflicts) {
-    openRight.delete(ref);
-    unresolved.push({
-      side: "right",
-      ref,
-      reason: entry.reason,
-      counterparts: sortedRefs(entry.counterparts),
-      detail: detailOf(entry.reason),
-    });
+  for (const [value, leftRows] of leftByValue) {
+    const rightRows = rightByValue.get(value);
+    if (rightRows === undefined) continue;
+
+    // La ragione peggiore vince: un conflitto vero conta più di
+    // «non ho potuto controincrociare», perché dice qualcosa di più forte.
+    let reason: UnresolvedReason | null = null;
+    for (const leftRecord of leftRows) {
+      for (const rightRecord of rightRows) {
+        const agreement = identifierAgreement(
+          leftRecord,
+          rightRecord,
+          left.identifierSpace,
+          right.identifierSpace,
+        );
+        if (agreement === "identifier_name_conflict") reason = "identifier_name_conflict";
+        else if (agreement === "identifier_without_comparable_name" && reason === null) {
+          reason = "identifier_without_comparable_name";
+        }
+      }
+    }
+    if (reason === null) continue;
+
+    const detail =
+      reason === "identifier_name_conflict"
+        ? "questo identificativo non regge il controincrocio sui nomi: su almeno una coppia che lo porta " +
+          "i nomi non si sostengono, e la spiegazione più probabile è uno spazio dichiarato male o un " +
+          "identificativo riusato. Esce dal giro ogni riga che lo porta, su entrambi i lati — anche " +
+          "quelle che quel conflitto non l'avevano: un identificativo che sbaglia una volta non merita " +
+          "una targa «certo» sulle altre."
+        : "questo identificativo non si può controincrociare: almeno una riga che lo porta non ha un nome " +
+          "confrontabile, e un identificativo che nessun nome sostiene non basta da solo. Esce dal giro " +
+          "ogni riga che lo porta, su entrambi i lati.";
+
+    const leftRefs = sortedRefs(leftRows.map((row) => row.ref));
+    const rightRefs = sortedRefs(rightRows.map((row) => row.ref));
+    for (const row of leftRows) {
+      if (!openLeft.delete(row.ref)) continue;
+      unresolved.push({ side: "left", ref: row.ref, reason, counterparts: rightRefs, detail });
+    }
+    for (const row of rightRows) {
+      if (!openRight.delete(row.ref)) continue;
+      unresolved.push({ side: "right", ref: row.ref, reason, counterparts: leftRefs, detail });
+    }
   }
 }
 
+/**
+ * Tutte le coppie che un criterio ammette, sulle liste INTERE. Deliberatamente
+ * non filtra sugli insiemi ancora aperti: è il conto su questo elenco che
+ * decide l'esclusività — §«L'ESCLUSIVITÀ SI MISURA SUL GRUPPO DI PARTENZA».
+ */
 function edgesForCriterion(
   criterion: MatchCriterion,
   left: DeclaredRoster,
   right: DeclaredRoster,
-  leftIndex: ReadonlyMap<string, SourcePlayerRecord>,
-  rightIndex: ReadonlyMap<string, SourcePlayerRecord>,
-  openLeft: ReadonlySet<string>,
-  openRight: ReadonlySet<string>,
 ): readonly Edge[] {
   const edges: Edge[] = [];
-  for (const leftRef of sortedRefs(openLeft)) {
-    const leftRecord = leftIndex.get(leftRef);
-    if (leftRecord === undefined) continue;
-    for (const rightRef of sortedRefs(openRight)) {
-      const rightRecord = rightIndex.get(rightRef);
-      if (rightRecord === undefined) continue;
+  for (const leftRecord of [...left.records].sort((a, b) => (a.ref < b.ref ? -1 : 1))) {
+    for (const rightRecord of [...right.records].sort((a, b) => (a.ref < b.ref ? -1 : 1))) {
       const agreement = teamAgreementOf(
         leftRecord.teamKey,
         rightRecord.teamKey,
@@ -260,23 +342,25 @@ function edgesForCriterion(
       ) {
         continue;
       }
-      edges.push({ leftRef, rightRef, teamAgreement: agreement });
+      edges.push({ leftRef: leftRecord.ref, rightRef: rightRecord.ref, teamAgreement: agreement });
     }
   }
   return edges;
 }
 
-/**
- * ABBINA DUE LISTE DICHIARATE. Non legge dati, non scrive niente, non conosce
- * le fonti: conosce solo ciò che le due dichiarazioni portano con sé.
- *
- * Le due liste possono venire da qualunque coppia di fonti — listone e
- * piattaforma, voti e piattaforma, probabili e rosa reale: il modulo non ha
- * un'opinione su quali siano, e non deve averla. Ciò che cambia fra una coppia
- * e l'altra è quanto è forte l'evidenza disponibile, e quella la dichiara chi
- * costruisce le liste (identificativi? vocabolario di squadra condiviso?), non
- * questo file.
- */
+function groupEdges(
+  edges: readonly Edge[],
+  key: (edge: Edge) => string,
+): ReadonlyMap<string, readonly Edge[]> {
+  const map = new Map<string, Edge[]>();
+  for (const edge of edges) {
+    const bucket = map.get(key(edge)) ?? [];
+    bucket.push(edge);
+    map.set(key(edge), bucket);
+  }
+  return map;
+}
+
 export function resolveIdentities(left: DeclaredRoster, right: DeclaredRoster): IdentityResolution {
   assertDeclaredProvenance(left, "sinistra");
   assertDeclaredProvenance(right, "destra");
@@ -290,33 +374,31 @@ export function resolveIdentities(left: DeclaredRoster, right: DeclaredRoster): 
   const ambiguous: AmbiguousRecord[] = [];
   const unresolved: UnresolvedRecord[] = [];
 
-  sweepIdentifierConflicts(left, right, openLeft, openRight, unresolved);
+  sweepUnreliableIdentifiers(left, right, openLeft, openRight, unresolved);
 
   for (const criterion of MATCH_CRITERIA) {
-    const edges = edgesForCriterion(criterion, left, right, leftIndex, rightIndex, openLeft, openRight);
-    if (edges.length === 0) continue;
+    // I conti si fanno QUI, sulle liste intere: `byLeftAll`/`byRightAll` sono
+    // il gruppo di partenza, non il residuo. Vedi il §in testa al file.
+    const allEdges = edgesForCriterion(criterion, left, right);
+    if (allEdges.length === 0) continue;
+    const byLeftAll = groupEdges(allEdges, (edge) => edge.leftRef);
+    const byRightAll = groupEdges(allEdges, (edge) => edge.rightRef);
 
-    const byLeft = new Map<string, Edge[]>();
-    const byRight = new Map<string, Edge[]>();
-    for (const edge of edges) {
-      const l = byLeft.get(edge.leftRef) ?? [];
-      l.push(edge);
-      byLeft.set(edge.leftRef, l);
-      const r = byRight.get(edge.rightRef) ?? [];
-      r.push(edge);
-      byRight.set(edge.rightRef, r);
+    const exclusive = (edge: Edge): boolean =>
+      (byLeftAll.get(edge.leftRef) ?? []).length === 1 && (byRightAll.get(edge.rightRef) ?? []).length === 1;
+
+    // Accettazione: la coppia è esclusiva sul gruppo di partenza E entrambe le
+    // righe sono ancora aperte. Nessun ordinamento fa da spareggio, e nessun
+    // ramo qui sotto sceglie fra candidati.
+    const accepted: Edge[] = [];
+    for (const edge of allEdges) {
+      if (!openLeft.has(edge.leftRef) || !openRight.has(edge.rightRef)) continue;
+      if (!exclusive(edge)) continue;
+      accepted.push(edge);
     }
-
-    // Accettazione: solo le coppie esclusive da entrambi i lati. Nessun
-    // ordinamento fa da spareggio, e nessun ramo qui sotto sceglie fra
-    // candidati — dove i candidati sono più d'uno si scrive un'ambiguità.
-    const acceptedLeft = new Set<string>();
-    const acceptedRight = new Set<string>();
-    for (const edge of edges) {
-      if ((byLeft.get(edge.leftRef) ?? []).length !== 1) continue;
-      if ((byRight.get(edge.rightRef) ?? []).length !== 1) continue;
-      acceptedLeft.add(edge.leftRef);
-      acceptedRight.add(edge.rightRef);
+    for (const edge of accepted) {
+      openLeft.delete(edge.leftRef);
+      openRight.delete(edge.rightRef);
       matches.push({
         leftRef: edge.leftRef,
         rightRef: edge.rightRef,
@@ -330,54 +412,55 @@ export function resolveIdentities(left: DeclaredRoster, right: DeclaredRoster): 
       });
     }
 
-    for (const [ref, own] of byLeft) {
-      if (acceptedLeft.has(ref)) {
-        openLeft.delete(ref);
-        continue;
+    // Ambiguità, sempre sul gruppo di partenza. Una riga con più di un
+    // candidato è ambigua anche se oggi ne è rimasto uno solo aperto; una riga
+    // con un solo candidato conteso da altri è ambigua per il verso opposto.
+    // Resta fuori — e prosegue ai criteri più deboli — solo la riga che a
+    // questo criterio era esclusiva ma la cui controparte era già stata
+    // agganciata da un criterio più forte: quella non è ambigua, ha solo perso
+    // il suo unico candidato.
+    const declareAmbiguous = (
+      side: Side,
+      open: Set<string>,
+      own: ReadonlyMap<string, readonly Edge[]>,
+      other: ReadonlyMap<string, readonly Edge[]>,
+      otherOpen: ReadonlySet<string>,
+      counterpartOf: (edge: Edge) => string,
+    ): void => {
+      for (const [ref, edges] of own) {
+        if (!open.has(ref)) continue;
+        const counterparts = edges.map(counterpartOf);
+        const contested =
+          edges.length === 1 && counterparts.some((c) => (other.get(c) ?? []).length > 1);
+        if (edges.length <= 1 && !contested) continue;
+        open.delete(ref);
+        ambiguous.push({
+          side,
+          ref,
+          criterion: criterion.code,
+          rank: criterion.rank,
+          reason: contested ? "contested_candidate" : "multiple_candidates",
+          candidates: sortedRefs(counterparts),
+          resolvedElsewhere: sortedRefs(counterparts.filter((c) => !otherOpen.has(c))),
+          detail: contested
+            ? "un solo candidato, ma quel candidato è conteso da più righe dell'altra lista: abbinare " +
+              "significherebbe scegliere quale delle pretendenti è quella giusta."
+            : "più di un candidato a questo criterio, contati sulla lista intera. Non si sceglie il " +
+              "primo; non si sceglie nemmeno l'unico rimasto, perché essere rimasti soli non è essere " +
+              "distinguibili; e nessun criterio più debole viene provato dopo.",
+        });
       }
-      const contested = own.length === 1;
-      ambiguous.push({
-        side: "left",
-        ref,
-        criterion: criterion.code,
-        rank: criterion.rank,
-        reason: contested ? "contested_candidate" : "multiple_candidates",
-        candidates: sortedRefs(own.map((edge) => edge.rightRef)),
-        detail: contested
-          ? "un solo candidato, ma quel candidato è conteso da più righe di questa lista: abbinare " +
-            "significherebbe scegliere quale delle pretendenti è quella giusta."
-          : "più di un candidato a questo criterio. Non si sceglie il primo, e nessun criterio più " +
-            "debole viene provato dopo: uno più debole potrebbe produrre un vincitore, non riconoscerlo.",
-      });
-      openLeft.delete(ref);
-    }
-    for (const [ref, own] of byRight) {
-      if (acceptedRight.has(ref)) {
-        openRight.delete(ref);
-        continue;
-      }
-      const contested = own.length === 1;
-      ambiguous.push({
-        side: "right",
-        ref,
-        criterion: criterion.code,
-        rank: criterion.rank,
-        reason: contested ? "contested_candidate" : "multiple_candidates",
-        candidates: sortedRefs(own.map((edge) => edge.leftRef)),
-        detail: contested
-          ? "un solo candidato, ma quel candidato è conteso da più righe dell'altra lista: abbinare " +
-            "significherebbe scegliere quale delle pretendenti è quella giusta."
-          : "più di un candidato a questo criterio. Non si sceglie il primo, e nessun criterio più " +
-            "debole viene provato dopo: uno più debole potrebbe produrre un vincitore, non riconoscerlo.",
-      });
-      openRight.delete(ref);
-    }
+    };
+    const openRightSnapshot = new Set(openRight);
+    const openLeftSnapshot = new Set(openLeft);
+    declareAmbiguous("left", openLeft, byLeftAll, byRightAll, openRightSnapshot, (edge) => edge.rightRef);
+    declareAmbiguous("right", openRight, byRightAll, byLeftAll, openLeftSnapshot, (edge) => edge.leftRef);
   }
 
   const leftover = (side: Side, refs: ReadonlySet<string>, index: ReadonlyMap<string, SourcePlayerRecord>) => {
     for (const ref of refs) {
       const record = index.get(ref);
-      const comparable = record !== undefined && normalizedName(record).length > 0;
+      const comparable = record !== undefined && isComparableName(normalizedTokens(record));
       unresolved.push({
         side,
         ref,
@@ -386,8 +469,8 @@ export function resolveIdentities(left: DeclaredRoster, right: DeclaredRoster): 
         detail: comparable
           ? "nessun criterio ha prodotto un candidato nell'altra lista. È un buco visibile, non un " +
             "abbinamento debole: a valle si decide che farne."
-          : "il nome non lascia niente di confrontabile dopo la normalizzazione, e non c'è un " +
-            "identificativo che lo supplisca.",
+          : "il nome non lascia niente di confrontabile dopo la normalizzazione — vuoto, oppure fatto di " +
+            "sole iniziali, che non identificano nessuno — e non c'è un identificativo che lo supplisca.",
       });
     }
   };

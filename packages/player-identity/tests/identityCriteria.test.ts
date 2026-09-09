@@ -5,6 +5,7 @@ import {
   type Certainty,
   abbreviationCompatible,
   identifierAgreement,
+  isComparableName,
   normalizedName,
   normalizedTokens,
   teamAgreementOf,
@@ -25,6 +26,13 @@ describe("normalizzazione — accenti e apostrofi non devono separare due grafie
   it("un nome che non lascia niente di confrontabile normalizza a vuoto, e non a un token finto", () => {
     expect(normalizedName(record("A", "   "))).toBe("");
     expect(normalizedTokens(record("A", "-- .. --"))).toEqual([]);
+  });
+
+  it("un nome è confrontabile solo se porta almeno un token pieno", () => {
+    expect(isComparableName([])).toBe(false);
+    expect(isComparableName(["m"])).toBe(false);
+    expect(isComparableName(["m", "z"])).toBe(false);
+    expect(isComparableName(["m", "zurbetti"])).toBe(true);
   });
 });
 

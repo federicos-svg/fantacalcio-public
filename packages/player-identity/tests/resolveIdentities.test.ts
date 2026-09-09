@@ -215,3 +215,81 @@ describe("il conto torna sempre", () => {
     expectFullAccounting(resolution, ["L1", "L2", "L3", "L4", "L5"], ["R1", "R2", "R3", "R6"]);
   });
 });
+
+describe("un nome di sole iniziali non identifica nessuno", () => {
+  it("«M» contro «M» nella stessa squadra non è un abbinamento: è un troncamento", () => {
+    // Fino al 2026-09-09 usciva `exact_name_same_team` / `strong`. Su un nome
+    // troncato da un parser a monte era un abbinamento inventato, con la targa
+    // più tranquillizzante che questo modulo sappia scrivere sotto un nome.
+    const resolution = resolveIdentities(
+      roster("probabili", [record("L1", "M", "ALFA")]),
+      roster("piattaforma", [record("R1", "M", "ALFA")]),
+    );
+    expect(resolution.matches).toEqual([]);
+    expect(resolution.unresolved.map((item) => [item.ref, item.reason])).toEqual([
+      ["L1", "name_not_comparable"],
+      ["R1", "name_not_comparable"],
+    ]);
+  });
+
+  it("nemmeno due iniziali fanno un nome: «M. Z.» resta non confrontabile", () => {
+    const resolution = resolveIdentities(
+      roster("probabili", [record("L1", "M. Z.", "ALFA")]),
+      roster("piattaforma", [record("R1", "M. Z.", "ALFA")]),
+    );
+    expect(resolution.matches).toEqual([]);
+    expect(resolution.unresolved.every((item) => item.reason === "name_not_comparable")).toBe(true);
+  });
+
+  it("un identificativo non si controincrocia contro una sola iniziale, e da solo non basta", () => {
+    const resolution = resolveIdentities(
+      roster("listone", [record("L1", "M", "ALFA", "ID-4")], {
+        identifierSpace: PLATFORM_IDENTIFIER_SPACE,
+      }),
+      roster("piattaforma", [record("R1", "M", "ALFA", "ID-4")], {
+        identifierSpace: PLATFORM_IDENTIFIER_SPACE,
+      }),
+    );
+    expect(resolution.matches).toEqual([]);
+    expect(resolution.unresolved.every((item) => item.reason === "identifier_without_comparable_name")).toBe(
+      true,
+    );
+  });
+
+  it("un token pieno basta a rendere confrontabile un nome che ha anche iniziali", () => {
+    const resolution = resolveIdentities(
+      roster("probabili", [record("L1", "M. Zurbetti", "ALFA")]),
+      roster("piattaforma", [record("R1", "Marlo Zurbetti", "ALFA")]),
+    );
+    expect(resolution.matches).toHaveLength(1);
+  });
+});
+
+describe("un identificativo che salta salta per tutti", () => {
+  it("anche la terza riga innocente esce dal giro, e la ragione dice che è stato l'identificativo", () => {
+    // L1/R1 avrebbero agganciato al rango 1 con targa «certo» — su un
+    // identificativo che, sulla coppia accanto, abbiamo appena visto sbagliare.
+    // La frase «le due righe restano fuori» prometteva un perimetro più stretto
+    // del reale: l'unità non è la coppia, è il valore dell'identificativo.
+    const resolution = resolveIdentities(
+      roster(
+        "listone",
+        [record("L1", "Marlo Zurbetti", "ALFA", "ID-3"), record("L2", "Quilfrè Vamproni", "ALFA", "ID-3")],
+        { identifierSpace: PLATFORM_IDENTIFIER_SPACE },
+      ),
+      roster("piattaforma", [record("R1", "Marlo Zurbetti", "ALFA", "ID-3")], {
+        identifierSpace: PLATFORM_IDENTIFIER_SPACE,
+      }),
+    );
+
+    expect(resolution.matches).toEqual([]);
+    expect(resolution.unresolved.map((item) => [item.ref, item.reason])).toEqual([
+      ["L1", "identifier_name_conflict"],
+      ["L2", "identifier_name_conflict"],
+      ["R1", "identifier_name_conflict"],
+    ]);
+    // La ragione della riga innocente non dice «i tuoi nomi non si somigliano»,
+    // che per lei sarebbe falso: dice che a saltare è stato l'identificativo.
+    expect(resolution.unresolved[0]?.detail).toMatch(/ogni riga che lo porta/);
+  });
+});

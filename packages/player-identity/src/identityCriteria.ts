@@ -48,16 +48,38 @@
 // aggancia entrambi con la targa più debole, oppure — se sono più d'uno — non
 // li aggancia affatto.
 //
-// ── GLI OMONIMI ─────────────────────────────────────────────────────────────
+// ── GLI OMONIMI, E LE DUE SOLE COSE CHE NE SCIOLGONO UNO ────────────────────
 //
-// Due giocatori con lo stesso cognome nella stessa squadra non si sciolgono
-// qui e non si sciolgono altrove: se i nomi completi normalizzati coincidono,
-// i criteri di questo file producono due candidati, e due candidati sono
-// «ambiguo» per costruzione (`resolveIdentities.ts`). Il RUOLO non entra come
-// discriminante — le fonti lo classificano diversamente fra loro, e usarlo
-// significherebbe scegliere un omonimo su un segnale che non è identità. La
-// sola cosa che scioglie un omonimo, in questo contratto, è un identificativo
-// dichiarato: rango 1, e nient'altro.
+// Due giocatori con lo stesso nome normalizzato producono due candidati, e due
+// candidati sono «ambiguo» per costruzione (`resolveIdentities.ts`). Il RUOLO
+// non entra come discriminante — le fonti lo classificano diversamente fra
+// loro, e usarlo significherebbe scegliere un omonimo su un segnale che non è
+// identità.
+//
+// Le uniche due cose che sciolgono un omonimo, in questo contratto, sono:
+//   - un IDENTIFICATIVO dichiarato nello stesso spazio (rango 1);
+//   - una SQUADRA dichiarata che separi davvero i due, cioè quando ciascun
+//     omonimo ha una sola controparte nella propria squadra (rango 2).
+//
+// E c'è una terza cosa che NON li scioglie, benché lo sembri: l'ESCLUSIONE.
+// Che il gemello sia già stato agganciato da un criterio più forte non rende
+// distinguibile chi resta — §«L'ESCLUSIVITÀ SI MISURA SUL GRUPPO DI PARTENZA»
+// in `resolveIdentities.ts`. Fino al 2026-09-09 questo file prometteva
+// «solo un identificativo, e nient'altro» mentre il codice ne scioglieva uno
+// per esclusione: la riga qui sopra è stata riscritta per dire quel che il
+// codice fa adesso, che è anche quel che deve fare.
+//
+// ── UN NOME È CONFRONTABILE SOLO SE PORTA UN TOKEN PIENO ────────────────────
+//
+// «M» contro «M», stessa squadra, non è un nome uguale: è un'iniziale uguale,
+// e un'iniziale non identifica nessuno. Un nome troncato da un parser a monte
+// produrrebbe così un abbinamento inventato con targa `strong`. Quindi un nome
+// entra nei criteri solo se, dopo la normalizzazione, porta almeno un token di
+// due caratteri o più — la stessa ANCORA che il criterio del nome abbreviato
+// già pretendeva per conto suo: una regola sola, applicata in due posti,
+// invece di due regole che un giorno divergono. Un nome fatto di sole iniziali
+// non è un errore del chiamante: esce fra i non risolti con la propria
+// ragione, che è un buco visibile.
 
 import { NAME_OVERLAP_LOW_BAND } from "../../identity-policy/src/candidateKeyPolicy.js";
 import {
@@ -87,6 +109,16 @@ export function normalizedTokens(record: SourcePlayerRecord): readonly string[] 
 /** Il nome normalizzato in una stringa sola — vuota quando non c'è nulla di confrontabile. */
 export function normalizedName(record: SourcePlayerRecord): string {
   return normalizePlayerName(record.displayName);
+}
+
+/**
+ * Un nome è CONFRONTABILE solo se porta almeno un token di due caratteri o
+ * più. Vedi §«UN NOME È CONFRONTABILE SOLO SE PORTA UN TOKEN PIENO» in testa
+ * al file: «M» e «M» non sono lo stesso nome, sono la stessa iniziale, e la
+ * differenza vale un abbinamento inventato con targa `strong`.
+ */
+export function isComparableName(tokens: readonly string[]): boolean {
+  return tokens.some((token) => token.length > 1);
 }
 
 /** Che cosa dicono i nomi. */
@@ -261,10 +293,21 @@ export type IdentifierAgreement =
  * dichiarato: se le due righe che lo portano hanno nomi che non si somigliano
  * affatto, la spiegazione più probabile non è «grafie molto diverse», è
  * «spazio dichiarato male» o «identificativo riusato». In quel caso non si
- * abbina e non si sceglie: si dichiara il conflitto e le due righe restano
- * fuori. È la stessa regola già scritta in `packages/identity-policy`
- * (`review_external_id_reuse`): un identificativo riusato va in revisione, mai
- * in promozione silenziosa.
+ * abbina e non si sceglie: si dichiara il conflitto. È la stessa regola già
+ * scritta in `packages/identity-policy` (`review_external_id_reuse`): un
+ * identificativo riusato va in revisione, mai in promozione silenziosa.
+ *
+ * FIN DOVE ARRIVA IL CONFLITTO — la frase era più stretta del comportamento
+ * fino al 2026-09-09, quando diceva «le due righe restano fuori». Non sono due
+ * righe: chi decide che farne è `sweepUnreliableIdentifiers()` in
+ * `resolveIdentities.ts`, e la sua unità non è la coppia, è il VALORE
+ * dell'identificativo. Se un identificativo non regge il controincrocio su una
+ * sola coppia, non è affidabile per nessuna: escono dal giro tutte le righe che
+ * lo portano, su entrambi i lati, compresa la terza che con quel conflitto non
+ * c'entrava — perché agganciarla al rango 1 significherebbe dichiarare `certain`
+ * un abbinamento fondato su un identificativo che abbiamo appena visto
+ * sbagliare. La ragione che quelle righe portano dice questo, e non «i tuoi due
+ * nomi non si somigliano», che per la terza sarebbe falso.
  */
 export function identifierAgreement(
   left: SourcePlayerRecord,
@@ -279,7 +322,11 @@ export function identifierAgreement(
 
   const leftTokens = normalizedTokens(left);
   const rightTokens = normalizedTokens(right);
-  if (leftTokens.length === 0 || rightTokens.length === 0) return "identifier_without_comparable_name";
+  // Stessa regola dell'ancora: un nome di sole iniziali non controincrocia
+  // niente, e un identificativo che nessun nome sostiene non basta da solo.
+  if (!isComparableName(leftTokens) || !isComparableName(rightTokens)) {
+    return "identifier_without_comparable_name";
+  }
   if (computeTokenOverlap(leftTokens, rightTokens) < NAME_OVERLAP_LOW_BAND) return "identifier_name_conflict";
   return "identifier_match";
 }

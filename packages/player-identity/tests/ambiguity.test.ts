@@ -23,7 +23,7 @@
 import { describe, expect, it } from "vitest";
 
 import { type IdentityResolution, resolveIdentities } from "../src/resolveIdentities.js";
-import { record, refs, roster } from "./synthetic.js";
+import { PLATFORM_IDENTIFIER_SPACE, record, refs, roster } from "./synthetic.js";
 
 /** Due omonimi nella stessa squadra, e una riga abbreviata che li vede entrambi. */
 function omonimi(rightOrder: "diretto" | "invertito"): IdentityResolution {
@@ -132,5 +132,102 @@ describe("l'ambiguità brucia: nessun criterio più debole la riprende", () => {
     expect(
       resolution.ambiguous.filter((item) => item.side === "right")[0]?.candidates,
     ).toEqual(["L1", "L2"]);
+  });
+});
+
+// ── L'ESCLUSIVITÀ SI MISURA SUL GRUPPO DI PARTENZA ──────────────────────────
+//
+// Il difetto che questo blocco chiude, trovato da una review indipendente il
+// 2026-09-09: contando i candidati sugli insiemi ANCORA APERTI invece che
+// sulle liste intere, il rango 1 consumava la coppia con identificativo e
+// lasciava soli i due gemelli senza; l'esclusività reciproca li promuoveva a
+// `strong`, e nessuno se ne sarebbe accorto mai. Le prove qui sotto sono
+// scritte perché quella strada, se qualcuno la riaprisse, diventi rossa —
+// sulle tre forme in cui lo stesso guasto si presenta (identificativo + nome
+// esatto, identificativo + nome abbreviato, identificativo + trasferito), e
+// non solo su quella dell'esempio.
+
+describe("essere rimasti soli non è essere distinguibili", () => {
+  it("il gemello senza identificativo NON viene promosso da ciò che il rango 1 ha portato via", () => {
+    const resolution = resolveIdentities(
+      roster(
+        "listone",
+        [record("L1", "Marlo Zurbetti", "ALFA", "ID-1"), record("L2", "Marlo Zurbetti", "ALFA")],
+        { identifierSpace: PLATFORM_IDENTIFIER_SPACE },
+      ),
+      roster(
+        "piattaforma",
+        [record("R1", "Marlo Zurbetti", "ALFA", "ID-1"), record("R2", "Marlo Zurbetti", "ALFA")],
+        { identifierSpace: PLATFORM_IDENTIFIER_SPACE },
+      ),
+    );
+
+    // L'unico abbinamento legittimo è quello che ha una prova propria.
+    expect(resolution.matches.map((match) => [match.leftRef, match.rightRef, match.criterion])).toEqual([
+      ["L1", "R1", "shared_identifier"],
+    ]);
+
+    // L2 e R2 non hanno NESSUNA prova oltre a un nome e una squadra che
+    // condividono con altri due: restano ambigui, e i candidati sono contati
+    // sul gruppo di partenza — quattro righe — non su ciò che è rimasto.
+    const l2 = resolution.ambiguous.find((item) => item.ref === "L2");
+    expect(l2?.reason).toBe("multiple_candidates");
+    expect(l2?.criterion).toBe("exact_name_same_team");
+    expect(l2?.candidates).toEqual(["R1", "R2"]);
+    expect(l2?.resolvedElsewhere).toEqual(["R1"]);
+
+    const r2 = resolution.ambiguous.find((item) => item.ref === "R2");
+    expect(r2?.candidates).toEqual(["L1", "L2"]);
+    expect(r2?.resolvedElsewhere).toEqual(["L1"]);
+  });
+
+  it("stessa forma sul nome abbreviato: il gemello resta ambiguo", () => {
+    const resolution = resolveIdentities(
+      roster("probabili", [record("L1", "M. Zurbetti", "ALFA", "ID-7"), record("L2", "M. Zurbetti", "ALFA")], {
+        identifierSpace: PLATFORM_IDENTIFIER_SPACE,
+      }),
+      roster(
+        "piattaforma",
+        [record("R1", "Marlo Zurbetti", "ALFA", "ID-7"), record("R2", "Marlo Zurbetti", "ALFA")],
+        { identifierSpace: PLATFORM_IDENTIFIER_SPACE },
+      ),
+    );
+    expect(resolution.matches.map((match) => match.criterion)).toEqual(["shared_identifier"]);
+    expect(resolution.ambiguous.find((item) => item.ref === "L2")?.criterion).toBe(
+      "abbreviated_name_same_team",
+    );
+    expect(resolution.ambiguous.find((item) => item.ref === "L2")?.candidates).toEqual(["R1", "R2"]);
+  });
+
+  it("stessa forma sul trasferito: il gemello resta ambiguo", () => {
+    const resolution = resolveIdentities(
+      roster("voti", [record("L1", "Ondre Vaschin", "ALFA", "ID-8"), record("L2", "Ondre Vaschin", "ALFA")], {
+        identifierSpace: PLATFORM_IDENTIFIER_SPACE,
+      }),
+      roster(
+        "piattaforma",
+        [record("R1", "Ondre Vaschin", "BETA", "ID-8"), record("R2", "Ondre Vaschin", "BETA")],
+        { identifierSpace: PLATFORM_IDENTIFIER_SPACE },
+      ),
+    );
+    expect(resolution.matches.map((match) => match.criterion)).toEqual(["shared_identifier"]);
+    expect(resolution.ambiguous.find((item) => item.ref === "L2")?.criterion).toBe("exact_name_other_team");
+    expect(resolution.ambiguous.find((item) => item.ref === "L2")?.candidates).toEqual(["R1", "R2"]);
+  });
+
+  it("la riparazione non blocca ciò che la squadra separa davvero", () => {
+    // Contrappeso: due omonimi che le squadre dichiarate distinguono hanno
+    // ciascuno UNA sola controparte nel gruppo di partenza, e si agganciano.
+    // Se un giorno la riparazione diventasse «due omonimi non si agganciano
+    // mai», questa riga cadrebbe.
+    const resolution = resolveIdentities(
+      roster("listone", [record("L1", "Marlo Zurbetti", "ALFA"), record("L2", "Marlo Zurbetti", "BETA")]),
+      roster("piattaforma", [record("R1", "Marlo Zurbetti", "ALFA"), record("R2", "Marlo Zurbetti", "BETA")]),
+    );
+    expect(resolution.matches.map((match) => [match.leftRef, match.rightRef, match.certainty])).toEqual([
+      ["L1", "R1", "strong"],
+      ["L2", "R2", "strong"],
+    ]);
+    expect(resolution.ambiguous).toEqual([]);
   });
 });
