@@ -13,3 +13,4 @@ export * from "./lineupProposer.js";
 export * from "./referencePolicies.js";
 export * from "./policyMetrics.js";
 export * from "./baseForecast.js";
+export * from "./leagueBehaviourProfile.js";
