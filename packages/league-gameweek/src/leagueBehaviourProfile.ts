@@ -1,6 +1,14 @@
 // IL PROFILO DI COMPORTAMENTO DELLE SQUADRE DELLA LEGA, SU TUTTE LE GIORNATE.
-// §8.3 del disegno del generatore (il file per avversario), alimentato da §8.2
-// (la fotografia per giornata). Fase 2 — Lineup Coach.
+// Il «profilo per avversario» di §8.3 del disegno del generatore, alimentato da
+// §8.2 (la fotografia per giornata). Fase 2 — Lineup Coach.
+//
+// DUE DELLE QUATTRO QUANTITÀ SONO NEL DISEGNO, DUE LE AGGIUNGO IO. §8.3 elenca
+// testualmente i conteggi dei moduli usati e «ripete la formazione precedente»;
+// NON contiene «sconfitta» né «quotazione», in §8.3 né altrove nel documento.
+// Le altre due sono un'aggiunta di chi scrive, dichiarata alla nota i) e
+// contestabile come tutte le altre. L'artefatto è di §8.3; l'elenco delle
+// quantità non lo è per intero, e questo file non deve lasciar credere il
+// contrario.
 //
 // PERCHÉ ESISTE, E PERCHÉ NON COSTA NULLA. `opponentDistribution.ts` consuma un
 // insieme PESATO di formazioni avversarie; §8.4 dice da dove vengono quei pesi,
@@ -137,6 +145,30 @@
 //    dichiarano le stesse squadre in ordine diverso ottengono lo stesso profilo
 //    bit a bit — che è il punto di «determinismo, ordini di iterazione
 //    compresi».
+// i) DA DOVE VIENE OGNI QUANTITÀ, UNA PER UNA — perché «§8.3» sopra un elenco
+//    di quattro voci ne attribuisce quattro al disegno, e il disegno ne dice
+//    due. Chi legge un numero ha diritto di sapere se qualcuno l'ha chiesto o
+//    se l'ho scelto io:
+//
+//      - `moduleFielded` — §8.3, testuale: «conteggi dei moduli usati».
+//      - `elevenIdenticalToPrevious` — §8.3, testuale: «"ripete la formazione
+//        precedente": quante volte l'undici è identico al precedente».
+//      - `moduleChangedAfterDefeat` — AGGIUNTA DI CHI SCRIVE. Il disegno non
+//        nomina mai la sconfitta come condizione, qui né altrove. La aggiungo
+//        perché §8.3 chiede già di conservare «risultato e punteggio di ogni
+//        giornata», e un conteggio condizionato al risultato è aritmetica su un
+//        dato che il profilo tiene comunque.
+//      - `topQuotationAvailableAmongStarters` — AGGIUNTA DI CHI SCRIVE. Il
+//        disegno non nomina mai la quotazione. La aggiungo come sostituto
+//        misurabile della voce §8.3 «quota di titolari che le probabili davano
+//        in ballottaggio o in panchina», che qui NON è costruibile: le probabili
+//        vivono nello strato live di §7, cioè nel layer privato.
+//
+//    Le due aggiunte sono statistica interna: non hanno consumatori, non
+//    escono da questo pacchetto e non cambiano niente che si veda usando il
+//    prodotto. Restano scelte di chi scrive — si contestano con un record
+//    datato, come le altre note di questo blocco — e non si citano come testo
+//    del disegno.
 
 import { MODULES, moduleShape, type Module } from "./leagueGameweek.js";
 
@@ -315,6 +347,10 @@ function assertDeclaredProvenance(history: ObservedLeagueHistory): string {
  * Le quantità misurate. I nomi dicono l'ATTO CONTATO, mai l'intenzione (regola
  * 2). L'elenco è chiuso: aggiungerne una è un cambiamento di contratto, perché
  * l'ordine di questo elenco è l'ordine delle stime in uscita.
+ *
+ * Le prime due vengono da §8.3 alla lettera; le altre due le aggiunge chi
+ * scrive e la nota i) in testa al file dice perché. L'elenco intero non è
+ * «§8.3»: due voci lo sono, due no.
  */
 export type BehaviourQuantityId =
   | "moduleFielded"
@@ -325,7 +361,18 @@ export type BehaviourQuantityId =
 /** La definizione di una quantità: categorie chiuse più una riga in chiaro. */
 export interface BehaviourQuantity {
   readonly id: BehaviourQuantityId;
-  /** Le categorie, in ordine dichiarato. L'ordine è parte del contratto. */
+  /**
+   * Le categorie, in ordine dichiarato, e L'ORDINE È PARTE DEL CONTRATTO: la
+   * posizione `i` di `categories` è la stessa posizione `i` di `counts`,
+   * `share` e `leagueReference`. Il legame è però una CONVENZIONE fra questo
+   * elenco e gli indici che il conteggio scrive, e una convenzione senza
+   * guardia si rompe in silenzio — invertire due etichette qui, senza toccare
+   * il codice che conta, ribalta il significato di uno `share` senza rompere
+   * niente che compili. La guardia che lo impedisce sta nelle prove
+   * («le etichette sono legate agli indici che il conteggio scrive»): fa
+   * accadere un fatto noto e pretende che l'etichetta con la massa sia quella
+   * che lo descrive, per ogni quantità e per ogni categoria.
+   */
   readonly categories: readonly string[];
   /**
    * Che cosa è stato contato, in una frase che descrive un ATTO. Viaggia dentro

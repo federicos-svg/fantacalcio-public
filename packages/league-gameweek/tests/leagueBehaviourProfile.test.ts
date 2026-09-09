@@ -17,7 +17,7 @@ import {
   type ObservedMatch,
   type ObservedTeamLineup,
 } from "../src/leagueBehaviourProfile.js";
-import { MODULES } from "../src/leagueGameweek.js";
+import { MODULES, type Module } from "../src/leagueGameweek.js";
 import { mulberry32 } from "../src/lineupProposer.js";
 
 // LE PROVE DEL PROFILO DI COMPORTAMENTO (§8.3).
@@ -661,7 +661,150 @@ describe("dove il dato non dice abbastanza, il conto non avviene e si vede", () 
   });
 });
 
-// ─── 7. IL CONTRATTO DELL'USCITA ─────────────────────────────────────────────
+// ─── 7. LE ETICHETTE SONO LEGATE AGLI INDICI CHE IL CONTEGGIO SCRIVE ─────────
+//
+// IL BUCO CHE QUESTE PROVE CHIUDONO, trovato da una review indipendente e non
+// da me. `BehaviourQuantity.categories` dichiara «l'ordine è parte del
+// contratto», ma fino a qui NESSUNA prova legava il TESTO di `categories[i]`
+// all'indice che `bump()` scrive. Invertire due etichette — da
+// `["identico","diverso"]` a `["diverso","identico"]` — senza toccare il codice
+// che conta lasciava verdi tutte e ventisei le prove, e ribaltava in silenzio
+// il significato di ogni `share` di quella quantità. È la famiglia di difetti
+// peggiore: una dichiarazione di contratto senza la guardia che la difende, che
+// non rompe niente il giorno in cui si scrive e mente per sempre dopo.
+//
+// COME SI CHIUDE, e perché non basta appuntare le stringhe. Fissare
+// `expect(categories).toEqual([...])` sarebbe un pin tautologico: direbbe che
+// l'elenco è quello che è, non che significhi quello che dice. Qui invece ogni
+// prova FA ACCADERE UN FATTO NOTO — questa squadra ha schierato il 4-4-2, ha
+// ripetuto l'undici, ha cambiato modulo dopo aver perso, ha lasciato fuori il
+// più quotato — e pretende che l'unica categoria con massa sia quella la cui
+// ETICHETTA descrive quel fatto. Il legame passa quindi per `bump()`, ed è
+// rosso sia se si invertono le etichette sia se si invertono gli indici.
+
+/** Una formazione interamente decisa dalla prova: modulo, undici, panchina. */
+function fixedLineup(teamId: string, module: Module, elevenIndexes: readonly number[]): ObservedTeamLineup {
+  const all = squad(teamId);
+  const eleven = elevenIndexes.map((i) => all[i] as AvailablePlayer);
+  const bench = all.filter((player) => !eleven.includes(player)).slice(0, 5);
+  return {
+    teamId,
+    module,
+    goalkeeperId: (eleven[0] as AvailablePlayer).playerId,
+    starterIds: eleven.slice(1).map((player) => player.playerId),
+    benchIds: bench.map((player) => player.playerId),
+    status: "confermata",
+    availability: all,
+  };
+}
+
+/** L'undici che CONTIENE il più quotato (`g01`), e quello che lo lascia fuori. */
+const UNDICI_COL_PIU_QUOTATO = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
+const UNDICI_SENZA_IL_PIU_QUOTATO = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] as const;
+
+interface GiornataDecisa {
+  readonly module: Module;
+  readonly eleven: readonly number[];
+  /** L'esito della sfida: `trasferta` significa che la squadra in esame ha perso. */
+  readonly outcome: ObservedMatch["outcome"];
+}
+
+const IN_ESAME = TEAMS[0] as string;
+const AVVERSARIA = TEAMS[1] as string;
+
+function profiloDeciso(giornate: readonly GiornataDecisa[]): LeagueBehaviourProfile {
+  const gameweeks: ObservedLeagueGameweek[] = giornate.map((giornata, index) => ({
+    gameweek: index + 1,
+    matches: [
+      {
+        home: fixedLineup(IN_ESAME, giornata.module, giornata.eleven),
+        away: fixedLineup(AVVERSARIA, "442", UNDICI_COL_PIU_QUOTATO),
+        outcome: giornata.outcome,
+      },
+    ],
+  }));
+  return leagueBehaviourProfile({
+    history: observedLeagueGameweeks({ gameweeks, provenance: "fixture sintetica della prova" }),
+    teams: [IN_ESAME, AVVERSARIA],
+  });
+}
+
+/**
+ * L'etichetta della SOLA categoria che ha ricevuto massa. Se le categorie con
+ * massa non sono esattamente una, lo scenario non è deciso come credeva chi
+ * l'ha scritto, e la prova si ferma lì invece di leggere un'etichetta a caso.
+ */
+function etichettaConteggiata(profile: LeagueBehaviourProfile, quantity: BehaviourQuantityId): string {
+  const estimate = behaviourEstimate(teamBehaviourProfile(profile, IN_ESAME), quantity);
+  const conMassa = estimate.counts
+    .map((count, index) => ({ count, index }))
+    .filter((row) => row.count > 0);
+  expect(conMassa.map((row) => row.count)).toEqual([1]);
+  return estimate.categories[(conMassa[0] as { index: number }).index] as string;
+}
+
+describe("le etichette delle categorie sono legate agli indici che il conteggio scrive", () => {
+  it("il modulo schierato finisce nella categoria che porta il suo nome, per tutti e sette", () => {
+    // Sette scenari, non uno: se la corrispondenza reggesse per caso su un
+    // modulo — perché quell'indice coincide — non reggerebbe su tutti e sette.
+    for (const module of MODULES) {
+      const profile = profiloDeciso([{ module, eleven: UNDICI_COL_PIU_QUOTATO, outcome: "pareggio" }]);
+      expect(etichettaConteggiata(profile, "moduleFielded")).toBe(module);
+    }
+  });
+
+  it("l'undici ripetuto finisce in «identico», quello cambiato in «diverso»", () => {
+    const ripetuto = profiloDeciso([
+      { module: "442", eleven: UNDICI_COL_PIU_QUOTATO, outcome: "pareggio" },
+      { module: "442", eleven: UNDICI_COL_PIU_QUOTATO, outcome: "pareggio" },
+    ]);
+    expect(etichettaConteggiata(ripetuto, "elevenIdenticalToPrevious")).toBe("identico");
+
+    const cambiato = profiloDeciso([
+      { module: "442", eleven: UNDICI_COL_PIU_QUOTATO, outcome: "pareggio" },
+      { module: "442", eleven: UNDICI_SENZA_IL_PIU_QUOTATO, outcome: "pareggio" },
+    ]);
+    expect(etichettaConteggiata(cambiato, "elevenIdenticalToPrevious")).toBe("diverso");
+  });
+
+  it("dopo una sconfitta il modulo diverso finisce in «cambiato», quello uguale in «invariato»", () => {
+    // `trasferta` = ha vinto chi giocava fuori casa, cioè la squadra in esame,
+    // che gioca in casa, ha PERSO: è la condizione che apre l'occasione.
+    const cambiato = profiloDeciso([
+      { module: "442", eleven: UNDICI_COL_PIU_QUOTATO, outcome: "trasferta" },
+      { module: "343", eleven: UNDICI_COL_PIU_QUOTATO, outcome: "pareggio" },
+    ]);
+    expect(etichettaConteggiata(cambiato, "moduleChangedAfterDefeat")).toBe("cambiato");
+
+    const invariato = profiloDeciso([
+      { module: "442", eleven: UNDICI_COL_PIU_QUOTATO, outcome: "trasferta" },
+      { module: "442", eleven: UNDICI_SENZA_IL_PIU_QUOTATO, outcome: "pareggio" },
+    ]);
+    expect(etichettaConteggiata(invariato, "moduleChangedAfterDefeat")).toBe("invariato");
+  });
+
+  it("il più quotato in campo finisce in «fra i titolari», in panchina in «fuori dai titolari»", () => {
+    const dentro = profiloDeciso([{ module: "442", eleven: UNDICI_COL_PIU_QUOTATO, outcome: "pareggio" }]);
+    expect(etichettaConteggiata(dentro, "topQuotationAvailableAmongStarters")).toBe("fra i titolari");
+
+    const fuori = profiloDeciso([{ module: "442", eleven: UNDICI_SENZA_IL_PIU_QUOTATO, outcome: "pareggio" }]);
+    expect(etichettaConteggiata(fuori, "topQuotationAvailableAmongStarters")).toBe("fuori dai titolari");
+  });
+
+  it("ogni quantità dichiarata è coperta da una prova di questo blocco", () => {
+    // La guardia della guardia: una quantità nuova aggiunta all'elenco senza la
+    // sua prova qui rientrerebbe esattamente nel buco che questo blocco chiude.
+    const coperte: readonly BehaviourQuantityId[] = [
+      "moduleFielded",
+      "elevenIdenticalToPrevious",
+      "moduleChangedAfterDefeat",
+      "topQuotationAvailableAmongStarters",
+    ];
+    expect(BEHAVIOUR_QUANTITIES.map((quantity) => quantity.id)).toEqual(coperte);
+  });
+});
+
+// ─── 8. IL CONTRATTO DELL'USCITA ─────────────────────────────────────────────
 
 describe("il contratto dell'uscita", () => {
   it("ogni stima somma a uno e porta accanto i conteggi che l'hanno fatta", () => {
