@@ -81,8 +81,19 @@
 //    totale disponibile — punto 2 qui sopra — è circa 12 osservazioni
 //    equivalenti contro le 10 dello shrink: lo sfidante si allontana dal ruolo
 //    poco più della metà del cammino, e per farlo di più deve avere una storia
-//    coerente, non una domenica buona. Ai due estremi il comportamento
-//    degenera, e i due modi di degenerare sono DIVERSI:
+//    coerente, non una domenica buona.
+//
+//    DA DOVE VIENE IL NUMERO 8, DETTO COME VA DETTO. Non da un principio
+//    indipendente: il file di prova misura, sulla SUA fixture sintetica, dove
+//    cade la cresta — il punto oltre il quale accorciare la memoria peggiora la
+//    stima invece di migliorarla — e la cresta cade attorno a 6. L'8 è stato
+//    fissato DOPO quella misura, un passo prima della cresta. È **taratura sui
+//    dati di prova**: legittima, perché la fixture è inventata e il numero non
+//    è stato scelto per far vincere lo sfidante — ma è taratura, e questo file
+//    non può pretendere da altri una dichiarazione che non fa per sé. Il numero
+//    giusto su dati veri non lo sa nessuno, e si contesta con un record datato.
+//    Ai due estremi il comportamento degenera, e i due modi di degenerare sono
+//    DIVERSI:
 //
 //    - MEZZA VITA INFINITA (`Infinity`, l'estremo scritto esatto) → tutte le
 //      giornate pesano 1: l'ordine temporale smette di contare e la stima
@@ -139,11 +150,41 @@
 //    §2.4 non misurerebbe più niente.
 //
 // f) NON C'È NESSUNA FEATURE DI PARTITA. §6.3 elenca le famiglie candidate del
-//    motore ricco — xG, matchup, arbitro, rigorista, correlazioni intra-partita
-//    — e le dichiara MAI ammesse a priori. Questo pacchetto ne costruisce DUE
-//    sole, la forma recente e le abitudini dell'avversario, e nessuna delle
-//    altre: costruirle qui senza che nessuno le abbia chieste sarebbe inventare
-//    una decisione. Le due che ci sono restano candidate, non promosse.
+//    motore ricco — disponibilità e minuti, forma, bonus da xG/xA, rigorista,
+//    falli e arbitro, matchup, correlazioni intra-partita, stile
+//    dell'allenatore, marcatore diretto — e le dichiara MAI ammesse a priori.
+//    Di quell'elenco questo pacchetto costruisce UNA sola famiglia, la FORMA
+//    RECENTE, e nessuna delle altre: costruirle qui senza che nessuno le abbia
+//    chieste sarebbe inventare una decisione. Quella che c'è resta candidata,
+//    non promossa.
+//
+// f-bis) `opponentHabits` NON È UNA FAMIGLIA DI §6.3, ED È UN DOPPIONE. VA
+//    LETTA PRIMA DI COLLEGARLA A QUALUNQUE COSA.
+//
+//    §6.3 non elenca le abitudini di modulo dell'avversario, in nessuna forma:
+//    la matematica scritta qui sotto è quella di §8.4 — stessi `k = 4` e
+//    `k' = 8`, stessa struttura a due livelli — e §8.4 nella tabella dei
+//    pacchetti appartiene a WP-6, non alla traccia del motore ricco. Chiamarla
+//    «famiglia dello sfidante» era mio, ed era sbagliato.
+//
+//    PEGGIO: LO STESSO CALCOLO ESISTE GIÀ ALTROVE, E LÌ SA DI PIÙ.
+//    `leagueBehaviourProfile.ts` implementa la STESSA matematica con un
+//    contratto dati PIÙ RICCO di questo: distingue la formazione BOZZA da
+//    quella SCHIERATA e tratta quella distinzione come regola cardine.
+//    `OpponentGameweek` qui sotto NON la fa, e quindi conta come abitudine
+//    anche ciò che un fantallenatore aveva solo abbozzato. Fra le due
+//    implementazioni, questa è quella che sa meno.
+//
+//    OGGI È INNOCUA PERCHÉ NESSUNO LA CHIAMA. `challengerOpponentHabits` non è
+//    invocata da nessuna riga di questo repository: non alimenta il produttore,
+//    non produce `WeightedOpponentLineup`, non tocca nessuna decisione. Resta
+//    codice disconnesso, e per questo non blocca niente.
+//
+//    LA RIGA CHE DEVE FERMARE CHI PASSA DI QUI FRA UN MESE: **questa funzione
+//    duplica §8.4 con un contratto più povero del modulo sorella, e va
+//    RICONCILIATA con `leagueBehaviourProfile.ts` PRIMA che una delle due venga
+//    collegata a qualunque produzione.** Cablarla com'è significherebbe mandare
+//    in campo la versione che non distingue una bozza da una formazione.
 //
 // g) LA DUPLICAZIONE CON `baseForecast.ts` È VOLUTA E COSTOSA. Convalida delle
 //    righe, pool pesati, shrink, normalizzazione: sono riscritti qui perché il
@@ -219,12 +260,16 @@ export const OPPONENT_PRIOR_GAMEWEEKS = 4 as const;
 export const LEAGUE_PRIOR_GAMEWEEKS = 8 as const;
 
 /**
- * LE DUE FAMIGLIE, E L'INTERRUTTORE DI CIASCUNA. §6.3 vieta di dare per buona
- * una famiglia: quindi ognuna si dichiara, e ognuna si spegne. Con TUTTE
- * spente questo motore ricade sulla legge del base — decadimento a grana di
- * stagione, nessuna abitudine — e la differenza fra i due si riduce a zero: è
- * il modo più diretto per vedere quanto di ciò che fa viene da queste due
- * scelte e quanto dal contorno.
+ * I DUE INTERRUTTORI. §6.3 vieta di dare per buona una famiglia: quindi ciò che
+ * questo motore aggiunge si dichiara e si spegne. Con TUTTI spenti il motore
+ * ricade sulla legge del base — decadimento a grana di stagione, nessuna
+ * abitudine — e la differenza fra i due si riduce a zero: è il modo più diretto
+ * per vedere quanto di ciò che fa viene da queste due scelte e quanto dal
+ * contorno.
+ *
+ * SOLO IL PRIMO È UNA FAMIGLIA DI §6.3. Il secondo è §8.4 travestito da
+ * famiglia — scelta (f-bis) in testa al file — ed è un doppione con un
+ * contratto più povero di `leagueBehaviourProfile.ts`.
  */
 export interface ChallengerFamilies {
   /**
@@ -234,9 +279,15 @@ export interface ChallengerFamilies {
    */
   readonly recentForm: boolean;
   /**
-   * LE ABITUDINI DELL'AVVERSARIO. Accesa: i conteggi dell'avversario entrano
-   * nella stima dei suoi moduli. Spenta: la stima resta il RIFERIMENTO (lega e
-   * uniforme), e l'avversario non sposta niente di suo.
+   * LE ABITUDINI DELL'AVVERSARIO — **NON è una famiglia di §6.3: è §8.4, e
+   * DUPLICA `leagueBehaviourProfile.ts` con un contratto più povero (non
+   * distingue la formazione BOZZA da quella SCHIERATA). Va riconciliata con
+   * quel modulo PRIMA che una delle due venga collegata a qualunque
+   * produzione** — scelta (f-bis) in testa al file.
+   *
+   * Accesa: i conteggi dell'avversario entrano nella stima dei suoi moduli.
+   * Spenta: la stima resta il RIFERIMENTO (lega e uniforme), e l'avversario non
+   * sposta niente di suo.
    */
   readonly opponentHabits: boolean;
 }
@@ -1171,6 +1222,34 @@ function forecastOne(
 
 // ─── LE ABITUDINI DELL'AVVERSARIO — LA QUANTITÀ POVERA ───────────────────────
 //
+// ┌─────────────────────────────────────────────────────────────────────────┐
+// │ FERMATI PRIMA DI CABLARE QUESTO BLOCCO.                                 │
+// │                                                                         │
+// │ QUESTO NON È §6.3, È §8.4 — che nella tabella dei pacchetti appartiene   │
+// │ a WP-6 e non alla traccia del motore ricco. La formula qui sotto è       │
+// │ quella di §8.4 riga per riga: stessi `k = 4` e `k' = 8`, stessa          │
+// │ struttura a due livelli.                                                │
+// │                                                                         │
+// │ E LO STESSO CALCOLO ESISTE GIÀ IN `leagueBehaviourProfile.ts`, CON UN    │
+// │ CONTRATTO PIÙ RICCO DI QUESTO: quel modulo distingue la formazione       │
+// │ BOZZA da quella SCHIERATA, e tratta la distinzione come regola cardine.  │
+// │ `OpponentGameweek` qui sotto NON la fa: conta come abitudine anche ciò   │
+// │ che un fantallenatore aveva soltanto abbozzato. Fra le due, questa è     │
+// │ l'implementazione che sa MENO.                                          │
+// │                                                                         │
+// │ Oggi è innocua perché NESSUNO LA CHIAMA: `challengerOpponentHabits` non  │
+// │ è invocata da nessuna riga di questo repository, non alimenta il         │
+// │ produttore e non tocca nessuna decisione.                               │
+// │                                                                         │
+// │ **VA RICONCILIATA CON `leagueBehaviourProfile.ts` PRIMA CHE UNA DELLE    │
+// │ DUE VENGA COLLEGATA A QUALUNQUE PRODUZIONE.** Cablarla com'è             │
+// │ significherebbe mandare in campo la versione che non distingue una       │
+// │ bozza da una formazione.                                                │
+// └─────────────────────────────────────────────────────────────────────────┘
+//
+// Ciò che resta valido di questo blocco è la LETTURA della quantità — poca, e
+// quindi lenta — che è la ragione per cui esiste la seconda velocità del file.
+//
 // QUANTE OSSERVAZIONI CI SONO DAVVERO. Sette avversari, una giornata a
 // settimana, trentotto giornate: una trentina di formazioni per avversario in
 // una stagione intera, e le prime otto giornate ne hanno otto. Su quel volume
@@ -1234,8 +1313,15 @@ export interface OpponentHabitsInput {
 }
 
 /**
- * LA STIMA DELLE ABITUDINI. Funzione pura, nessun orologio, nessun
- * `Math.random`.
+ * LA STIMA DELLE ABITUDINI.
+ *
+ * **DOPPIONE DICHIARATO: questa funzione implementa §8.4 (non §6.3) e duplica
+ * `leagueBehaviourProfile.ts` con un contratto dati più povero — non distingue
+ * la formazione BOZZA da quella SCHIERATA. Nessuno la chiama, ed è così che
+ * deve restare finché le due implementazioni non sono riconciliate: non
+ * collegarla a nessuna produzione prima di quella riconciliazione.**
+ *
+ * Funzione pura, nessun orologio, nessun `Math.random`.
  *
  * Con la famiglia `opponentHabits` SPENTA i conteggi dell'avversario non
  * entrano: resta il riferimento (lega verso uniforme), che è esattamente ciò

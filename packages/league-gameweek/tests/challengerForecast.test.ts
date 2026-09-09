@@ -425,12 +425,18 @@ describe("motore sfidante — i due estremi della memoria degenerano, e in due m
     // così piccolo che lo shrink riporta tutto verso il ruolo, e il motore
     // torna indietro proprio mentre «impara più in fretta».
     //
-    // È LA RAGIONE PER CUI LA MEZZA VITA DI DEFAULT È 8 E NON 6. La cresta, su
-    // questa fixture, sta attorno a 6; scegliere la cresta significherebbe
-    // scegliere il massimo di UNA storia inventata, che è il modo in cui si
-    // sceglie un parametro sul rumore. Otto sta un passo prima, dal lato in cui
-    // il motore ha ancora prove — ed è una scelta di chi scrive, contestabile
-    // con un record datato.
+    // È LA RAGIONE PER CUI LA MEZZA VITA DI DEFAULT È 8 E NON 6 — E QUESTA PROVA
+    // È ANCHE IL POSTO DA CUI IL NUMERO 8 È USCITO. Detto senza abbellirlo:
+    // l'8 NON viene da un principio indipendente, viene da QUI. La cresta è
+    // stata misurata su questa fixture, cade attorno a 6, e l'8 è stato fissato
+    // DOPO averlo visto, un passo prima della cresta. È taratura sui dati di
+    // prova: legittima — la fixture è inventata e il passo è verso la
+    // PRUDENZA, non verso la vittoria dello sfidante — ma è taratura, e va
+    // dichiarata invece che raccontata come un principio. Scegliere la cresta
+    // esatta sarebbe stato peggio: sarebbe scegliere il massimo di UNA storia
+    // inventata, che è il modo in cui un parametro si sceglie sul rumore. Il
+    // numero giusto su dati veri non lo sa nessuno, e si contesta con un record
+    // datato.
     const who = requests([IMPROVER]);
     const history = sealed(signalHistory(GAMEWEEKS_PER_SEASON));
     const at = (h: number): number =>
