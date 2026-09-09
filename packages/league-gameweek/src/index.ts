@@ -1,7 +1,8 @@
 // Contratto eseguibile della giornata (passo 1), simulatore esatto (passo 2),
 // ottimizzatore ex-post e regret (passo 3), produttore di formazione ex-ante
 // (passo 4), politiche di riferimento e metriche del confronto (§11 del disegno
-// del generatore). Fase 2 — Lineup Coach.
+// del generatore), previsione base dai voti storici (§6.2, WP-4). Fase 2 —
+// Lineup Coach.
 export * from "./leagueGameweek.js";
 export * from "./gameweekSimulator.js";
 export * from "./lineupOptimizer.js";
@@ -11,3 +12,4 @@ export * from "./playerScenario.js";
 export * from "./lineupProposer.js";
 export * from "./referencePolicies.js";
 export * from "./policyMetrics.js";
+export * from "./baseForecast.js";
