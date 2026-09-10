@@ -71,6 +71,42 @@
 // costruzione: il gemello del difetto sul nome abbreviato e quello sul
 // trasferito muoiono con lo stesso codice, non con tre rattoppi.
 //
+// ── L'ESCLUSIVITÀ NON PROVA L'UNICITÀ NEL MONDO ─────────────────────────────
+//
+// «Esclusivo da entrambi i lati» è una proprietà di CIÒ CHE SI VEDE. Due liste
+// che contengono una sola riga «Zurbetti» a testa, nella stessa squadra, si
+// agganciano in modo esclusivo — e la coppia è sbagliata se quelle due righe
+// sono due persone diverse e il vero contraltare di ciascuna manca dall'altra
+// lista. L'esito allora ha la forma esatta di un aggancio giusto: `ambiguous`
+// vuoto, `unresolved` vuoto, i conti che tornano. È un FALSO POSITIVO, cioè il
+// verso in cui questo modulo dichiara altrove di non voler sbagliare, e sui
+// criteri deboli è il rischio vero — §(e) in `identityCriteria.ts`.
+//
+// NON È IMPEDIBILE CON LE SOLE DUE LISTE, e questo file non finge di
+// impedirlo: nessun conteggio può mostrare una riga che in nessuna delle due
+// liste c'è. Quel che si può fare è non lasciare il chiamante cieco, e sta in
+// una differenza di posizione: chi consuma vede un abbinamento alla volta,
+// questo modulo vede ENTRAMBE LE LISTE INTERE. Quindi ogni abbinamento porta
+// con sé i conti dell'insieme in cui il suo criterio poteva pescare (`cohort`):
+// quante righe per lato, e quante di quelle sono rimaste senza alcun
+// abbinamento.
+//
+// CHE COSA QUEI CONTI DICONO, ESATTAMENTE — e non una parola di più:
+//   - `leftWithoutMatch`/`rightWithoutMatch` a zero dicono che dentro
+//     quell'insieme ogni riga ha trovato posto: nessuna riga di quella rosa è
+//     rimasta scoperta IN QUESTO CONFRONTO;
+//   - un numero diverso da zero dice che l'insieme è visibilmente scoperto, ed
+//     è la condizione in cui una coppia debole merita di essere guardata;
+//   - i conteggi NON dicono che l'aggancio è giusto. Nel caso peggiore — la
+//     riga assente da entrambe le liste — i conti tornano puliti e la coppia
+//     resta sbagliata. Un test lo pinna apposta, perché chi arriva dopo lo
+//     trovi scritto invece di scoprirlo.
+//
+// E QUI FINISCE. Se un'evidenza debole dentro un insieme chiuso basti o no è
+// una POLITICA DI ACCETTAZIONE, e non si scrive qui: questo modulo dà i
+// numeri, mai il verdetto. Nessuna soglia, nessun campo «affidabile», nessuna
+// targa che cambi per via di un conteggio.
+//
 // ── NON ESISTE «IL PRIMO CANDIDATO» ─────────────────────────────────────────
 //
 // In nessun punto di questo file un elenco di candidati viene ridotto
@@ -107,12 +143,43 @@ import {
   abbreviationCompatible,
   identifierAgreement,
   isComparableName,
+  nameCoverage,
   normalizedName,
   normalizedTokens,
   teamAgreementOf,
 } from "./identityCriteria.js";
 
 export type Side = "left" | "right";
+
+/**
+ * L'INSIEME IN CUI QUESTO CRITERIO POTEVA PESCARE, E QUANTO È COPERTO.
+ *
+ * Vedi §«L'ESCLUSIVITÀ NON PROVA L'UNICITÀ NEL MONDO» in testa al file. Sono
+ * CONTI, non un giudizio: qui non c'è nessuna soglia, nessun «affidabile», e
+ * nessuna politica. Chi consuma decide che farne — e la regola su quando
+ * un'evidenza debole dentro un insieme chiuso basta non vive in questo file.
+ */
+export interface MatchCohort {
+  /**
+   * `declared_team` quando il criterio pretende la stessa squadra dichiarata:
+   * lì nessun candidato può venire da fuori quella rosa, e l'insieme è chiuso.
+   * `whole_list` per tutti gli altri criteri: non lavorano dentro un insieme
+   * chiuso, e i conti sono sulle liste intere.
+   */
+  readonly scope: "declared_team" | "whole_list";
+  /** La chiave di squadra quando `scope` è `declared_team`; `null` altrimenti. */
+  readonly key: string | null;
+  /** Righe di sinistra dentro l'insieme (tutte, non solo quelle agganciate). */
+  readonly leftRecords: number;
+  readonly rightRecords: number;
+  /**
+   * Quante di quelle righe non compaiono in NESSUN abbinamento dell'esito —
+   * ambigue, non risolte, o rimaste fuori, senza distinzione. È il numero che
+   * dice se l'insieme è visibilmente scoperto.
+   */
+  readonly leftWithoutMatch: number;
+  readonly rightWithoutMatch: number;
+}
 
 /** Un abbinamento risolto, con la targa che dice COME è stato ottenuto. */
 export interface IdentityMatch {
@@ -127,6 +194,13 @@ export interface IdentityMatch {
   readonly evidence: string;
   /** Le due targhe delle liste: sotto un abbinamento resta scritto da dove viene. */
   readonly provenance: { readonly left: string; readonly right: string };
+  /**
+   * I conti dell'insieme in cui questo criterio poteva pescare candidati. Non
+   * cambiano l'abbinamento e non lo qualificano: servono a chi legge per
+   * distinguere «unico perché ce n'è uno solo» da «unico perché l'altro non è
+   * in questa lista» — §«L'ESCLUSIVITÀ NON PROVA L'UNICITÀ NEL MONDO».
+   */
+  readonly cohort: MatchCohort;
 }
 
 export type AmbiguityReason = "multiple_candidates" | "contested_candidate";
@@ -183,7 +257,17 @@ interface Edge {
   readonly leftRef: string;
   readonly rightRef: string;
   readonly teamAgreement: TeamAgreement;
+  /** La squadra condivisa, solo quando le due righe la dichiarano uguale. */
+  readonly teamKey: string | null;
 }
+
+/**
+ * Un abbinamento com'è mentre il giro è in corso: tutto tranne i conti
+ * dell'insieme, che si sanno solo a esito chiuso. `cohortKey` è la squadra in
+ * cui il CRITERIO ha ristretto i candidati, `null` quando non ne ha ristretto
+ * nessuno.
+ */
+type MatchWithoutCohort = Omit<IdentityMatch, "cohort"> & { readonly cohortKey: string | null };
 
 function indexByRef(records: readonly SourcePlayerRecord[]): ReadonlyMap<string, SourcePlayerRecord> {
   const map = new Map<string, SourcePlayerRecord>();
@@ -216,7 +300,13 @@ function nameEvidenceHolds(
   const rightName = normalizedName(right);
   if (evidence === "exact_name") return leftName === rightName;
   if (leftName === rightName) return false;
-  return abbreviationCompatible(leftTokens, rightTokens);
+  if (evidence === "abbreviated_name") return abbreviationCompatible(leftTokens, rightTokens);
+  // I due gradi del confronto per token — copertura piena e copertura parziale
+  // — si escludono a vicenda: una coppia produce un arco in UNO SOLO dei due
+  // ranghi, mai in entrambi. `NameEvidence` e `NameCoverage` condividono i due
+  // nomi apposta, così il confronto qui resta una riga invece di una tabella
+  // che un giorno divergerebbe.
+  return nameCoverage(leftTokens, rightTokens) === evidence;
 }
 
 /**
@@ -342,7 +432,16 @@ function edgesForCriterion(
       ) {
         continue;
       }
-      edges.push({ leftRef: leftRecord.ref, rightRef: rightRecord.ref, teamAgreement: agreement });
+      edges.push({
+        leftRef: leftRecord.ref,
+        rightRef: rightRecord.ref,
+        teamAgreement: agreement,
+        // Solo quando le due righe dichiarano la STESSA squadra c'è una chiave
+        // condivisa da nominare: «un'altra squadra» sono due chiavi, e
+        // «non confrontabile» non è una chiave.
+        teamKey:
+          agreement === "same_declared_team" && isDeclared(leftRecord.teamKey) ? leftRecord.teamKey : null,
+      });
     }
   }
   return edges;
@@ -361,6 +460,41 @@ function groupEdges(
   return map;
 }
 
+/**
+ * I CONTI DELL'INSIEME, a esito chiuso — §«L'ESCLUSIVITÀ NON PROVA L'UNICITÀ
+ * NEL MONDO».
+ *
+ * Una sola passata su ciascuna lista costruisce due tabelle per lato: quante
+ * righe dichiarano ciascuna squadra, e quante di quelle non compaiono in
+ * NESSUN abbinamento. «Nessun abbinamento» è deliberatamente grossolano —
+ * ambigua, non risolta o rimasta fuori contano uguale — perché la domanda a
+ * cui questi numeri rispondono è «quanto di questo insieme è rimasto
+ * scoperto», non «perché».
+ *
+ * I numeri sono DERIVATI dagli stessi elenchi che l'esito porta, quindi non
+ * possono discordarne: si calcolano qui una volta sola, dagli abbinamenti
+ * definitivi, e un test pinna l'uguaglianza fra i due modi di contarli.
+ */
+function cohortCounter(
+  roster: DeclaredRoster,
+  matchedRefs: ReadonlySet<string>,
+): (key: string | null) => { readonly records: number; readonly withoutMatch: number } {
+  const records = new Map<string, number>();
+  const withoutMatch = new Map<string, number>();
+  let wholeWithoutMatch = 0;
+  for (const record of roster.records) {
+    const unmatched = !matchedRefs.has(record.ref);
+    if (unmatched) wholeWithoutMatch += 1;
+    if (!isDeclared(record.teamKey)) continue;
+    records.set(record.teamKey, (records.get(record.teamKey) ?? 0) + 1);
+    if (unmatched) withoutMatch.set(record.teamKey, (withoutMatch.get(record.teamKey) ?? 0) + 1);
+  }
+  return (key) =>
+    key === null
+      ? { records: roster.records.length, withoutMatch: wholeWithoutMatch }
+      : { records: records.get(key) ?? 0, withoutMatch: withoutMatch.get(key) ?? 0 };
+}
+
 export function resolveIdentities(left: DeclaredRoster, right: DeclaredRoster): IdentityResolution {
   assertDeclaredProvenance(left, "sinistra");
   assertDeclaredProvenance(right, "destra");
@@ -370,7 +504,11 @@ export function resolveIdentities(left: DeclaredRoster, right: DeclaredRoster): 
   const openLeft = new Set(left.records.map((record) => record.ref));
   const openRight = new Set(right.records.map((record) => record.ref));
 
-  const matches: IdentityMatch[] = [];
+  // Gli abbinamenti si raccolgono SENZA i conti dell'insieme, e i conti si
+  // attaccano alla fine: `leftWithoutMatch`/`rightWithoutMatch` guardano
+  // l'esito intero, che a metà giro non esiste ancora. Calcolarli qui dentro
+  // vorrebbe dire contare su un mondo che sta ancora cambiando.
+  const matches: MatchWithoutCohort[] = [];
   const ambiguous: AmbiguousRecord[] = [];
   const unresolved: UnresolvedRecord[] = [];
 
@@ -409,6 +547,12 @@ export function resolveIdentities(left: DeclaredRoster, right: DeclaredRoster): 
         teamAgreement: edge.teamAgreement,
         evidence: criterion.evidence,
         provenance: { left: left.provenance, right: right.provenance },
+        // L'insieme lo dichiara il CRITERIO, non la coppia: un abbinamento per
+        // identificativo può capitare fra due righe che dichiarano la stessa
+        // squadra, ma il rango 1 non ha mai ristretto i candidati a quella
+        // rosa, e scrivere `declared_team` lì sarebbe un conto giusto su un
+        // insieme sbagliato.
+        cohortKey: criterion.teamAgreement === "same_declared_team" ? edge.teamKey : null,
       });
     }
 
@@ -482,10 +626,29 @@ export function resolveIdentities(left: DeclaredRoster, right: DeclaredRoster): 
   const bySide = (a: { readonly side: Side }, b: { readonly side: Side }): number =>
     a.side === b.side ? 0 : a.side === "left" ? -1 : 1;
 
+  // I conti dell'insieme, adesso che l'esito non cambia più.
+  const leftCounts = cohortCounter(left, new Set(matches.map((match) => match.leftRef)));
+  const rightCounts = cohortCounter(right, new Set(matches.map((match) => match.rightRef)));
+  const withCohort: readonly IdentityMatch[] = matches.map(({ cohortKey, ...match }) => {
+    const leftSide = leftCounts(cohortKey);
+    const rightSide = rightCounts(cohortKey);
+    return {
+      ...match,
+      cohort: {
+        scope: cohortKey === null ? "whole_list" : "declared_team",
+        key: cohortKey,
+        leftRecords: leftSide.records,
+        rightRecords: rightSide.records,
+        leftWithoutMatch: leftSide.withoutMatch,
+        rightWithoutMatch: rightSide.withoutMatch,
+      },
+    };
+  });
+
   return {
     left: rosterHandle(left),
     right: rosterHandle(right),
-    matches: [...matches].sort((a, b) =>
+    matches: [...withCohort].sort((a, b) =>
       a.leftRef < b.leftRef ? -1 : a.leftRef > b.leftRef ? 1 : a.rightRef < b.rightRef ? -1 : 1,
     ),
     ambiguous: [...ambiguous].sort((a, b) => bySide(a, b) || byRef(a, b)),

@@ -128,17 +128,47 @@ describe("l'identificativo si controincrocia, non si crede sulla parola", () => 
 });
 
 describe("l'ordine dei criteri è una decisione, e sta in un posto solo", () => {
-  it("le sette righe, nell'ordine, con i ranghi che seguono la posizione", () => {
+  it("le nove righe, nell'ordine, con i ranghi che seguono la posizione", () => {
     expect(MATCH_CRITERIA.map((criterion) => criterion.code)).toEqual([
       "shared_identifier",
       "exact_name_same_team",
       "exact_name_team_not_comparable",
       "exact_name_other_team",
       "abbreviated_name_same_team",
+      "unordered_name_same_team",
       "abbreviated_name_team_not_comparable",
       "abbreviated_name_other_team",
+      "partial_name_same_team",
     ]);
-    expect(MATCH_CRITERIA.map((criterion) => criterion.rank)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(MATCH_CRITERIA.map((criterion) => criterion.rank)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  });
+
+  it("i due ranghi del confronto per token esistono SOLO nella variante «stessa squadra»", () => {
+    // §(a): per questo livello di evidenza la squadra non raffina, è metà
+    // della prova. Se un giorno comparisse una variante «squadra non
+    // confrontabile» o «un'altra squadra», sarebbe una decisione nuova — e
+    // questa riga cadrebbe invece di lasciarla passare in silenzio.
+    const righeCopertura = MATCH_CRITERIA.filter(
+      (criterion) =>
+        criterion.nameEvidence === "unordered_name" || criterion.nameEvidence === "partial_name",
+    );
+    expect(righeCopertura.map((criterion) => criterion.code)).toEqual([
+      "unordered_name_same_team",
+      "partial_name_same_team",
+    ]);
+    expect(righeCopertura.every((criterion) => criterion.teamAgreement === "same_declared_team")).toBe(true);
+  });
+
+  it("la copertura parziale — il solo cognome — non porta mai una targa più alta di «debole»", () => {
+    // La scala è già calibrata: «cognome più iniziale nella stessa squadra» è
+    // `moderate`, quindi «cognome nudo nella stessa squadra» sta sotto. Chi la
+    // promuove fa cadere questa riga.
+    expect(MATCH_CRITERIA.find((criterion) => criterion.code === "partial_name_same_team")?.certainty).toBe(
+      "weak",
+    );
+    expect(MATCH_CRITERIA.find((criterion) => criterion.code === "unordered_name_same_team")?.certainty).toBe(
+      "moderate",
+    );
   });
 
   it("la certezza non risale mai scendendo di rango", () => {
