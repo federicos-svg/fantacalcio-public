@@ -293,3 +293,83 @@ describe("un identificativo che salta salta per tutti", () => {
     expect(resolution.unresolved[0]?.detail).toMatch(/ogni riga che lo porta/);
   });
 });
+
+describe("i conti dell'insieme viaggiano con l'abbinamento", () => {
+  it("l'insieme lo dichiara il CRITERIO, non la coppia: il rango 1 non ha ristretto niente", () => {
+    // Le due righe dichiarano la stessa squadra, ma l'identificativo non ha
+    // mai ristretto i candidati a quella rosa: scrivere «dentro ALFA» sarebbe
+    // un conto giusto su un insieme sbagliato. Chi legge la squadra
+    // dall'abbinamento la trova comunque in `teamAgreement`.
+    const resolution = resolveIdentities(
+      roster(
+        "listone",
+        [record("L1", "Marlo Zurbetti", "ALFA", "P-1"), record("L2", "Quilfrè Vamproni", "BETA")],
+        { identifierSpace: PLATFORM_IDENTIFIER_SPACE },
+      ),
+      roster("piattaforma", [record("R1", "Marlo Zurbetti", "ALFA", "P-1")], {
+        identifierSpace: PLATFORM_IDENTIFIER_SPACE,
+      }),
+    );
+    const match = resolution.matches[0];
+    expect(match?.criterion).toBe("shared_identifier");
+    expect(match?.teamAgreement).toBe("same_declared_team");
+    expect(match?.cohort).toEqual({
+      scope: "whole_list",
+      key: null,
+      leftRecords: 2,
+      rightRecords: 1,
+      leftWithoutMatch: 1,
+      rightWithoutMatch: 0,
+    });
+  });
+
+  it("i conti concordano con gli elenchi che l'esito porta: due modi di contare, un numero solo", () => {
+    const sinistra = [
+      record("L1", "Marlo Zurbetti", "ALFA"),
+      record("L2", "Mirla Zurbetti", "ALFA"),
+      record("L3", "Ondrè Vaschìn", "BETA"),
+      record("L4", "Quilfrè Vamproni", "BETA"),
+    ];
+    const destra = [
+      record("R1", "Marlo Zurbetti", "ALFA"),
+      record("R2", "Ondre Vaschin", "BETA"),
+      record("R3", "Nilo D'Orbeni", "BETA"),
+    ];
+    const resolution = resolveIdentities(roster("voti", sinistra), roster("piattaforma", destra));
+    const matchedLeft = new Set(resolution.matches.map((match) => match.leftRef));
+    const matchedRight = new Set(resolution.matches.map((match) => match.rightRef));
+
+    expect(resolution.matches.length).toBeGreaterThan(0);
+    for (const match of resolution.matches) {
+      const key = match.cohort.key;
+      const inCohort = (rows: readonly { readonly ref: string; readonly teamKey?: string | null }[]) =>
+        key === null ? rows : rows.filter((row) => row.teamKey === key);
+      expect(match.cohort.leftRecords).toBe(inCohort(sinistra).length);
+      expect(match.cohort.rightRecords).toBe(inCohort(destra).length);
+      expect(match.cohort.leftWithoutMatch).toBe(
+        inCohort(sinistra).filter((row) => !matchedLeft.has(row.ref)).length,
+      );
+      expect(match.cohort.rightWithoutMatch).toBe(
+        inCohort(destra).filter((row) => !matchedRight.has(row.ref)).length,
+      );
+    }
+  });
+
+  it("«senza abbinamento» conta anche le ambigue: la domanda è quanto resta scoperto, non perché", () => {
+    // R1 e R2 sono contesi e restano ambigui; L3 aggancia. Nell'insieme ALFA
+    // due righe di destra restano senza abbinamento, e il conto le vede
+    // esattamente come vedrebbe due non risolte.
+    const resolution = resolveIdentities(
+      roster("piattaforma", [record("L1", "Zurbetti", "ALFA"), record("L3", "Vamproni", "ALFA")]),
+      roster("deposito", [
+        record("R1", "Marlo Zurbetti", "ALFA"),
+        record("R2", "Ondre Zurbetti", "ALFA"),
+        record("R3", "Quilfrè Vamproni", "ALFA"),
+      ]),
+    );
+    expect(resolution.ambiguous.length).toBeGreaterThan(0);
+    const match = resolution.matches.find((item) => item.leftRef === "L3");
+    expect(match?.cohort.rightRecords).toBe(3);
+    expect(match?.cohort.rightWithoutMatch).toBe(2);
+  });
+});

@@ -30,6 +30,7 @@ export {
   type AmbiguityReason,
   type AmbiguousRecord,
   type IdentityMatch,
+  type MatchCohort,
   type IdentityResolution,
   type Side,
   type UnresolvedRecord,

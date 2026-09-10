@@ -169,6 +169,33 @@
 //         solo cognome, che sono le più numerose. La targa dice quanta
 //         evidenza c'è, non quanta se ne vorrebbe.
 //
+// (e) IL COSTO CHE VA IN FACCIA AGLI ALTRI: QUI SI PUÒ SBAGLIARE AGGANCIO.
+//     Ogni altro costo dichiarato in questo file è un FALSO NEGATIVO — il
+//     trasferito che non si aggancia, l'iniziale che fa perdere un aggancio,
+//     l'ambiguità che brucia: buchi visibili, che è il verso giusto in cui
+//     sbagliare. Questo grado no, e va scritto con le stesse lettere degli
+//     altri perché è la categoria opposta e più grave:
+//
+//       piattaforma  L1 «Zurbetti»          ALFA
+//       deposito     R1 «Marlo Zurbetti»    ALFA
+//       → un abbinamento esclusivo, `partial_name_same_team`, `weak`,
+//         con `ambiguous` e `unresolved` VUOTI.
+//
+//     Se L1 è in realtà un ALTRO Zurbetti della stessa squadra, e il suo vero
+//     contraltare manca dal deposito perché nessuno l'ha ancora tracciato,
+//     questo modulo aggancia DUE PERSONE DIVERSE e non lo dice: l'esito ha la
+//     forma esatta di un aggancio giusto. Non è un difetto dell'esclusività —
+//     i conti fanno uno da entrambi i lati, ed è vero — è il limite di che
+//     cosa due liste possono provare: l'unicità dentro ciò che si vede non è
+//     l'unicità nel mondo. Vale identico al rango della copertura piena,
+//     perché anche lì l'iniziale distingue solo fra i presenti.
+//
+//     Non è impedibile con le sole due liste, e non fingo di impedirlo: quel
+//     che si può fare, e che si fa, è dare al chiamante i CONTI con cui
+//     misurare quanto l'insieme sia coperto — §«L'ESCLUSIVITÀ NON PROVA
+//     L'UNICITÀ NEL MONDO» in `resolveIdentities.ts`, dove quei conti sono
+//     definiti, e dove è scritto anche il caso in cui non rivelano niente.
+//
 // E una cosa che questi due ranghi NON sanno: quale token sia il cognome.
 // Nessuna funzione qui sotto si chiama `surname`, e nessuna targa lo dice: la
 // piattaforma scrive il cognome per convenzione, ma il modulo vede token e

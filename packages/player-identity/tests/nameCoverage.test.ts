@@ -427,6 +427,98 @@ describe("l'esclusività si misura sulle liste intere, anche qui", () => {
   });
 });
 
+describe("l'esclusività non prova l'unicità nel mondo", () => {
+  it("LA FIXTURE DEL PERICOLO: un aggancio esclusivo che può essere sbagliato, e non lo dice", () => {
+    // Questo test NON impedisce niente, e non è scritto per impedire: con due
+    // sole liste il caso non è impedibile. È scritto perché chi arriva dopo lo
+    // trovi documentato invece di scoprirlo su una rosa vera.
+    //
+    // Se L1 è in realtà un ALTRO Zurbetti della stessa squadra, e il suo vero
+    // contraltare manca dal deposito perché nessuno l'ha ancora tracciato,
+    // queste due righe sono due persone diverse. L'esito qui sotto è
+    // indistinguibile da quello di un aggancio giusto.
+    const resolution = resolveIdentities(
+      roster("piattaforma", [record("L1", "Zurbetti", "ALFA")]),
+      roster("deposito", [record("R1", "Marlo Zurbetti", "ALFA")]),
+    );
+    expect(resolution.matches.map((match) => [match.criterion, match.certainty])).toEqual([
+      ["partial_name_same_team", "weak"],
+    ]);
+    expect(resolution.ambiguous).toEqual([]);
+    expect(resolution.unresolved).toEqual([]);
+
+    // E i conti dell'insieme, qui, NON aiutano: sono puliti. È il caso
+    // peggiore — la riga che manca da entrambe le liste — e nessun conteggio
+    // può mostrare una riga che in nessuna delle due liste c'è.
+    expect(resolution.matches[0]?.cohort).toEqual({
+      scope: "declared_team",
+      key: "ALFA",
+      leftRecords: 1,
+      rightRecords: 1,
+      leftWithoutMatch: 0,
+      rightWithoutMatch: 0,
+    });
+  });
+
+  it("lo stesso pericolo al rango della copertura piena: l'iniziale distingue solo fra i presenti", () => {
+    const resolution = resolveIdentities(
+      roster("piattaforma", [record("L1", "Zurbetti M.", "ALFA")]),
+      roster("deposito", [record("R1", "Marlo Zurbetti", "ALFA")]),
+    );
+    expect(resolution.matches.map((match) => [match.criterion, match.certainty])).toEqual([
+      ["unordered_name_same_team", "moderate"],
+    ]);
+    expect(resolution.ambiguous).toEqual([]);
+    expect(resolution.unresolved).toEqual([]);
+    expect(resolution.matches[0]?.cohort.leftWithoutMatch).toBe(0);
+  });
+
+  it("quando l'insieme è invece visibilmente scoperto, i conti lo dicono", () => {
+    // Qui il deposito non copre tutta la rosa dichiarata: una riga di sinistra
+    // resta senza abbinamento, e quel numero arriva a chi consuma attaccato
+    // all'abbinamento debole, non da qualche altra parte.
+    // La riga di un'ALTRA squadra sta nella fixture apposta: i conti sono
+    // dentro la rosa dichiarata, non sulla lista intera, e se un giorno
+    // qualcuno li allargasse alla lista questa riga cadrebbe.
+    const resolution = resolveIdentities(
+      roster("piattaforma", [
+        record("L1", "Zurbetti", "ALFA"),
+        record("L2", "Vamproni", "ALFA"),
+        record("L3", "Vaschin", "BETA"),
+      ]),
+      roster("deposito", [record("R1", "Marlo Zurbetti", "ALFA")]),
+    );
+    expect(resolution.matches.map((match) => [match.leftRef, match.rightRef, match.criterion])).toEqual([
+      ["L1", "R1", "partial_name_same_team"],
+    ]);
+    expect(resolution.matches[0]?.cohort).toEqual({
+      scope: "declared_team",
+      key: "ALFA",
+      leftRecords: 2,
+      rightRecords: 1,
+      leftWithoutMatch: 1,
+      rightWithoutMatch: 0,
+    });
+  });
+
+  it("i conti non cambiano né la targa né il criterio: sono numeri, non un giudizio", () => {
+    const scoperto = resolveIdentities(
+      roster("piattaforma", [record("L1", "Zurbetti", "ALFA"), record("L2", "Vamproni", "ALFA")]),
+      roster("deposito", [record("R1", "Marlo Zurbetti", "ALFA")]),
+    );
+    const coperto = resolveIdentities(
+      roster("piattaforma", [record("L1", "Zurbetti", "ALFA")]),
+      roster("deposito", [record("R1", "Marlo Zurbetti", "ALFA")]),
+    );
+    // Insiemi coperti in modo diverso, stessa targa e stesso criterio: se un
+    // giorno un conteggio cominciasse a declassare o promuovere, questa riga
+    // cadrebbe — e quella sarebbe una politica di accettazione, che non vive
+    // in questo pacchetto.
+    expect(scoperto.matches[0]?.certainty).toBe(coperto.matches[0]?.certainty);
+    expect(scoperto.matches[0]?.criterion).toBe(coperto.matches[0]?.criterion);
+  });
+});
+
 describe("i due ranghi nuovi non riscrivono la scala, ci si siedono dentro", () => {
   it("il nome intero batte il nome corto: la copertura non ruba un aggancio più forte", () => {
     // L1 avrebbe copertura piena con R2 («Zurbetti Marlo» permutato) e nome
