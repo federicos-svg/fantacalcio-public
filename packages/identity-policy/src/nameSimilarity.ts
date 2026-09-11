@@ -26,6 +26,30 @@
 // con la sua misura. Questa riga esiste perché la prossima persona non legga
 // «identiche» in un commento e ci creda.
 //
+// ── CHI IMPORTA QUESTA REGOLA ALTROVE LO FACCIA CON UN GESTO SOLO ───────────
+//
+// Questa funzione non produce soltanto un punteggio da guardare: a valle
+// qualcuno ci costruisce delle CHIAVI, e una chiave costruita con la regola
+// vecchia non è confrontabile con una costruita con la nuova. Due conseguenze,
+// e la seconda è quella che sorprende.
+//
+// La prima è ovvia: dove esistono chiavi già scritte da qualche parte, vanno
+// ricalcolate insieme all'aggiornamento, non dopo.
+//
+// La seconda no. Dove a valle è nata una tabella di corrispondenze PER
+// AGGIRARE questo difetto — voci messe a mano perché due grafie della stessa
+// lettera non si agganciavano — la riparazione **non le rompe: le rende
+// ridondanti**. E una voce ridondante è precisamente ciò che una tabella del
+// genere di solito dichiara di non voler contenere. Vanno quindi riviste
+// NELLO STESSO MOMENTO in cui questa regola arriva.
+//
+// Se da quelle parti una prova pianta l'invariante «nessuna voce inutile»,
+// quella prova diventa rossa all'importazione. **È una buona notizia da
+// leggere, non un guasto da mettere a tacere**: dice che la riparazione è
+// arrivata e che la tabella ha delle voci da togliere. Chi la trova senza
+// questo paragrafo, invece, la fa tacere — ed è per evitarlo che il paragrafo
+// esiste.
+//
 // This is NOT a real matcher, NOT canonicalization: no threshold/band
 // decision happens here (that stays in candidateKeyPolicy.ts), and no
 // result ever carries a `canonical_player_id`/`canonical_team_id` field.
