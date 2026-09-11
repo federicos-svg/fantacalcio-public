@@ -499,6 +499,16 @@ export function resolveIdentities(left: DeclaredRoster, right: DeclaredRoster): 
   assertDeclaredProvenance(left, "sinistra");
   assertDeclaredProvenance(right, "destra");
 
+  // QUESTO FILE RILEGGE `records` MOLTE VOLTE — qui, a ogni criterio dentro
+  // `edgesForCriterion()`, e di nuovo per i conti dell'insieme — e non lo
+  // materializza: non serve. `declareRoster()` legge la lista del chiamante una
+  // volta sola e ne congela una copia (§«CONTROLLA-E-POI-USA» in
+  // `declaredRoster.ts`), quindi ogni rilettura qui dà la stessa cosa per
+  // costruzione. Una copia difensiva in più a questo piano sarebbe una riga che
+  // nessun test potrebbe provare rossa. Il limite è quello già dichiarato del
+  // sigillo: una lista fabbricata con un cast esplicito non è mai passata da
+  // quella porta, non è né copiata né congelata, e la guardia qui sopra le
+  // controlla la targa, non le righe.
   const leftIndex = indexByRef(left.records);
   const rightIndex = indexByRef(right.records);
   const openLeft = new Set(left.records.map((record) => record.ref));

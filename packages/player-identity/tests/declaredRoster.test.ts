@@ -118,3 +118,124 @@ describe("la porta d'ingresso pretende ciò che il risolutore non può dedurre",
     expect(() => resolveIdentities(buona, senzaTarga)).toThrow(/provenienza dichiarata/i);
   });
 });
+
+describe("controlla-e-poi-usa: la porta legge una volta sola, e la copia congelata è l'unica che viaggia", () => {
+  // Misurato sul codice PRIMA della riparazione, ed è la ragione per cui i
+  // test qui sotto esistono: `declareRoster()` percorreva
+  // `input.records` per validarlo e poi lo RILEGGEVA per conservarlo, e leggeva
+  // due volte anche `sourceId`, `provenance`, `teamVocabulary`,
+  // `identifierSpace` e i campi di ogni riga. Chi rimette una seconda lettura —
+  // o riconserva il riferimento ricevuto invece della copia — rende rosso
+  // esattamente uno di questi casi.
+
+  it("il riferimento ricevuto non si conserva: una riga aggiunta DOPO il sì non arriva al risolutore", () => {
+    // Il caso senza alcun trucco, e il più facile da incontrare per sbaglio:
+    // nessun `getter`, solo un chiamante che continua a riempire il proprio
+    // elenco. Prima della riparazione la seconda riga — chiave DUPLICATA, cioè
+    // la cosa che questa porta promette di fermare — usciva agganciata a R1
+    // con targa `strong`.
+    const righe = [record("L1", "Marlo Zurbetti", "ALFA")];
+    const listone = roster("listone", righe);
+    righe.push(record("L1", "Nilo D'Orbeni", "ALFA"));
+
+    expect(listone.records).toHaveLength(1);
+    expect(rosterHandle(listone).recordCount).toBe(1);
+    const resolution = resolveIdentities(
+      listone,
+      roster("piattaforma", [record("R1", "Nilo D'Orbeni", "ALFA")]),
+    );
+    expect(resolution.matches).toEqual([]);
+  });
+
+  it("la riga conservata non è quella del chiamante: mutarla dopo il sì non cambia l'abbinamento", () => {
+    const riga = { ref: "L1", displayName: "Marlo Zurbetti", teamKey: "ALFA", identifier: null };
+    const listone = roster("listone", [riga]);
+    // Prima della riparazione questo `null` arrivava fino dentro la
+    // normalizzazione e faceva abortire il confronto fra le due liste intere.
+    (riga as { displayName: unknown }).displayName = null;
+
+    const resolution = resolveIdentities(
+      listone,
+      roster("piattaforma", [record("R1", "Marlo Zurbetti", "ALFA")]),
+    );
+    expect(resolution.matches.map((match) => [match.leftRef, match.rightRef])).toEqual([["L1", "R1"]]);
+  });
+
+  it("un elenco che risponde diverso alla seconda lettura viene letto una volta sola", () => {
+    let letture = 0;
+    const pulito = [record("L1", "Marlo Zurbetti", "ALFA")];
+    const sporco = [
+      record("L1", "Marlo Zurbetti", "ALFA"),
+      { ref: "L1", displayName: null as unknown as string, teamKey: "ALFA", identifier: null },
+    ];
+    const listone = declareRoster({
+      sourceId: "listone",
+      provenance: "lettura sintetica",
+      teamVocabulary: TEAM_VOCABULARY,
+      identifierSpace: null,
+      get records() {
+        letture += 1;
+        return letture === 1 ? pulito : sporco;
+      },
+    });
+
+    expect(letture).toBe(1);
+    expect(listone.records).toHaveLength(1);
+  });
+
+  it("un campo della riga che cambia risposta non fa validare una cosa e usare un'altra", () => {
+    let letture = 0;
+    const listone = declareRoster({
+      sourceId: "listone",
+      provenance: "lettura sintetica",
+      teamVocabulary: TEAM_VOCABULARY,
+      identifierSpace: null,
+      records: [
+        {
+          ref: "L1",
+          get displayName() {
+            letture += 1;
+            // Alla porta un nome, al risolutore no: è l'iterabile non
+            // idempotente un piano più in basso.
+            return letture === 1 ? "Marlo Zurbetti" : (null as unknown as string);
+          },
+          teamKey: "ALFA",
+          identifier: null,
+        },
+      ],
+    });
+
+    expect(listone.records[0]?.displayName).toBe("Marlo Zurbetti");
+    const resolution = resolveIdentities(
+      listone,
+      roster("piattaforma", [record("R1", "Marlo Zurbetti", "ALFA")]),
+    );
+    expect(resolution.matches.map((match) => [match.leftRef, match.rightRef])).toEqual([["L1", "R1"]]);
+  });
+
+  it("un campo della dichiarazione che cambia risposta viene verificato e copiato nella stessa lettura", () => {
+    let letture = 0;
+    const listone = declareRoster({
+      sourceId: "listone",
+      provenance: "lettura sintetica",
+      get teamVocabulary() {
+        letture += 1;
+        // Prima della riparazione la verifica vedeva il vocabolario e la copia
+        // vedeva questo: la lista finiva con `teamVocabulary` a `null`, cioè
+        // con ogni squadra «non confrontabile», senza che nessuno lo dicesse.
+        return letture === 1 ? TEAM_VOCABULARY : (12345 as unknown as string);
+      },
+      identifierSpace: null,
+      records: [record("L1", "Marlo Zurbetti", "ALFA")],
+    });
+
+    expect(listone.teamVocabulary).toBe(TEAM_VOCABULARY);
+  });
+
+  it("la copia è congelata fino in fondo: lista, elenco e righe", () => {
+    const listone = roster("listone", [record("L1", "Marlo Zurbetti", "ALFA")]);
+    expect(Object.isFrozen(listone)).toBe(true);
+    expect(Object.isFrozen(listone.records)).toBe(true);
+    expect(Object.isFrozen(listone.records[0])).toBe(true);
+  });
+});
