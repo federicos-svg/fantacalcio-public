@@ -581,10 +581,17 @@ export function identifierAgreement(
   leftSpace: string | null | undefined,
   rightSpace: string | null | undefined,
 ): IdentifierAgreement {
-  if (!isDeclared(left.identifier) || !isDeclared(right.identifier)) return "identifier_not_comparable";
+  // Una lettura sola per identificativo, poi si usa QUELLA — §«CONTROLLA-E-POI-USA»
+  // in `declaredRoster.ts`. Questa funzione è esportata e prende una
+  // `SourcePlayerRecord` nuda, non una riga già passata dalla porta: senza la
+  // costante locale il controllo `isDeclared` guarderebbe una lettura e il
+  // confronto `trim()` un'altra.
+  const leftIdentifier: unknown = left.identifier;
+  const rightIdentifier: unknown = right.identifier;
+  if (!isDeclared(leftIdentifier) || !isDeclared(rightIdentifier)) return "identifier_not_comparable";
   if (!isDeclared(leftSpace) || !isDeclared(rightSpace)) return "identifier_not_comparable";
   if (leftSpace !== rightSpace) return "identifier_not_comparable";
-  if (left.identifier.trim() !== right.identifier.trim()) return "identifier_different";
+  if (leftIdentifier.trim() !== rightIdentifier.trim()) return "identifier_different";
 
   const leftTokens = normalizedTokens(left);
   const rightTokens = normalizedTokens(right);

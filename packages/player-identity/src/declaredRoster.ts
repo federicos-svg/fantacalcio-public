@@ -42,6 +42,34 @@
 // apposta non c'è niente, qui come là, e questa riga serve perché chi legge
 // chiuda il file sapendolo.
 //
+// ── CONTROLLA-E-POI-USA: SI LEGGE UNA VOLTA SOLA ────────────────────────────
+//
+// Una funzione che VALIDA l'ingresso e poi CONSERVA o RILEGGE l'oggetto
+// ricevuto, invece della copia appena validata, valida una cosa e ne usa
+// un'altra. Basta che chi chiama passi qualcosa che risponde in modo diverso
+// alla prima e alla seconda lettura — un `getter` che cambia risposta — oppure,
+// senza alcun trucco, che muti il proprio elenco DOPO che la porta ha detto sì:
+// il riferimento conservato è lo stesso oggetto, e il risolutore lo rilegge per
+// conto suo a ogni criterio. Misurato su questo file prima della riparazione:
+// una lista di una riga passava la porta, il chiamante ne aggiungeva una
+// seconda con la chiave DUPLICATA — la cosa che `declareRoster()` promette di
+// fermare — e quella riga usciva agganciata con targa `strong`.
+//
+// La riparazione ha una forma sola, e `declareRoster()` la applica: leggere
+// ogni campo UNA VOLTA in una costante locale, validare QUELLA, e materializzare
+// subito una copia congelata (`Object.freeze` sulla lista, su ogni riga e sul
+// risultato) che è l'unica cosa che viaggia a valle. Da lì in poi `input` non
+// si tocca più.
+//
+// FIN DOVE ARRIVA, ESATTAMENTE. La copia congelata è una barriera vera a
+// runtime: un cast non la attraversa, e riscriverla in un modulo — sempre in
+// strict mode — solleva. Ma congela ciò che è PASSATO DI QUI: un
+// `DeclaredRoster` fabbricato con un cast esplicito non ha mai visto questa
+// funzione, quindi non è né copiato né congelato, ed è lo stesso rischio
+// accettato e dichiarato del sigillo di `DeclaredRoster`. E la copia non toglie
+// niente al chiamante: il suo elenco resta suo e mutabile, semplicemente non è
+// più quello che il risolutore legge.
+//
 // ── NESSUNA TABELLA DI ECCEZIONI CABLATA, E PERCHÉ ──────────────────────────
 //
 // Questo modulo NON contiene, e non deve contenere, un elenco di alias
@@ -143,7 +171,7 @@ export interface RosterHandle {
   readonly recordCount: number;
 }
 
-function nonEmpty(value: string | null | undefined): value is string {
+function nonEmpty(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
@@ -154,13 +182,26 @@ function nonEmpty(value: string | null | undefined): value is string {
  * abbinamenti plausibili su una premessa mai verificata.
  */
 export function declareRoster(input: RosterDeclaration): DeclaredRoster {
-  if (!nonEmpty(input.sourceId)) {
+  // UNA LETTURA SOLA, E POI LA COPIA — §«CONTROLLA-E-POI-USA» in testa al file.
+  // Ogni campo che entra si legge QUI, una volta, in una costante locale; da
+  // qui in giù nessuna riga tocca più `input`. Il vecchio codice leggeva due
+  // volte (`nonEmpty(input.sourceId)` e poi `input.sourceId.trim()`, la lista
+  // per validarla e poi di nuovo per conservarla): chi passa un oggetto che
+  // risponde in modo diverso alla prima e alla seconda lettura faceva validare
+  // una cosa e usare un'altra.
+  const sourceId = input.sourceId;
+  const provenance = input.provenance;
+  const teamVocabulary = input.teamVocabulary;
+  const identifierSpace = input.identifierSpace;
+  const incoming = input.records;
+
+  if (!nonEmpty(sourceId)) {
     throw new Error(
       "lista dichiarata: manca il nome della fonte. Il risultato dell'abbinamento parla per fonte, e una " +
         "fonte senza nome rende illeggibile ogni riga che ne esce.",
     );
   }
-  if (!nonEmpty(input.provenance)) {
+  if (!nonEmpty(provenance)) {
     throw new Error(
       "lista dichiarata: manca la provenienza. Questo modulo non può sapere se due nomi sono la stessa " +
         "persona — vede due stringhe — quindi pretende di sapere almeno da dove vengono, e la scrive " +
@@ -169,23 +210,31 @@ export function declareRoster(input: RosterDeclaration): DeclaredRoster {
   }
 
   const seen = new Set<string>();
+  const records: SourcePlayerRecord[] = [];
   let identifierPresent = false;
   let teamPresent = false;
-  for (const record of input.records) {
-    if (!nonEmpty(record.ref)) {
+  // Si percorre `incoming` UNA VOLTA SOLA, e la stessa passata valida e copia:
+  // validare in un giro e copiare in un altro sarebbe di nuovo due letture.
+  for (const incomingRecord of incoming) {
+    const ref: unknown = incomingRecord.ref;
+    const displayName: unknown = incomingRecord.displayName;
+    const teamKey: unknown = incomingRecord.teamKey;
+    const identifier: unknown = incomingRecord.identifier;
+
+    if (!nonEmpty(ref)) {
       throw new Error(
-        `lista dichiarata (${input.sourceId}): una riga senza chiave. La chiave è la maniglia con cui il ` +
+        `lista dichiarata (${sourceId}): una riga senza chiave. La chiave è la maniglia con cui il ` +
           "chiamante ritrova la riga: senza, un abbinamento non si potrebbe nemmeno riferire a qualcosa.",
       );
     }
-    if (seen.has(record.ref)) {
+    if (seen.has(ref)) {
       throw new Error(
-        `lista dichiarata (${input.sourceId}): la chiave "${record.ref}" compare due volte. Due righe con ` +
+        `lista dichiarata (${sourceId}): la chiave "${ref}" compare due volte. Due righe con ` +
           "la stessa maniglia non sono un dato più ricco: sono un elenco che non si sa indicizzare, e " +
           "l'abbinamento finirebbe su una delle due a caso.",
       );
     }
-    seen.add(record.ref);
+    seen.add(ref);
     // UN NOME NULLO NON È UN NOME VUOTO, e le due cose finiscono in due posti
     // diversi apposta. Un nome VUOTO («   ») è un dato povero: la riga passa,
     // non aggancia niente, ed esce fra i non risolti con la propria ragione —
@@ -198,41 +247,52 @@ export function declareRoster(input: RosterDeclaration): DeclaredRoster {
     // abortire il confronto fra le due liste intere. Adesso muore alla porta,
     // con la chiave scritta, come ogni altra premessa che questo modulo non
     // può dedurre.
-    if (typeof record.displayName !== "string") {
+    if (typeof displayName !== "string") {
       throw new Error(
-        `lista dichiarata (${input.sourceId}): la riga "${record.ref}" non porta un nome. Un nome vuoto ` +
+        `lista dichiarata (${sourceId}): la riga "${ref}" non porta un nome. Un nome vuoto ` +
           "sarebbe un dato povero e uscirebbe come non risolto; un nome assente è una riga rotta, e " +
           "riconoscerla qui costa una riga sola invece di far abortire il confronto fra le due liste " +
           "intere in un punto che non sa nemmeno dire quale riga fosse.",
       );
     }
-    if (nonEmpty(record.identifier)) identifierPresent = true;
-    if (nonEmpty(record.teamKey)) teamPresent = true;
+    if (nonEmpty(identifier)) identifierPresent = true;
+    if (nonEmpty(teamKey)) teamPresent = true;
+
+    // I valori APPENA VALIDATI, non i campi da cui venivano: la riga che
+    // viaggia è questa, e la sua sorgente non la può più cambiare.
+    records.push(
+      Object.freeze({
+        ref,
+        displayName,
+        teamKey: teamKey as string | null | undefined,
+        identifier: identifier as string | null | undefined,
+      }),
+    );
   }
 
-  if (identifierPresent && !nonEmpty(input.identifierSpace)) {
+  if (identifierPresent && !nonEmpty(identifierSpace)) {
     throw new Error(
-      `lista dichiarata (${input.sourceId}): ci sono identificativi ma nessuno spazio dichiarato. Che la ` +
+      `lista dichiarata (${sourceId}): ci sono identificativi ma nessuno spazio dichiarato. Che la ` +
         "colonna identificativo di due fonti diverse sia lo stesso numero è un'ipotesi da misurare: " +
         "confrontarli senza dichiarare lo spazio significherebbe assumerla, e l'assunzione sbagliata " +
         "produce abbinamenti certi e falsi, che è il guasto peggiore di tutti.",
     );
   }
-  if (teamPresent && !nonEmpty(input.teamVocabulary)) {
+  if (teamPresent && !nonEmpty(teamVocabulary)) {
     throw new Error(
-      `lista dichiarata (${input.sourceId}): ci sono squadre ma nessun vocabolario dichiarato. Questo ` +
+      `lista dichiarata (${sourceId}): ci sono squadre ma nessun vocabolario dichiarato. Questo ` +
         "modulo non riconcilia i nomi delle squadre fra le fonti: pretende che siano già nella stessa " +
         "lingua, e senza il nome di quella lingua non può sapere se lo sono.",
     );
   }
 
-  return {
-    sourceId: input.sourceId.trim(),
-    provenance: input.provenance.trim(),
-    teamVocabulary: nonEmpty(input.teamVocabulary) ? input.teamVocabulary.trim() : null,
-    identifierSpace: nonEmpty(input.identifierSpace) ? input.identifierSpace.trim() : null,
-    records: input.records,
-  } as DeclaredRoster;
+  return Object.freeze({
+    sourceId: sourceId.trim(),
+    provenance: provenance.trim(),
+    teamVocabulary: nonEmpty(teamVocabulary) ? teamVocabulary.trim() : null,
+    identifierSpace: nonEmpty(identifierSpace) ? identifierSpace.trim() : null,
+    records: Object.freeze(records),
+  }) as DeclaredRoster;
 }
 
 /** La targa di una lista, nella forma che finisce nel risultato. */
@@ -265,7 +325,13 @@ export function assertDeclaredProvenance(roster: DeclaredRoster, side: string): 
   );
 }
 
-/** Vero solo per una stringa presente e non vuota — l'assenza non è mai un valore. */
-export function isDeclared(value: string | null | undefined): value is string {
+/**
+ * Vero solo per una stringa presente e non vuota — l'assenza non è mai un
+ * valore. Prende `unknown` e non `string | null | undefined` perché è un
+ * `typeof` a runtime e deve poter dire di no anche a ciò che il TIPO prometteva
+ * stringa: chi valida un campo che arriva da fuori lo fa proprio quando il tipo
+ * non basta più.
+ */
+export function isDeclared(value: unknown): value is string {
   return nonEmpty(value);
 }

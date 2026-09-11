@@ -189,3 +189,33 @@ describe("l'ordine dei criteri è una decisione, e sta in un posto solo", () => 
     }
   });
 });
+
+describe("controlla-e-poi-usa: l'identificativo si legge una volta sola", () => {
+  it("un identificativo che cambia risposta non passa la verifica con una lettura e il confronto con un'altra", () => {
+    // `identifierAgreement()` è esportata e prende una `SourcePlayerRecord`
+    // NUDA, non una riga già passata da `declareRoster()`: il tipo promette
+    // stringa, il chiamante può consegnare qualunque cosa. Prima della
+    // riparazione `isDeclared(left.identifier)` guardava una lettura e
+    // `left.identifier.trim()` la successiva, e il secondo valore arrivava a
+    // `.trim()` senza essere mai stato verificato.
+    let letture = 0;
+    const instabile = {
+      ref: "L1",
+      displayName: "Marlo Zurbetti",
+      teamKey: null,
+      get identifier() {
+        letture += 1;
+        return letture === 1 ? "P-0001" : (12345 as unknown as string);
+      },
+    };
+
+    expect(
+      identifierAgreement(
+        instabile,
+        record("R1", "Marlo Zurbetti", null, "P-0001"),
+        PLATFORM_IDENTIFIER_SPACE,
+        PLATFORM_IDENTIFIER_SPACE,
+      ),
+    ).toBe("identifier_match");
+  });
+});
