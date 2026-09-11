@@ -234,6 +234,65 @@ describe("l'iniziale puntata non è un nome: non fa da ancora, e può solo togli
   });
 });
 
+describe("le lettere latine che NFD non scompone non spezzano piu\u0300 un cognome", () => {
+  // Regressione della riparazione in `packages/identity-policy`: `\u00f8`, `\u0111`,
+  // `\u0142`, `\u00df`, `\u00e6` non sono una lettera base pi\u00f9 un accento, quindi NFD le
+  // lascia intatte e il filtro le trasformava in uno SPAZIO. Un cognome cos\u00ec
+  // spezzato produceva due token dove ce n'era uno, e il criterio per token —
+  // che \u00e8 l'unico che aggancia un cognome nudo a un nome completo — non
+  // trovava pi\u00f9 niente. Cognomi sintetici, come in tutto questo file.
+
+  it("un cognome con la lettera nordica aggancia in modo esclusivo dentro la rosa", () => {
+    const resolution = resolveIdentities(
+      roster("piattaforma", [record("L1", "\u00d8sterbetti", "ALFA")]),
+      roster("deposito", [record("R1", "Marlo \u00d8sterbetti", "ALFA")]),
+    );
+    expect(resolution.matches.map((match) => [match.leftRef, match.rightRef, match.criterion])).toEqual([
+      ["L1", "R1", "partial_name_same_team"],
+    ]);
+    expect(resolution.ambiguous).toEqual([]);
+    expectFullAccounting(resolution, ["L1"], ["R1"]);
+  });
+
+  it("aggancia anche quando le due fonti scrivono la stessa lettera in modo diverso", () => {
+    // La piattaforma scrive la lettera nordica, il deposito la scrive gi\u00e0
+    // piegata: prima della riparazione erano due cognomi senza un token in
+    // comune, cio\u00e8 lo stesso verdetto di due persone diverse.
+    const resolution = resolveIdentities(
+      roster("piattaforma", [record("L1", "\u00d8sterbetti", "ALFA")]),
+      roster("deposito", [record("R1", "Osterbetti", "ALFA")]),
+    );
+    expect(resolution.matches.map((match) => [match.criterion, match.certainty])).toEqual([
+      ["exact_name_same_team", "strong"],
+    ]);
+    expectFullAccounting(resolution, ["L1"], ["R1"]);
+  });
+
+  it("la riparazione non inventa un aggancio: due cognomi diversi restano diversi", () => {
+    const resolution = resolveIdentities(
+      roster("piattaforma", [record("L1", "\u00d8sterbetti", "ALFA")]),
+      roster("deposito", [record("R1", "Marlo Vamproni", "ALFA")]),
+    );
+    expect(resolution.matches).toEqual([]);
+    expectFullAccounting(resolution, ["L1"], ["R1"]);
+  });
+
+  it("la riparazione non spegne l'ambiguit\u00e0: due omonimi restano due candidati", () => {
+    const resolution = resolveIdentities(
+      roster("piattaforma", [record("L1", "\u00d8sterbetti", "ALFA")]),
+      roster("deposito", [
+        record("R1", "Marlo \u00d8sterbetti", "ALFA"),
+        record("R2", "Ondre Osterbetti", "ALFA"),
+      ]),
+    );
+    expect(resolution.matches).toEqual([]);
+    // L'ambiguit\u00e0 brucia da tutt'e due i lati: nessuna delle tre righe esce
+    // agganciata, e nessuna sparisce senza motivo.
+    expect(refs(resolution.ambiguous)).toEqual(["L1", "R1", "R2"]);
+    expectFullAccounting(resolution, ["L1"], ["R1", "R2"]);
+  });
+});
+
 describe("dentro la rosa di una squadra reale, il cognome aggancia", () => {
   it("il solo cognome aggancia il nome completo, con la targa che dice «debole»", () => {
     const resolution = resolveIdentities(

@@ -23,6 +23,56 @@ describe("normalizePlayerName", () => {
     expect(normalizePlayerName("D'Alpha-Beta")).toBe("d alpha beta");
   });
 
+  // ── LE LETTERE LATINE CHE NFD NON SCOMPONE ────────────────────────────────
+  //
+  // Regressione della riparazione: `ø`, `đ`, `ł`, `ß`, `æ`... non sono lettere
+  // base più un accento, quindi `normalize("NFD")` le lascia intatte e, prima
+  // della riparazione, il filtro `[^a-z0-9\s]` le trasformava in uno SPAZIO.
+  // Il danno misurabile è quello sotto: un cognome intero spezzato in due
+  // token, oppure privato della propria iniziale. Tutti i nomi qui sono
+  // sintetici, inventati per questo test (docs/NO_GO.md).
+
+  it("una lettera latina estesa a inizio cognome non ne mangia l'iniziale", () => {
+    expect(normalizePlayerName("\u00d8sterman")).toBe("osterman");
+    expect(tokenizeNormalizedName(normalizePlayerName("\u00d8sterman"))).toHaveLength(1);
+  });
+
+  it("una lettera latina estesa DENTRO il cognome non lo spezza in due token", () => {
+    expect(normalizePlayerName("Bj\u00f8rnsen")).toBe("bjornsen");
+    expect(tokenizeNormalizedName(normalizePlayerName("Bj\u00f8rnsen"))).toHaveLength(1);
+  });
+
+  it("apre le legature nelle due lettere che rappresentano", () => {
+    expect(normalizePlayerName("Stra\u00dfner")).toBe("strassner");
+    expect(normalizePlayerName("\u00c6girsen")).toBe("aegirsen");
+    expect(normalizePlayerName("\u0152rsted")).toBe("oersted");
+    expect(normalizePlayerName("\u00derandur")).toBe("thrandur");
+  });
+
+  it("riporta alla lettera base le altre latine estese", () => {
+    expect(normalizePlayerName("\u0110urovic")).toBe("durovic");
+    expect(normalizePlayerName("Ha\u00f0ir")).toBe("hadir");
+    expect(normalizePlayerName("\u0141ukasik")).toBe("lukasik");
+    expect(normalizePlayerName("\u0130lmaz")).toBe("ilmaz");
+  });
+
+  it("il confronto per token aggancia le due grafie dello stesso cognome", () => {
+    // Prima della riparazione: "osterman" contro " sterman" -> zero token in
+    // comune, cioè lo stesso verdetto che darebbe su due persone diverse.
+    expect(compareNames("\u00d8sterman", "Osterman").tokenOverlap).toBe(1);
+    expect(compareNames("\u00d8sterman", "Osterman").exactNormalizedMatch).toBe(true);
+  });
+
+  it("non tocca la punteggiatura, che resta un separatore", () => {
+    expect(normalizePlayerName("D'\u00d8sterman-Ruiz")).toBe("d osterman ruiz");
+  });
+
+  it("una lettera fuori dall'alfabeto latino resta uno spazio: non si indovina una base", () => {
+    // Nessuna «lettera base» esiste per un alfabeto non latino: sceglierne una
+    // sarebbe inventare. Resta separatore, ed è la scelta dichiarata.
+    expect(normalizePlayerName("\u03b1\u03b2 Synth")).toBe("synth");
+  });
+
   it("normalizes an empty/whitespace-only string to the empty string", () => {
     expect(normalizePlayerName("   ")).toBe("");
     expect(normalizePlayerName("")).toBe("");
