@@ -53,9 +53,27 @@ const COMBINING_DIACRITICS = /[̀-ͯ]/g;
 // risponderebbe su due persone diverse.
 //
 // LA TABELLA È DATO, NON UN `if`. Ogni riga è una traslitterazione dichiarata e
-// contestabile: le legature si aprono nelle due lettere che rappresentano
-// (`æ` → `ae`, `ß` → `ss`, `þ` → `th`), il resto va alla propria lettera base.
-// Si applica DOPO il minuscolo, quindi bastano le chiavi minuscole.
+// contestabile, e «dichiarata» vuol dire che sono nominate TUTTE E QUATTORDICI
+// qui sotto e provate una per una: una entry dentro una mappa, senza commento e
+// senza prova, non è dichiarata affatto — chi rilegge non può contestarla
+// perché non sa che c'è.
+//
+//   lettere con un tratto o un gancio, che vanno alla propria lettera base:
+//     `ø` → o    `đ` → d    `ð` → d    `ł` → l
+//     `ħ` → h    `ŧ` → t    `ŋ` → n    `ĸ` → k
+//
+//   lettere senza il proprio segno distintivo, che valgono la lettera piena:
+//     `ı` (i senza punto) → i        `ſ` (s lunga) → s
+//
+//   legature, che si aprono nelle due lettere che rappresentano:
+//     `æ` → ae   `œ` → oe   `ß` → ss   `þ` → th
+//
+// TRE DI QUESTE ARRIVANO SOLO SE IL TESTO È GIÀ MINUSCOLO, e va detto perché
+// sembra una svista e non lo è: la piegatura si applica DOPO `toLowerCase()`,
+// e per `ı`, `ſ` e `ĸ` il maiuscolo corrispondente non esiste o non è loro —
+// `"ı".toUpperCase()` è `"I"` e `"ſ".toUpperCase()` è `"S"`, quindi una `I`
+// maiuscola non diventa mai `ı` e non incontra mai questa tabella. Le tre righe
+// servono per il testo che le porta già così, che è come le scrivono le fonti.
 //
 // NON È UN ELENCO DI LINGUE E NON VA LETTA COME COMPLETA: copre le lettere
 // latine estese che ricorrono nei nomi di questo dominio. Una lettera fuori da

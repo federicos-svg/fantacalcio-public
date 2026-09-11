@@ -35,9 +35,26 @@
 // decomposition. Letters with no canonical NFD decomposition are silently
 // DROPPED by step 4 (treated as noise), not transliterated — e.g.
 // `"Straße"` -> `"stra e"` (ß lost, not "ss"), `"Łukasz"` -> `"ukasz"` (Ł
-// lost, not "l"), `"Đorđe"` -> `"or e"` (Đ lost, not "d"). Same class of
-// limitation as nameNormalization.ts/nameSimilarity.ts. This is a first
-// implementation validated only on synthetic fixtures (see
+// lost, not "l"), `"Đorđe"` -> `"or e"` (Đ lost, not "d").
+//
+// WHO ELSE HAS THIS LIMITATION — the answer changed, and this line used to say
+// it wrong. It used to read "same class of limitation as
+// nameNormalization.ts/nameSimilarity.ts", which was true when all three were
+// written and is now true of only one of them:
+//   - packages/identity-policy/src/nameSimilarity.ts REPAIRED it: it folds
+//     those letters to their Latin base (`ß` -> "ss", `Ł` -> "l", `Đ` -> "d")
+//     through a declared transliteration table. It no longer shares this
+//     limitation, and a test pins the resulting divergence on purpose
+//     (packages/identity-policy/tests/divergenzaNormalizzatori.test.ts).
+//   - packages/appeal-index/src/nameNormalization.ts still has it, unchanged
+//     and deliberately so: its output is the generator's player key, and
+//     changing it changes keys in another subsystem. That is its own repair,
+//     with its own measurement.
+// This function still has it too, and keeps it for now: its output is the
+// schema's canonical `normalized_name`, so the same "changing it changes
+// persisted values" argument applies. Stated, not silently inherited.
+//
+// This is a first implementation validated only on synthetic fixtures (see
 // identityName.test.ts); real-name coverage of these letters (e.g. Serbian/
 // Croatian/Polish/German surnames plausible in Serie A) is an open item —
 // see VALIDATION_IDENTITY_CONTRACT.md "Open decisions residue".
