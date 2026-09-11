@@ -54,6 +54,28 @@ const PACKAGE_ROOT = `packages/${PACKAGE_NAME}/`;
  * nelle radici sorvegliate. Il prodotto d'asta non può nominare il contratto né
  * il suo lettore: la scorciatoia non esiste perché non esiste il tramite.
  *
+ * FIN DOVE ARRIVA QUELLA CHIUSURA, detto qui e non altrove, perché chi legge
+ * solo questo blocco non se ne vada con una garanzia più larga del meccanismo.
+ * Il rilevamento è una **ricerca di sottostringa letterale sul testo grezzo**
+ * del file. Vede quindi il nome **scritto com'è**: import statico, import
+ * dinamico, `export … from`, la grafia in cammello, la menzione fuori da un
+ * import, e il passaggio dal tramite esente. **Non vede** uno specificatore
+ * **composto a pezzi a runtime** — `["prematch", "-", "contract"].join("")` —
+ * né un **alias di percorso** che un domani mappasse il pacchetto su un nome
+ * diverso nella configurazione di TypeScript o del bundler: in quei due casi il
+ * nome non compare nel testo, e questa guardia tace.
+ *
+ * Il limite **non nasce qui**: la versione precedente, che vietava a chiunque
+ * di nominare il contratto, si aggirava allo stesso identico modo e per la
+ * stessa ragione. Non è stato né creato né allargato da questa modifica — ma la
+ * garanzia qui sopra è nuova, e una garanzia nuova che promette più di quanto
+ * il meccanismo veda è il difetto che costa più caro. Quindi sta scritta, e sta
+ * scritta anche **eseguita**: il test «il caso offuscato passa» qui sotto lo
+ * pianta come noto e accettato invece di seppellirlo in un commento.
+ *
+ * Il rimedio vero — analisi degli specificatori invece della sottostringa —
+ * tocca **due** guardie di questa famiglia ed è una lavorazione sua.
+ *
  * NOTA DI CONFINE, perché non sembri una svista: `prematch-reader` è un
  * pacchetto **privato** e in questo repository non esiste. Qui la sua riga
  * esenta una cartella che non c'è — cioè non esenta niente — e vieta il suo
@@ -231,5 +253,41 @@ describe("il contratto pre-partita resta fuori dal prodotto d'asta", () => {
     // E un file del prodotto d'asta che non nomina niente di tutto questo resta
     // libero: la guardia è di perimetro, non un divieto di esistere.
     expect(mentionViolations("packages/engine/src/finto.ts", 'import { r } from "../../appeal-index/src/dataset.js";')).toEqual([]);
+  });
+
+  it("IL BUCO NOTO E ACCETTATO: un nome composto a pezzi a runtime oggi NON viene visto", () => {
+    // QUESTO TEST DOCUMENTA UNA DEBOLEZZA, NON UNA GARANZIA, e serve a renderla
+    // FALSIFICABILE invece che sepolta in un commento.
+    //
+    // Il rilevamento è una ricerca di sottostringa letterale sul testo grezzo:
+    // un file del prodotto d'asta che costruisce il nome a pezzi passa. Il
+    // limite è PREESISTENTE — la versione che vietava a chiunque di nominare il
+    // contratto si aggirava allo stesso modo — e non è stato allargato qui.
+    //
+    // SE UN GIORNO QUALCUNO IRROBUSTISCE IL RILEVAMENTO (analisi vera degli
+    // specificatori al posto della sottostringa), QUESTO TEST DIVENTA ROSSO. È
+    // il comportamento voluto: significa che il buco è stato chiuso, e allora
+    // questo test va GIRATO — le due attese qui sotto diventano `toHaveLength(1)`
+    // — non cancellato. Un test rosso qui è una buona notizia da leggere, non un
+    // guasto da mettere a tacere.
+    const composto = [
+      "const nome = [\"prematch\", \"-\", \"contract\"].join(\"\");",
+      "const m = await import(`../../${nome}/src/index.js`);",
+    ].join("\n");
+    expect(mentionViolations("packages/engine/src/finto.ts", composto)).toEqual([]);
+
+    // Stessa storia per il tramite esente: chi sa comporre un nome sa comporre
+    // anche l'altro, e la porta di servizio si riapre per la stessa via.
+    const compostoTramite = [
+      "const nome = [\"prematch\", \"-\", \"reader\"].join(\"\");",
+      "const m = await import(`../packages/${nome}/src/readDeposit.js`);",
+    ].join("\n");
+    expect(mentionViolations("src/finto.ts", compostoTramite)).toEqual([]);
+
+    // Ciò che invece la guardia vede, e che questo test non deve far sembrare
+    // aggirabile: lo stesso import scritto com'è resta una violazione.
+    expect(
+      mentionViolations("packages/engine/src/finto.ts", 'const m = await import("../../prematch-contract/src/index.js");'),
+    ).toHaveLength(1);
   });
 });
