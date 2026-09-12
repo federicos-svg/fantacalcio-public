@@ -902,4 +902,43 @@ describe("un terzo invio assente non diventa un terzo invio registrato", () => {
       });
     expect(build(true)).toEqual(build(false));
   });
+
+  it("anche nella giornata NON contata: `null` non diventa un terzo invio, e un terzo invio vero resta scritto", () => {
+    // IL MOTIVO DELLA RIGA HA DUE RAMI, e il terzo invio di Pico è scritto in
+    // TUTTI E DUE: una volta nel ramo della giornata contata, una volta in
+    // quello della giornata esclusa. Le prove sopra passano solo dal primo:
+    // tutte le loro giornate contano. Nel secondo ramo la stessa guardia può
+    // perdere metà di sé — bastano le due parole `entry.picoOverride !==
+    // undefined` al posto della guardia intera — e `null`, che è ciò che un
+    // deposito JSON scrive per dire «nessun terzo invio», tornerebbe scritto
+    // nel rapporto COME SE Pico fosse intervenuto, proprio nelle giornate in
+    // cui non ha toccato nulla.
+    //
+    // Le due direzioni stanno insieme di proposito: da sole, «non lo dice per
+    // `null`» e «lo dice quando c'è» si soddisfano ciascuna con una riga
+    // costante, e il ramo resterebbe non provato lo stesso.
+    const result = runChampionChallengerLedger({
+      initialChampion: BASE,
+      initialChallenger: RICH,
+      matchdays: [
+        challengerAhead(1, { competition: "CUP", picoOverride: null }),
+        challengerAhead(2, {
+          politicalVote: true,
+          picoOverride: { leaguePoints: 3, regret: 0, note: "terzo invio, formazione inserita a mano" },
+        }),
+      ],
+    });
+
+    const cup = rowAt(result.rows, 1);
+    expect(cup.counted).toBe(false);
+    expect(cup.picoOverrideRecorded).toBe(false);
+    expect(cup.reason).not.toContain("Terzo invio");
+
+    const politicalVote = rowAt(result.rows, 2);
+    expect(politicalVote.counted).toBe(false);
+    expect(politicalVote.picoOverrideRecorded).toBe(true);
+    expect(politicalVote.reason).toContain("Terzo invio di Pico registrato e NON contato");
+
+    expect(result.picoOverrideMatchdays).toEqual([2]);
+  });
 });
