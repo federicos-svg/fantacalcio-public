@@ -46,15 +46,47 @@ import { join } from "node:path";
  * può raggiungere nemmeno il tramite. Le due guardie insieme chiudono la
  * catena; una sola no.
  *
- * La lista è chiusa e verificata sotto: un terzo pacchetto non può entrare in
+ * `lineup-shadow-run` è il terzo. È l'esecutore della giornata in ombra — la
+ * prova a vuoto che deve precedere la prima formazione vera nella lega — e
+ * importa il contratto di giornata per lo stesso mestiere di
+ * `league-channel-contract`: deve rigiocare la giornata vera e misurarne il
+ * rimpianto ex-post con le funzioni che il prodotto userebbe (`simulateGameweek`,
+ * `policyMetrics`, `referencePolicies`), non con una loro copia — due numeri per
+ * la stessa domanda è esattamente il difetto che questo core ha già chiuso per
+ * conto suo altrove.
+ *
+ * **Anche qui l'esenzione non apre una porta di servizio**, e vale lo stesso
+ * argomento: `packages/lineup-shadow-run/tests/isolation.test.ts` vieta a
+ * chiunque — motore d'asta e UI compresi — di importare *quel* pacchetto. Il
+ * motore non può raggiungere il contratto di giornata passando di lì, perché
+ * non può raggiungere nemmeno il tramite. A differenza di
+ * `league-channel-contract`, questo pacchetto non ha un'implementazione
+ * pubblica: il codice reale che esegue il giro in ombra vive nel repository
+ * privato, perché tocca l'automazione e i dati della lega vera, non core
+ * generico. Qui vive solo la guardia gemella che chiude la catena — se un
+ * giorno del codice pubblico nominasse questo pacchetto, lo direbbe lei.
+ *
+ * La lista è chiusa e verificata sotto: un quarto pacchetto non può entrare in
  * esenzione senza che il test lo dica.
  */
-const PHASE_TWO_PACKAGES: readonly string[] = ["league-gameweek", "league-channel-contract"];
+const PHASE_TWO_PACKAGES: readonly string[] = [
+  "league-gameweek",
+  "league-channel-contract",
+  "lineup-shadow-run",
+];
 
-function isolatedRoots(): readonly string[] {
+/**
+ * `rootsExcluding` prende l'elenco delle esenzioni come parametro SOLO perché
+ * il test di mutazione qui sotto deve poter chiedere «e se l'elenco fosse
+ * vuoto?» senza toccare la costante reale né il disco. `isolatedRoots()`
+ * resta l'ingresso di produzione, invariato nella firma — la terza `it` di
+ * questo file lo pretende testualmente su ogni guardia gemella — e chiama
+ * questa con le esenzioni vere.
+ */
+function rootsExcluding(exemptions: readonly string[]): readonly string[] {
   const roots = ["src"];
   for (const entry of readdirSync(join(REPO_ROOT, "packages"))) {
-    if (PHASE_TWO_PACKAGES.includes(entry)) continue;
+    if (exemptions.includes(entry)) continue;
     const candidate = join(REPO_ROOT, "packages", entry, "src");
     try {
       if (statSync(candidate).isDirectory()) roots.push(`packages/${entry}/src`);
@@ -63,6 +95,10 @@ function isolatedRoots(): readonly string[] {
     }
   }
   return roots;
+}
+
+function isolatedRoots(): readonly string[] {
+  return rootsExcluding(PHASE_TWO_PACKAGES);
 }
 const WATCHED_EXTENSIONS = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
 const REPO_ROOT = new URL("../../../", import.meta.url).pathname;
@@ -105,16 +141,56 @@ describe("il contratto di giornata resta fuori dal prodotto d'asta", () => {
     expect(roots).toContain("packages/appeal-index/src");
     expect(roots).not.toContain("packages/league-gameweek/src");
     expect(roots).not.toContain("packages/league-channel-contract/src");
+    expect(roots).not.toContain("packages/lineup-shadow-run/src");
     for (const root of roots) {
       expect(sourceFiles(root).length).toBeGreaterThan(0);
     }
   });
 
-  it("l'esenzione della Fase 2 è chiusa a due pacchetti, ciascuno con una guardia VIVA", () => {
-    // Un terzo nome in questa lista sarebbe un'esenzione senza guardia gemella,
+  it("un pacchetto non dichiarato viene ancora respinto: svuotare le esenzioni fa ricomparire l'offender", () => {
+    // Mutazione di verifica, non della costante reale: `rootsExcluding([])`
+    // rigioca la STESSA logica di rilevamento (readdirSync, statSync,
+    // sourceFiles, la stessa regex) fingendo che nessun pacchetto della Fase 2
+    // sia esente. Se la guardia regge, un import oggi legittimo — quello di
+    // `league-channel-contract`, che importa questo contratto per mestiere —
+    // deve ricomparire come offender: è la prova che un pacchetto NON
+    // dichiarato viene fermato, e non solo per assenza di casi da fermare.
+    const offendersSenzaEsenzioni: string[] = [];
+    for (const root of rootsExcluding([])) {
+      for (const file of sourceFiles(root)) {
+        const src = readFileSync(file, "utf8");
+        if (/league-gameweek|leagueGameweek/.test(src)) {
+          offendersSenzaEsenzioni.push(file.slice(REPO_ROOT.length));
+        }
+      }
+    }
+    expect(offendersSenzaEsenzioni.length).toBeGreaterThan(0);
+    expect(
+      offendersSenzaEsenzioni.some((file) => file.startsWith("packages/league-channel-contract/src/")),
+    ).toBe(true);
+
+    // Con le esenzioni reali (il default del parametro) la stessa ricerca
+    // torna pulita: è il comportamento che la prima `it` di questo file
+    // verifica a ogni run. Ripeterlo qui, appena dopo il rosso, rende la
+    // coppia rosso→verde un fatto di UNA prova sola, non di due prove lette
+    // separatamente in momenti diversi.
+    const offendersConEsenzioni: string[] = [];
+    for (const root of isolatedRoots()) {
+      for (const file of sourceFiles(root)) {
+        const src = readFileSync(file, "utf8");
+        if (/league-gameweek|leagueGameweek/.test(src)) {
+          offendersConEsenzioni.push(file.slice(REPO_ROOT.length));
+        }
+      }
+    }
+    expect(offendersConEsenzioni).toEqual([]);
+  });
+
+  it("l'esenzione della Fase 2 è chiusa a tre pacchetti, ciascuno con una guardia VIVA", () => {
+    // Un quarto nome in questa lista sarebbe un'esenzione senza guardia gemella,
     // cioè la strada per cui il motore d'asta tornerebbe a vedere la Fase 2
     // passando da un tramite non sorvegliato.
-    expect(PHASE_TWO_PACKAGES).toEqual(["league-gameweek", "league-channel-contract"]);
+    expect(PHASE_TWO_PACKAGES).toEqual(["league-gameweek", "league-channel-contract", "lineup-shadow-run"]);
 
     // NON BASTA CHE IL FILE ESISTA. La prima versione controllava solo
     // `statSync(...).isFile()`: svuotare la guardia gemella — cancellarne il
