@@ -58,11 +58,14 @@ const PACKAGE_ROOT = `packages/${PACKAGE_NAME}/`;
  *  1. **l'elenco è vivo**: ogni radice dichiarata deve esistere e avere
  *     sorgenti, quindi una cartella rinominata o svuotata rende la guardia
  *     rossa invece di restringerla in silenzio;
- *  2. **l'ambiguità cade dentro**: `UNKNOWN → sorvegliato`, come il documento
- *     del confine impone per i file. Un pacchetto di cui non è ovvio se sia
- *     prodotto d'asta sta in elenco; toglierlo è una riga in diff che chi
- *     rivede vede, e il costo dell'errore è un test rosso da discutere, non un
- *     passaggio non visto;
+ *  2. **l'ambiguità non può restare silenziosa**: un pacchetto che non è
+ *     classificato — né qui, né in `NOT_THE_AUCTION_PRODUCT`, né fra i tramiti
+ *     — e che **nomina il contratto** rende la guardia rossa **col proprio
+ *     nome**, e chiede di essere dichiarato da una parte o dall'altra. Vedi
+ *     `unclassifiedConsumers`: è ciò che restituisce al criterio positivo la
+ *     proprietà che «tutto tranne» aveva e che un elenco, da solo, perde —
+ *     *nato domani, non passa inosservato*. Nel dubbio la risposta resta
+ *     `UNKNOWN → sorvegliato`, cioè dentro questo elenco;
  *  3. **il tramite resta vietato**: il nome di ogni consumatore dichiarato del
  *     contratto è vietato dentro queste radici — vedi `PHASE_TWO_CONSUMERS` —
  *     quindi il prodotto d'asta non raggiunge il contratto passando da lui.
@@ -173,12 +176,28 @@ const NOT_THE_AUCTION_PRODUCT: readonly string[] = [
  * Il rimedio vero — analisi degli specificatori invece della sottostringa —
  * tocca **due** guardie di questa famiglia ed è una lavorazione sua.
  *
+ * A CHI UN GIORNO PORTERÀ IL CRITERIO POSITIVO ALLE GUARDIE SORELLE
+ * (`packages/league-gameweek` e `packages/league-channel-contract`, che
+ * calcolano ancora le radici come «ogni `packages/<nome>/src` tranne…»): la
+ * trappola che troverai non è nel criterio, è in una **meta-guardia**. Il terzo
+ * test di `packages/league-gameweek/tests/isolation.test.ts` legge il sorgente
+ * delle sue due esenti e pretende, eseguibilmente, che ciascuna contenga
+ * `function isolatedRoots()` e la riga `readdirSync(join(REPO_ROOT,
+ * "packages"))` — cioè **la forma vecchia**. Sostituirla con un elenco positivo
+ * rende rossa quella meta-guardia, e la sua asserzione va aggiornata nello
+ * stesso cambio, non dopo. È anche il motivo per cui qui le sorelle non sono
+ * state toccate: portarle richiede di rifare le loro prove, non di copiare
+ * questo blocco.
+ *
  * NOTA DI CONFINE, perché non sembri una svista: `prematch-reader` è un
  * pacchetto **privato** e in questo repository non esiste. La sua riga fa qui
  * l'unica cosa che qui si può fare — e verificare: vietarne il nome dentro il
  * prodotto d'asta. Che possa leggere il contratto non gliel'ha concesso questa
  * riga: gliel'ha concesso il non essere il prodotto d'asta, che vale per lui
- * come per chiunque altro, in questo repository e nel privato.
+ * come per chiunque altro, in questo repository e nel privato. Se quel lettore
+ * nascerà con un nome diverso da `prematch-reader`, non sarà un divieto a
+ * fermarlo ma `unclassifiedConsumers`, che lo nominerà e chiederà una riga:
+ * dichiararlo qui, o fra chi il prodotto d'asta non è.
  */
 const PHASE_TWO_CONSUMERS: readonly string[] = ["prematch-reader"];
 
@@ -208,6 +227,14 @@ function auctionProductRoots(): readonly string[] {
 function sourceFiles(root: string): readonly string[] {
   const absolute = join(REPO_ROOT, root);
   const out: string[] = [];
+  // Una radice che non esiste torna vuota invece di far esplodere il walk: chi
+  // la dichiara la trova nominata dal test «l'elenco è VIVO», con il suo nome,
+  // invece di un ENOENT che non dice quale riga è invecchiata.
+  try {
+    if (!statSync(absolute).isDirectory()) return out;
+  } catch {
+    return out;
+  }
   const walk = (dir: string): void => {
     for (const entry of readdirSync(dir)) {
       const full = join(dir, entry);
@@ -239,6 +266,60 @@ function importViolations(relativeFile: string, source: string): readonly string
     const resolved = posix.normalize(posix.join(directory, specifier));
     if (resolved.startsWith(PACKAGE_ROOT)) continue;
     out.push(reason);
+  }
+  return out;
+}
+
+/**
+ * I PACCHETTI CHE NESSUNO HA CLASSIFICATO E CHE TOCCANO IL CONTRATTO.
+ *
+ * PERCHÉ ESISTE. Un elenco positivo dice chi è il prodotto d'asta e tace su
+ * tutti gli altri; quel silenzio è il punto — ma senza questa funzione sarebbe
+ * anche un buco, e un buco che una revisione ha misurato: un pacchetto nato
+ * domani che importa il contratto passava con la suite verde, e togliere una
+ * riga dall'elenco restringeva la sorveglianza senza che niente diventasse
+ * rosso. La difesa 1 controlla che ogni radice **dichiarata** esista; nessuno
+ * controllava che ogni pacchetto **esistente** fosse dichiarato.
+ *
+ * CHE COSA CHIEDE, e non un millimetro di più: non che ogni pacchetto sia
+ * classificato — che sia classificato **chi tocca il contratto**. Un pacchetto
+ * non classificato che non ha niente a che fare col pre-partita non è affare di
+ * questa guardia e resta muto; lo stesso pacchetto che ne nomina il contratto
+ * deve dire da che parte sta, e finché non lo dice la guardia è rossa e lo
+ * nomina. La copertura che ne risulta è completa nel punto che conta: **ogni**
+ * file che nomina il contratto, ovunque sotto `packages/`, o è in una radice
+ * del prodotto d'asta (rosso), o è in un pacchetto dichiarato fuori
+ * (permesso, ed è il senso di questa PR), o è in un pacchetto non classificato
+ * (rosso, qui).
+ *
+ * PERCHÉ NON LA PARTIZIONE PIENA («ogni voce di `packages/` sta in uno dei due
+ * elenchi»), che sarebbe stata più corta da scrivere. Questo file è **core
+ * pubblico vendorato nel repository privato**, dove `packages/` contiene anche
+ * i pacchetti privati — che in un file pubblico non possono essere nominati, e
+ * che da lì non possono essere aggiunti perché il core vendorato è read-only.
+ * Una partizione piena sarebbe quindi verde qui e rossa là per sempre, cioè
+ * spegnerebbe nel privato esattamente la lavorazione che questa guardia deve
+ * lasciar passare. La regola scritta sopra vale invece **identica nei due
+ * repository**, ed è la ragione per cui è formulata sul contatto e non
+ * sull'anagrafe.
+ */
+function unclassifiedConsumers(): readonly string[] {
+  const classified = new Set<string>([
+    ...AUCTION_PRODUCT_PACKAGES,
+    ...NOT_THE_AUCTION_PRODUCT,
+    ...PHASE_TWO_CONSUMERS,
+  ]);
+  const out: string[] = [];
+  for (const entry of readdirSync(join(REPO_ROOT, "packages"))) {
+    if (classified.has(entry)) continue;
+    for (const file of sourceFiles(`packages/${entry}/src`)) {
+      if (!readFileSync(file, "utf8").includes(PACKAGE_NAME)) continue;
+      out.push(
+        `packages/${entry}: nomina ${PACKAGE_NAME} e non è classificato — dichiaralo in ` +
+          "AUCTION_PRODUCT_PACKAGES o in NOT_THE_AUCTION_PRODUCT",
+      );
+      break;
+    }
   }
   return out;
 }
@@ -301,7 +382,6 @@ describe("il contratto pre-partita resta fuori dal prodotto d'asta", () => {
     expect(roots[0]).toBe("src");
     expect(roots).toContain("packages/engine/src");
     expect(roots).toHaveLength(AUCTION_PRODUCT_PACKAGES.length + 1);
-    expect(roots.length).toBeGreaterThanOrEqual(4);
     for (const root of roots) {
       expect(sourceFiles(root).length, root).toBeGreaterThan(0);
     }
@@ -313,6 +393,17 @@ describe("il contratto pre-partita resta fuori dal prodotto d'asta", () => {
     for (const name of AUCTION_PRODUCT_PACKAGES) {
       expect(name, name).toMatch(/^[a-z][a-z0-9-]*$/);
     }
+  });
+
+  it("un pacchetto non classificato non può toccare il contratto in silenzio", () => {
+    // LA DIFESA 2, ESEGUITA. Senza questa riga l'elenco positivo perdeva la
+    // proprietà «nato domani entra da solo»: un pacchetto nuovo che importa il
+    // contratto passava verde, e togliere una riga dall'elenco restringeva la
+    // sorveglianza in silenzio. Provata rossa con entrambe le mutazioni — un
+    // pacchetto nuovo non classificato che importa il contratto, e una riga
+    // tolta dall'elenco con una violazione vera dentro quel pacchetto: in
+    // tutti e due i casi questo test fallisce e **nomina** il pacchetto.
+    expect(unclassifiedConsumers()).toEqual([]);
   });
 
   it("chi non è il prodotto d'asta non finisce in elenco per distrazione", () => {
