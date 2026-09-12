@@ -29,6 +29,14 @@
 //  - NON calcola punti di lega né rimpianto. Quelli sono `policyMetrics.ts`
 //    (§11.2). Qui arrivano già calcolati, e un file che giudica non deve anche
 //    produrre i numeri con cui giudica.
+//  - NON è dove §14 instrada WP-9. La tabella dei pacchetti di lavoro manda
+//    WP-9 al PRIVATO, e qui atterra solo il suo NUCLEO PURO. È coerente con la
+//    regola generale del confine — motore e contratti nel core pubblico, dati e
+//    automazioni nel privato — e con i precedenti di questo stesso pacchetto
+//    (WP-1, WP-2, WP-3), ma non è ciò che quella riga della tabella dice, e una
+//    deviazione da una tabella di routing si dichiara invece di lasciarla
+//    dedurre. Ciò che di WP-9 resta al privato è tutto quello elencato qui
+//    sopra: mail, depositi, orchestrazione, riaddestramento.
 //  - NON riaddestra niente. Il motore sfidante è `challengerForecast.ts`; il
 //    riaddestramento a ogni giornata (addendum §5 punti 1-2) è un job del
 //    privato, e il suo registro dei run (punto 5) è un deposito privato. Ciò
@@ -495,8 +503,33 @@ export interface LedgerRow {
   readonly counted: boolean;
   /** Perché non è entrata. Vuoto quando `counted` è `true`. */
   readonly exclusions: readonly LedgerExclusionReason[];
-  /** Quante giornate valide ci sono nella finestra DOPO questa riga. */
+  /**
+   * Quante giornate valide ci sono NELLA FINESTRA dopo questa riga. La finestra
+   * sono le ULTIME SEI (§2.4 punto 3), quindi questo numero non supera mai sei:
+   * dire «dodici giornate nella finestra» sarebbe una frase falsa, e chi ci
+   * costruisce sopra un rapporto la ripeterebbe.
+   */
   readonly validMatchdaysInWindow: number;
+  /**
+   * Quante giornate valide sono passate DA QUANDO il confronto è ripartito —
+   * dall'inizio, o dall'ultimo cambio (§2.4 punto 5). Questo cresce senza
+   * limite, ed è il numero che `validMatchdaysInWindow` NON è: due quantità
+   * diverse, due nomi diversi, invece di un nome solo che a volte mente.
+   */
+  readonly validMatchdaysSinceRestart: number;
+  /**
+   * Quale invio è stato valutato per ciascun motore — `v2` se la proposta è
+   * cambiata alle ufficiali, altrimenti `v1` (§2.4 punto 2); `null` quando non
+   * c'era proposta registrata.
+   *
+   * NON È DECORAZIONE. §2.4 punto 2 impone una regola su QUALE formazione si
+   * valuta, e un registro esiste per rendere ispezionabile che la regola sia
+   * stata rispettata: senza questo campo la versione entra nel calcolo e
+   * sparisce, e chi rilegge il registro deve fidarsi invece di verificare.
+   */
+  readonly championProposalVersion: ProposalVersion | null;
+  /** Come `championProposalVersion`, per il motore in ombra. */
+  readonly challengerProposalVersion: ProposalVersion | null;
   /** Il criterio è stato applicato su questa riga? `null` = finestra non piena. */
   readonly verdict: CriterionVerdict | null;
   /** `true` se su questa riga il criterio ha eseguito il cambio. */
@@ -535,8 +568,13 @@ export interface ChampionChallengerLedger {
   readonly champion: string;
   /** Chi è in ombra DOPO l'ultima giornata letta. */
   readonly challenger: string;
-  /** Le giornate valide nella finestra aperta, in ordine crescente. */
+  /**
+   * Le giornate valide NELLA FINESTRA aperta, in ordine crescente: al massimo
+   * sei, perché la finestra di §2.4 punto 3 sono le ultime sei.
+   */
   readonly openWindow: readonly number[];
+  /** Quante giornate valide dall'inizio o dall'ultimo cambio. Cresce sempre. */
+  readonly validMatchdaysSinceRestart: number;
   /** Le giornate che non hanno contato, con il loro perché. */
   readonly exclusions: readonly LedgerExclusion[];
   /**
@@ -564,28 +602,42 @@ function assertEngineName(value: string, what: string): void {
 
 /** I tre stati in cui una proposta può arrivare al conteggio. */
 type ProposalReading =
-  | { readonly kind: "MISSING" }
-  | { readonly kind: "UNRESOLVED" }
-  | { readonly kind: "MEASURED"; readonly leaguePoints: number; readonly regret: number };
+  | { readonly kind: "MISSING"; readonly version: null }
+  | { readonly kind: "UNRESOLVED"; readonly version: ProposalVersion }
+  | {
+      readonly kind: "MEASURED";
+      readonly version: ProposalVersion;
+      readonly leaguePoints: number;
+      readonly regret: number;
+    };
 
 function readProposal(
   proposal: EngineProposal,
   role: "campione" | "sfidante",
   matchday: number,
 ): ProposalReading {
-  if (!proposal.registered) return { kind: "MISSING" };
-  if (!proposal.outcomeResolved) return { kind: "UNRESOLVED" };
-  assertCriterionRegretUnit(proposal.regretUnit, `giornata ${matchday}, rimpianto del ${role}`);
-  assertFiniteNumber(proposal.leaguePoints, `giornata ${matchday}, punti del ${role}`);
-  assertFiniteNumber(proposal.regret, `giornata ${matchday}, rimpianto del ${role}`);
+  if (!proposal.registered) return { kind: "MISSING", version: null };
+  if (!proposal.outcomeResolved) return { kind: "UNRESOLVED", version: proposal.version };
+  // «del sfidante» non si legge: l'articolo segue il ruolo, e un messaggio di
+  // errore che nessuno rilegge è il posto dove le sviste sopravvivono.
+  const of = role === "campione" ? "del campione" : "dello sfidante";
+  const forRole = role === "campione" ? "per il campione" : "per lo sfidante";
+  assertCriterionRegretUnit(proposal.regretUnit, `giornata ${matchday}, rimpianto ${of}`);
+  assertFiniteNumber(proposal.leaguePoints, `giornata ${matchday}, punti ${of}`);
+  assertFiniteNumber(proposal.regret, `giornata ${matchday}, rimpianto ${of}`);
   if (proposal.regret < 0) {
     throw new Error(
-      `giornata ${matchday}: rimpianto negativo (${proposal.regret}) per il ${role}. Il rimpianto è la ` +
+      `giornata ${matchday}: rimpianto negativo (${proposal.regret}) ${forRole}. Il rimpianto è la ` +
         "distanza dal tetto ex-post: negativo vorrebbe dire aver battuto la formazione migliore a voti " +
         "noti, che non è possibile, e farebbe abbassare la media nel verso sbagliato.",
     );
   }
-  return { kind: "MEASURED", leaguePoints: proposal.leaguePoints, regret: proposal.regret };
+  return {
+    kind: "MEASURED",
+    version: proposal.version,
+    leaguePoints: proposal.leaguePoints,
+    regret: proposal.regret,
+  };
 }
 
 /**
@@ -749,19 +801,26 @@ export function runChampionChallengerLedger(input: {
       }
     }
 
+    // LA FINESTRA SONO LE ULTIME SEI, e ciò che si riporta come «finestra» deve
+    // essere quella. `window` tiene tutte le giornate valide dal restart perché
+    // serve a contarle; qui si riporta la finestra vera.
+    const windowAfterRow = window.slice(-CHAMPION_CHALLENGER_WINDOW);
     rows.push({
       matchday: entry.matchday,
       championEngine: rowChampion,
       challengerEngine: rowChallenger,
       counted,
       exclusions: reasons,
-      validMatchdaysInWindow: window.length,
+      validMatchdaysInWindow: windowAfterRow.length,
+      validMatchdaysSinceRestart: window.length,
+      championProposalVersion: championReading.version,
+      challengerProposalVersion: challengerReading.version,
       verdict,
       swapped,
       picoOverrideRecorded,
       reason: counted
         ? (verdict === null
-            ? `giornata contata; ${window.length} giornata/e valida/e su ${CHAMPION_CHALLENGER_WINDOW} ` +
+            ? `giornata contata; ${windowAfterRow.length} giornata/e valida/e su ${CHAMPION_CHALLENGER_WINDOW} ` +
               "nella finestra: il criterio non si applica ancora"
             : swapped
               ? `giornata contata e criterio applicato: CAMBIO. ${verdict.reason}`
@@ -770,7 +829,7 @@ export function runChampionChallengerLedger(input: {
             ? ". Terzo invio di Pico registrato e NON contato: §2.4 punto 2 valuta la proposta, mai la " +
               "formazione schierata."
             : "")
-        : `giornata NON contata (${reasons.join(", ")}): la finestra si allunga, ${window.length} ` +
+        : `giornata NON contata (${reasons.join(", ")}): la finestra si allunga, ${windowAfterRow.length} ` +
           `giornata/e valida/e su ${CHAMPION_CHALLENGER_WINDOW}` +
           (reasons.includes("MISSING_REGISTRATION")
             ? ". La registrazione mancante è un incidente di WP-8 da riportare, non un punto a favore " +
@@ -788,13 +847,19 @@ export function runChampionChallengerLedger(input: {
     });
   }
 
+  // `window.length` può superare sei — sono le giornate valide dal restart, non
+  // la finestra — quindi la differenza può essere NEGATIVA, e «mancano meno di
+  // zero giornate» non è una frase che qualcuno debba poter leggere in un
+  // rapporto. La finestra piena è il fondo, non un punto di passaggio.
   const missing = Math.max(0, CHAMPION_CHALLENGER_WINDOW - window.length);
+  const openWindow = window.slice(-CHAMPION_CHALLENGER_WINDOW);
   return {
     rows,
     swaps,
     champion,
     challenger,
-    openWindow: window.map((entry) => entry.matchday),
+    openWindow: openWindow.map((entry) => entry.matchday),
+    validMatchdaysSinceRestart: window.length,
     exclusions,
     validMatchdaysToNextEvaluation: missing,
     picoOverrideMatchdays,

@@ -685,3 +685,174 @@ describe("l'esito non risolto non conta e allunga la finestra (quarto motivo)", 
     ]);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 9. LA FINESTRA SCORRE — «le ULTIME sei giornate completate» (§2.4 punto 3).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("la finestra scorre, non si congela sulle prime sei", () => {
+  it("chi domina dalla settima entra alla decima, e le prime giornate escono dalla finestra", () => {
+    // IL TEST CHE DISTINGUE UNA FINESTRA SCORREVOLE DA UNA CONGELATA. Ogni
+    // scenario in cui un motore domina DALL'INIZIO dà la stessa risposta nei
+    // due casi: serve un registro che cambia padrone a metà. Qui il campione
+    // domina 1-6 e lo sfidante domina dalla settima; con la finestra congelata
+    // sulle prime sei lo sfidante non entrerebbe MAI.
+    const result = runChampionChallengerLedger({
+      initialChampion: BASE,
+      initialChallenger: RICH,
+      matchdays: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((matchday) =>
+        matchday <= 6 ? championAhead(matchday) : challengerAhead(matchday),
+      ),
+    });
+
+    expect(result.swaps).toHaveLength(1);
+    const swap = result.swaps[0];
+    expect(swap?.afterMatchday).toBe(10);
+    // Le ULTIME sei: la finestra ha lasciato indietro le prime quattro.
+    expect(swap?.windowMatchdays).toEqual([5, 6, 7, 8, 9, 10]);
+    for (const gone of [1, 2, 3, 4]) {
+      expect(swap?.windowMatchdays).not.toContain(gone);
+    }
+    expect(result.champion).toBe(RICH);
+
+    // Alla sesta, alla settima, all'ottava e alla nona il criterio è stato
+    // applicato e ha detto di no: il cambio non è arrivato «quando c'erano sei
+    // giornate», è arrivato quando le ULTIME sei erano quelle giuste.
+    expect(rowAt(result.rows, 6).verdict?.swap).toBe(false);
+    expect(rowAt(result.rows, 9).verdict?.swap).toBe(false);
+    expect(rowAt(result.rows, 9).verdict?.windowMatchdays).toEqual([4, 5, 6, 7, 8, 9]);
+  });
+
+  it("la finestra riportata non supera mai sei, e il conteggio dal restart sì", () => {
+    const result = runChampionChallengerLedger({
+      initialChampion: BASE,
+      initialChallenger: RICH,
+      matchdays: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((matchday) => championAhead(matchday)),
+    });
+
+    // Dodici giornate valide, nessun cambio. «Dodici giornate nella finestra»
+    // sarebbe una frase falsa: la finestra sono le ultime sei.
+    expect(result.openWindow).toEqual([7, 8, 9, 10, 11, 12]);
+    expect(result.validMatchdaysSinceRestart).toBe(12);
+    expect(rowAt(result.rows, 12).validMatchdaysInWindow).toBe(CHAMPION_CHALLENGER_WINDOW);
+    expect(rowAt(result.rows, 12).validMatchdaysSinceRestart).toBe(12);
+    // E «mancano meno di zero giornate» non deve poter comparire in un rapporto.
+    expect(result.validMatchdaysToNextEvaluation).toBe(0);
+    expect(result.validMatchdaysToNextEvaluation).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 10. I NUMERI NON FINITI, e i due casi limite che nessuna fixture toccava.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("i numeri che non sono numeri si fermano all'ingresso", () => {
+  it("punti non finiti in una proposta si rifiutano", () => {
+    expect(() =>
+      runChampionChallengerLedger({
+        initialChampion: BASE,
+        initialChallenger: RICH,
+        matchdays: [challengerAhead(1, { champion: registeredProposal("v1", Number.NaN, 5, "LEAGUE_POINTS") })],
+      }),
+    ).toThrow(/punti del campione: valore non finito/);
+  });
+
+  it("rimpianto non finito in una proposta si rifiuta", () => {
+    expect(() =>
+      runChampionChallengerLedger({
+        initialChampion: BASE,
+        initialChallenger: RICH,
+        matchdays: [
+          challengerAhead(1, {
+            challenger: registeredProposal("v2", 3, Number.POSITIVE_INFINITY, "LEAGUE_POINTS"),
+          }),
+        ],
+      }),
+    ).toThrow(/rimpianto dello sfidante: valore non finito/);
+  });
+
+  it("il criterio esportato rifiuta a sua volta un numero non finito", () => {
+    const window = [1, 2, 3, 4, 5, 6].map((matchday) =>
+      windowEntry(matchday, 0, matchday === 3 ? Number.NaN : 10, 3, 5),
+    );
+    expect(() => championChallengerCriterion(window)).toThrow(/rimpianto del campione, giornata 3/);
+  });
+
+  it("anche i punti non finiti dentro la finestra si fermano", () => {
+    const window = [1, 2, 3, 4, 5, 6].map((matchday) =>
+      windowEntry(matchday, 0, 10, matchday === 2 ? Number.NaN : 3, 5),
+    );
+    expect(() => championChallengerCriterion(window)).toThrow(/giornata 2, sfidante/);
+  });
+
+  it("un rimpianto ESATTAMENTE zero è legittimo: è il tetto raggiunto, non un errore", () => {
+    // Zero rimpianto vuol dire aver scelto la formazione migliore a posteriori.
+    // È raro e possibile, ed è il caso in cui lo sfidante merita di entrare di
+    // più: rifiutarlo lo terrebbe fuori proprio quando ha ragione.
+    const result = runChampionChallengerLedger({
+      initialChampion: BASE,
+      initialChallenger: RICH,
+      matchdays: [1, 2, 3, 4, 5, 6].map((matchday) =>
+        challengerAhead(matchday, { challenger: registeredProposal("v1", 3, 0, "LEAGUE_POINTS") }),
+      ),
+    });
+    expect(result.swaps).toHaveLength(1);
+    expect(result.swaps[0]?.numbers.challenger.meanRegret).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 11. I SEI NUMERI A PARI, e la versione della proposta nel registro.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("i sei numeri della mail sono giusti anche quando i due pareggiano", () => {
+  it("a rimpianto pari, la giornata conta come «non peggiore» per TUTTI E DUE", () => {
+    // È il senso di `≤` in (c): un pari non è una sconfitta per nessuno dei
+    // due. Se il numero del campione contasse solo i suoi vantaggi STRETTI, la
+    // mail direbbe «0 su 6» dove la verità è «6 su 6», e il cambio sembrerebbe
+    // più netto di quello che è.
+    const verdict = championChallengerCriterion(
+      [1, 2, 3, 4, 5, 6].map((matchday) => windowEntry(matchday, 3, 7, 3, 7)),
+    );
+    expect(verdict.numbers.champion.regretNotWorseMatchdays).toBe(6);
+    expect(verdict.numbers.challenger.regretNotWorseMatchdays).toBe(6);
+  });
+
+  it("con tre pari e tre vantaggi dello sfidante, i due conteggi si sovrappongono sui pari", () => {
+    const verdict = championChallengerCriterion([
+      windowEntry(1, 3, 7, 3, 7),
+      windowEntry(2, 3, 7, 3, 7),
+      windowEntry(3, 3, 7, 3, 7),
+      windowEntry(4, 3, 9, 3, 4),
+      windowEntry(5, 3, 9, 3, 4),
+      windowEntry(6, 3, 9, 3, 4),
+    ]);
+    expect(verdict.numbers.champion.regretNotWorseMatchdays).toBe(3);
+    expect(verdict.numbers.challenger.regretNotWorseMatchdays).toBe(6);
+  });
+});
+
+describe("il registro dice quale invio è stato valutato (§2.4 punto 2)", () => {
+  it("la versione di ciascun motore finisce nella riga, e manca quando manca la proposta", () => {
+    const result = runChampionChallengerLedger({
+      initialChampion: BASE,
+      initialChallenger: RICH,
+      matchdays: [
+        challengerAhead(1, {
+          champion: registeredProposal("v2", 0, 10, "LEAGUE_POINTS"),
+          challenger: registeredProposal("v1", 3, 5, "LEAGUE_POINTS"),
+        }),
+        challengerAhead(2, { champion: missingProposal("oltre la scadenza") }),
+        challengerAhead(3, { challenger: unresolvedProposal("v2") }),
+      ],
+    });
+
+    expect(rowAt(result.rows, 1).championProposalVersion).toBe("v2");
+    expect(rowAt(result.rows, 1).challengerProposalVersion).toBe("v1");
+    // Nessuna proposta: nessuna versione. Non è «v1 per difetto».
+    expect(rowAt(result.rows, 2).championProposalVersion).toBeNull();
+    expect(rowAt(result.rows, 2).challengerProposalVersion).toBe("v1");
+    // Registrata ma non risolta: la versione c'era, e resta ispezionabile.
+    expect(rowAt(result.rows, 3).challengerProposalVersion).toBe("v2");
+  });
+});
