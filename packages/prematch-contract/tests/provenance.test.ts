@@ -5,6 +5,7 @@ import {
   matchdayIfDeclared,
   readMatchdayReference,
   readProvenance,
+  readStampedInstant,
 } from "../src/provenance.js";
 import { isRead } from "../src/readOutcome.js";
 import { syntheticProvenance } from "./synthetic.js";
@@ -96,5 +97,33 @@ describe("la giornata porta con sé da dove viene", () => {
     expect(readMatchdayReference({ origin: "declared-by-source", number: 0 }, ["matchday"]).status).toBe(
       "out-of-contract",
     );
+  });
+});
+
+describe("l'istante di una fotografia si trasporta dalla sua sigla, non si ricalcola", () => {
+  it("la sigla compatta diventa lo stesso momento scritto per esteso", () => {
+    const esito = readStampedInstant("20260911T175347Z");
+    if (!isRead(esito)) throw new Error("atteso letto");
+    expect(esito.value).toBe("2026-09-11T17:53:47Z");
+  });
+
+  it("è pura: nessun orologio, nessun fuso da indovinare", () => {
+    expect(readStampedInstant("20260101T000000Z")).toEqual(readStampedInstant("20260101T000000Z"));
+    const mezzanotte = readStampedInstant("20260101T000000Z");
+    if (!isRead(mezzanotte)) throw new Error("atteso letto");
+    expect(mezzanotte.value).toBe("2026-01-01T00:00:00Z");
+  });
+
+  it("una sigla che non è un momento reale non diventa il giorno dopo", () => {
+    // `Date` accetterebbe il 31 febbraio e lo sposterebbe al primo marzo in
+    // silenzio: un istante inventato è peggio di un istante assente.
+    const esito = readStampedInstant("20260231T120000Z");
+    expect(esito.status).toBe("out-of-contract");
+  });
+
+  it("una sigla in un'altra forma non si interpreta", () => {
+    for (const sigla of ["2026-09-11T17:53:47Z", "20260911T1753Z", "20260911T175347", "", 17_5347]) {
+      expect(readStampedInstant(sigla).status, String(sigla)).not.toBe("read");
+    }
   });
 });

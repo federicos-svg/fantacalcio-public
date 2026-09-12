@@ -174,9 +174,16 @@ function readProbableMatch(candidate: unknown, at: readonly string[]): ReadOutco
     ["home", home.value],
     ["away", away.value],
   ] as const) {
-    if (lineup.nature !== "probable") {
+    // `undeclared` PASSA, `actual` NO, E LA DIFFERENZA NON È UNA SFUMATURA.
+    // «Effettiva» è una dichiarazione della fonte, e una pagina di probabili che
+    // la scrive sta pubblicando qualcosa che va letto dove la verità vive — la
+    // pagina della partita — non qui. «Non dichiarata» non è una dichiarazione:
+    // è il silenzio misurato sul depositato, e rifiutarlo qui vorrebbe dire
+    // buttare via l'unica fonte che i dati ce li ha. Passa, e si porta dietro
+    // l'incertezza: `canStandAsTruth` le nega la verità comunque.
+    if (lineup.nature === "actual") {
       return outOfContract<ObservedProbableMatch>(
-        "una pagina di probabili non porta formazioni effettive: la verità su chi è sceso in campo sta sulla pagina della partita",
+        "una pagina di probabili non porta formazioni dichiarate effettive: la verità su chi è sceso in campo sta sulla pagina della partita",
         [...at, side, "nature"],
       );
     }

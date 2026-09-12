@@ -184,6 +184,108 @@ export function firstInstantIn(container: Record<string, unknown>, pattern: RegE
   return null;
 }
 
+/**
+ * UN ANELLO DELLA DISCENDENZA: il contenitore, e **il nome sotto cui è appeso**.
+ *
+ * `key` è `null` solo per la radice da cui si è partiti, che sotto nessun nome
+ * sta. Per tutti gli altri è il nome che il padre gli ha dato — ed è lì, e non
+ * in un campo, che certe fonti scrivono fatti: chi gioca in casa, per esempio.
+ */
+export interface Ancestor {
+  readonly key: string | null;
+  readonly container: Record<string, unknown>;
+}
+
+/**
+ * LA DISCENDENZA DI UN CONTENITORE — dalla radice fino a lui, nomi compresi.
+ *
+ * PERCHÉ SERVE. Due fatti misurati sull'istantanea `357beb2f…` del
+ * 2026-09-11T17:53:47Z (l'ancora sta in `index.ts`) non stanno dove un lettore
+ * ingenuo li cercherebbe: il **lato di casa** non è un campo, è il **nome** del
+ * contenitore («quello appeso sotto `casa`»); e **nome squadra e modulo** non
+ * stanno accanto all'elenco dei giocatori, ma un gradino più su. Senza sapere
+ * da dove si viene, la prima informazione non esiste e la seconda si può solo
+ * indovinare cercando in tutto il documento — cioè prendendo, prima o poi, il
+ * dato della squadra sbagliata.
+ *
+ * IDENTITÀ, NON UGUAGLIANZA: il bersaglio si riconosce perché **è** quell'oggetto,
+ * non perché gli somiglia. Due squadre con gli stessi campi sono due oggetti
+ * diversi, e un confronto per valore le confonderebbe.
+ *
+ * `null` se il bersaglio non discende dalla radice: chi chiama deve poterlo
+ * distinguere da «discende, ma la catena è corta».
+ */
+export function ancestryTo(
+  root: unknown,
+  target: Record<string, unknown>,
+  maxDepth = 14,
+): readonly Ancestor[] | null {
+  if (!isRecord(root)) return null;
+  const walk = (node: unknown, key: string | null, trail: Ancestor[], depth: number): readonly Ancestor[] | null => {
+    if (depth > maxDepth) return null;
+    if (Array.isArray(node)) {
+      for (let i = 0; i < node.length && i < 60; i += 1) {
+        // Un elemento di elenco non porta un nome proprio: la catena di nomi
+        // resta quella del contenitore che l'elenco ce l'ha appeso sotto.
+        const found = walk(node[i], key, trail, depth + 1);
+        if (found !== null) return found;
+      }
+      return null;
+    }
+    if (!isRecord(node)) return null;
+    const here = [...trail, { key, container: node }];
+    if (node === target) return here;
+    for (const childKey of Object.keys(node)) {
+      const found = walk(node[childKey], childKey, here, depth + 1);
+      if (found !== null) return found;
+    }
+    return null;
+  };
+  return walk(root, null, [], 0);
+}
+
+/**
+ * Vero se uno dei **nomi** della discendenza corrisponde alla famiglia.
+ *
+ * La radice non ha nome e quindi non partecipa: se partecipasse, un documento
+ * appeso sotto una chiave qualunque farebbe risultare «in casa» tutte e due le
+ * squadre.
+ */
+export function namedInAncestry(ancestry: readonly Ancestor[], pattern: RegExp): boolean {
+  return ancestry.some((step) => step.key !== null && pattern.test(step.key));
+}
+
+/**
+ * La prima etichetta della famiglia **risalendo** la discendenza, dal più
+ * interno al più esterno.
+ *
+ * Dal più interno perché il più vicino è il più specifico: se una fonte scrive
+ * il nome della squadra accanto ai giocatori E anche più su, quello accanto ai
+ * giocatori è suo di sicuro. E ci si ferma dove chi chiama ha deciso che finisce
+ * la propria discendenza: risalire oltre vorrebbe dire leggere un campo che le
+ * due squadre si dividono, e attribuirlo a una delle due.
+ */
+export function firstLabelUpwards(ancestry: readonly Ancestor[], pattern: RegExp): string | null {
+  for (let i = ancestry.length - 1; i >= 0; i -= 1) {
+    const step = ancestry[i];
+    if (step === undefined) continue;
+    const text = firstLabelIn(step.container, pattern);
+    if (text !== null) return text;
+  }
+  return null;
+}
+
+/** Come `firstLabelUpwards`, per gli elenchi. */
+export function firstArrayUpwards(ancestry: readonly Ancestor[], pattern: RegExp): readonly unknown[] | null {
+  for (let i = ancestry.length - 1; i >= 0; i -= 1) {
+    const step = ancestry[i];
+    if (step === undefined) continue;
+    const found = firstArrayIn(step.container, pattern);
+    if (found !== null) return found;
+  }
+  return null;
+}
+
 /** Tutti gli elenchi che stanno sotto una chiave della famiglia, con il loro contenitore. */
 export function arraysNamed(entries: readonly Entry[], pattern: RegExp): readonly Entry[] {
   return entries.filter((entry) => pattern.test(entry.key) && Array.isArray(entry.value));

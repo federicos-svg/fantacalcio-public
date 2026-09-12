@@ -157,3 +157,46 @@ export function readProvenance(candidate: unknown, at: readonly string[] = ["pro
     matchday: matchday.value,
   });
 }
+
+/**
+ * L'ISTANTE DI UNA FOTOGRAFIA, TRASPORTATO E NON RICALCOLATO.
+ *
+ * OGNI ISTANTANEA DI UNA FONTE PORTA UN SOLO ISTANTE DICHIARATO: quello inciso
+ * nel nome del file quando è stata depositata. Non ce n'è un secondo. La data di
+ * creazione su un archivio è la data in cui l'archivio ha finito di scrivere, e
+ * su un archivio remoto può essere minuti dopo; l'orologio di chi legge dice
+ * quando si è messo a leggere, non quando la fotografia è stata scattata. Tutte
+ * e due, usate al posto di questo, spostano un'osservazione dalla parte
+ * sbagliata del calcio d'inizio — che è l'unica riga che la misura
+ * d'affidabilità ha.
+ *
+ * QUINDI L'ISTANTE SI **TRASPORTA**: chi ha in mano il deposito legge la sigla
+ * compatta dal nome, la passa qui, e ottiene lo stesso momento scritto per
+ * esteso. Questa funzione non ha orologio, non ha fuso da indovinare — la sigla
+ * è in UTC e lo dice con la sua `Z` — e non accetta una sigla che non sia un
+ * momento reale: il 31 febbraio non è un istante, e un istante inventato è
+ * peggio di un istante assente.
+ *
+ * QUELLO CHE NON FA: non sa che forma abbia un nome di file, perché la forma dei
+ * nomi è un fatto del deposito e il deposito vive nel privato. Qui entra la
+ * sigla, non il nome.
+ */
+export function readStampedInstant(candidate: unknown, at: readonly string[] = ["stamp"]): ReadOutcome<string> {
+  if (typeof candidate !== "string") {
+    return shapeNotRecognised<string>("attesa una sigla di istante come testo", at);
+  }
+  const stamp = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(candidate.trim());
+  if (stamp === null) {
+    return shapeNotRecognised<string>("sigla non nella forma AAAAMMGGThhmmssZ", at);
+  }
+  const [, anno, mese, giorno, ore, minuti, secondi] = stamp as unknown as readonly string[];
+  const esteso = `${anno}-${mese}-${giorno}T${ore}:${minuti}:${secondi}Z`;
+  // Il giro completo attraverso la data è la prova che la sigla è un momento e
+  // non sei numeri nell'ordine giusto: `Date` accetterebbe volentieri un 31
+  // febbraio e lo sposterebbe al primo marzo, in silenzio.
+  const istante = new Date(esteso);
+  if (Number.isNaN(istante.getTime()) || istante.toISOString().slice(0, 19) + "Z" !== esteso) {
+    return outOfContract<string>("la sigla non corrisponde a un momento reale", at);
+  }
+  return readInstant(esteso, at);
+}
