@@ -23,6 +23,116 @@ describe("normalizePlayerName", () => {
     expect(normalizePlayerName("D'Alpha-Beta")).toBe("d alpha beta");
   });
 
+  // ── LE LETTERE LATINE CHE NFD NON SCOMPONE ────────────────────────────────
+  //
+  // Regressione della riparazione: `ø`, `đ`, `ł`, `ß`, `æ`... non sono lettere
+  // base più un accento, quindi `normalize("NFD")` le lascia intatte e, prima
+  // della riparazione, il filtro `[^a-z0-9\s]` le trasformava in uno SPAZIO.
+  // Il danno misurabile è quello sotto: un cognome intero spezzato in due
+  // token, oppure privato della propria iniziale. Tutti i nomi qui sono
+  // sintetici, inventati per questo test (docs/NO_GO.md).
+
+  it("una lettera latina estesa a inizio cognome non ne mangia l'iniziale", () => {
+    expect(normalizePlayerName("\u00d8sterman")).toBe("osterman");
+    expect(tokenizeNormalizedName(normalizePlayerName("\u00d8sterman"))).toHaveLength(1);
+  });
+
+  it("una lettera latina estesa DENTRO il cognome non lo spezza in due token", () => {
+    expect(normalizePlayerName("Bj\u00f8rnsen")).toBe("bjornsen");
+    expect(tokenizeNormalizedName(normalizePlayerName("Bj\u00f8rnsen"))).toHaveLength(1);
+  });
+
+  it("apre le legature nelle due lettere che rappresentano", () => {
+    expect(normalizePlayerName("Stra\u00dfner")).toBe("strassner");
+    expect(normalizePlayerName("\u00c6girsen")).toBe("aegirsen");
+    expect(normalizePlayerName("\u0152rsted")).toBe("oersted");
+    expect(normalizePlayerName("\u00derandur")).toBe("thrandur");
+  });
+
+  it("riporta alla lettera base le altre latine estese", () => {
+    expect(normalizePlayerName("\u0110urovic")).toBe("durovic");
+    expect(normalizePlayerName("Ha\u00f0ir")).toBe("hadir");
+    expect(normalizePlayerName("\u0141ukasik")).toBe("lukasik");
+  });
+
+  // ── OGNI ENTRY DELLA TABELLA HA LA PROPRIA PROVA ──────────────────────────
+  //
+  // Il criterio è quello del mutation testing applicato al DATO invece che al
+  // codice: tolta una riga sola dalla tabella, almeno una prova deve cadere.
+  // Le quattro entry qui sotto non erano coperte da niente prima di questo
+  // blocco, e `\u0131`/`\u017f`/`\u0138` hanno in più una trappola che vale la pena
+  // pinnare — vedi il blocco successivo.
+
+  it("copre le lettere con tratto o gancio che nessun'altra prova tocca", () => {
+    expect(normalizePlayerName("\u0126alveni")).toBe("halveni");   // U+0127 minuscolo
+    expect(normalizePlayerName("\u0166orbeni")).toBe("torbeni");   // U+0167 minuscolo
+    expect(normalizePlayerName("\u014asterby")).toBe("nsterby");   // U+014B minuscolo
+    expect(normalizePlayerName("Vas\u0138ini")).toBe("vaskini");   // U+0138, minuscolo soltanto
+  });
+
+  it("copre le lettere senza il proprio segno, che valgono la lettera piena", () => {
+    expect(normalizePlayerName("Zurbett\u0131n")).toBe("zurbettin"); // U+0131, i senza punto
+    expect(normalizePlayerName("Va\u017fcone")).toBe("vascone");     // U+017F, s lunga
+  });
+
+  it("le tre senza maiuscolo propria arrivano solo dal testo già minuscolo — e non è una svista", () => {
+    // La piegatura gira DOPO `toLowerCase()`. `\u0131` e `\u017f` hanno un maiuscolo che
+    // NON è loro — `I` e `S` — quindi una `I` maiuscola non diventa mai `\u0131` e
+    // non incontra mai la tabella; `\u0138` un maiuscolo non ce l'ha affatto. Le
+    // righe servono per il testo che le porta già così, ed è il caso vero.
+    expect("\u0131".toUpperCase()).toBe("I");
+    expect("\u017f".toUpperCase()).toBe("S");
+    expect(normalizePlayerName("I")).toBe("i");
+    expect(normalizePlayerName("S")).toBe("s");
+    // Una maiuscola di partenza NON perde niente: la strada è un'altra, non un buco.
+    expect(normalizePlayerName("\u0130lmaz")).toBe("ilmaz"); // U+0130 si scompone via NFD
+  });
+
+  it("nessuna entry della tabella è muta: ognuna cambia almeno un risultato", () => {
+    // Se una riga della tabella sparisse, la lettera tornerebbe a diventare uno
+    // spazio e almeno una di queste coppie collasserebbe. È la stessa prova che
+    // il revisore ha fatto a mano, resa automatica.
+    const coppie: readonly (readonly [string, string])[] = [
+      ["\u00f8", "o"],
+      ["\u0111", "d"],
+      ["\u00f0", "d"],
+      ["\u0142", "l"],
+      ["\u0127", "h"],
+      ["\u0167", "t"],
+      ["\u014b", "n"],
+      ["\u0131", "i"],
+      ["\u0138", "k"],
+      ["\u017f", "s"],
+      ["\u00e6", "ae"],
+      ["\u0153", "oe"],
+      ["\u00df", "ss"],
+      ["\u00fe", "th"],
+    ];
+    for (const [lettera, base] of coppie) {
+      // In mezzo a un cognome: un token solo, e la lettera piegata al posto giusto.
+      expect(normalizePlayerName(`Zur${lettera}betti`)).toBe(`zur${base}betti`);
+      expect(tokenizeNormalizedName(normalizePlayerName(`Zur${lettera}betti`))).toHaveLength(1);
+    }
+    expect(coppie).toHaveLength(14);
+  });
+
+  it("il confronto per token aggancia le due grafie dello stesso cognome", () => {
+    // Prima della riparazione: "osterman" contro " sterman" -> zero token in
+    // comune, cioè lo stesso verdetto che darebbe su due persone diverse.
+    expect(compareNames("\u00d8sterman", "Osterman").tokenOverlap).toBe(1);
+    expect(compareNames("\u00d8sterman", "Osterman").exactNormalizedMatch).toBe(true);
+  });
+
+  it("non tocca la punteggiatura, che resta un separatore", () => {
+    expect(normalizePlayerName("D'\u00d8sterman-Ruiz")).toBe("d osterman ruiz");
+  });
+
+  it("una lettera fuori dall'alfabeto latino resta uno spazio: non si indovina una base", () => {
+    // Nessuna «lettera base» esiste per un alfabeto non latino: sceglierne una
+    // sarebbe inventare. Resta separatore, ed è la scelta dichiarata.
+    expect(normalizePlayerName("\u03b1\u03b2 Synth")).toBe("synth");
+  });
+
   it("normalizes an empty/whitespace-only string to the empty string", () => {
     expect(normalizePlayerName("   ")).toBe("");
     expect(normalizePlayerName("")).toBe("");
