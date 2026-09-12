@@ -856,3 +856,50 @@ describe("il registro dice quale invio è stato valutato (§2.4 punto 2)", () =>
     expect(rowAt(result.rows, 3).challengerProposalVersion).toBe("v2");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 12. «NESSUN TERZO INVIO» SI SCRIVE ANCHE `null`, ed è il modo in cui un
+//     deposito lo scrive davvero.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("un terzo invio assente non diventa un terzo invio registrato", () => {
+  it("`picoOverride: null` vale «niente», esattamente come l'assenza del campo", () => {
+    // `null` È IL VALORE CHE UN DEPOSITO JSON SCRIVE PER DIRE «NIENTE»: il
+    // registro di §10 è un file, non una chiamata di funzione, e un campo
+    // omesso in memoria diventa `null` appena passa da un serializzatore.
+    // Se `null` contasse come intervento, `picoOverrideMatchdays` si
+    // riempirebbe di giornate in cui Pico non ha toccato nulla — e §11.1 misura
+    // la sua politica PROPRIO da quella lista, quindi la mail direbbe il falso.
+    // Nessun numero e nessun cambio si muoverebbero: è un difetto di RAPPORTO,
+    // che è il tipo di difetto che non fallisce mai da solo.
+    const result = runChampionChallengerLedger({
+      initialChampion: BASE,
+      initialChallenger: RICH,
+      matchdays: [1, 2, 3, 4, 5, 6].map((matchday) =>
+        challengerAhead(matchday, { picoOverride: null }),
+      ),
+    });
+
+    expect(result.picoOverrideMatchdays).toEqual([]);
+    expect(result.rows.every((row) => row.picoOverrideRecorded === false)).toBe(true);
+    for (const row of result.rows) {
+      expect(row.reason).not.toContain("Terzo invio");
+    }
+    expect(result.reason).not.toContain("terzo invio");
+    // E il resto del ledger si comporta come sempre: il cambio arriva al sesto.
+    expect(result.swaps).toHaveLength(1);
+    expect(result.champion).toBe(RICH);
+  });
+
+  it("`null` e campo assente danno lo stesso ledger, riga per riga", () => {
+    const build = (withNull: boolean) =>
+      runChampionChallengerLedger({
+        initialChampion: BASE,
+        initialChallenger: RICH,
+        matchdays: [1, 2, 3, 4, 5, 6].map((matchday) =>
+          withNull ? challengerAhead(matchday, { picoOverride: null }) : challengerAhead(matchday),
+        ),
+      });
+    expect(build(true)).toEqual(build(false));
+  });
+});
