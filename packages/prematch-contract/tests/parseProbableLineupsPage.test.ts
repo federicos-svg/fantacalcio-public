@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { absenceIsMeaningful, rosterCompleteness } from "../src/matchPage.js";
+import { absenceIsMeaningful, canStandAsTruth, rosterCompleteness } from "../src/matchPage.js";
 import {
   PROBABLE_LINEUPS_FAMILIES,
   PROBABLE_LINEUPS_STOP_CODES,
@@ -11,7 +11,7 @@ import {
   type ProbableLineupsShape,
 } from "../src/parseProbableLineupsPage.js";
 import { matchdayIfDeclared } from "../src/provenance.js";
-import { isRead } from "../src/readOutcome.js";
+import { MAX_LABEL_LENGTH, isRead } from "../src/readOutcome.js";
 
 // FIXTURE SINTETICHE, E SOLO SINTETICHE.
 //
@@ -47,6 +47,11 @@ const TABELLA_SINTETICA = {
   saysProbable: "(probabil|previst)",
   saysComplete: "(completa|intera)",
   saysPartial: "(parziale|incompleta)",
+  // Il separatore con cui questa fonte inventata infila piu' nomi in un campo
+  // solo. E' una voce obbligatoria della tabella: una fonte che non lo fa
+  // dichiara un'espressione che non corrisponde a niente, come qui sotto nella
+  // prova della panchina scritta come riga.
+  joinsNames: "\\s*\\|\\s*",
 };
 
 function tabella(): ProbableLineupsShape {
@@ -265,11 +270,34 @@ describe("un blocco mancante: assenza dichiarata, non riempimento", () => {
 });
 
 describe("probabile e effettiva: si dichiarano, non si deducono", () => {
-  it("una pagina che non lo dichiara si ferma", () => {
+  it("una pagina che non lo dichiara produce formazioni di natura ignota, non una fermata", () => {
+    // LA DECISIONE, IN UNA PROVA. Prima questa pagina non produceva niente: la
+    // fonte non scriveva una parola, e ventidue giocatori veri finivano nel
+    // cestino. Ora escono, e ciascuno si porta addosso il fatto che nessuno sa
+    // se sia una previsione o la verita'.
     const esito = parseProbableLineupsPage(richiesta(pagina(blocco({ status: null }))));
-    expect(esito.status).toBe("shape-not-recognised");
-    if (isRead(esito)) return;
-    expect(esito.reason).toContain(PROBABLE_LINEUPS_STOP_CODES.natureUndeclared);
+    expect(esito.status).toBe("read");
+    if (!isRead(esito)) return;
+    expect(esito.value.matches[0]?.home.nature).toBe("undeclared");
+    expect(esito.value.matches[0]?.away.nature).toBe("undeclared");
+  });
+
+  it("la natura ignota non e' verita', e nessuno puo' scambiarla per tale", () => {
+    const esito = parseProbableLineupsPage(richiesta(pagina(blocco({ status: null }))));
+    if (!isRead(esito)) throw new Error("atteso letto");
+    const casa = esito.value.matches[0]?.home;
+    if (casa === undefined) throw new Error("partita mancante");
+    expect(canStandAsTruth(casa.nature)).toBe(false);
+    // E nemmeno una formazione dichiarata probabile lo e': la verita' la dice
+    // solo chi scrive «effettiva».
+    expect(canStandAsTruth("probable")).toBe(false);
+    expect(canStandAsTruth("actual")).toBe(true);
+  });
+
+  it("dichiarata probabile resta probabile: il valore ignoto non mangia le dichiarazioni", () => {
+    const esito = parseProbableLineupsPage(richiesta(pagina(blocco())));
+    if (!isRead(esito)) throw new Error("atteso letto");
+    expect(esito.value.matches[0]?.home.nature).toBe("probable");
   });
 
   it("una pagina di probabili che dichiara formazioni effettive è fuori contratto", () => {
@@ -418,5 +446,196 @@ describe("la tabella delle famiglie di chiavi è un ingresso obbligatorio", () =
       if (isRead(esito)) continue;
       expect(esito.at, modo).toEqual(["probableLineupsShape", modo]);
     }
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// LE TRE COSE CHE UNA FONTE PUÒ NON SCRIVERE DOVE CI SI ASPETTA
+//
+// Le forme qui sotto sono inventate, come tutte le altre di questo file, ma il
+// problema che riproducono è stato misurato su materiale depositato: il lato di
+// casa scritto nel NOME del contenitore invece che in un campo; il nome della
+// squadra e il modulo appesi un gradino PIÙ SU dell'elenco dei giocatori; e
+// nessuna dichiarazione, da nessuna parte, su che cosa la pagina stia
+// pubblicando.
+// ────────────────────────────────────────────────────────────────────────────
+
+/** Una partita in cui il lato è il NOME della chiave, e i giocatori stanno più giù. */
+function partitaAnnidata(
+  nomeCasa: string,
+  nomeTrasferta: string,
+  chiaviLato: readonly [string, string] = ["interno", "esterno"],
+): Record<string, unknown> {
+  const squadraAnnidata = (nome: string): Record<string, unknown> => ({
+    insegna: nome,
+    disposizione: "4-3-3",
+    guida: `Allenatore ${nome}`,
+    rosa: { undici: undici(nome), riserve: [{ etichetta: `${nome} 12`, cifra: 12 }] },
+  });
+  return {
+    [chiaviLato[0]]: squadraAnnidata(nomeCasa),
+    [chiaviLato[1]]: squadraAnnidata(nomeTrasferta),
+  };
+}
+
+describe("il lato di casa può stare nel NOME del contenitore, non in un campo", () => {
+  it("lo legge dal nome, e non dall'ordine in cui le due squadre compaiono", () => {
+    const esito = parseProbableLineupsPage(
+      richiesta(pagina(blocco({ incontri: [partitaAnnidata("Alfa", "Beta")] }))),
+    );
+    if (!isRead(esito)) throw new Error(`atteso letto: ${esito.reason}`);
+    expect(esito.value.matches[0]?.home.team).toBe("Alfa");
+    expect(esito.value.matches[0]?.away.team).toBe("Beta");
+  });
+
+  it("invertendo l'ordine delle due chiavi il risultato non cambia", () => {
+    const rovesciata: Record<string, unknown> = {};
+    const dritta = partitaAnnidata("Alfa", "Beta");
+    for (const chiave of Object.keys(dritta).reverse()) rovesciata[chiave] = dritta[chiave];
+    const esito = parseProbableLineupsPage(richiesta(pagina(blocco({ incontri: [rovesciata] }))));
+    if (!isRead(esito)) throw new Error(`atteso letto: ${esito.reason}`);
+    expect(esito.value.matches[0]?.home.team).toBe("Alfa");
+  });
+
+  it("nessun nome e nessun campo lo dichiarano: si ferma, e lo dice", () => {
+    const muta = partitaAnnidata("Alfa", "Beta", ["primo", "secondo"]);
+    const esito = parseProbableLineupsPage(richiesta(pagina(blocco({ incontri: [muta] }))));
+    if (isRead(esito)) throw new Error("atteso fermo");
+    expect(esito.reason).toContain(PROBABLE_LINEUPS_STOP_CODES.homeSideUndeclared);
+  });
+
+  it("due squadre in casa nella stessa partita non si arbitrano", () => {
+    // Una lo dichiara col nome del contenitore, l'altra con un campo: due
+    // dichiarazioni vere separatamente e impossibili insieme.
+    const doppia = partitaAnnidata("Alfa", "Beta");
+    (doppia["esterno"] as Record<string, unknown>)["interno"] = true;
+    const esito = parseProbableLineupsPage(richiesta(pagina(blocco({ incontri: [doppia] }))));
+    if (isRead(esito)) throw new Error("atteso fermo");
+    expect(esito.reason).toContain(PROBABLE_LINEUPS_STOP_CODES.homeSideAmbiguous);
+  });
+});
+
+describe("nome squadra e modulo si cercano risalendo, ma mai oltre la propria squadra", () => {
+  it("li trova un gradino più su dei giocatori", () => {
+    const esito = parseProbableLineupsPage(
+      richiesta(pagina(blocco({ incontri: [partitaAnnidata("Alfa", "Beta")] }))),
+    );
+    if (!isRead(esito)) throw new Error(`atteso letto: ${esito.reason}`);
+    const casa = esito.value.matches[0]?.home;
+    expect(casa?.team).toBe("Alfa");
+    expect(casa?.module).toEqual({ presence: "observed", value: "4-3-3" });
+    expect(casa?.coach).toEqual({ presence: "observed", value: "Allenatore Alfa" });
+  });
+
+  it("un nome appeso alla PARTITA non diventa il nome di tutte e due le squadre", () => {
+    // Il pezzo che le due squadre si dividono non appartiene a nessuna delle
+    // due: se la risalita ci arrivasse, entrambe si chiamerebbero "Derby" e il
+    // contratto le rifiuterebbe piu' a valle, ma solo dopo aver gia' scritto il
+    // dato sbagliato.
+    const condivisa = partitaAnnidata("Alfa", "Beta");
+    delete (condivisa["interno"] as Record<string, unknown>)["insegna"];
+    condivisa["insegna"] = "Derby";
+    const esito = parseProbableLineupsPage(richiesta(pagina(blocco({ incontri: [condivisa] }))));
+    if (isRead(esito)) throw new Error("atteso fermo");
+    expect(esito.reason).toContain(PROBABLE_LINEUPS_STOP_CODES.lineupUnreadable);
+    expect(esito.at).toEqual(["parseProbableLineupsPage", "keys", "teamName"]);
+  });
+
+  it("il nome dell'altra squadra non viene mai prestato a questa", () => {
+    const zoppa = partitaAnnidata("Alfa", "Beta");
+    delete (zoppa["interno"] as Record<string, unknown>)["insegna"];
+    const esito = parseProbableLineupsPage(richiesta(pagina(blocco({ incontri: [zoppa] }))));
+    if (isRead(esito)) throw new Error("atteso fermo");
+    expect(esito.reason).toContain(PROBABLE_LINEUPS_STOP_CODES.lineupUnreadable);
+  });
+});
+
+describe("un campo che c'è ma non si legge non è un campo che la fonte non ha", () => {
+  it("modulo scritto in una forma che non è un modulo: «non guardato», mai «assente»", () => {
+    const strana = partitaAnnidata("Alfa", "Beta");
+    (strana["interno"] as Record<string, unknown>)["disposizione"] = "433";
+    const esito = parseProbableLineupsPage(richiesta(pagina(blocco({ incontri: [strana] }))));
+    if (!isRead(esito)) throw new Error(`atteso letto: ${esito.reason}`);
+    expect(esito.value.matches[0]?.home.module).toEqual({ presence: "not-observed" });
+  });
+
+  it("allenatore dentro un oggetto suo: «non guardato», perché la fonte ce l'ha", () => {
+    const annidato = partitaAnnidata("Alfa", "Beta");
+    (annidato["interno"] as Record<string, unknown>)["guida"] = { etichetta: "Allenatore Alfa" };
+    const esito = parseProbableLineupsPage(richiesta(pagina(blocco({ incontri: [annidato] }))));
+    if (!isRead(esito)) throw new Error(`atteso letto: ${esito.reason}`);
+    expect(esito.value.matches[0]?.home.coach).toEqual({ presence: "not-observed" });
+  });
+
+  it("nessuna chiave di quella famiglia in tutta la discendenza: «assente nella fonte»", () => {
+    const senza = partitaAnnidata("Alfa", "Beta");
+    delete (senza["interno"] as Record<string, unknown>)["guida"];
+    const esito = parseProbableLineupsPage(richiesta(pagina(blocco({ incontri: [senza] }))));
+    if (!isRead(esito)) throw new Error(`atteso letto: ${esito.reason}`);
+    expect(esito.value.matches[0]?.home.coach).toEqual({ presence: "absent-in-source" });
+  });
+});
+
+describe("più nomi in un campo solo non sono un giocatore dal nome lungo", () => {
+  function conPanchinaScrittaComeRiga(riga: string): Record<string, unknown> {
+    const partita = partitaAnnidata("Alfa", "Beta");
+    const rosa = (partita["interno"] as Record<string, unknown>)["rosa"] as Record<string, unknown>;
+    rosa["riserve"] = [{ etichetta: riga }];
+    return partita;
+  }
+
+  it("la riga si apre nei nomi che contiene, e ognuno è un giocatore", () => {
+    const esito = parseProbableLineupsPage(
+      richiesta(pagina(blocco({ incontri: [conPanchinaScrittaComeRiga("Uno | Due | Tre")] }))),
+    );
+    if (!isRead(esito)) throw new Error(`atteso letto: ${esito.reason}`);
+    const panchina = esito.value.matches[0]?.home.bench;
+    if (panchina?.presence !== "observed") throw new Error("panchina attesa");
+    expect(panchina.value.players.map((g) => g.displayName)).toEqual(["Uno", "Due", "Tre"]);
+  });
+
+  it("una riga CORTA non si salva per la sua lunghezza: si apre lo stesso", () => {
+    // È il punto della correzione: la guardia contro il testo editoriale è sulla
+    // lunghezza, e una riga di nomi sotto soglia passerebbe per UN giocatore.
+    const riga = "Uno | Due";
+    expect(riga.length).toBeLessThan(MAX_LABEL_LENGTH);
+    const esito = parseProbableLineupsPage(
+      richiesta(pagina(blocco({ incontri: [conPanchinaScrittaComeRiga(riga)] }))),
+    );
+    if (!isRead(esito)) throw new Error(`atteso letto: ${esito.reason}`);
+    const panchina = esito.value.matches[0]?.home.bench;
+    if (panchina?.presence !== "observed") throw new Error("panchina attesa");
+    expect(panchina.value.players).toHaveLength(2);
+  });
+
+  it("i pezzi non ereditano numero di maglia né ruolo: sarebbero inventati", () => {
+    const esito = parseProbableLineupsPage(
+      richiesta(pagina(blocco({ incontri: [conPanchinaScrittaComeRiga("Uno | Due")] }))),
+    );
+    if (!isRead(esito)) throw new Error(`atteso letto: ${esito.reason}`);
+    const panchina = esito.value.matches[0]?.home.bench;
+    if (panchina?.presence !== "observed") throw new Error("panchina attesa");
+    for (const giocatore of panchina.value.players) {
+      expect(giocatore.shirtNumber).toEqual({ presence: "absent-in-source" });
+      expect(giocatore.role).toEqual({ presence: "absent-in-source" });
+    }
+  });
+
+  it("un pezzo vuoto ferma la lista: quella riga non era l'elenco che sembrava", () => {
+    const esito = parseProbableLineupsPage(
+      richiesta(pagina(blocco({ incontri: [conPanchinaScrittaComeRiga("Uno || Tre")] }))),
+    );
+    if (isRead(esito)) throw new Error("atteso fermo");
+    expect(esito.reason).toContain(PROBABLE_LINEUPS_STOP_CODES.lineupUnreadable);
+  });
+
+  it("aprire la riga NON dichiara la panchina completa", () => {
+    const esito = parseProbableLineupsPage(
+      richiesta(pagina(blocco({ incontri: [conPanchinaScrittaComeRiga("Uno | Due | Tre")] }))),
+    );
+    if (!isRead(esito)) throw new Error(`atteso letto: ${esito.reason}`);
+    const panchina = esito.value.matches[0]?.home.bench;
+    if (panchina === undefined) throw new Error("partita mancante");
+    expect(rosterCompleteness(panchina)).toBe("unknown");
   });
 });

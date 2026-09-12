@@ -12,9 +12,13 @@
 // del fischio d'inizio e le formazioni effettive dopo. Quello che le distingue
 // non è la forma, sono due cose che vanno tenute separate con cura:
 //
-//   * `nature`, che la fonte DICHIARA — probabile oppure effettiva. Non si
-//     deduce: una pagina che non lo dichiara non produce una formazione, perché
-//     una previsione scambiata per una verità falsa ogni misura futura;
+//   * `nature`, che la fonte DICHIARA — probabile, effettiva, oppure **niente**.
+//     Non si deduce mai: una previsione scambiata per una verità falsa ogni
+//     misura futura. Quando la fonte tace, la formazione esce con `undeclared`
+//     addosso e `canStandAsTruth` la esclude dalla verità — vedi `LineupNature`.
+//     La pagina della **singola partita** resta più severa e si ferma: là le due
+//     dichiarazioni sono state misurate presenti, e un silenzio sarebbe una
+//     struttura cambiata, non un modo di scrivere della fonte;
 //   * il MOMENTO dell'istantanea rispetto al calcio d'inizio, che si calcola
 //     dagli istanti e serve alla regola (a) del requisito di misurabilità:
 //     vale l'ultima istantanea presa prima del calcio d'inizio, e ciò che una
@@ -162,8 +166,52 @@ export interface ObservedDuel {
   readonly favourite: Field<string>;
 }
 
-/** Che cosa la fonte dichiara di stare pubblicando. Mai dedotto. */
-export type LineupNature = "probable" | "actual";
+/**
+ * Che cosa la fonte dichiara di stare pubblicando. **Mai dedotto**, e il terzo
+ * valore è lì per non doverlo dedurre.
+ *
+ * `undeclared` — LA FONTE NON LO SCRIVE. È il caso misurato sull'istantanea
+ * `357beb2f…` del 2026-09-11T17:53:47Z (l'ancora, con le impronte, sta in
+ * `index.ts`): la pagina generale delle probabili di una testata porta dieci
+ * partite e non dice, da nessuna parte, se le formazioni che pubblica sono
+ * previsioni o la verità. Il campo che sembrava dirlo è lo stato **della
+ * partita** — «da giocare» — che non è lo stato della formazione: una
+ * formazione ufficiale esce mentre la partita è ancora da giocare, e leggere
+ * l'uno come l'altro sarebbe la deduzione peggiore possibile, perché sbaglia
+ * proprio nei minuti in cui la verità arriva.
+ *
+ * PERCHÉ UN TERZO VALORE E NON UNA FERMATA. Le due uscite oneste erano: fermare
+ * la lettura, oppure lasciar passare il dato con la propria incertezza addosso.
+ * La prima butta via duecentoventi righe vere per una cosa che la fonte non ha
+ * scritto; la seconda le conserva **a patto che nessuno possa scambiarle per
+ * una verità**. Questo tipo sceglie la seconda, e la garanzia sta in
+ * `canStandAsTruth`: `undeclared` non è mai verità, e non lo diventa per
+ * comodità di chi legge. Scelta tecnica dell'Executive delegato, dichiarata
+ * come propria e contestabile.
+ *
+ * QUELLO CHE `undeclared` NON È: non è «probabile per difetto». Chi lo trattasse
+ * come una previsione regalerebbe alla fonte ogni formazione ufficiale che ha
+ * pubblicato senza dirlo, e la misura d'affidabilità finirebbe per confrontare
+ * una fonte con se stessa. Un consumatore che ha bisogno di sapere quale delle
+ * due è, deve trovare la dichiarazione altrove o rinunciare.
+ */
+export type LineupNature = "probable" | "actual" | "undeclared";
+
+/**
+ * Se una formazione può reggere come **verità su chi è sceso in campo**.
+ *
+ * Solo `actual`, e per una ragione sola: è l'unico dei tre valori in cui la
+ * fonte **ha scritto** che quella formazione è un fatto. `probable` è una
+ * previsione per dichiarazione, `undeclared` è una previsione o un fatto e
+ * nessuno sa quale — e «nessuno sa quale» non si arrotonda al caso comodo.
+ *
+ * Esiste come funzione, e non come confronto scritto a mano da chi consuma,
+ * perché un confronto scritto a mano diventa `!== "probable"` alla prima
+ * fretta, e `!== "probable"` è vero anche per `undeclared`.
+ */
+export function canStandAsTruth(nature: LineupNature): boolean {
+  return nature === "actual";
+}
 
 /**
  * Il modulo come la fonte lo scrive — «4-3-3», «3-5-2».
@@ -364,9 +412,9 @@ export function readTeamLineup(candidate: unknown, at: readonly string[]): ReadO
   if (!isRead(team)) return carryFailure(team);
 
   const nature = record.value["nature"];
-  if (nature !== "probable" && nature !== "actual") {
+  if (nature !== "probable" && nature !== "actual" && nature !== "undeclared") {
     return shapeNotRecognised<ObservedTeamLineup>(
-      "la natura della formazione va dichiarata dalla fonte: probable oppure actual",
+      "la natura della formazione è un valore chiuso: probable, actual, oppure undeclared quando la fonte tace",
       [...at, "nature"],
     );
   }

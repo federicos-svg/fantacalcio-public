@@ -45,6 +45,48 @@
 //   * l'identità dei giocatori. Un nome è l'etichetta che la fonte scrive, non
 //     una persona riconosciuta: riconciliare due fonti è un altro mestiere.
 //
+// L'ANCORA DELLE MISURE CITATE QUI DENTRO — perché un numero in un commento,
+// senza il dato su cui è stato preso, invecchia senza che nessuno se ne
+// accorga. Ogni volta che un commento di questo pacchetto dice «misurato sul
+// depositato», intende **queste quattro istantanee** e nessun'altra, ciascuna
+// con la propria impronta sha256 del contenuto e il proprio istante — che è
+// quello inciso nel nome del file al deposito, l'unica dichiarazione di
+// istante che un'istantanea abbia:
+//
+//   2026-09-11T17:53:47Z  357beb2f9db37d00996e09bd7ee983bce527bfd552c4dde5f30a2d7f44777734
+//   2026-09-11T17:54:42Z  dc317dc164c36e1a0db54d6057c4ccded58d51e2beb38209d0bc0431dd4c9c9b
+//   2026-09-11T17:55:30Z  c0c5be141766a12fa7175f0e791b01ce84f3ec3d68d71efc52abdd2de128eea0
+//   2026-09-10T18:56:13Z  9d6bee64c9385334fc1bc8e6c0e10bfcf67d10c749ff1caf7331824983652c1b
+//
+// Le istantanee non stanno qui e non ci staranno mai: sono pagine vere e questo
+// repository ospita solo fixture sintetiche. Restano le impronte, che a una
+// pagina non somigliano e a un controllo servono. **Nessuna prova di questo
+// pacchetto rifà quelle misure**, e non può: girano su materiale che qui non
+// c'è. Chi vuole rifarle prende un'istantanea con quell'impronta e la rilegge.
+//
+// TRE COSE CHE UNA FONTE PUÒ NON SCRIVERE DOVE CI SI ASPETTA, e come il
+// contratto le tratta. Sono decisioni tecniche dell'Executive delegato,
+// dichiarate come proprie e contestabili, prese su quelle quattro istantanee:
+//
+//   * IL LATO DI CASA PUÒ STARE NEL **NOME** DEL CONTENITORE, non in un campo.
+//     Un nome scritto dalla fonte è una dichiarazione come un'altra e si legge;
+//     **l'ordine** dei due elenchi non lo è e continua a non contare. Vedi
+//     `declaresHome` in `parseProbableLineupsPage.ts`;
+//   * NOME SQUADRA E MODULO POSSONO STARE **UN GRADINO PIÙ SU** dei giocatori.
+//     Si risale la propria discendenza, dal più vicino al più lontano, e ci si
+//     ferma prima della partita: il pezzo che le due squadre si dividono non
+//     appartiene a nessuna delle due. Vedi `ancestryTo` in `indexPageScan.ts`;
+//   * LA NATURA PUÒ NON ESSERE SCRITTA AFFATTO. Non si deduce — men che meno
+//     dallo stato della partita, che è un'altra cosa — e non si butta via il
+//     dato: la formazione esce con `undeclared` addosso, e `canStandAsTruth` le
+//     nega la verità per sempre. Vedi `LineupNature` in `matchPage.ts`.
+//
+// E una quarta, che è la correzione di un difetto silenzioso: **più nomi in un
+// campo solo non sono un giocatore dal nome lungo**. La guardia contro il testo
+// editoriale è sulla lunghezza, e una riga di nomi sotto soglia passava per un
+// giocatore. Ora il separatore è una voce obbligatoria della tabella privata e
+// la riga si apre nei nomi che contiene — vedi `joinsNames`.
+//
 // QUELLO CHE LA MISURA TROVERÀ QUI, quando qualcuno la costruirà: ogni lista di
 // giocatori porta la propria `Completeness`, e `absenceIsMeaningful` dice se
 // l'assenza di un nome da quella lista significa qualcosa. Senza quel dato una
@@ -88,12 +130,14 @@ export {
   matchdayUnobserved,
   readMatchdayReference,
   readProvenance,
+  readStampedInstant,
   type MatchdayReference,
   type Provenance,
 } from "./provenance.js";
 
 export {
   absenceIsMeaningful,
+  canStandAsTruth,
   classifySnapshot,
   matchPageSnapshot,
   readDuel,

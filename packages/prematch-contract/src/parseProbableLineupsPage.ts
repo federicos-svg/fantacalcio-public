@@ -34,18 +34,22 @@
 
 import { absentInSource, notObserved, observed, type Field } from "./field.js";
 import {
+  ancestryTo,
   arraysNamed,
   declaredMatchdayAmong,
   entriesOf,
   firstArrayIn,
   firstLabelIn,
+  firstLabelUpwards,
   firstReadableJson,
   firstWholeNumberIn,
   isRecord,
   label,
+  namedInAncestry,
   stopAt,
   structuredBlocks,
   MODULE_SHAPE,
+  type Ancestor,
   type Entry,
 } from "./indexPageScan.js";
 import {
@@ -93,12 +97,26 @@ export type ProbableLineupsFamily = (typeof PROBABLE_LINEUPS_FAMILIES)[number];
  * invece che una supposizione: senza di loro non esiste modo di distinguere una
  * fonte che dichiara «formazione completa» da una che tace, e la distinzione è
  * tutto il punto.
+ *
+ * `joinsNames` È IL SEPARATORE CON CUI LA FONTE INFILA PIÙ NOMI IN UN CAMPO SOLO,
+ * ed è obbligatorio come gli altri. Sull'istantanea `357beb2f…` del
+ * 2026-09-11T17:53:47Z (l'ancora sta in `index.ts`) la panchina di una testata
+ * non è un elenco di giocatori: è **una riga di testo** con dentro i nomi. Senza
+ * questa voce quella riga passerebbe per il nome di un giocatore solo — e
+ * passerebbe **a volte**: la guardia contro il testo editoriale è sulla
+ * lunghezza, e su quell'istantanea venti righe di panchina stanno fra 67 e 153
+ * caratteri, **dodici sotto la soglia**. Un difetto che colpisce a intermittenza
+ * è peggio di uno che colpisce sempre, perché non lo si vede. Qui il separatore
+ * è **dichiarato da chi ha guardato la fonte**, non indovinato da chi legge: se
+ * la fonte non ne usa nessuno, la tabella dichiara un'espressione che non
+ * corrisponde a niente e il comportamento resta quello di prima.
  */
 export const PROBABLE_LINEUPS_WORDINGS = [
   "saysActual",
   "saysProbable",
   "saysComplete",
   "saysPartial",
+  "joinsNames",
 ] as const;
 
 export type ProbableLineupsWording = (typeof PROBABLE_LINEUPS_WORDINGS)[number];
@@ -121,9 +139,10 @@ export const PROBABLE_LINEUPS_STOP_CODES = {
   matchesEmpty: "ELENCO_PARTITE_VUOTO",
   matchNotRecord: "PARTITA_NON_LEGGIBILE",
   startersNotTwo: "TITOLARI_NON_DUE",
-  natureUndeclared: "NATURA_NON_DICHIARATA",
   natureConflicting: "NATURA_DISCORDE",
   homeSideUndeclared: "LATO_CASA_NON_DICHIARATO",
+  homeSideAmbiguous: "LATO_CASA_AMBIGUO",
+  lineageUnreadable: "DISCENDENZA_NON_RICOSTRUIBILE",
   lineupUnreadable: "FORMAZIONE_NON_LEGGIBILE",
 } as const;
 
@@ -158,28 +177,115 @@ function stop<T>(code: string, family: ProbableLineupsFamily | null, why: string
  * questo pacchetto vieta in `matchPage.ts`.
  */
 function completenessFrom(
-  container: Record<string, unknown>,
+  ancestry: readonly Ancestor[],
   key: RegExp,
   shape: ProbableLineupsShape,
 ): Completeness {
-  const declared = firstLabelIn(container, key);
+  const declared = firstLabelUpwards(ancestry, key);
   if (declared === null) return "unknown";
   if (shape.wordings.saysComplete.test(declared)) return "declared-complete";
   if (shape.wordings.saysPartial.test(declared)) return "declared-partial";
   return "unknown";
 }
 
-function playerFrom(element: unknown, shape: ProbableLineupsShape): ObservedPlayer | null {
+/**
+ * I giocatori descritti da un elemento: **uno**, quasi sempre; **molti** quando
+ * la fonte ha infilato più nomi in un campo solo; **nessuno** quando non si
+ * legge.
+ *
+ * IL PLURALE NON È UN'ELEGANZA. Un elemento il cui nome contiene il separatore
+ * dichiarato dalla tabella non descrive un giocatore: descrive una panchina
+ * intera scritta come una riga. Restituirne uno solo — con tredici cognomi
+ * dentro `displayName` — sarebbe il ripiego peggiore del pacchetto, perché il
+ * dato risultante ha l'aria di essere giusto: una panchina da un giocatore, con
+ * un nome insolitamente lungo.
+ *
+ * Quando si divide, **si divide e basta**: nessun numero di maglia e nessun
+ * ruolo vengono attribuiti ai pezzi. I campi vicini descrivono l'elemento
+ * intero, non i singoli nomi, e spalmarli su tutti sarebbe inventare tredici
+ * volte lo stesso fatto.
+ *
+ * Il primo nome vuoto ferma tutto: un separatore che produce un pezzo vuoto sta
+ * dicendo che quella riga non era l'elenco che sembrava.
+ */
+function playersFrom(element: unknown, shape: ProbableLineupsShape): readonly ObservedPlayer[] | null {
   if (!isRecord(element)) return null;
-  const name = firstLabelIn(element, shape.keys.playerName);
+  const raw = rawNameIn(element, shape.keys.playerName);
+  if (raw === null) return null;
+
+  if (shape.wordings.joinsNames.test(raw)) {
+    const pieces = raw.split(new RegExp(shape.wordings.joinsNames.source, shape.wordings.joinsNames.flags.replace(/[gy]/g, "") + "g"));
+    const many: ObservedPlayer[] = [];
+    for (const piece of pieces) {
+      const name = label(piece);
+      if (name === null) return null;
+      many.push({ displayName: name, shirtNumber: absentInSource(), role: absentInSource() });
+    }
+    return many.length === 0 ? null : many;
+  }
+
+  const name = label(raw);
   if (name === null) return null;
   const shirt = firstWholeNumberIn(element, shape.keys.shirtNumber);
   const role = firstLabelIn(element, shape.keys.role);
-  return {
-    displayName: name,
-    shirtNumber: shirt === null ? absentInSource() : observed(shirt),
-    role: role === null ? absentInSource() : observed(role),
-  };
+  return [
+    {
+      displayName: name,
+      shirtNumber: shirt === null ? absentInSource() : observed(shirt),
+      role: role === null ? absentInSource() : observed(role),
+    },
+  ];
+}
+
+/**
+ * UN CAMPO DI TESTO, CON LE SUE TRE USCITE — e la terza è quella che mancava.
+ *
+ * `observed` — la chiave c'è e il suo testo si legge.
+ *
+ * `absent-in-source` — **nessuna chiave** di quella famiglia esiste in tutta la
+ * discendenza. È un'affermazione sulla fonte, e si può usare per dire «questa
+ * testata l'allenatore non lo pubblica».
+ *
+ * `not-observed` — la chiave c'è, e il suo valore non si legge: un oggetto
+ * annidato, un testo lungo come una frase, un modulo che non ha la forma di un
+ * modulo. **Non è un'assenza della fonte**: la fonte quel dato ce l'ha, siamo
+ * noi che non l'abbiamo tirato fuori. Scriverci sopra `absent-in-source` —
+ * com'era prima — era un'affermazione falsa in piccolo, del tipo peggiore:
+ * sopravvive alle revisioni perché è indistinguibile da una vera. Sull'istantanea
+ * `357beb2f…` del 2026-09-11T17:53:47Z il caso è reale su tutte e venti le
+ * formazioni: l'allenatore sta dentro un oggetto suo, e il lettore non ci
+ * arriva; e il modulo è scritto senza separatori, che modulo non è.
+ */
+function textField(
+  ancestry: readonly Ancestor[],
+  pattern: RegExp,
+  accept: (text: string) => boolean = () => true,
+): Field<string> {
+  const text = firstLabelUpwards(ancestry, pattern);
+  if (text !== null && accept(text)) return observed(text);
+  const keyExists = ancestry.some((step) => Object.keys(step.container).some((key) => pattern.test(key)));
+  return keyExists ? notObserved<string>() : absentInSource<string>();
+}
+
+/**
+ * Il testo grezzo sotto una chiave della famiglia, **prima** della guardia sulla
+ * lunghezza.
+ *
+ * Serve perché una riga che contiene più nomi è spesso più lunga di
+ * un'etichetta, e `firstLabelIn` la scarterebbe come testo editoriale: la
+ * scarterebbe **a volte**, ed è proprio l'intermittenza il difetto. Qui la riga
+ * si guarda intera, si decide se è un elenco, e solo i pezzi passano dalla
+ * guardia.
+ */
+function rawNameIn(container: Record<string, unknown>, pattern: RegExp): string | null {
+  for (const key of Object.keys(container)) {
+    if (!pattern.test(key)) continue;
+    const value = container[key];
+    if (typeof value !== "string") continue;
+    const collapsed = value.replace(/\s+/g, " ").trim();
+    if (collapsed.length > 0) return collapsed;
+  }
+  return null;
 }
 
 /**
@@ -194,18 +300,18 @@ function playerFrom(element: unknown, shape: ProbableLineupsShape): ObservedPlay
  */
 function rosterFrom(
   elements: readonly unknown[] | null,
-  container: Record<string, unknown>,
+  ancestry: readonly Ancestor[],
   completenessKey: RegExp,
   shape: ProbableLineupsShape,
 ): ObservedRoster | null {
   if (elements === null) return null;
   const players: ObservedPlayer[] = [];
   for (const element of elements) {
-    const player = playerFrom(element, shape);
-    if (player === null) return null;
-    players.push(player);
+    const read = playersFrom(element, shape);
+    if (read === null) return null;
+    players.push(...read);
   }
-  return { players, completeness: completenessFrom(container, completenessKey, shape) };
+  return { players, completeness: completenessFrom(ancestry, completenessKey, shape) };
 }
 
 function natureFromText(text: string | null, shape: ProbableLineupsShape): "probable" | "actual" | null {
@@ -241,25 +347,42 @@ type LineupResult =
   | { readonly ok: true; readonly value: Record<string, unknown> }
   | { readonly ok: false; readonly family: ProbableLineupsFamily };
 
+/**
+ * UNA FORMAZIONE, LETTA LUNGO LA PROPRIA DISCENDENZA E NON OLTRE.
+ *
+ * `ancestry` parte **dentro** la partita e finisce sul contenitore che ha
+ * l'elenco dei titolari. Nome squadra, modulo e allenatore si cercano
+ * risalendo: sull'istantanea `357beb2f…` del 2026-09-11T17:53:47Z stanno un
+ * gradino più su dei giocatori, e cercarli solo accanto ai giocatori li faceva
+ * risultare assenti su tutte e venti le formazioni.
+ *
+ * SI RISALE, MA NON FINO ALLA PARTITA. La partita è il pezzo che le due squadre
+ * si dividono: un campo letto lì finirebbe identico su tutte e due, e due
+ * formazioni con lo stesso nome di squadra sono un errore che il contratto
+ * rifiuta più a valle — ma dopo aver già scritto il dato sbagliato. Chi chiama
+ * costruisce la discendenza a partire dal blocco di squadra, e questa funzione
+ * non ha modo di uscirne.
+ */
 function lineupCandidate(
-  block: Record<string, unknown>,
-  nature: "probable" | "actual",
+  ancestry: readonly Ancestor[],
+  nature: "probable" | "actual" | "undeclared",
   shape: ProbableLineupsShape,
 ): LineupResult {
-  const team = firstLabelIn(block, shape.keys.teamName);
+  const team = firstLabelUpwards(ancestry, shape.keys.teamName);
   if (team === null) return { ok: false, family: "teamName" };
+
+  const innermost = ancestry[ancestry.length - 1];
+  if (innermost === undefined) return { ok: false, family: "starters" };
+  const block = innermost.container;
 
   const rawStarters = firstArrayIn(block, shape.keys.starters);
   if (rawStarters === null) return { ok: false, family: "starters" };
-  const starters = rosterFrom(rawStarters, block, shape.keys.startersCompleteness, shape);
+  const starters = rosterFrom(rawStarters, ancestry, shape.keys.startersCompleteness, shape);
   if (starters === null) return { ok: false, family: "playerName" };
 
   const rawBench = firstArrayIn(block, shape.keys.bench);
-  const bench = rawBench === null ? null : rosterFrom(rawBench, block, shape.keys.benchCompleteness, shape);
+  const bench = rawBench === null ? null : rosterFrom(rawBench, ancestry, shape.keys.benchCompleteness, shape);
   if (rawBench !== null && bench === null) return { ok: false, family: "bench" };
-
-  const moduleText = firstLabelIn(block, shape.keys.module);
-  const coach = firstLabelIn(block, shape.keys.coach);
 
   const asField = <T>(value: T | null): Field<T> => (value === null ? absentInSource<T>() : observed(value));
 
@@ -268,8 +391,8 @@ function lineupCandidate(
     value: {
       team,
       nature,
-      module: moduleText !== null && MODULE_SHAPE.test(moduleText) ? observed(moduleText) : absentInSource(),
-      coach: asField(coach),
+      module: textField(ancestry, shape.keys.module, (text) => MODULE_SHAPE.test(text)),
+      coach: textField(ancestry, shape.keys.coach),
       starters: observed(starters),
       // Panchina assente NON è panchina vuota: è la sezione che la pagina non
       // espone, e resta un'assenza dichiarata.
@@ -281,25 +404,40 @@ function lineupCandidate(
       unavailable: notObserved(),
       suspended: notObserved(),
       duels: notObserved(),
-      completeness: completenessFrom(block, shape.keys.lineupCompleteness, shape),
+      completeness: completenessFrom(ancestry, shape.keys.lineupCompleteness, shape),
     },
   };
 }
 
-function homeSideIndex(blocks: readonly Record<string, unknown>[], shape: ProbableLineupsShape): number {
-  let index = -1;
-  for (let i = 0; i < blocks.length; i += 1) {
-    const block = blocks[i];
-    if (block === undefined) continue;
-    for (const key of Object.keys(block)) {
+/**
+ * IL LATO DI CASA, DICHIARATO IN DUE MODI E MAI DEDOTTO.
+ *
+ * Il modo che il contratto già conosceva: **un campo** della famiglia `homeSide`
+ * con dentro un sì.
+ *
+ * Il modo misurato sull'istantanea `357beb2f…` del 2026-09-11T17:53:47Z
+ * (l'ancora sta in `index.ts`): **il nome del contenitore**.
+ * La fonte non scrive «questa gioca in casa» da nessuna parte — appende la
+ * squadra sotto una chiave che si chiama come il lato, e quella chiave *è* la
+ * dichiarazione. È una dichiarazione a tutti gli effetti: sta nel documento,
+ * l'ha scritta la fonte, e non richiede di supporre niente. Quello che non è —
+ * e che questa funzione continua a rifiutare — è **l'ordine**: «la prima delle
+ * due è quella di casa» è una consuetudine, non un fatto, e il giorno che la
+ * fonte inverte l'ordine nessuno se ne accorge.
+ *
+ * L'espressione che riconosce il nome è **la stessa** che riconosce il campo, e
+ * vive nella tabella privata: qui non c'è scritto quale parola usi la fonte.
+ */
+function declaresHome(ancestry: readonly Ancestor[], shape: ProbableLineupsShape): boolean {
+  if (namedInAncestry(ancestry, shape.keys.homeSide)) return true;
+  for (const step of ancestry) {
+    for (const key of Object.keys(step.container)) {
       if (!shape.keys.homeSide.test(key)) continue;
-      const value = block[key];
-      if (value === true || (typeof value === "string" && /^(home|casa|true)$/i.test(value.trim()))) {
-        index = i;
-      }
+      const value = step.container[key];
+      if (value === true || (typeof value === "string" && /^(home|casa|true)$/i.test(value.trim()))) return true;
     }
   }
-  return index;
+  return false;
 }
 
 function matchdayReference(
@@ -336,6 +474,25 @@ function matchCandidate(
   }
   const teamBlocks = starterEntries.map((entry) => entry.container);
 
+  // LA DISCENDENZA DI OGNI SQUADRA, dalla partita fino all'elenco dei titolari.
+  // È il filo che tiene insieme le due decisioni: da dove si viene dice il lato
+  // di casa, e risalirlo trova nome e modulo. Se non si ricostruisce non si
+  // tira a indovinare: ci si ferma con il proprio nome.
+  const ancestries: (readonly Ancestor[])[] = [];
+  for (const block of teamBlocks) {
+    const ancestry = ancestryTo(element, block);
+    if (ancestry === null || ancestry.length < 2) {
+      return stop(
+        PROBABLE_LINEUPS_STOP_CODES.lineageUnreadable,
+        "starters",
+        "l'elenco dei titolari non risulta appeso dentro la partita: senza discendenza non si sa di chi è",
+      );
+    }
+    // Il primo anello è la partita stessa, e non appartiene a nessuna delle due
+    // squadre: si scarta, così nessuna risalita può arrivarci.
+    ancestries.push(ancestry.slice(1));
+  }
+
   const here = declaredNature(entries, shape);
   if (here === "conflicting") {
     return stop(
@@ -345,40 +502,53 @@ function matchCandidate(
     );
   }
 
-  const natures: ("probable" | "actual")[] = [];
-  for (const block of teamBlocks) {
-    const own = natureFromText(firstLabelIn(block, shape.keys.status), shape);
-    const chosen = own ?? here ?? pageNature;
-    if (chosen === null) {
-      return stop(
-        PROBABLE_LINEUPS_STOP_CODES.natureUndeclared,
-        "status",
-        "la pagina non dichiara se questa formazione è probabile o effettiva, e non si deduce",
-      );
-    }
-    natures.push(chosen);
+  // LA NATURA, QUANDO NESSUNO LA DICHIARA, RESTA IGNOTA — e non si ferma più qui.
+  // Prima questo era il punto in cui duecentoventi righe vere finivano nel
+  // cestino perché la fonte non aveva scritto una parola. Ora escono con
+  // `undeclared` addosso: il dato si porta la propria incertezza, e
+  // `canStandAsTruth` impedisce a chi lo consuma di scambiarlo per una verità.
+  // Quello che NON si fa è leggere lo stato della partita come stato della
+  // formazione: «da giocare» non dice se l'undici è previsto o ufficiale, e una
+  // formazione ufficiale esce mentre la partita è ancora da giocare.
+  const natures: ("probable" | "actual" | "undeclared")[] = [];
+  for (const ancestry of ancestries) {
+    const own = natureFromText(firstLabelUpwards(ancestry, shape.keys.status), shape);
+    natures.push(own ?? here ?? pageNature ?? "undeclared");
   }
 
-  const homeIndex = homeSideIndex(teamBlocks, shape);
+  const homeFlags = ancestries.map((ancestry) => declaresHome(ancestry, shape));
+  const homeIndex = homeFlags.indexOf(true);
   if (homeIndex === -1) {
     return stop(
       PROBABLE_LINEUPS_STOP_CODES.homeSideUndeclared,
       "homeSide",
-      "la partita non dichiara quale squadra gioca in casa, e l'ordine degli elenchi non lo dice",
+      "la partita non dichiara quale squadra gioca in casa, né in un campo né nel nome del contenitore, e l'ordine degli elenchi non lo dice",
+    );
+  }
+  if (homeFlags.lastIndexOf(true) !== homeIndex) {
+    return stop(
+      PROBABLE_LINEUPS_STOP_CODES.homeSideAmbiguous,
+      "homeSide",
+      "tutte e due le squadre risultano in casa: una fra la tabella e la pagina sta dicendo il falso, e non si sceglie quale",
     );
   }
   const awayIndex = homeIndex === 0 ? 1 : 0;
 
-  const homeBlock = teamBlocks[homeIndex];
-  const awayBlock = teamBlocks[awayIndex];
+  const homeAncestry = ancestries[homeIndex];
+  const awayAncestry = ancestries[awayIndex];
   const homeNature = natures[homeIndex];
   const awayNature = natures[awayIndex];
-  if (homeBlock === undefined || awayBlock === undefined || homeNature === undefined || awayNature === undefined) {
+  if (
+    homeAncestry === undefined ||
+    awayAncestry === undefined ||
+    homeNature === undefined ||
+    awayNature === undefined
+  ) {
     return stop(PROBABLE_LINEUPS_STOP_CODES.startersNotTwo, "starters", "blocco squadra mancante dopo la lettura");
   }
 
-  const home = lineupCandidate(homeBlock, homeNature, shape);
-  const away = lineupCandidate(awayBlock, awayNature, shape);
+  const home = lineupCandidate(homeAncestry, homeNature, shape);
+  const away = lineupCandidate(awayAncestry, awayNature, shape);
   for (const side of [home, away]) {
     if (!side.ok) {
       return stop(
