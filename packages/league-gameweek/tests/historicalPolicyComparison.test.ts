@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   DEFAULT_BOOTSTRAP_REPLICATES,
   DEFAULT_CONFIDENCE_LEVEL,
+  MIN_BOOTSTRAP_REPLICATES,
   MIN_MATCHDAYS_FOR_INTERVAL,
   type HistoricalMatchdayObservation,
   type ReferencePolicyId,
@@ -195,6 +196,16 @@ describe("confronto storico §11.3 — golden fixture", () => {
     expect(comparison.reason).toContain("ORDINARE");
   });
 
+  it("il campo reason conta esattamente le celle senza intervallo (M18)", () => {
+    const comparison = goldenComparison();
+    // Ricalcolo indipendente dal campo stesso: SYN-03 ha solo quattro
+    // giornate, sotto soglia per ogni politica, quindi tutte le sue celle
+    // sono senza intervallo e nessun'altra lo è.
+    const withoutInterval = comparison.cells.filter((cell) => cell.interval === null).length;
+    expect(withoutInterval).toBe(comparison.policies.length);
+    expect(comparison.reason).toContain(`${withoutInterval} cella/e senza intervallo`);
+  });
+
   it("la metrica alternativa cambia i numeri e lo dichiara", () => {
     const comparison = goldenComparison({ metric: "LEAGUE_POINTS" });
     expect(comparison.metric).toBe("LEAGUE_POINTS");
@@ -300,6 +311,76 @@ describe("confronto storico §11.3 — determinismo del bootstrap", () => {
     expect(cellOf(fewer, "RULE_OF_72", "SYN-01").interval).toEqual(
       cellOf(all, "RULE_OF_72", "SYN-01").interval,
     );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// M4 — L'ESTREMO ALTO NON DEVE CADERE SU UN PLATEAU.
+//
+// `percentileEndpoints` prende l'estremo alto in posizione
+// `ceil((1 − alpha/2) · B) − 1`, cioè 1949 su 2000 repliche al 95 %: togliere
+// quel `− 1` sposta la lettura a 1950. La fixture GOLDEN_SEASONS non lo vede,
+// perché i suoi cicli sono piccoli interi che si ripetono (0, 1, 3 …): la coda
+// della distribuzione ricampionata ha pochi valori distinti e le posizioni
+// 1949 e 1950 ci cadono sopra lo stesso valore — un plateau. Un test che
+// interroga `sorted[1949]` in quella fixture non distingue l'indice giusto da
+// quello sbagliato di un'unità, perché in quel punto non c'è niente da
+// rompere.
+//
+// Qui la fixture usa valori continui — un seno di un moltiplicatore non in
+// relazione semplice con dodici giornate — invece di un ciclo che si ripete:
+// non è un dato di dominio (non è un punteggio di lega vero), è costruito
+// apposta per non avere due giornate con lo stesso valore, così la somma
+// ricampionata non ha plateau nella coda. Verificato fuori da questo modulo,
+// riproducendo lo stesso ricampionamento (`mulberry32` sul sotto-seme di
+// `seasonBootstrapSubSeed`): sulle 2000 repliche i quaranta valori attorno
+// alla coda alta sono tutti distinti, e in particolare
+// `sorted[1949] = 2.5352381964979736` mentre
+// `sorted[1950] = 2.53687904483904` — due numeri diversi, non lo stesso
+// scritto due volte.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CONTINUOUS_SEASON = "SYN-CONTINUOUS";
+const CONTINUOUS_UNITS = 12;
+
+/**
+ * Valore continuo per giornata, non un punteggio di lega: costruito apposta
+ * perché ogni giornata dia un numero diverso dalle altre, così le repliche
+ * bootstrap non ripetono mai la stessa somma e la coda non ha plateau.
+ */
+function continuousValue(matchday: number): number {
+  return Math.abs(Math.sin(matchday * 12.9898)) * 3;
+}
+
+function continuousObservations(): HistoricalMatchdayObservation[] {
+  const out: HistoricalMatchdayObservation[] = [];
+  for (const policy of ["RULE_OF_72", "BASE_ENGINE"] as const) {
+    for (let matchday = 1; matchday <= CONTINUOUS_UNITS; matchday += 1) {
+      const value = continuousValue(matchday);
+      out.push({
+        season: CONTINUOUS_SEASON,
+        policy,
+        matchday,
+        leaguePoints: value,
+        leaguePointsRegret: value,
+      });
+    }
+  }
+  return out;
+}
+
+describe("confronto storico §11.3 — M4: l'estremo alto dell'intervallo", () => {
+  it("sorted[1949] è l'estremo giusto, e non è lo stesso numero di sorted[1950]", () => {
+    const comparison = historicalPolicyComparison({
+      observations: continuousObservations(),
+      seed: GOLDEN_SEED,
+    });
+    const cell = cellOf(comparison, "RULE_OF_72", CONTINUOUS_SEASON);
+    expect(cell.matchdaysCounted).toBe(CONTINUOUS_UNITS);
+    // Se l'indice perdesse il suo `− 1` (posizione 1950 invece di 1949),
+    // questo valore diventerebbe 2.53687904483904: un numero diverso, non
+    // una variazione nell'ultimo bit.
+    expect(cell.interval?.upper).toBe(2.5352381964979736);
   });
 });
 
@@ -496,6 +577,37 @@ describe("confronto storico §11.3 — guardie", () => {
   it("un livello di confidenza fuori da (0,5, 1) si rifiuta", () => {
     expect(() => goldenComparison({ confidenceLevel: 0.4 })).toThrow(/livello di confidenza/);
     expect(() => goldenComparison({ confidenceLevel: 1 })).toThrow(/livello di confidenza/);
+  });
+
+  // ───────────────────────────────────────────────────────────────────────
+  // QUATTRO CONFINI DI PARAMETRO, PROVATI ESATTAMENTE AL LIMITE — non «ben
+  // dentro» né «ben fuori», ma il valore stesso che separa accettato da
+  // rifiutato. Ciascuno prova il lato rifiutato del confine dichiarato in
+  // `assertParameters` o nelle guardie di forma.
+  // ───────────────────────────────────────────────────────────────────────
+
+  it("minMatchdaysForInterval = 1 si rifiuta: il minimo valido è 2 (M2)", () => {
+    expect(() => goldenComparison({ minMatchdaysForInterval: 1 })).toThrow(/soglia non valida/);
+  });
+
+  it("matchday = 0 si rifiuta: le giornate partono da 1 (M13)", () => {
+    const observations = observationsFor({ "SYN-01": 1 }).map((observation) => ({
+      ...observation,
+      matchday: 0,
+    }));
+    expect(() => historicalPolicyComparison({ observations, seed: GOLDEN_SEED })).toThrow(
+      /giornata non valida/,
+    );
+  });
+
+  it("replicates = 199, cioè il minimo meno uno, si rifiuta (M14)", () => {
+    expect(() => goldenComparison({ replicates: MIN_BOOTSTRAP_REPLICATES - 1 })).toThrow(
+      /ripetizioni non valide/,
+    );
+  });
+
+  it("confidenceLevel = 0,5 esatto si rifiuta: il limite basso è aperto (M15)", () => {
+    expect(() => goldenComparison({ confidenceLevel: 0.5 })).toThrow(/livello di confidenza/);
   });
 
   it("un NaN non passa per «non calcolabile»", () => {
