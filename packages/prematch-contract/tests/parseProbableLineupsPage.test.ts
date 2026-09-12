@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { ancestryTo } from "../src/indexPageScan.js";
 import { absenceIsMeaningful, canStandAsTruth, rosterCompleteness } from "../src/matchPage.js";
 import {
   PROBABLE_LINEUPS_FAMILIES,
@@ -637,5 +638,97 @@ describe("più nomi in un campo solo non sono un giocatore dal nome lungo", () =
     const panchina = esito.value.matches[0]?.home.bench;
     if (panchina === undefined) throw new Error("partita mancante");
     expect(rosterCompleteness(panchina)).toBe("unknown");
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// LE DUE GARANZIE CHE IL CODICE DICHIARA A PAROLE — qui esercitate
+//
+// Sono due frasi scritte nei commenti di `ancestryTo` e di `matchCandidate` che
+// nessuna prova toccava: l'identità contro l'uguaglianza, e la discendenza
+// troppo corta. Un commento che nessuna prova esercita non è una garanzia: è
+// un'intenzione. Le due prove qui sotto lo diventano.
+// ────────────────────────────────────────────────────────────────────────────
+
+describe("IDENTITÀ, NON UGUAGLIANZA: due rose identiche in tutto restano due rose", () => {
+  // L'oggetto che la risalita deve ritrovare è il contenitore dell'elenco dei
+  // titolari, non la squadra: è da lì che si parte per risalire al lato, al nome
+  // e al modulo. Queste due rose hanno gli stessi identici campi — gli stessi
+  // undici nomi, gli stessi numeri, la stessa panchina — e una sola differenza:
+  // sono due oggetti diversi. È il caso che un confronto per valore non saprebbe
+  // distinguere, perché il primo che incontra gli somiglia già abbastanza.
+  const rosaGemella = (): Record<string, unknown> => ({
+    undici: undici("Numero"),
+    riserve: [{ etichetta: "Numero 12", cifra: 12 }],
+  });
+
+  function partitaDiGemelle(): {
+    readonly partita: Record<string, unknown>;
+    readonly rosaCasa: Record<string, unknown>;
+    readonly rosaTrasferta: Record<string, unknown>;
+  } {
+    const rosaCasa = rosaGemella();
+    const rosaTrasferta = rosaGemella();
+    return {
+      partita: {
+        interno: { insegna: "Alfa", disposizione: "4-3-3", guida: "Allenatore Alfa", rosa: rosaCasa },
+        esterno: { insegna: "Beta", disposizione: "3-5-2", guida: "Allenatore Beta", rosa: rosaTrasferta },
+      },
+      rosaCasa,
+      rosaTrasferta,
+    };
+  }
+
+  it("la risalita segue l'oggetto, non il suo valore: due gemelle hanno due discendenze diverse", () => {
+    const { partita, rosaCasa, rosaTrasferta } = partitaDiGemelle();
+    // La premessa della prova: per valore sono indistinguibili, per identità no.
+    expect(JSON.stringify(rosaCasa)).toBe(JSON.stringify(rosaTrasferta));
+    expect(rosaCasa).not.toBe(rosaTrasferta);
+
+    const risalitaCasa = ancestryTo(partita, rosaCasa);
+    const risalitaTrasferta = ancestryTo(partita, rosaTrasferta);
+    if (risalitaCasa === null || risalitaTrasferta === null) throw new Error("attese due discendenze");
+
+    expect(risalitaCasa.map((passo) => passo.key)).toEqual([null, "interno", "rosa"]);
+    expect(risalitaTrasferta.map((passo) => passo.key)).toEqual([null, "esterno", "rosa"]);
+    // E l'ultimo anello è proprio quell'oggetto, non uno che gli somiglia.
+    expect(risalitaCasa[risalitaCasa.length - 1]?.container).toBe(rosaCasa);
+    expect(risalitaTrasferta[risalitaTrasferta.length - 1]?.container).toBe(rosaTrasferta);
+  });
+
+  it("e quindi lato di casa, nome e modulo restano quelli giusti anche con due rose gemelle", () => {
+    // Se la risalita confondesse le due gemelle, tutte e due porterebbero la
+    // discendenza del contenitore di casa: stesso lato, stesso nome, stesso
+    // modulo. Questa prova è verde solo finché il confronto è per identità.
+    const { partita } = partitaDiGemelle();
+    const esito = parseProbableLineupsPage(richiesta(pagina(blocco({ incontri: [partita] }))));
+    if (!isRead(esito)) throw new Error(`atteso letto: ${esito.reason}`);
+    const lette = esito.value.matches[0];
+    if (lette === undefined) throw new Error("partita mancante");
+    expect(lette.home.team).toBe("Alfa");
+    expect(lette.away.team).toBe("Beta");
+    expect(lette.home.module).toEqual({ presence: "observed", value: "4-3-3" });
+    expect(lette.away.module).toEqual({ presence: "observed", value: "3-5-2" });
+  });
+});
+
+describe("una discendenza lunga uno non è una discendenza: ci si ferma", () => {
+  it("titolari appesi alla partita stessa, senza contenitore-squadra: DISCENDENZA_NON_RICOSTRUIBILE", () => {
+    // La partita è anche il contenitore del proprio undici: fra la radice e
+    // l'elenco non c'è nessun anello che appartenga a una squadra sola, quindi
+    // non c'è niente da cui leggere il lato, il nome o il modulo. La risalita
+    // riesce — l'elenco discende davvero dalla partita — ma è lunga uno, e
+    // «riesce» non basta: l'anello unico è la partita, che le due squadre si
+    // dividono.
+    const partita: Record<string, unknown> = {
+      insegna: "Alfa",
+      interno: true,
+      undici: undici("Alfa"),
+      squadre: [{ insegna: "Beta", interno: false, disposizione: "4-3-3", undici: undici("Beta") }],
+    };
+    const esito = parseProbableLineupsPage(richiesta(pagina(blocco({ incontri: [partita] }))));
+    if (isRead(esito)) throw new Error("atteso fermo");
+    expect(esito.reason).toContain(PROBABLE_LINEUPS_STOP_CODES.lineageUnreadable);
+    expect(esito.at).toEqual(["parseProbableLineupsPage", "keys", "starters"]);
   });
 });
