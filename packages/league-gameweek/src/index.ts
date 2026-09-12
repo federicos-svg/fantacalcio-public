@@ -15,4 +15,5 @@ export * from "./referencePolicies.js";
 export * from "./policyMetrics.js";
 export * from "./baseForecast.js";
 export * from "./leagueBehaviourProfile.js";
+export * from "./historicalPolicyComparison.js";
 export * from "./challengerForecast.js";
