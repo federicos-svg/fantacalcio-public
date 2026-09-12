@@ -48,8 +48,16 @@ export const OPPONENT_DRAW_SUBSEED_SALT = 0x4f50504e as const; // "OPPN"
  * Mescolatore a 32 bit (splitmix a due giri). Serve solo a derivare un
  * sotto-seme da un seme: due semi vicini devono dare flussi scorrelati,
  * altrimenti «due sotto-semi» sarebbero due nomi per lo stesso flusso.
+ *
+ * ESPORTATO, E IL MOTIVO È UNO SOLO: chi deve derivare un sotto-seme nuovo lo
+ * deriva con QUESTO mescolatore. Una seconda copia di queste sei righe altrove
+ * nel pacchetto non sarebbe una seconda scelta, sarebbe la stessa scelta scritta
+ * due volte — e due scritture della stessa cosa divergono il giorno in cui una
+ * delle due si corregge. L'export non cambia nessun comportamento: la funzione
+ * è identica a com'era, e i due sotto-semi qui sotto continuano a essere gli
+ * unici che questo modulo dichiara.
  */
-function mix32(x: number): number {
+export function mix32(x: number): number {
   let h = x >>> 0;
   h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0;
   h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0;
