@@ -1,14 +1,17 @@
 import { describe, it, expect } from "vitest";
 import {
   CHAMPION_CHALLENGER_WINDOW,
+  CRITERION_REGRET_UNIT,
   REGRET_MAJORITY_MATCHDAYS,
   championChallengerCriterion,
   missingProposal,
   registeredProposal,
   runChampionChallengerLedger,
+  unresolvedProposal,
   type LedgerMatchday,
   type LedgerRow,
   type LedgerWindowEntry,
+  type RegretUnit,
 } from "../src/index.js";
 
 // FIXTURE INTERAMENTE SINTETICHE. Nessun giocatore, nessuna quotazione, nessun
@@ -30,8 +33,8 @@ function challengerAhead(matchday: number, extra: Partial<LedgerMatchday> = {}):
     matchday,
     competition: "LEAGUE",
     politicalVote: false,
-    champion: registeredProposal("v1", 0, 10),
-    challenger: registeredProposal("v1", 3, 5),
+    champion: registeredProposal("v1", 0, 10, "LEAGUE_POINTS"),
+    challenger: registeredProposal("v1", 3, 5, "LEAGUE_POINTS"),
     ...extra,
   };
 }
@@ -42,8 +45,8 @@ function championAhead(matchday: number, extra: Partial<LedgerMatchday> = {}): L
     matchday,
     competition: "LEAGUE",
     politicalVote: false,
-    champion: registeredProposal("v1", 3, 5),
-    challenger: registeredProposal("v1", 0, 10),
+    champion: registeredProposal("v1", 3, 5, "LEAGUE_POINTS"),
+    challenger: registeredProposal("v1", 0, 10, "LEAGUE_POINTS"),
     ...extra,
   };
 }
@@ -60,8 +63,16 @@ function windowEntry(
   championRegret: number,
   challengerLeaguePoints: number,
   challengerRegret: number,
+  regretUnit: RegretUnit = "LEAGUE_POINTS",
 ): LedgerWindowEntry {
-  return { matchday, championLeaguePoints, championRegret, challengerLeaguePoints, challengerRegret };
+  return {
+    matchday,
+    championLeaguePoints,
+    championRegret,
+    challengerLeaguePoints,
+    challengerRegret,
+    regretUnit,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -475,7 +486,7 @@ describe("il ledger rifiuta ciò che non può interpretare", () => {
       runChampionChallengerLedger({
         initialChampion: BASE,
         initialChallenger: RICH,
-        matchdays: [challengerAhead(1, { challenger: registeredProposal("v2", 3, -1) })],
+        matchdays: [challengerAhead(1, { challenger: registeredProposal("v2", 3, -1, "LEAGUE_POINTS") })],
       }),
     ).toThrow(/rimpianto negativo/);
   });
@@ -514,5 +525,163 @@ describe("il ledger rifiuta ciò che non può interpretare", () => {
     });
     expect(result.rows.map((row) => row.matchday)).toEqual([1, 2, 3, 4, 5, 6]);
     expect(result.swaps[0]?.afterMatchday).toBe(6);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. DECISIONE DELL'EXECUTIVE 1 — (b) e (c) si misurano in PUNTI DI LEGA, e
+//    una riga dichiarata in fantapunti si RIFIUTA invece di convertirla.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("l'unità del rimpianto è dichiarata, ed è quella del criterio", () => {
+  it("il criterio misura in punti di lega, e lo dichiara in uscita", () => {
+    expect(CRITERION_REGRET_UNIT).toBe("LEAGUE_POINTS");
+    const result = runChampionChallengerLedger({
+      initialChampion: BASE,
+      initialChallenger: RICH,
+      matchdays: [1, 2, 3, 4, 5, 6].map((matchday) => challengerAhead(matchday)),
+    });
+    // L'unità viaggia con i numeri: chi legge il registro o riceve la mail non
+    // deve andare a cercare in che cosa erano misurati.
+    expect(result.regretUnit).toBe("LEAGUE_POINTS");
+    expect(result.swaps[0]?.regretUnit).toBe("LEAGUE_POINTS");
+    expect(rowAt(result.rows, 6).verdict?.regretUnit).toBe("LEAGUE_POINTS");
+    expect(result.reason).toContain("LEAGUE_POINTS");
+  });
+
+  it("una riga in FANTAPUNTI è rifiutata, non convertita", () => {
+    expect(() =>
+      runChampionChallengerLedger({
+        initialChampion: BASE,
+        initialChallenger: RICH,
+        matchdays: [
+          challengerAhead(1, { champion: registeredProposal("v1", 0, 10, "FANTASY_POINTS") }),
+        ],
+      }),
+    ).toThrow(/RIFIUTATA e NON convertita/);
+  });
+
+  it("vale anche quando a dichiarare l'altra unità è lo sfidante, riga mista compresa", () => {
+    expect(() =>
+      runChampionChallengerLedger({
+        initialChampion: BASE,
+        initialChallenger: RICH,
+        // Campione in punti di lega, sfidante in fantapunti: il caso peggiore,
+        // perché i due numeri si sommerebbero come se fossero la stessa cosa.
+        matchdays: [
+          challengerAhead(1, { challenger: registeredProposal("v1", 3, 5, "FANTASY_POINTS") }),
+        ],
+      }),
+    ).toThrow(/FANTASY_POINTS/);
+  });
+
+  it("anche il criterio esportato rifiuta una finestra in fantapunti", () => {
+    // La guardia non sta solo nel ledger: questa funzione è esportata, e
+    // qualcuno può costruirsi la finestra da sé.
+    const window = [1, 2, 3, 4, 5, 6].map((matchday) =>
+      windowEntry(matchday, 0, 10, 3, 5, "FANTASY_POINTS"),
+    );
+    expect(() => championChallengerCriterion(window)).toThrow(/RIFIUTATA e NON convertita/);
+  });
+
+  it("una sola giornata in fantapunti in mezzo a cinque buone basta a fermare tutto", () => {
+    const window = [1, 2, 3, 4, 5, 6].map((matchday) =>
+      windowEntry(matchday, 0, 10, 3, 5, matchday === 4 ? "FANTASY_POINTS" : "LEAGUE_POINTS"),
+    );
+    expect(() => championChallengerCriterion(window)).toThrow(/giornata 4/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. DECISIONE DELL'EXECUTIVE 2 — l'esito non risolto è un QUARTO motivo di
+//    esclusione, dichiarato come scostamento dall'elenco chiuso di §2.4 p. 6.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("l'esito non risolto non conta e allunga la finestra (quarto motivo)", () => {
+  it("una giornata con ESITO NON RISOLTO sposta il cambio dalla sesta alla settima", () => {
+    const result = runChampionChallengerLedger({
+      initialChampion: BASE,
+      initialChallenger: RICH,
+      matchdays: [1, 2, 3, 4, 5, 6, 7].map((matchday) =>
+        matchday === 3
+          ? challengerAhead(matchday, {
+              champion: unresolvedProposal("v2", "il regolamento non copre la combinazione incontrata"),
+            })
+          : challengerAhead(matchday),
+      ),
+    });
+
+    const unresolved = rowAt(result.rows, 3);
+    expect(unresolved.counted).toBe(false);
+    // MOTIVO SUO, non confuso con la registrazione mancante: la proposta era
+    // registrata in tempo, e non c'è nessun guasto di WP-8 da andare a cercare.
+    expect(unresolved.exclusions).toEqual(["UNRESOLVED_OUTCOME"]);
+    expect(unresolved.validMatchdaysInWindow).toBe(2);
+    expect(rowAt(result.rows, 6).verdict).toBeNull();
+    expect(result.swaps).toHaveLength(1);
+    expect(result.swaps[0]?.afterMatchday).toBe(7);
+    expect(result.swaps[0]?.windowMatchdays).toEqual([1, 2, 4, 5, 6, 7]);
+  });
+
+  it("la riga dichiara che è uno scostamento dall'elenco chiuso di §2.4 punto 6", () => {
+    // L'aggiunta di un quarto caso a un elenco che si presenta come chiuso si
+    // DICHIARA. Se un giorno qualcuno toglie la dichiarazione, questo test
+    // diventa rosso: è il punto.
+    const result = runChampionChallengerLedger({
+      initialChampion: BASE,
+      initialChallenger: RICH,
+      matchdays: [challengerAhead(1, { challenger: unresolvedProposal("v1") })],
+    });
+    const reason = rowAt(result.rows, 1).reason;
+    expect(reason).toContain("QUARTO");
+    expect(reason).toContain("§2.4 punto 6");
+    expect(reason).toContain("Executive");
+    // E non manda nessuno a cercare un guasto: la proposta era registrata.
+    expect(reason).not.toContain("incidente di WP-8 da riportare");
+  });
+
+  it("esito non risolto e registrazione mancante restano due motivi distinti", () => {
+    const result = runChampionChallengerLedger({
+      initialChampion: BASE,
+      initialChallenger: RICH,
+      matchdays: [
+        challengerAhead(1, {
+          champion: missingProposal("proposta oltre la scadenza"),
+          challenger: unresolvedProposal("v1"),
+        }),
+        challengerAhead(2),
+      ],
+    });
+
+    const row = rowAt(result.rows, 1);
+    expect(row.exclusions).toEqual(["MISSING_REGISTRATION", "UNRESOLVED_OUTCOME"]);
+    // Un guasto da riportare E un fatto del regolamento: il rapporto dice
+    // tutti e due, perché mandano a fare due cose diverse.
+    expect(row.reason).toContain("incidente di WP-8 da riportare");
+    expect(row.reason).toContain("QUARTO");
+    expect(result.openWindow).toEqual([2]);
+  });
+
+  it("l'esito non risolto non è un punto a favore del motore che è stato misurato", () => {
+    // Lo sfidante domina in tutte le giornate valide; nelle due non risolte è
+    // il CAMPIONE a non avere numeri. Se «non misurato» valesse come sconfitta
+    // del campione, il cambio arriverebbe prima. Arriva invece all'ottava.
+    const result = runChampionChallengerLedger({
+      initialChampion: BASE,
+      initialChallenger: RICH,
+      matchdays: [1, 2, 3, 4, 5, 6, 7, 8].map((matchday) =>
+        matchday === 2 || matchday === 5
+          ? challengerAhead(matchday, { champion: unresolvedProposal("v1") })
+          : challengerAhead(matchday),
+      ),
+    });
+
+    expect(result.swaps).toHaveLength(1);
+    expect(result.swaps[0]?.afterMatchday).toBe(8);
+    expect(result.swaps[0]?.windowMatchdays).toEqual([1, 3, 4, 6, 7, 8]);
+    expect(result.exclusions).toEqual([
+      { matchday: 2, reasons: ["UNRESOLVED_OUTCOME"] },
+      { matchday: 5, reasons: ["UNRESOLVED_OUTCOME"] },
+    ]);
   });
 });

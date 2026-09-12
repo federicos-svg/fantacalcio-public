@@ -35,35 +35,84 @@
 //    che di quel punto 5 vive qui è la parte pura: quali giornate sono entrate
 //    nella valutazione, quali metriche, quale decisione — `LedgerRow` e
 //    `LedgerSwap` sono esattamente quelle colonne.
-//  - NON sceglie L'UNITÀ del rimpianto. Vedi il blocco qui sotto.
 //
-// ── DUE COSE CHE §2.4 NON DICE, E CHE QUESTO FILE NON DECIDE AL POSTO SUO ────
+// ═════════════════════════════════════════════════════════════════════════════
+// DUE PUNTI CHE §2.4 NON DICE, CHIUSI DALL'EXECUTIVE — dichiarati come SUOI e
+// CONTESTABILI, non come se il documento li prevedesse.
 //
-// 1) L'UNITÀ DEL RIMPIANTO. §2.4 punto 2 dice «rimpianto rispetto alla
-//    formazione migliore a posteriori (§11)»; §11.2 di rimpianti ne definisce
-//    DUE — in punti di lega e in fantapunti — e non dice quale dei due entra
-//    nelle condizioni (b) e (c). Qui `regret` è UN numero, senza unità: chi
-//    chiama dichiara quale, e deve usare la STESSA per tutte le righe e per
-//    tutti e due i motori. Scegliere qui vorrebbe dire chiudere nel codice una
-//    cosa che il criterio pre-registrato ha lasciato aperta, e il criterio si
-//    cambia con un record datato, non con un import.
+// §15 del disegno assegna esplicitamente all'Executive le scelte tecniche
+// interne a §2.4 («nessuna scelta tecnica: decise qui e contestabili»). Le due
+// che seguono sono state prese lì, con la loro ragione scritta accanto, e si
+// cambiano come si cambia il criterio: con un record datato che dica perché.
+// ═════════════════════════════════════════════════════════════════════════════
 //
-// 2) LA GIORNATA REGISTRATA MA NON CALCOLABILE. §2.4 punto 6 elenca TRE casi
-//    che non contano — coppa, voto politico, proposta non registrata prima
-//    della scadenza — e quell'elenco è chiuso. Non contempla il caso in cui
-//    entrambi i motori hanno registrato in tempo ma l'esito NON È RISOLTO
-//    (`realisedLeaguePoints` restituisce `null` quando il regolamento non copre
-//    una combinazione incontrata). Quella giornata, per il testo, CONTA — ma
-//    con quale numero non è scritto. Questo file non inventa un quarto caso:
-//    il tipo `EngineProposal` rende impossibile registrare una proposta senza i
-//    suoi due numeri, così chi chiama è costretto a dichiarare invece di
-//    lasciare che un `null` diventi silenziosamente uno zero. Finché il punto
-//    non è chiuso da chi decide, una giornata così va fermata a monte.
+// ── 1. IL RIMPIANTO DI (b) E (c) È QUELLO IN PUNTI DI LEGA ───────────────────
+//
+// §2.4 punto 2 dice «rimpianto rispetto alla formazione migliore a posteriori
+// (§11)»; §11.2 di rimpianti ne definisce DUE — in punti di lega e in
+// fantapunti — e non dice quale entri nelle condizioni (b) e (c).
+//
+// DECISIONE DELL'EXECUTIVE: è quello in PUNTI DI LEGA.
+//
+// RAGIONE, dichiarata come sua e contestabile: la condizione (a) è già in punti
+// di lega, e un criterio che misura (a) in un'unità e (b) e (c) in un'altra non
+// è un criterio — sono due criteri incollati. Il campione potrebbe cambiare per
+// una differenza di fantapunti che non ha mai spostato un punto in classifica.
+// Il campione esiste per vincere la lega, e il rimpianto che conta è quello che
+// si paga in classifica.
+//
+// COME È IMPOSTA, e perché così. Ogni proposta misurata deve DICHIARARE la sua
+// unità (`regretUnit`): il campo è obbligatorio, non ha valore di comodo, e una
+// riga che dichiara i fantapunti viene RIFIUTATA — non convertita. Non si
+// converte perché non si può: la conversione da fantapunti a punti di lega
+// passa dal confronto con l'avversario di quella giornata, che qui non c'è, e
+// un fattore inventato renderebbe il rifiuto un arrotondamento.
+//
+// PERCHÉ IL TIPO DELL'UNITÀ È LARGO (accetta anche `FANTASY_POINTS`) MENTRE IL
+// CRITERIO NE PRENDE UNA SOLA. §11.2 calcola davvero tutti e due i numeri, e un
+// deposito di §10 può legittimamente contenerli entrambi: il tipo deve poter
+// DIRE «questa riga è in fantapunti», così che il ledger la rifiuti PER NOME.
+// Con un tipo stretto la stessa riga arriverebbe qui dietro un cast al confine
+// di lettura, e un cast soddisfa un tipo stretto in silenzio: il rifiuto
+// esisterebbe nella firma e non nell'esecuzione.
+//
+// ── 2. LA GIORNATA REGISTRATA MA CON ESITO NON RISOLTO È UNA QUARTA ──────────
+// ──    ESCLUSIONE, E ALLUNGA LA FINESTRA COME LE ALTRE TRE ───────────────────
+//
+// ATTENZIONE, È UNO SCOSTAMENTO DAL TESTO: §2.4 punto 6 elenca TRE casi che non
+// contano — coppa, voto politico, proposta non registrata prima della scadenza
+// — e quell'elenco si presenta come CHIUSO. Questo file ne aggiunge un quarto.
+// Non è una lettura del documento: è una decisione presa sopra il documento, e
+// va letta come tale. Un'aggiunta silenziosa a un elenco che si dichiara chiuso
+// sarebbe la stessa famiglia di difetto delle affermazioni false, quindi è
+// scritta qui, è scritta nel corpo della PR, ed è nominata a parte nel registro
+// (`UNRESOLVED_OUTCOME`) invece di essere confusa con le altre tre.
+//
+// IL CASO: entrambi i motori hanno registrato in tempo, ma l'esito NON È
+// RISOLTO — `realisedLeaguePoints` di §11.2 restituisce `null` quando il
+// regolamento non copre una delle combinazioni incontrate, e dichiara che il
+// punteggio calcolato non è quello ufficiale.
+//
+// DECISIONE DELL'EXECUTIVE: quella giornata NON conta, e allunga la finestra.
+//
+// RAGIONE, dichiarata come sua e contestabile: le tre esclusioni del punto 6
+// hanno tutte la stessa forma — una giornata in cui i due motori non sono stati
+// MISURATI IN MODO CONFRONTABILE non è una prova, e non deve né premiare né
+// punire nessuno dei due. Una giornata in cui il regolamento non copre la
+// combinazione incontrata è esattamente quello. L'alternativa — farla contare
+// con un numero — vorrebbe dire inventare il numero, e non lo facciamo.
+//
+// PERCHÉ HA UN MOTIVO SUO E NON RIUSA `MISSING_REGISTRATION`: la registrazione
+// mancante è un GUASTO NOSTRO, che §2.4 punto 6 vuole riportato come incidente
+// di WP-8; l'esito non risolto è un fatto del REGOLAMENTO, e non c'è nessun
+// incidente da riportare a nessuno. Chi legge il registro deve vedere PERCHÉ la
+// finestra si è allungata senza doverlo indovinare, e due cause diverse sotto
+// la stessa etichetta manderebbero qualcuno a cercare un guasto che non c'è.
 
 import { LEAGUE_RULE_VERSION, type LeagueRuleVersion } from "./leagueGameweek.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. I NUMERI DICHIARATI DEL CRITERIO.
+// 1. I NUMERI E LE UNITÀ DICHIARATI DEL CRITERIO.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -87,14 +136,35 @@ export const CHAMPION_CHALLENGER_WINDOW = 6 as const;
  */
 export const REGRET_MAJORITY_MATCHDAYS = 4 as const;
 
-/** Perché una giornata NON entra nel conteggio (§2.4 punto 6). */
+/** Le DUE unità di rimpianto che §11.2 definisce. Il criterio ne accetta una. */
+export type RegretUnit =
+  /** Punti di lega persi rispetto al tetto ex-post: l'unità del criterio. */
+  | "LEAGUE_POINTS"
+  /** Fantapunti persi. §11.2 la calcola; §2.4 (b) e (c) NON la usano. */
+  | "FANTASY_POINTS";
+
+/**
+ * L'UNITÀ DEL RIMPIANTO NELLE CONDIZIONI (b) E (c) — decisione dell'Executive,
+ * contestabile, motivata in testa al file: (a) è già in punti di lega, e due
+ * unità dentro un criterio solo sono due criteri incollati.
+ */
+export const CRITERION_REGRET_UNIT = "LEAGUE_POINTS" as const satisfies RegretUnit;
+
+/** Perché una giornata NON entra nel conteggio. */
 export type LedgerExclusionReason =
-  /** Giornata di coppa: obiettivo diverso (§3.3). */
+  /** §2.4 punto 6 — giornata di coppa: obiettivo diverso (§3.3). */
   | "CUP"
-  /** Voto politico (§17 del regolamento): i voti fissi non distinguono i motori. */
+  /** §2.4 punto 6 — voto politico (§17 del regolamento): voti fissi per tutti. */
   | "POLITICAL_VOTE"
-  /** Uno dei due motori senza proposta registrata prima della scadenza. */
-  | "MISSING_REGISTRATION";
+  /** §2.4 punto 6 — proposta non registrata prima della scadenza. WP-8. */
+  | "MISSING_REGISTRATION"
+  /**
+   * QUARTO CASO, NON PREVISTO DA §2.4 PUNTO 6, aggiunto dall'Executive e
+   * motivato in testa al file: proposta registrata in tempo ma esito NON
+   * RISOLTO — il regolamento non copre una delle combinazioni incontrate, e il
+   * punteggio calcolato non è quello ufficiale (§11.2).
+   */
+  | "UNRESOLVED_OUTCOME";
 
 /** Quale invio è stato valutato: §2.4 punto 2 dice `v2`, altrimenti `v1`. */
 export type ProposalVersion = "v1" | "v2";
@@ -107,14 +177,19 @@ export type LedgerCompetition = "LEAGUE" | "CUP";
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * LA PROPOSTA DI UN MOTORE PER UNA GIORNATA.
+ * LA PROPOSTA DI UN MOTORE PER UNA GIORNATA, in TRE stati e non due.
  *
  * È un'unione discriminata e non un oggetto con campi opzionali, e la
- * differenza è la regola di §2.4 punto 1: una proposta registrata DOPO la
- * scadenza non conta per quella giornata, e una proposta che non c'è non è una
- * proposta a zero punti. Con i campi opzionali «registrata senza numeri» e
- * «non registrata» sarebbero lo stesso oggetto; qui sono due tipi, e il
- * compilatore non lascia scrivere il primo.
+ * differenza sono le regole del criterio: una proposta registrata DOPO la
+ * scadenza non conta per quella giornata (§2.4 punto 1), e una proposta che non
+ * c'è non è una proposta a zero punti. Con i campi opzionali «registrata senza
+ * numeri» e «non registrata» sarebbero lo stesso oggetto; qui sono due tipi
+ * diversi, e il compilatore non lascia confonderli.
+ *
+ * IL TERZO STATO — registrata ma con esito non risolto — esiste perché il
+ * quarto motivo di esclusione lo richiede: senza un modo di DIRLO, quella
+ * giornata arriverebbe qui travestita da una delle altre due, e il registro
+ * manderebbe qualcuno a cercare un guasto di WP-8 che non è mai successo.
  */
 export type EngineProposal =
   | {
@@ -125,21 +200,51 @@ export type EngineProposal =
     }
   | {
       readonly registered: true;
+      /**
+       * L'esito non è risolto: il regolamento non copre una delle combinazioni
+       * incontrate, quindi il punteggio calcolato non è quello ufficiale
+       * (§11.2) e non ci sono numeri da confrontare. NON è uno zero.
+       */
+      readonly outcomeResolved: false;
+      readonly version: ProposalVersion;
+      readonly note?: string;
+    }
+  | {
+      readonly registered: true;
+      readonly outcomeResolved: true;
       /** `v2` se la proposta è cambiata alle ufficiali, altrimenti `v1` (§2.4 p. 2). */
       readonly version: ProposalVersion;
       /** Punti di lega della PROPOSTA contro la formazione vera dell'avversario. */
       readonly leaguePoints: number;
       /** Rimpianto della PROPOSTA rispetto al tetto ex-post. Mai negativo. */
       readonly regret: number;
+      /**
+       * L'UNITÀ DEL RIMPIANTO, obbligatoria e senza valore di comodo. Il
+       * criterio accetta solo `CRITERION_REGRET_UNIT`: una riga in fantapunti
+       * viene rifiutata, non convertita.
+       */
+      readonly regretUnit: RegretUnit;
     };
 
-/** Comodità per le righe registrate, così il tipo si scrive una volta sola. */
+/**
+ * Comodità per una proposta MISURATA. L'unità è un parametro esplicito e non ha
+ * valore predefinito: chi registra una riga deve dire in che cosa ha misurato,
+ * e un valore di comodo qui vorrebbe dire indovinarlo al posto suo.
+ */
 export function registeredProposal(
   version: ProposalVersion,
   leaguePoints: number,
   regret: number,
+  regretUnit: RegretUnit,
 ): EngineProposal {
-  return { registered: true, version, leaguePoints, regret };
+  return { registered: true, outcomeResolved: true, version, leaguePoints, regret, regretUnit };
+}
+
+/** Comodità per la proposta registrata in tempo e non misurabile (4° motivo). */
+export function unresolvedProposal(version: ProposalVersion, note?: string): EngineProposal {
+  return note === undefined
+    ? { registered: true, outcomeResolved: false, version }
+    : { registered: true, outcomeResolved: false, version, note };
 }
 
 /** Comodità per l'incidente di WP-8: nessuna proposta prima della scadenza. */
@@ -204,20 +309,27 @@ export interface LedgerMatchday {
 // 3. IL CRITERIO — (a), (b), (c) su una finestra di sei giornate valide.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Una giornata VALIDA, ridotta ai quattro numeri che il criterio confronta. */
+/** Una giornata VALIDA, ridotta ai numeri che il criterio confronta. */
 export interface LedgerWindowEntry {
   readonly matchday: number;
   readonly championLeaguePoints: number;
   readonly championRegret: number;
   readonly challengerLeaguePoints: number;
   readonly challengerRegret: number;
+  /**
+   * L'unità dei due rimpianti di questa riga. Il criterio accetta solo
+   * `CRITERION_REGRET_UNIT` e rifiuta il resto: la guardia sta anche qui, e non
+   * solo nel ledger, perché questa funzione è esportata e qualcuno la può
+   * chiamare con una finestra che ha costruito da sé.
+   */
+  readonly regretUnit: RegretUnit;
 }
 
 /** I tre numeri di un motore nella finestra: (a), (b), (c) di §2.4 punto 3. */
 export interface EngineWindowNumbers {
   /** (a) somma dei punti di lega sulle sei giornate valide. */
   readonly leaguePointsTotal: number;
-  /** (b) rimpianto medio sulle sei giornate valide. */
+  /** (b) rimpianto medio, in punti di lega, sulle sei giornate valide. */
   readonly meanRegret: number;
   /** (c) in quante giornate il suo rimpianto è `≤` a quello dell'altro. */
   readonly regretNotWorseMatchdays: number;
@@ -237,6 +349,8 @@ export interface CriterionVerdict {
   /** Le sei giornate valide guardate, in ordine crescente. */
   readonly windowMatchdays: readonly number[];
   readonly numbers: ChampionChallengerNumbers;
+  /** L'unità in cui (b) e (c) sono stati calcolati. Sempre i punti di lega. */
+  readonly regretUnit: typeof CRITERION_REGRET_UNIT;
   /** (a) somma dei punti dello sfidante `≥` quella del campione. */
   readonly pointsAtLeast: boolean;
   /** (b) rimpianto medio dello sfidante STRETTAMENTE minore. */
@@ -253,6 +367,27 @@ function assertFiniteNumber(value: number, what: string): void {
     throw new Error(
       `${what}: valore non finito (${String(value)}). «Non calcolabile» non è un numero e non si scrive ` +
         "NaN: una giornata senza numero va dichiarata a monte, non fatta passare come se ne avesse uno.",
+    );
+  }
+}
+
+/**
+ * LA GUARDIA SULL'UNITÀ — rifiuta, non converte.
+ *
+ * Decisione dell'Executive (in testa al file): (b) e (c) si misurano in punti di
+ * lega, come (a). Una riga in fantapunti non si converte perché non si può — la
+ * conversione passa dal confronto con l'avversario di quella giornata, che qui
+ * non c'è — e un fattore inventato trasformerebbe un rifiuto in un
+ * arrotondamento.
+ */
+function assertCriterionRegretUnit(unit: RegretUnit, what: string): void {
+  if (unit !== CRITERION_REGRET_UNIT) {
+    throw new Error(
+      `${what}: il rimpianto è dichiarato in ${String(unit)}, e il criterio §2.4 lo misura in ` +
+        `${CRITERION_REGRET_UNIT}. La riga è RIFIUTATA e NON convertita: la condizione (a) è già in ` +
+        "punti di lega, e un criterio con due unità dentro è due criteri incollati — il campione " +
+        "potrebbe cambiare per una differenza che non ha mai spostato un punto in classifica. " +
+        "Scelta dell'Executive (§15 del disegno), contestabile con un record datato.",
     );
   }
 }
@@ -275,7 +410,7 @@ function assertFiniteNumber(value: number, what: string): void {
  *      RIPETUTO, non concentrato, e per questo §2.4 dichiara che con `N = 4` il
  *      criterio si promuoverebbe sul rumore.
  *
- * Le tre insieme, mai due su tre.
+ * Le tre insieme, mai due su tre, e tutte e tre in PUNTI DI LEGA.
  */
 export function championChallengerCriterion(window: readonly LedgerWindowEntry[]): CriterionVerdict {
   if (window.length !== CHAMPION_CHALLENGER_WINDOW) {
@@ -292,6 +427,7 @@ export function championChallengerCriterion(window: readonly LedgerWindowEntry[]
   let challengerNotWorse = 0;
   let championNotWorse = 0;
   for (const entry of window) {
+    assertCriterionRegretUnit(entry.regretUnit, `criterio §2.4 (giornata ${entry.matchday})`);
     assertFiniteNumber(entry.championLeaguePoints, `criterio §2.4 (giornata ${entry.matchday}, campione)`);
     assertFiniteNumber(entry.challengerLeaguePoints, `criterio §2.4 (giornata ${entry.matchday}, sfidante)`);
     assertFiniteNumber(entry.championRegret, `criterio §2.4 (rimpianto del campione, giornata ${entry.matchday})`);
@@ -331,14 +467,16 @@ export function championChallengerCriterion(window: readonly LedgerWindowEntry[]
         regretNotWorseMatchdays: challengerNotWorse,
       },
     },
+    regretUnit: CRITERION_REGRET_UNIT,
     pointsAtLeast,
     meanRegretLower,
     regretMajority,
     swap,
     reason: swap
       ? `criterio §2.4 soddisfatto su ${window.map((e) => e.matchday).join(", ")}: punti ${challengerPoints} ` +
-        `contro ${championPoints}, rimpianto medio ${challengerMean} contro ${championMean}, non peggiore in ` +
-        `${challengerNotWorse} giornata/e su ${CHAMPION_CHALLENGER_WINDOW}`
+        `contro ${championPoints}, rimpianto medio ${challengerMean} contro ${championMean} (in ` +
+        `${CRITERION_REGRET_UNIT}), non peggiore in ${challengerNotWorse} giornata/e su ` +
+        `${CHAMPION_CHALLENGER_WINDOW}`
       : `criterio §2.4 non soddisfatto: ${failed.join("; ")}`,
   };
 }
@@ -378,6 +516,8 @@ export interface LedgerSwap {
   readonly windowMatchdays: readonly number[];
   /** I sei numeri, per la mail: tre del campione uscente, tre dell'entrante. */
   readonly numbers: ChampionChallengerNumbers;
+  /** L'unità di (b) e (c): sempre i punti di lega. */
+  readonly regretUnit: typeof CRITERION_REGRET_UNIT;
   readonly reason: string;
 }
 
@@ -407,6 +547,8 @@ export interface ChampionChallengerLedger {
   readonly validMatchdaysToNextEvaluation: number;
   /** Le giornate in cui Pico è intervenuto con il terzo invio. */
   readonly picoOverrideMatchdays: readonly number[];
+  /** L'unità in cui (b) e (c) sono stati misurati: sempre i punti di lega. */
+  readonly regretUnit: typeof CRITERION_REGRET_UNIT;
   readonly reason: string;
   readonly leagueRuleVersion: LeagueRuleVersion;
 }
@@ -420,12 +562,20 @@ function assertEngineName(value: string, what: string): void {
   }
 }
 
-function proposalNumbers(
+/** I tre stati in cui una proposta può arrivare al conteggio. */
+type ProposalReading =
+  | { readonly kind: "MISSING" }
+  | { readonly kind: "UNRESOLVED" }
+  | { readonly kind: "MEASURED"; readonly leaguePoints: number; readonly regret: number };
+
+function readProposal(
   proposal: EngineProposal,
   role: "campione" | "sfidante",
   matchday: number,
-): { leaguePoints: number; regret: number } | null {
-  if (!proposal.registered) return null;
+): ProposalReading {
+  if (!proposal.registered) return { kind: "MISSING" };
+  if (!proposal.outcomeResolved) return { kind: "UNRESOLVED" };
+  assertCriterionRegretUnit(proposal.regretUnit, `giornata ${matchday}, rimpianto del ${role}`);
   assertFiniteNumber(proposal.leaguePoints, `giornata ${matchday}, punti del ${role}`);
   assertFiniteNumber(proposal.regret, `giornata ${matchday}, rimpianto del ${role}`);
   if (proposal.regret < 0) {
@@ -435,7 +585,7 @@ function proposalNumbers(
         "noti, che non è possibile, e farebbe abbassare la media nel verso sbagliato.",
     );
   }
-  return { leaguePoints: proposal.leaguePoints, regret: proposal.regret };
+  return { kind: "MEASURED", leaguePoints: proposal.leaguePoints, regret: proposal.regret };
 }
 
 /**
@@ -449,12 +599,15 @@ function proposalNumbers(
  *     il risultato sarebbe negativo, ma perché il criterio su cinque giornate è
  *     un altro criterio.
  *
- *  2) TRE CASI NON CONTANO E ALLUNGANO LA FINESTRA (§2.4 punto 6): coppa, voto
- *     politico, e la giornata in cui a uno dei due motori manca la proposta
- *     registrata prima della scadenza. Le tre esclusioni non si annullano né si
- *     sommano fra loro: una giornata può portarne più d'una, e il rapporto le
- *     dice tutte perché «era di coppa» e «e per di più mancava la proposta»
- *     sono due incidenti diversi, e il secondo è di WP-8.
+ *  2) QUATTRO CASI NON CONTANO E ALLUNGANO LA FINESTRA: i tre di §2.4 punto 6
+ *     — coppa, voto politico, proposta non registrata prima della scadenza — e
+ *     il QUARTO aggiunto dall'Executive sopra il testo, l'esito non risolto
+ *     (motivazione in testa al file: è uno scostamento dichiarato da un elenco
+ *     che si presenta come chiuso, non una lettura del documento). I motivi non
+ *     si annullano né si assorbono fra loro: una giornata può portarne più
+ *     d'uno, e il rapporto li dice tutti — «era di coppa» e «e per di più
+ *     mancava la proposta» sono due incidenti diversi, e solo il secondo è di
+ *     WP-8.
  *
  *  3) IL CAMBIO SI ESEGUE, NON SI PROPONE (§2.4, «nessun passo umano»): quando
  *     le tre condizioni cadono insieme i ruoli si scambiano sulla riga stessa,
@@ -544,9 +697,14 @@ export function runChampionChallengerLedger(input: {
     const reasons: LedgerExclusionReason[] = [];
     if (entry.competition === "CUP") reasons.push("CUP");
     if (entry.politicalVote) reasons.push("POLITICAL_VOTE");
-    const championNumbers = proposalNumbers(entry.champion, "campione", entry.matchday);
-    const challengerNumbers = proposalNumbers(entry.challenger, "sfidante", entry.matchday);
-    if (championNumbers === null || challengerNumbers === null) reasons.push("MISSING_REGISTRATION");
+    const championReading = readProposal(entry.champion, "campione", entry.matchday);
+    const challengerReading = readProposal(entry.challenger, "sfidante", entry.matchday);
+    if (championReading.kind === "MISSING" || challengerReading.kind === "MISSING") {
+      reasons.push("MISSING_REGISTRATION");
+    }
+    if (championReading.kind === "UNRESOLVED" || challengerReading.kind === "UNRESOLVED") {
+      reasons.push("UNRESOLVED_OUTCOME");
+    }
 
     const picoOverrideRecorded = entry.picoOverride !== undefined && entry.picoOverride !== null;
     if (picoOverrideRecorded) picoOverrideMatchdays.push(entry.matchday);
@@ -559,13 +717,14 @@ export function runChampionChallengerLedger(input: {
     const rowChampion = champion;
     const rowChallenger = challenger;
 
-    if (counted && championNumbers !== null && challengerNumbers !== null) {
+    if (counted && championReading.kind === "MEASURED" && challengerReading.kind === "MEASURED") {
       window.push({
         matchday: entry.matchday,
-        championLeaguePoints: championNumbers.leaguePoints,
-        championRegret: championNumbers.regret,
-        challengerLeaguePoints: challengerNumbers.leaguePoints,
-        challengerRegret: challengerNumbers.regret,
+        championLeaguePoints: championReading.leaguePoints,
+        championRegret: championReading.regret,
+        challengerLeaguePoints: challengerReading.leaguePoints,
+        challengerRegret: challengerReading.regret,
+        regretUnit: CRITERION_REGRET_UNIT,
       });
       if (window.length >= CHAMPION_CHALLENGER_WINDOW) {
         verdict = championChallengerCriterion(window.slice(-CHAMPION_CHALLENGER_WINDOW));
@@ -577,6 +736,7 @@ export function runChampionChallengerLedger(input: {
             newChampion: challenger,
             windowMatchdays: verdict.windowMatchdays,
             numbers: verdict.numbers,
+            regretUnit: CRITERION_REGRET_UNIT,
             reason:
               `cambio eseguito dopo la giornata ${entry.matchday}: «${challenger}» entra, «${champion}» ` +
               `torna in ombra. ${verdict.reason}. Il confronto riparte da zero (§2.4 punto 5).`,
@@ -616,6 +776,12 @@ export function runChampionChallengerLedger(input: {
             ? ". La registrazione mancante è un incidente di WP-8 da riportare, non un punto a favore " +
               "dell'altro motore."
             : "") +
+          (reasons.includes("UNRESOLVED_OUTCOME")
+            ? ". L'esito non risolto è un QUARTO motivo, NON previsto dall'elenco di §2.4 punto 6 e " +
+              "aggiunto dall'Executive: il regolamento non copre una delle combinazioni incontrate, " +
+              "quindi i due motori non sono stati misurati in modo confrontabile. Non è un guasto di " +
+              "WP-8 e non c'è nessun incidente da riportare."
+            : "") +
           (picoOverrideRecorded
             ? ". Terzo invio di Pico registrato e NON contato."
             : ""),
@@ -632,10 +798,11 @@ export function runChampionChallengerLedger(input: {
     exclusions,
     validMatchdaysToNextEvaluation: missing,
     picoOverrideMatchdays,
+    regretUnit: CRITERION_REGRET_UNIT,
     reason:
       `${rows.length} giornata/e lette, ${rows.length - exclusions.length} contata/e, ` +
       `${exclusions.length} esclusa/e; ${swaps.length} cambio/i eseguito/i; in carica «${champion}», ` +
-      `in ombra «${challenger}»; ` +
+      `in ombra «${challenger}»; rimpianto misurato in ${CRITERION_REGRET_UNIT}; ` +
       (missing === 0
         ? "finestra piena, il criterio è stato applicato sull'ultima giornata valida"
         : `mancano ${missing} giornata/e valida/e perché il criterio si possa applicare`) +
