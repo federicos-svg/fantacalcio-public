@@ -476,7 +476,16 @@ function onVoteGrid(vote: number): boolean {
   return Number.isFinite(vote) && Number.isInteger(vote * 2);
 }
 
-function assertForecasts(players: readonly PlayerForecast[], where: string): void {
+/**
+ * ESPORTATA (insieme a `expectedLine`, `absentLine`, `neverPlays` più sotto)
+ * PERCHÉ `opponentLineupDistribution.ts` (§8.4 punto 3) deve convertire la
+ * previsione della rosa avversaria nella STESSA forma usata qui per la
+ * nostra, per poter chiamare `bestLineupExPost` sul loro undici "razionale"
+ * con l'obiettivo di §3. Riesportarle evita una seconda copia della stessa
+ * conversione previsione → riga di giornata, che è esattamente il rischio
+ * («NESSUNA FORMULA PARALLELA») dichiarato in testa a questo file.
+ */
+export function assertForecasts(players: readonly PlayerForecast[], where: string): void {
   const seen = new Set<string>();
   for (const f of players) {
     if (typeof f.id !== "string" || f.id.length === 0) throw new Error(`${where}: id mancante o non valido`);
@@ -902,7 +911,7 @@ function checkConstraints(
 }
 
 /** La riga di giornata di chi gioca: esattamente la previsione, niente di più. */
-function expectedLine(f: PlayerForecast): PlayerLine {
+export function expectedLine(f: PlayerForecast): PlayerLine {
   return {
     id: f.id,
     role: f.role,
@@ -920,7 +929,7 @@ function expectedLine(f: PlayerForecast): PlayerLine {
  * altro. Lasciarli indefiniti darebbe `undeclared`, cioè «non lo so», che è una
  * cosa diversa da «non gioca».
  */
-function absentLine(f: PlayerForecast): PlayerLine {
+export function absentLine(f: PlayerForecast): PlayerLine {
   return { id: f.id, role: f.role, baseVote: null, fantasyScore: null, cards: "none", otherBonusMalus: 0 };
 }
 
@@ -963,7 +972,7 @@ export interface LineupPlan {
 }
 
 /** Chi non ha probabilità di giocare non entra mai: §13 lo lascia senza voto. */
-function neverPlays(f: PlayerForecast): boolean {
+export function neverPlays(f: PlayerForecast): boolean {
   return f.voteProbability <= 0;
 }
 
