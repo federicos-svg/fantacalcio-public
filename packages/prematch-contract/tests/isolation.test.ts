@@ -189,17 +189,26 @@ const NOT_THE_AUCTION_PRODUCT: readonly string[] = [
  * state toccate: portarle richiede di rifare le loro prove, non di copiare
  * questo blocco.
  *
- * NOTA DI CONFINE, perché non sembri una svista: `prematch-reader` è un
- * pacchetto **privato** e in questo repository non esiste. La sua riga fa qui
- * l'unica cosa che qui si può fare — e verificare: vietarne il nome dentro il
- * prodotto d'asta. Che possa leggere il contratto non gliel'ha concesso questa
- * riga: gliel'ha concesso il non essere il prodotto d'asta, che vale per lui
- * come per chiunque altro, in questo repository e nel privato. Se quel lettore
- * nascerà con un nome diverso da `prematch-reader`, non sarà un divieto a
- * fermarlo ma `unclassifiedConsumers`, che lo nominerà e chiederà una riga:
+ * IL SECONDO TRAMITE, con la stessa ragione del primo: `probable-lineups-
+ * resolver` è il risolutore delle probabili di §7.2 per il Lineup Coach (Fase
+ * 2) — traduce le formazioni osservate del contratto nello stato a quattro
+ * valori di chi scende in campo. Consuma il contratto per lo stesso mestiere
+ * di `prematch-reader`, non lo aggira: nessun tipo duplicato, nessun nome
+ * offuscato. Come `prematch-reader`, non ha un'implementazione pubblica — vive
+ * per intero nel repository privato — quindi qui la sua riga fa solo la metà
+ * verificabile: vietarne il nome dentro il prodotto d'asta.
+ *
+ * NOTA DI CONFINE, perché non sembri una svista: né `prematch-reader` né
+ * `probable-lineups-resolver` esistono in questo repository. Ciascuna riga fa
+ * qui l'unica cosa che qui si può fare — e verificare: vietarne il nome dentro
+ * il prodotto d'asta. Che possano leggere il contratto non gliel'ha concesso
+ * questa riga: gliel'ha concesso il non essere il prodotto d'asta, che vale
+ * per loro come per chiunque altro, in questo repository e nel privato. Se un
+ * tramite nascerà con un nome diverso da quelli qui sotto, non sarà un divieto
+ * a fermarlo ma `unclassifiedConsumers`, che lo nominerà e chiederà una riga:
  * dichiararlo qui, o fra chi il prodotto d'asta non è.
  */
-const PHASE_TWO_CONSUMERS: readonly string[] = ["prematch-reader"];
+const PHASE_TWO_CONSUMERS: readonly string[] = ["prematch-reader", "probable-lineups-resolver"];
 
 /** `prematch-reader` → `prematchReader`: un import si scrive in tutti e due i modi. */
 function camelCase(kebab: string): string {
@@ -424,7 +433,7 @@ describe("il contratto pre-partita resta fuori dal prodotto d'asta", () => {
   it("i tramiti dichiarati sono un elenco chiuso, e ogni nome è un nome di pacchetto", () => {
     // Un nome in più qui è una riga in diff, che chi rivede vede. Il confronto
     // esatto è ciò che impedisce a un tramite di entrare per inerzia.
-    expect(PHASE_TWO_CONSUMERS).toEqual(["prematch-reader"]);
+    expect(PHASE_TWO_CONSUMERS).toEqual(["prematch-reader", "probable-lineups-resolver"]);
     for (const name of PHASE_TWO_CONSUMERS) {
       // Niente metacaratteri: i nomi finiscono in un confronto letterale, e un
       // nome bizzarro qui sarebbe un modo di non vietare quello che si crede.
@@ -466,6 +475,10 @@ describe("il contratto pre-partita resta fuori dal prodotto d'asta", () => {
       // passando dal tramite dichiarato, perché non può nominare nemmeno quello.
       ["motore, via lettore", "packages/engine/src/finto.ts", 'import { r } from "../../prematch-reader/src/readDeposit.js";'],
       ["UI, via lettore in cammello", "src/finto.ts", "const y = prematchReader.deposits;"],
+      // LA STESSA PORTA, secondo tramite: probable-lineups-resolver è vietato
+      // quanto prematch-reader, per la stessa ragione e nello stesso modo.
+      ["motore, via risolutore probabili", "packages/engine/src/finto.ts", 'import { r } from "../../probable-lineups-resolver/src/risolviChiScendeInCampo.js";'],
+      ["UI, via risolutore probabili in cammello", "src/finto.ts", "const z = probableLineupsResolver.stato;"],
     ];
     for (const [etichetta, file, sorgente] of respinti) {
       const violazioni = mentionViolations(file, sorgente);
