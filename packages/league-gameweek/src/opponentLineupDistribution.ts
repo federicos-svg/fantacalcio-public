@@ -294,9 +294,28 @@ export function opponentLineupDistribution(
     }
     const repeatEstimate = behaviourEstimate(input.opponentBehaviour, "elevenIdenticalToPrevious");
     const observedShare = repeatEstimate.share[0];
-    if (typeof observedShare !== "number" || !Number.isFinite(observedShare) || observedShare < 0) {
+    // ENTRAMBI GLI ESTREMI, NON SOLO IL BASSO. `observedShare` è una quota
+    // (categoria "identico" di una distribuzione a due categorie che somma
+    // 1): sopra 1 non è "più sicuro", è un profilo che non descrive una
+    // probabilità. Nella catena reale lo shrink di `leagueBehaviourProfile.ts`
+    // (§8.4, `k = 4`) tiene la quota dentro `(0, 1)` per costruzione — ma quel
+    // fatto vive in un altro file, con un altro `k` che un domani può
+    // cambiare, e questo controllo non deve dipendere da una garanzia che
+    // vive altrove e che nessuna riga qui verifica. Un profilo che rompe
+    // quell'intervallo è contraddittorio: fail-closed con motivo nominato,
+    // come ogni altra guardia di questo file, invece di propagare pesi
+    // negativi o nulli sulle altre candidate in silenzio.
+    if (
+      typeof observedShare !== "number" ||
+      !Number.isFinite(observedShare) ||
+      observedShare < 0 ||
+      observedShare > 1
+    ) {
       fail(
-        `la quota "ripete la formazione" del profilo (§8.3) non è un numero valido (${String(observedShare)}).`,
+        `la quota "ripete la formazione" del profilo (§8.3) non è una quota valida in [0, 1] ` +
+          `(${String(observedShare)}). Una quota fuori da quell'intervallo non è "più" o "meno" sicura: ` +
+          "è un profilo contraddittorio, e propagarla produrrebbe pesi negativi o nulli sulle altre " +
+          "candidate della distribuzione senza che nessuno se ne accorga.",
       );
     }
     const withinEarlyWindow = input.context.matchday <= EARLY_SEASON_WINDOW_GAMEWEEKS;

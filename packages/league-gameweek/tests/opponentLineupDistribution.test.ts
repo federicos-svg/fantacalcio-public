@@ -303,6 +303,29 @@ describe("opponentLineupDistribution — formazione della giornata precedente", 
     expect(result.repeatPreviousFloored).toBe(true);
   });
 
+  it("il confine della finestra è inclusivo: la giornata 6 flora, la giornata 7 no", () => {
+    // §8.4 punto 5: "mai sotto il 10% nelle prime 6 giornate" — "prime 6"
+    // include la sesta. Il confine è l'unico punto in cui `<=` e `<` si
+    // distinguono, e nessun'altra prova di questo file lo tocca: le prove
+    // sopra usano 1, 3 e 10, mai il valore esatto della soglia.
+    const withRepeat = (matchday: number) =>
+      opponentLineupDistribution({
+        opponentForecast: FULL_OPPONENT_SQUAD,
+        opponentBehaviour: handBuiltProfile({ moduleShare: UNIFORM_MODULE_SHARE, repeatShare: 0.02 }),
+        ourReferenceLineup: OUR_REFERENCE_LINEUP,
+        ourReferencePlayers: OUR_REFERENCE_PLAYERS,
+        context: CONTEXT(matchday),
+        previousLineup: PREVIOUS_LINEUP,
+      });
+    const gameweek6 = withRepeat(6);
+    expect(gameweek6.repeatPreviousWeight).toBeCloseTo(0.1, 10);
+    expect(gameweek6.repeatPreviousFloored).toBe(true);
+
+    const gameweek7 = withRepeat(7);
+    expect(gameweek7.repeatPreviousWeight).toBeCloseTo(0.02, 10);
+    expect(gameweek7.repeatPreviousFloored).toBe(false);
+  });
+
   it("nelle prime 6 giornate una quota osservata già sopra il 10% non viene toccata", () => {
     const result = opponentLineupDistribution({
       opponentForecast: FULL_OPPONENT_SQUAD,
@@ -429,6 +452,29 @@ describe("opponentLineupDistribution — guardie fail-closed", () => {
         context: CONTEXT(10),
       }),
     ).toThrow(/peso del modulo 433.*non è un numero finito e positivo/);
+  });
+
+  it("rifiuta una quota di ripetizione del profilo sopra 1 (contraddittoria, non 'più sicura')", () => {
+    // Un `TeamBehaviourProfile` malformato con `elevenIdenticalToPrevious.
+    // share[0] > 1`: senza il tetto superiore questo produrrebbe un
+    // `repeatWeight` sopra 1 e quindi un `modulePool` negativo, cioè pesi
+    // negativi o nulli su tutte le altre candidate — in silenzio.
+    const legalPrevious: Lineup = {
+      module: "352",
+      goalkeeperId: "o-gk",
+      starterIds: ["o-d1", "o-d2", "o-d3", "o-c1", "o-c2", "o-c3", "o-c4", "o-c5", "o-a1", "o-a2"],
+      benchIds: ["o-d4", "o-d5", "o-a3"],
+    };
+    expect(() =>
+      opponentLineupDistribution({
+        opponentForecast: FULL_OPPONENT_SQUAD,
+        opponentBehaviour: handBuiltProfile({ moduleShare: UNIFORM_MODULE_SHARE, repeatShare: 1.5 }),
+        ourReferenceLineup: OUR_REFERENCE_LINEUP,
+        ourReferencePlayers: OUR_REFERENCE_PLAYERS,
+        context: CONTEXT(10),
+        previousLineup: legalPrevious,
+      }),
+    ).toThrow(/quota "ripete la formazione".*non è una quota valida in \[0, 1\]/);
   });
 
   it("rifiuta una rosa avversaria vuota", () => {
