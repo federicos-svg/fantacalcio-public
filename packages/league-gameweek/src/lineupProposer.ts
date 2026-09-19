@@ -141,6 +141,18 @@
 // VOLTA SOLA prima della ricerca: tutte le formazioni candidate vengono
 // confrontate sullo stesso identico insieme di scenari, altrimenti il confronto
 // misurerebbe il rumore del campionamento invece della formazione.
+//
+// E INVARIANTE ALL'ORDINE DI `squad` IN INGRESSO — non solo bit a bit da una
+// chiamata all'altra con lo STESSO ordine, ma identico anche cambiando SOLO
+// l'ordine con cui i giocatori arrivano. `prepareGameweek` canonicalizza la
+// rosa per `id` prima di ogni uso: senza, l'ordine del chiamante decideva sia
+// in quale sequenza la virgola mobile somma gli stessi numeri (non associativa
+// all'ultimo bit) sia quale giocatore consuma quale estrazione del PRNG nel
+// campionamento — due formazioni equivalenti, portiere compreso, potevano
+// uscire diverse dalla stessa identica rosa passata in due ordini diversi.
+// Misurato: 39 istanze su 40 differivano all'ultimo bit nelle somme, 3 su 40
+// nel portiere scelto fra due equivalenti. Vedi il commento su `const squad`
+// in `prepareGameweek`.
 
 import {
   type GameweekContext,
@@ -1234,7 +1246,27 @@ export interface GameweekPreparation {
 export function prepareGameweek(input: LineupProposalInput): GameweekPreparation {
   assertInput(input);
 
-  const { squad, opponent, context } = input;
+  const { opponent, context } = input;
+  // ── LA ROSA SI CANONICALIZZA PER ID, QUI, UNA VOLTA SOLA. Il difetto
+  // misurato: a parità di rosa e di previsione, l'ORDINE con cui i giocatori
+  // arrivano in `input.squad` cambiava la formazione proposta — in 39
+  // istanze su 40 le somme in virgola mobile all'ultimo bit, in 3 su 40 il
+  // portiere scelto fra due equivalenti. La causa non è un bug isolato ma una
+  // proprietà strutturale di questo file: `stochastic` (sotto) mette insieme
+  // rosa e avversario nell'ordine in cui arrivano e lo USA due volte — come
+  // indice nella maschera di bit dell'enumerazione esatta e come sequenza di
+  // estrazione del PRNG nel campionamento — e `bestLineupExPost` (Tier 1)
+  // combina i liberi di ogni ruolo nell'ordine di `squad`. In entrambi i casi
+  // l'ordine non è un dettaglio: decide in quale sequenza la virgola mobile
+  // somma gli stessi numeri (non associativa all'ultimo bit) e quale
+  // giocatore consuma quale estrazione casuale. Ordinare la rosa per `id` —
+  // stabile, totale, indipendente da chi chiama — rende tutto il resto una
+  // funzione pura dell'INSIEME dei giocatori, non del modo in cui sono
+  // arrivati: due chiamate con la stessa rosa in ordini diversi ora vedono
+  // esattamente la stessa sequenza e producono la stessa formazione, bit a
+  // bit. `assertForecasts` ha già escluso gli id duplicati, quindi il
+  // confronto per stringa è un ordine totale su questa rosa.
+  const squad = [...input.squad].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const scenarioBudget = input.scenarioBudget ?? DEFAULT_SCENARIO_BUDGET;
   const requestedSeed = input.seed ?? DEFAULT_SEED;
   const competition = input.competition ?? LEAGUE_OBJECTIVE;

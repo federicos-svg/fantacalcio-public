@@ -665,8 +665,13 @@ describe("determinismo e modalità di stima", () => {
         scenarioBudget: 32,
         seed,
       });
+    // Impronte rifatte dopo la canonicalizzazione della rosa per `id`
+    // all'ingresso (invarianza all'ordine): la sequenza con cui il PRNG
+    // consuma i giocatori incerti dipende ora dall'ordine canonico, non da
+    // quello con cui questa fixture li ha scritti, quindi il numero di
+    // modulo che ciascun seme produce è cambiato rispetto a prima del fix.
     expect(conBudget32(1).lineup!.module).toBe("541");
-    expect(conBudget32(7).lineup!.module).toBe("433");
+    expect(conBudget32(7).lineup!.module).toBe("442");
   });
 
   it("omettere il seme usa QUEL seme: l'impronta del default è questa e non un'altra", () => {
@@ -685,8 +690,10 @@ describe("determinismo e modalità di stima", () => {
     // in `leagueGameweek.test.ts`: cambiarlo è una decisione, non un refuso.
     expect(DEFAULT_SEED).toBe(20260903);
     expect(senzaSeme.estimate.method).toBe("sampled");
-    expect(senzaSeme.estimate.expectedLeaguePoints).toBeCloseTo(0.4375, 12);
-    expect(senzaSeme.estimate.winProbability).toBeCloseTo(0.046875, 12);
+    // Impronta rifatta dopo la canonicalizzazione della rosa per `id`
+    // all'ingresso: stesso motivo del commento sopra, in `conBudget32`.
+    expect(senzaSeme.estimate.expectedLeaguePoints).toBeCloseTo(0.609375, 12);
+    expect(senzaSeme.estimate.winProbability).toBeCloseTo(0.09375, 12);
     // E l'impronta è distinta da quella di altri semi: se coincidesse, il
     // confronto qui sopra non distinguerebbe un default da un altro.
     for (const seed of [1, 2, 7, 99]) {
