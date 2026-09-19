@@ -149,14 +149,21 @@
 //    confrontare due motori che rispondono a domande diverse, e il confronto di
 //    §2.4 non misurerebbe più niente.
 //
-// f) NON C'È NESSUNA FEATURE DI PARTITA. §6.3 elenca le famiglie candidate del
-//    motore ricco — disponibilità e minuti, forma, bonus da xG/xA, rigorista,
-//    falli e arbitro, matchup, correlazioni intra-partita, stile
-//    dell'allenatore, marcatore diretto — e le dichiara MAI ammesse a priori.
-//    Di quell'elenco questo pacchetto costruisce UNA sola famiglia, la FORMA
-//    RECENTE, e nessuna delle altre: costruirle qui senza che nessuno le abbia
-//    chieste sarebbe inventare una decisione. Quella che c'è resta candidata,
-//    non promossa.
+// f) LE FAMIGLIE DI §6.3 COSTRUITE QUI SONO TRE, E NON UNA DI PIÙ. §6.3 elenca
+//    le famiglie candidate del motore ricco — disponibilità e minuti, forma,
+//    bonus da xG/xA, rigorista, falli e arbitro, matchup, correlazioni
+//    intra-partita, stile dell'allenatore, marcatore diretto — e le dichiara
+//    MAI ammesse a priori. Di quell'elenco questo pacchetto ne costruisce TRE:
+//    la FORMA RECENTE, i MINUTI GIOCATI — scelta (h) — e i GOL ATTESI —
+//    scelta (i). Le altre sei non ci sono: costruirle qui senza che nessuno le
+//    abbia chieste sarebbe inventare una decisione.
+//
+//    E LE TRE CHE CI SONO RESTANO CANDIDATE, NON PROMOSSE. Costruire una
+//    famiglia non è ammetterla: il criterio di ingresso è PRE-REGISTRATO in
+//    §2.4, vive altrove, e la regola 3 qui sopra vieta a questo file di dire
+//    «meglio» anche di sé stesso. Che i minuti e i gol attesi debbano contare
+//    per la formazione è una decisione del proprietario; che il motore che li
+//    usa sia quello che si schiera, no, ed è un'altra decisione, di un altro.
 //
 // f-bis) `opponentHabits` NON È UNA FAMIGLIA DI §6.3, ED È UN DOPPIONE. VA
 //    LETTA PRIMA DI COLLEGARLA A QUALUNQUE COSA.
@@ -230,6 +237,99 @@
 //    volte; il prezzo dell'alternativa era modificare il metro per comodità
 //    dello sfidante, che è esattamente il modo in cui un confronto si corrompe.
 //    Se un giorno il base esporterà quei mattoni, questo file si accorcia.
+//
+// h) I MINUTI GIOCATI STANNO NEL «GIOCA», E SOLO LÌ.
+//
+//    CHE COSA AGGIUNGONO. Fino a ieri l'unica cosa che questo motore sapeva
+//    del tempo passato in campo era UN BIT: titolare oppure subentrato. Quel
+//    bit non distingue chi entra al 70' da chi entra al 46', né il titolare
+//    che finisce la partita da quello che esce sempre all'intervallo — e sono
+//    differenze che valgono un posto in formazione.
+//
+//    DOVE ENTRANO. Nella stima «gioca o non gioca», cioè in `pPlays`, e in
+//    nessun altro posto: non toccano il voto, non toccano gli eventi, non
+//    toccano le fattispecie del senza voto. La separazione di §6.1 fra «gioca»
+//    e «rende dato che gioca» vale qui come nel metro, e per la stessa ragione:
+//    mescolarle renderebbe impossibile dire se un numero basso è uno scarso che
+//    gioca sempre o un fuoriclasse che gioca un terzo delle volte.
+//
+//    COME ENTRANO — ed è la parte che va letta due volte. NON sostituiscono la
+//    frequenza dei voti: un subentrante rateato ogni domenica PRENDE voto ogni
+//    domenica, e leggere i suoi venti minuti come «gioca 0,22» sarebbe un
+//    errore grossolano nel verso opposto. Entrano come SECONDA OSSERVAZIONE
+//    DELLA STESSA QUANTITÀ — «quanto questo giocatore è in campo» — dentro lo
+//    STESSO shrink: una giornata che dichiara i minuti porta una riga in più al
+//    numeratore (la quota di partita giocata) e una in più al denominatore.
+//    Conseguenze, tutte volute:
+//      - una giornata che dichiara i minuti vale DOPPIO in evidenza, ed è
+//        giusto: di quella giornata sappiamo davvero due cose invece di una;
+//      - il denominatore cresce insieme al numeratore, quindi lo shrink verso
+//        il ruolo si allenta esattamente quanto l'evidenza è cresciuta, né più
+//        né meno. Il conto lo fa la stessa formula di §6.2, non una nuova;
+//      - con ZERO minuti dichiarati i due termini sono zero e la formula torna
+//        a essere, BIT A BIT, quella di prima. È il modo in cui questa famiglia
+//        paga la retrocompatibilità: non con un ramo `if`, con l'aritmetica.
+//
+//    A QUALE FAMIGLIA DI DIMENTICANZA APPARTENGONO: la RICCA. I minuti si
+//    leggono per ogni giocatore di ogni squadra a ogni giornata — lo stesso
+//    volume del rendimento, migliaia di osservazioni — quindi dimenticano alla
+//    stessa velocità del rendimento, con `playerHalfLifeGameweeks`. Non hanno
+//    una mezza vita loro, e non devono averla: una terza velocità sarebbe un
+//    terzo parametro da tarare senza un terzo fenomeno da spiegare.
+//
+//    ASSENTE NON È ZERO, E LO ZERO DICHIARATO NON È ASSENTE. Una giornata che
+//    non dichiara i minuti non entra né al numeratore né al denominatore: non
+//    sappiamo. Una giornata che dichiara `0` entra in entrambi con valore zero:
+//    sappiamo che non è sceso in campo, ed è un'osservazione vera che deve
+//    pesare. Confondere le due è il modo tipico in cui una fonte incompleta
+//    diventa una calunnia.
+//
+// i) I GOL ATTESI STANNO NEL «RENDE», E SOLO LÌ.
+//
+//    CHE COSA AGGIUNGONO. Il tasso di gol stimato dalla sola frequenza dei gol
+//    segnati è la quantità più rumorosa del pacchetto: su venti giornate un
+//    attaccante vero e uno sfortunato possono avere lo stesso identico
+//    conteggio, e per la giornata dopo NON sono la stessa previsione. I gol
+//    attesi separano «ha segnato poco perché tira poco» da «ha segnato poco
+//    pur essendosi procurato le occasioni».
+//
+//    DOVE ENTRANO. In `pGoal`, e in nessun altro tasso. Non negli assist —
+//    quelli vorrebbero gli xA, che sono un altro dato e nessuno li ha chiesti —
+//    non nei cartellini, non nel voto base. Il voto base è il giudizio di chi
+//    scrive le pagelle: dedurlo dagli xG sarebbe inventare una corrispondenza
+//    che nessuno ha misurato.
+//
+//    COME ENTRANO. Stessa costruzione dei minuti, stessa formula, stesso `K`:
+//    seconda osservazione della stessa quantità dentro lo stesso shrink, con
+//    una conversione in mezzo, perché `pGoal` di §6.1 è la probabilità di
+//    SEGNARE e non il numero atteso di gol. La conversione è quella di Poisson,
+//    `1 − e^(−xG)`: nessun parametro da tarare, dentro [0,1) per costruzione,
+//    monotona, e per xG piccoli quasi identica a xG. È una scelta mia: il
+//    troncamento `min(xG, 1)` sarebbe più semplice da rifare a mano ma direbbe
+//    che chi accumula 0,6 di xG segna sei volte su dieci, che è falso.
+//
+//    A QUALE FAMIGLIA DI DIMENTICANZA APPARTENGONO: la RICCA, come i minuti e
+//    per la stessa ragione — si leggono a ogni giornata per ogni giocatore.
+//    Stessa mezza vita del rendimento, nessuna terza velocità.
+//
+//    SOLO SULLE GIORNATE CON VOTO. I tassi di evento di §6.1 sono CONDIZIONATI
+//    a prendere voto: un xG accumulato in una giornata finita senza voto non
+//    appartiene a quel condizionamento, e contarlo lì mescolerebbe il «rende»
+//    col «gioca». Non si scarta in silenzio: il conteggio di quelle giornate
+//    esce nell'evidenza, perché un dato buttato via senza dirlo è un dato
+//    perso due volte.
+//
+// j) IL METRO NON SI TOCCA, E I DUE SEGNALI NON PASSANO NEMMENO DAL SUO TIPO.
+//    §6.2 vuole la previsione base cieca ai minuti e agli xG, e l'intestazione
+//    di `baseForecast.ts` lo scrive per esteso. Perciò questi due dati NON
+//    stanno dentro `PlayerAppearance`, che è il tipo del metro: aggiungere lì
+//    due campi facoltativi e mai letti di là avrebbe scritto nel contratto del
+//    metro due quantità che il metro non ha il diritto di conoscere, e la prima
+//    persona a passare di lì le avrebbe usate. Arrivano invece da un canale a
+//    parte — `ObservedMatchSignals` — che solo questo modulo legge, e si
+//    agganciano alle giornate per (giocatore, stagione, giornata). Il metro
+//    resta povero perché non può vederli, non perché ci si ricorda di non
+//    guardarli.
 
 import type { Role } from "./gameweekSimulator.js";
 import {
@@ -290,6 +390,30 @@ export const DEFAULT_OPPONENT_HALF_LIFE_GAMEWEEKS = 60 as const;
 /** Lo shrink del rendimento, in osservazioni equivalenti — scelta (d), = §6.2. */
 export const CHALLENGER_SHRINK_PSEUDO_OBSERVATIONS = 10 as const;
 
+/**
+ * QUANTO DURA UNA PARTITA, in minuti — scelta (h). I minuti osservati si
+ * leggono come QUOTA di partita, e la quota di una partita intera è 1: i
+ * supplementari non rendono nessuno più che intero, perché la quantità che
+ * serve è «quanta partita occupa», non «quanti minuti ha corso».
+ */
+export const FULL_MATCH_MINUTES = 90 as const;
+
+/**
+ * IL TETTO DI SANITÀ SUI MINUTI DICHIARATI. Novanta più recupero più
+ * supplementari sta sotto i 130. Sopra quel numero non c'è una prestazione,
+ * c'è un'unità sbagliata — secondi al posto di minuti — e un'unità sbagliata
+ * che passa non fallisce: produce un numero plausibile costruito sul nulla.
+ */
+export const MAX_DECLARED_MINUTES = 130 as const;
+
+/**
+ * IL TETTO DI SANITÀ SUI GOL ATTESI DI UNA GIORNATA. Un xG di partita sopra 10
+ * non esiste: è una somma di stagione entrata al posto di una giornata. Stessa
+ * ragione del tetto sui minuti, stessa risposta — si rifiuta invece di
+ * indovinare.
+ */
+export const MAX_DECLARED_EXPECTED_GOALS = 10 as const;
+
 /** §8.4: `k`, in giornate equivalenti, dell'avversario verso la lega. */
 export const OPPONENT_PRIOR_GAMEWEEKS = 4 as const;
 
@@ -297,16 +421,23 @@ export const OPPONENT_PRIOR_GAMEWEEKS = 4 as const;
 export const LEAGUE_PRIOR_GAMEWEEKS = 8 as const;
 
 /**
- * I DUE INTERRUTTORI. §6.3 vieta di dare per buona una famiglia: quindi ciò che
- * questo motore aggiunge si dichiara e si spegne. Con TUTTI spenti il motore
- * ricade sulla legge del base — decadimento a grana di stagione, nessuna
- * abitudine — e la differenza fra i due si riduce a zero: è il modo più diretto
- * per vedere quanto di ciò che fa viene da queste due scelte e quanto dal
- * contorno.
+ * I QUATTRO INTERRUTTORI. §6.3 vieta di dare per buona una famiglia: quindi
+ * ciò che questo motore aggiunge si dichiara e si spegne. Con TUTTI spenti il
+ * motore ricade sulla legge del base — decadimento a grana di stagione,
+ * nessuna abitudine, nessun minuto, nessun gol atteso — e la differenza fra i
+ * due si riduce a zero: è il modo più diretto per vedere quanto di ciò che fa
+ * viene da queste scelte e quanto dal contorno.
  *
- * SOLO IL PRIMO È UNA FAMIGLIA DI §6.3. Il secondo è §8.4 travestito da
- * famiglia — scelta (f-bis) in testa al file — ed è un doppione con un
- * contratto più povero di `leagueBehaviourProfile.ts`.
+ * TRE SU QUATTRO SONO FAMIGLIE DI §6.3: la forma recente, i minuti giocati e i
+ * gol attesi. Il quarto — `opponentHabits` — è §8.4 travestito da famiglia,
+ * scelta (f-bis) in testa al file, ed è un doppione con un contratto più
+ * povero di `leagueBehaviourProfile.ts`.
+ *
+ * SPENTA NON VUOL DIRE ZERO, E ACCESA NON VUOL DIRE DISPONIBILE. Un
+ * interruttore dice se questo motore ha il PERMESSO di usare una famiglia; se
+ * poi il corpo storico non porta quel dato, la famiglia non ha niente da
+ * mangiare e la stima resta quella di prima, numero per numero. Le due cose
+ * sono separate apposta: un permesso non è un'osservazione.
  */
 export interface ChallengerFamilies {
   /**
@@ -315,6 +446,20 @@ export interface ChallengerFamilies {
    * di §6.2 — e allora questo motore non sa più niente che il base non sappia.
    */
   readonly recentForm: boolean;
+  /**
+   * I MINUTI GIOCATI — famiglia «disponibilità e minuti» di §6.3, scelta (h).
+   * Accesa: i minuti dichiarati entrano nella stima di «gioca o non gioca», e
+   * SOLO in quella. Spenta: restano fuori da ogni conto, e `pPlays` è
+   * esattamente quella che sarebbe senza di loro.
+   */
+  readonly minutesPlayed: boolean;
+  /**
+   * I GOL ATTESI — famiglia «bonus da xG/xA» di §6.3, limitata al solo xG
+   * perché gli xA sono un altro dato e nessuno li ha chiesti; scelta (i).
+   * Accesa: gli xG dichiarati entrano nella stima del tasso di gol, e SOLO in
+   * quella. Spenta: restano fuori, e `pGoal` è esattamente quello di prima.
+   */
+  readonly expectedGoals: boolean;
   /**
    * LE ABITUDINI DELL'AVVERSARIO — **NON è una famiglia di §6.3: è §8.4, e
    * DUPLICA la quantità `moduleFielded` di `leagueBehaviourProfile.ts` con un
@@ -332,6 +477,8 @@ export interface ChallengerFamilies {
 
 export const DEFAULT_CHALLENGER_FAMILIES: ChallengerFamilies = {
   recentForm: true,
+  minutesPlayed: true,
+  expectedGoals: true,
   opponentHabits: true,
 };
 
@@ -489,6 +636,162 @@ function assertDeclaredProvenance(history: ObservedHistory): string {
   return provenance.trim();
 }
 
+// ─── I SEGNALI DI PARTITA: MINUTI E GOL ATTESI ───────────────────────────────
+//
+// PERCHÉ NON STANNO DENTRO `PlayerAppearance` — scelta (j) in testa al file.
+// Quella riga è il tipo del METRO, e §6.2 lo vuole cieco ai minuti e agli xG.
+// Due campi facoltativi aggiunti lì sarebbero stati due quantità scritte nel
+// contratto del metro, e la prima persona a passare di lì le avrebbe usate.
+// Quindi i segnali arrivano da un canale a parte, che solo questo modulo legge.
+//
+// IL SIGILLO NON SI RIFÀ, per la stessa ragione di `ObservedChallengerHistory`:
+// questo involucro CONTIENE un `ObservedHistory` già sigillato e non si può
+// costruire senza averne uno. Un secondo sigillo aggiungerebbe una seconda
+// difesa da mantenere, con lo stesso limite dichiarato di là — un cast la
+// attraversa — e un secondo posto in cui sbagliarla.
+
+/**
+ * I DUE DATI DI UNA GIORNATA CHE IL METRO NON PUÒ VEDERE.
+ *
+ * La riga si aggancia a una giornata già dichiarata nello storico, per
+ * (giocatore, stagione, giornata): non ne inventa nessuna, e una riga che non
+ * trova la sua giornata è un errore, non un caso da gestire — significa che
+ * due letture sono state unite male, e il numeratore di una quota si
+ * riempirebbe di giornate che il denominatore non conosce.
+ */
+export interface ObservedMatchSignal {
+  readonly playerId: string;
+  readonly season: SeasonId;
+  /** Numero di giornata dentro la stagione: intero >= 1. */
+  readonly gameweek: number;
+  /**
+   * I MINUTI GIOCATI in quella giornata.
+   *
+   * ASSENTE NON È ZERO. Chi non dichiara i minuti non sta dicendo «è rimasto
+   * in panchina», sta dicendo «non lo so»: la giornata non entra né al
+   * numeratore né al denominatore della quota di minuti, e il giocatore non
+   * viene né premiato né punito per un dato che manca. Uno zero DICHIARATO è
+   * invece un'osservazione vera — non è sceso in campo — ed entra in entrambi
+   * col suo valore.
+   */
+  readonly minutesPlayed?: number;
+  /**
+   * I GOL ATTESI accumulati in quella giornata. Stessa regola dei minuti:
+   * assente è «non lo so», zero dichiarato è «non si è procurato niente».
+   */
+  readonly expectedGoals?: number;
+}
+
+/**
+ * IL CANALE DEI SEGNALI, appeso allo storico sigillato che lo giustifica.
+ * L'involucro tiene insieme le due cose apposta: una quota di minuti calcolata
+ * su un corpo di giornate diverso da quello che le ha generate sarebbe una
+ * frazione con numeratore e denominatore di due letture differenti.
+ */
+export interface ObservedMatchSignals {
+  readonly history: ObservedHistory;
+  readonly signals: readonly ObservedMatchSignal[];
+}
+
+/** La chiave di una giornata di un giocatore: (giocatore, stagione, giornata). */
+function signalKey(playerId: string, season: SeasonId, gameweek: number): string {
+  return `${playerId}|${season}|${gameweek}`;
+}
+
+/**
+ * LA PORTA DEI SEGNALI. Non pretende una targa nuova — quella la porta già
+ * `history` — ma convalida le righe, che nessun altro convalida, e soprattutto
+ * verifica l'AGGANCIO: ogni riga deve cadere su una giornata che lo storico
+ * dichiara davvero.
+ */
+export function observedMatchSignals(input: {
+  readonly history: ObservedHistory;
+  readonly signals: readonly ObservedMatchSignal[];
+}): ObservedMatchSignals {
+  assertDeclaredProvenance(input.history);
+  const rows = input.signals;
+  if (!Array.isArray(rows)) fail("i segnali di partita non sono un elenco.");
+  const known = new Set<string>();
+  for (const a of input.history.appearances) {
+    known.add(signalKey(a.playerId, a.season, a.gameweek));
+  }
+  const seen = new Set<string>();
+  rows.forEach((row, i) => {
+    const where = `segnale di partita #${i + 1}`;
+    if (typeof row.playerId !== "string" || row.playerId.length === 0) fail(`${where}: playerId mancante.`);
+    if (typeof row.season !== "string" || row.season.length === 0) fail(`${where}: stagione mancante.`);
+    if (!Number.isInteger(row.gameweek) || row.gameweek < 1) {
+      fail(`${where}: giornata non valida (${String(row.gameweek)}). Serve un intero >= 1.`);
+    }
+    if (row.minutesPlayed === undefined && row.expectedGoals === undefined) {
+      fail(
+        `${where}: né minuti né gol attesi dichiarati. Una riga che non porta nessuno dei due non è ` +
+          "un'osservazione: è rumore che allunga l'elenco, e non dichiarare un dato si fa non scrivendo " +
+          "la riga.",
+      );
+    }
+    if (row.minutesPlayed !== undefined) {
+      if (typeof row.minutesPlayed !== "number" || !Number.isFinite(row.minutesPlayed)) {
+        fail(
+          `${where}: minuti ${String(row.minutesPlayed)} non sono un numero. «Non lo so» si dice ` +
+            "omettendo il campo, non scrivendoci dentro qualcosa che non è un numero.",
+        );
+      }
+      if (row.minutesPlayed < 0 || row.minutesPlayed > MAX_DECLARED_MINUTES) {
+        fail(
+          `${where}: minuti ${row.minutesPlayed} fuori da 0..${MAX_DECLARED_MINUTES}. Sopra quel tetto non ` +
+            "c'è una prestazione, c'è un'unità sbagliata — e un'unità sbagliata che passa produce un numero " +
+            "plausibile costruito sul nulla.",
+        );
+      }
+    }
+    if (row.expectedGoals !== undefined) {
+      if (typeof row.expectedGoals !== "number" || !Number.isFinite(row.expectedGoals)) {
+        fail(
+          `${where}: gol attesi ${String(row.expectedGoals)} non sono un numero. «Non lo so» si dice ` +
+            "omettendo il campo, non scrivendoci dentro qualcosa che non è un numero.",
+        );
+      }
+      if (row.expectedGoals < 0 || row.expectedGoals > MAX_DECLARED_EXPECTED_GOALS) {
+        fail(
+          `${where}: gol attesi ${row.expectedGoals} fuori da 0..${MAX_DECLARED_EXPECTED_GOALS}. Un xG di ` +
+            "partita sopra quel tetto è una somma di stagione entrata al posto di una giornata.",
+        );
+      }
+    }
+    const key = signalKey(row.playerId, row.season, row.gameweek);
+    if (seen.has(key)) {
+      fail(
+        `${row.playerId} ha due righe di segnali per la giornata ${row.gameweek} di ${row.season}. Una ` +
+          "giornata si gioca una volta: due righe sono due letture unite male e conterebbero doppio.",
+      );
+    }
+    seen.add(key);
+    if (!known.has(key)) {
+      fail(
+        `${where}: ${row.playerId} non ha nessuna giornata dichiarata per la giornata ${row.gameweek} di ` +
+          `${row.season}. I minuti e i gol attesi si agganciano a una giornata OSSERVATA: una riga che non ` +
+          "trova la sua giornata riempirebbe il numeratore di una quota con osservazioni che il " +
+          "denominatore non conosce.",
+      );
+    }
+  });
+  return { history: input.history, signals: rows };
+}
+
+/**
+ * DA GOL ATTESI A PROBABILITÀ DI SEGNARE ALMENO UN GOL — scelta (i).
+ *
+ * `pGoal` di §6.1 è la probabilità di SEGNARE, non il numero atteso di gol, e
+ * i due non sono lo stesso numero: 1,8 di xG in una partita non è «segna con
+ * probabilità 1,8». La conversione è quella di Poisson, `1 − e^(−xG)`: nessun
+ * parametro da tarare, dentro [0,1) per costruzione, monotona, e per xG
+ * piccoli quasi identica a xG.
+ */
+function goalProbabilityFromExpectedGoals(expectedGoals: number): number {
+  return 1 - Math.exp(-expectedGoals);
+}
+
 // ─── LA LINEA DEL TEMPO ──────────────────────────────────────────────────────
 
 /** La chiave di una giornata del calendario osservato. */
@@ -569,6 +872,23 @@ interface PerformancePool {
   startedWeight: number;
   noVoteKindWeight: number[];
   otherBonusMalusWeighted: number;
+  /**
+   * IL «GIOCA», SECONDO SEGNALE — scelta (h). Peso delle giornate A
+   * DISPOSIZIONE (con voto e senza) che DICHIARANO i minuti, e somma di
+   * `peso × quota di partita giocata` sulle stesse giornate. Una giornata che
+   * non dichiara i minuti non entra in nessuno dei due: assente non è zero.
+   */
+  minutesDeclaredWeight: number;
+  minutesShareWeighted: number;
+  /**
+   * IL «RENDE», SECONDO SEGNALE — scelta (i). Peso delle giornate CON VOTO che
+   * DICHIARANO i gol attesi, e somma di `peso × P(almeno un gol | xG)` sulle
+   * stesse giornate. Solo con voto: i tassi di evento di §6.1 sono condizionati
+   * a prendere voto, e un xG di una giornata senza voto mescolerebbe il
+   * «rende» col «gioca».
+   */
+  expectedGoalsDeclaredWeight: number;
+  expectedGoalsWeighted: number;
 }
 
 function emptyPool(): PerformancePool {
@@ -581,6 +901,10 @@ function emptyPool(): PerformancePool {
     startedWeight: 0,
     noVoteKindWeight: NO_VOTE_KIND_ORDER.map(() => 0),
     otherBonusMalusWeighted: 0,
+    minutesDeclaredWeight: 0,
+    minutesShareWeighted: 0,
+    expectedGoalsDeclaredWeight: 0,
+    expectedGoalsWeighted: 0,
   };
 }
 
@@ -595,6 +919,39 @@ function shrink(observedWeight: number, totalWeight: number, prior: number): num
   return (
     (observedWeight + CHALLENGER_SHRINK_PSEUDO_OBSERVATIONS * prior) /
     (totalWeight + CHALLENGER_SHRINK_PSEUDO_OBSERVATIONS)
+  );
+}
+
+/**
+ * LO SHRINK CON UN SECONDO SEGNALE SULLA STESSA QUANTITÀ — scelte (h) e (i).
+ *
+ * È la formula di sopra con una riga in più sia al numeratore sia al
+ * denominatore: le giornate che portano il segnale contribuiscono una SECONDA
+ * osservazione della stessa cosa, col suo valore fra 0 e 1 invece del suo
+ * sì/no. Tre proprietà, tutte volute e tutte verificabili leggendo la riga:
+ *
+ *  1) IL SEGNALE NON SFUGGE ALLO SHRINK. Il `K` osservazioni finte distribuite
+ *     come il ruolo resta dov'era: una quantità nuova che entrasse per un'altra
+ *     porta sarebbe esattamente il buco da cui rientra l'inseguimento della
+ *     prestazione fortunata.
+ *  2) IL DENOMINATORE CRESCE CON IL NUMERATORE. Chi porta il segnale si
+ *     allontana dal ruolo perché ha PIÙ prove, non perché il segnale conta di
+ *     più: il conto lo fa la stessa aritmetica di §6.2, non una deroga.
+ *  3) SENZA SEGNALE, BIT A BIT LA FORMULA DI PRIMA. Con i due termini a zero
+ *     `(o + 0) + K·p` è `o + K·p` e `(t + 0) + K` è `t + K`: non «quasi», non
+ *     «entro una tolleranza». È così che questa famiglia paga la
+ *     retrocompatibilità — con l'aritmetica, non con un ramo `if`.
+ */
+function shrinkWithSignal(
+  observedWeight: number,
+  totalWeight: number,
+  signalWeighted: number,
+  signalWeight: number,
+  prior: number,
+): number {
+  return (
+    (observedWeight + signalWeighted + CHALLENGER_SHRINK_PSEUDO_OBSERVATIONS * prior) /
+    (totalWeight + signalWeight + CHALLENGER_SHRINK_PSEUDO_OBSERVATIONS)
   );
 }
 
@@ -693,6 +1050,28 @@ interface RawTally {
   discarded: number;
   /** Quante giornate osservate fa è la giornata più recente di questo giocatore. */
   newestGameweeksAgo: number;
+  /** Giornate a disposizione, in finestra, che hanno dichiarato i minuti. */
+  minutesObservations: number;
+  /** Giornate CON VOTO, in finestra, che hanno dichiarato i gol attesi. */
+  expectedGoalsObservations: number;
+  /**
+   * Gol attesi dichiarati su giornate SENZA voto: non contati, e contati come
+   * non contati. Un dato buttato via senza dirlo è un dato perso due volte.
+   */
+  expectedGoalsOffVote: number;
+}
+
+/** Il conto vuoto, in un posto solo: due letterali divergerebbero al primo campo nuovo. */
+function emptyTally(): RawTally {
+  return {
+    gameweeks: 0,
+    voted: 0,
+    discarded: 0,
+    newestGameweeksAgo: Number.POSITIVE_INFINITY,
+    minutesObservations: 0,
+    expectedGoalsObservations: 0,
+    expectedGoalsOffVote: 0,
+  };
 }
 
 interface CorpusIndex {
@@ -722,8 +1101,20 @@ function indexCorpus(
   history: ObservedHistory,
   halfLife: number,
   recentForm: boolean,
+  signals: ObservedMatchSignals | undefined,
+  useMinutes: boolean,
+  useExpectedGoals: boolean,
 ): CorpusIndex {
   const provenance = assertDeclaredProvenance(history);
+  // I SEGNALI SI CERCANO PER CHIAVE, non si fondono nelle righe: le giornate
+  // restano quelle del metro, e ciò che il metro non può vedere resta in un
+  // indice a parte — scelta (j).
+  const signalByKey = new Map<string, ObservedMatchSignal>();
+  if (signals !== undefined) {
+    for (const row of signals.signals) {
+      signalByKey.set(signalKey(row.playerId, row.season, row.gameweek), row);
+    }
+  }
   const seasonsAgo = seasonIndex(history.seasons);
   const ageOf = (season: SeasonId, what: string): number => {
     const ago = seasonsAgo.get(season);
@@ -820,7 +1211,7 @@ function indexCorpus(
   const tallyOf = (id: string): RawTally => {
     let entry = rawCounts.get(id);
     if (entry === undefined) {
-      entry = { gameweeks: 0, voted: 0, discarded: 0, newestGameweeksAgo: Number.POSITIVE_INFINITY };
+      entry = emptyTally();
       rawCounts.set(id, entry);
     }
     return entry;
@@ -867,6 +1258,38 @@ function indexCorpus(
         pool.noVoteKindWeight[kind] = (pool.noVoteKindWeight[kind] as number) + w;
         if (a.noVoteKind === "withOtherBonusMalus") {
           pool.otherBonusMalusWeighted += w * (a.otherBonusMalus as number);
+        }
+      }
+    }
+
+    // ── I DUE SEGNALI DI PARTITA, con lo STESSO peso `w` della giornata che li
+    //    porta: appartengono alla famiglia RICCA e dimenticano alla velocità
+    //    del rendimento, senza una terza mezza vita — scelte (h) e (i).
+    const signal = signalByKey.get(signalKey(a.playerId, a.season, a.gameweek));
+    if (signal !== undefined) {
+      // I MINUTI VALGONO SU OGNI GIORNATA A DISPOSIZIONE, con voto e senza:
+      // «gioca o non gioca» si stima sul denominatore della disponibilità.
+      if (useMinutes && signal.minutesPlayed !== undefined) {
+        const share = Math.min(signal.minutesPlayed / FULL_MATCH_MINUTES, 1);
+        tally.minutesObservations += 1;
+        for (const pool of [player, role]) {
+          pool.minutesDeclaredWeight += w;
+          pool.minutesShareWeighted += w * share;
+        }
+      }
+      // I GOL ATTESI VALGONO SOLO SULLE GIORNATE CON VOTO: §6.1 condiziona i
+      // tassi di evento al voto, e quelli di una giornata senza voto non
+      // appartengono a quel condizionamento. Non si scartano in silenzio.
+      if (useExpectedGoals && signal.expectedGoals !== undefined) {
+        if (a.voted) {
+          const scored = goalProbabilityFromExpectedGoals(signal.expectedGoals);
+          tally.expectedGoalsObservations += 1;
+          for (const pool of [player, role]) {
+            pool.expectedGoalsDeclaredWeight += w;
+            pool.expectedGoalsWeighted += w * scored;
+          }
+        } else {
+          tally.expectedGoalsOffVote += 1;
         }
       }
     }
@@ -920,8 +1343,22 @@ export interface ChallengerForecastInput {
   readonly asOf: string;
   /** Le due velocità. Omesse: quelle dichiarate qui sopra. */
   readonly tuning?: Partial<ChallengerTuning>;
-  /** Gli interruttori delle due famiglie. Omessi: entrambe accese. */
+  /** Gli interruttori delle famiglie. Omessi: tutte accese. */
   readonly families?: Partial<ChallengerFamilies>;
+  /**
+   * I MINUTI E I GOL ATTESI DELLE GIORNATE PASSATE — scelte (h), (i) e (j).
+   *
+   * FACOLTATIVI, E FACOLTATIVI SUL SERIO: omessi, questo motore produce
+   * esattamente ciò che produceva prima che esistessero, bit a bit. Non è una
+   * cortesia verso i chiamanti vecchi, è il modo in cui si dimostra che le due
+   * famiglie sono davvero l'unica differenza — la stessa prova che §6.3
+   * pretende per la forma recente.
+   *
+   * Devono portare lo STESSO `ObservedHistory` passato qui sopra, e non uno
+   * uguale: i minuti sono una frazione delle giornate a disposizione, e un
+   * numeratore letto su un corpo diverso dal denominatore non è una frazione.
+   */
+  readonly signals?: ObservedMatchSignals;
 }
 
 /**
@@ -942,6 +1379,29 @@ export interface ChallengerForecastEvidence extends BaseForecastEvidence {
   readonly newestGameweeksAgo: number;
   /** Quante giornate distinte contiene la linea del tempo del corpo storico. */
   readonly timelineGameweeks: number;
+  /** Giornate a disposizione, in finestra, che hanno DICHIARATO i minuti. */
+  readonly minutesObservations: number;
+  /** Il peso di quelle giornate dopo il decadimento. */
+  readonly minutesWeight: number;
+  /**
+   * LA QUOTA DI PARTITA ATTESA, shrinkata verso il ruolo: 1 è novanta minuti,
+   * 0,25 è chi entra al 70'. È il numero che rende leggibile la differenza fra
+   * un titolare che finisce la partita e un subentrante rateato ogni domenica,
+   * che il solo bit titolare/subentrato non dice.
+   * `-1` quando il RUOLO non ha nemmeno una giornata con i minuti dichiarati:
+   * «non lo so» non è «zero minuti», e un ripiego inventato qui sarebbe un
+   * numero plausibile costruito sul nulla.
+   */
+  readonly expectedMinutesShare: number;
+  /** Giornate CON VOTO, in finestra, che hanno DICHIARATO i gol attesi. */
+  readonly expectedGoalsObservations: number;
+  /** Il peso di quelle giornate dopo il decadimento. */
+  readonly expectedGoalsWeight: number;
+  /**
+   * Gol attesi dichiarati su giornate SENZA voto e quindi NON contati (§6.1
+   * condiziona i tassi di evento al voto). Dichiarati invece che taciuti.
+   */
+  readonly expectedGoalsOffVote: number;
 }
 
 /**
@@ -996,9 +1456,31 @@ export function buildChallengerForecasts(
         "apposta: una previsione che si data da sola non è rifacibile identica domani.",
     );
   }
-  const corpus = indexCorpus(input.history, halfLife, families.recentForm);
+  // I SEGNALI DEVONO ESSERE QUELLI DI QUESTO STORICO, non di uno uguale. Il
+  // controllo è di IDENTITÀ e non di contenuto apposta: `observedMatchSignals()`
+  // ha verificato l'aggancio riga per riga CONTRO QUELLE giornate, e un
+  // secondo corpo con le stesse etichette ma altre righe passerebbe qualunque
+  // confronto superficiale portandosi dietro un aggancio mai verificato.
+  if (input.signals !== undefined && input.signals.history !== input.history) {
+    fail(
+      "i segnali di partita sono appesi a un corpo storico DIVERSO da quello passato qui. I minuti sono " +
+        "una frazione delle giornate a disposizione e i gol attesi una frazione delle giornate con voto: " +
+        "un numeratore letto su un corpo e un denominatore letto su un altro non fanno una frazione, fanno " +
+        "un numero. Si passa lo stesso `ObservedHistory` a `observedMatchSignals()` e a questa funzione.",
+    );
+  }
+  const corpus = indexCorpus(
+    input.history,
+    halfLife,
+    families.recentForm,
+    input.signals,
+    families.minutesPlayed,
+    families.expectedGoals,
+  );
   const familiesOn: string[] = [];
   if (families.recentForm) familiesOn.push("recentForm");
+  if (families.minutesPlayed) familiesOn.push("minutesPlayed");
+  if (families.expectedGoals) familiesOn.push("expectedGoals");
   if (families.opponentHabits) familiesOn.push("opponentHabits");
 
   const seen = new Set<string>();
@@ -1032,14 +1514,29 @@ function forecastOne(
 ): ChallengerForecast {
   const role = rolePool(corpus, request.role);
   const own = corpus.byPlayer.get(request.playerId) ?? emptyPool();
-  const tally =
-    corpus.rawCounts.get(request.playerId) ??
-    ({ gameweeks: 0, voted: 0, discarded: 0, newestGameweeksAgo: Number.POSITIVE_INFINITY } as RawTally);
+  const tally = corpus.rawCounts.get(request.playerId) ?? emptyTally();
 
   // ── 1) GIOCA O NON GIOCA. Denominatore: le giornate a disposizione. Questa
   //    quantità non tocca nessun voto, e nessun voto la tocca (§6.1).
-  const priorPlays = role.votedWeight / role.availabilityWeight;
-  const pPlays = shrink(own.votedWeight, own.availabilityWeight, priorPlays);
+  //
+  //    QUI VIVONO I MINUTI, E SOLO QUI — scelta (h). Entrano come seconda
+  //    osservazione della stessa quantità, dentro lo stesso shrink e con lo
+  //    stesso `K`: il ruolo resta il bersaglio, e il riferimento verso cui si
+  //    tira è a sua volta costruito sui due segnali insieme, così che un
+  //    giocatore senza minuti dichiarati venga tirato verso ciò che il suo
+  //    ruolo fa davvero e non verso una media di un'altra grandezza.
+  //    Senza nemmeno un minuto dichiarato i due termini sono zero e queste due
+  //    righe sono, bit a bit, quelle di prima.
+  const priorPlays =
+    (role.votedWeight + role.minutesShareWeighted) /
+    (role.availabilityWeight + role.minutesDeclaredWeight);
+  const pPlays = shrinkWithSignal(
+    own.votedWeight,
+    own.availabilityWeight,
+    own.minutesShareWeighted,
+    own.minutesDeclaredWeight,
+    priorPlays,
+  );
 
   // ── 2) IL RENDIMENTO, CONDIZIONATO A GIOCARE — ed è QUI che vive la forma
   //    recente: gli stessi voti dello stesso giocatore, pesati per quanto sono
@@ -1059,12 +1556,28 @@ function forecastOne(
   });
   const modalBaseVote = BASE_VOTE_GRID[modeIndex(voteMasses)] as number;
 
+  //    I GOL ATTESI ENTRANO IN UN SOLO TASSO — scelta (i). `pGoal` è la
+  //    probabilità di segnare, e gli xG sono una seconda osservazione proprio
+  //    di quella: entrano con la stessa formula dei minuti, convertiti da
+  //    «gol attesi» a «almeno un gol» perché sono due grandezze diverse.
+  //    Negli altri sei tassi i due termini sono zero per costruzione, quindi
+  //    quelle righe restano bit a bit quelle di prima: gli assist vorrebbero
+  //    gli xA, che sono un altro dato e nessuno li ha chiesti.
   const events: Record<string, number> = {};
-  EVENT_KEYS.forEach(([, rate], i) => {
-    events[rate] = shrink(
+  EVENT_KEYS.forEach(([observed, rate], i) => {
+    const isGoal = observed === "goal";
+    const ownSignalWeighted = isGoal ? own.expectedGoalsWeighted : 0;
+    const ownSignalWeight = isGoal ? own.expectedGoalsDeclaredWeight : 0;
+    const prior = isGoal
+      ? ((role.eventWeight[i] as number) + role.expectedGoalsWeighted) /
+        (role.votedWeight + role.expectedGoalsDeclaredWeight)
+      : (role.eventWeight[i] as number) / role.votedWeight;
+    events[rate] = shrinkWithSignal(
       own.eventWeight[i] as number,
       own.votedWeight,
-      (role.eventWeight[i] as number) / role.votedWeight,
+      ownSignalWeighted,
+      ownSignalWeight,
+      prior,
     );
   });
 
@@ -1229,6 +1742,19 @@ function forecastOne(
   const priorSharePerformance =
     CHALLENGER_SHRINK_PSEUDO_OBSERVATIONS / (own.votedWeight + CHALLENGER_SHRINK_PSEUDO_OBSERVATIONS);
   const newestGameweeksAgo = Number.isFinite(tally.newestGameweeksAgo) ? tally.newestGameweeksAgo : -1;
+  // LA QUOTA DI PARTITA ATTESA, letta con lo stesso shrink del resto. Se il
+  // RUOLO non ha nemmeno una giornata con i minuti dichiarati non c'è niente
+  // verso cui tirare: si dice `-1`, che è «non lo so», e non zero, che sarebbe
+  // «non gioca mai» — la stessa distinzione che questo modulo pretende dai
+  // suoi ingressi la deve alla sua uscita.
+  const expectedMinutesShare =
+    role.minutesDeclaredWeight > 0
+      ? shrink(
+          own.minutesShareWeighted,
+          own.minutesDeclaredWeight,
+          role.minutesShareWeighted / role.minutesDeclaredWeight,
+        )
+      : -1;
   const evidence: ChallengerForecastEvidence = {
     playerId: request.playerId,
     gameweeksInHistory: tally.gameweeks,
@@ -1242,6 +1768,12 @@ function forecastOne(
     familiesOn,
     newestGameweeksAgo,
     timelineGameweeks: corpus.timelineLength,
+    minutesObservations: tally.minutesObservations,
+    minutesWeight: own.minutesDeclaredWeight,
+    expectedMinutesShare,
+    expectedGoalsObservations: tally.expectedGoalsObservations,
+    expectedGoalsWeight: own.expectedGoalsDeclaredWeight,
+    expectedGoalsOffVote: tally.expectedGoalsOffVote,
     reason:
       `${CHALLENGER_FORECAST_MARK}. ${tally.voted} giornate con voto su ${tally.gameweeks} a disposizione ` +
       `nelle ultime ${HISTORY_SEASONS} stagioni; l'ultima è ${newestGameweeksAgo} giornate osservate fa su ` +
@@ -1250,9 +1782,16 @@ function forecastOne(
       `dimenticare COSTA prove, e con lo shrink a ${CHALLENGER_SHRINK_PSEUDO_OBSERVATIONS} osservazioni ` +
       `equivalenti il ruolo ${request.role} pesa ${priorShareAvailability} sulla disponibilità e ` +
       `${priorSharePerformance} sul rendimento. Famiglie accese: ` +
-      `${familiesOn.length === 0 ? "nessuna (è la legge del base)" : familiesOn.join(", ")}. Nessuna ` +
-      `feature di partita (§6.3): niente casa/trasferta, niente avversario reale, niente arbitro, niente ` +
-      `xG, nessuna correlazione. Storico dichiarato: ${corpus.provenance}.`,
+      `${familiesOn.length === 0 ? "nessuna (è la legge del base)" : familiesOn.join(", ")}. ` +
+      `Minuti: ${tally.minutesObservations} giornate li dichiarano, peso ${own.minutesDeclaredWeight}, ` +
+      `quota di partita attesa ${expectedMinutesShare} (−1 = il ruolo non ne ha nemmeno una, non «zero ` +
+      `minuti»); entrano SOLO nel «gioca», mai nel «rende». Gol attesi: ` +
+      `${tally.expectedGoalsObservations} giornate con voto li dichiarano, peso ` +
+      `${own.expectedGoalsDeclaredWeight}; altre ${tally.expectedGoalsOffVote} li dichiarano su giornate ` +
+      `SENZA voto e non sono contate, perché i tassi di evento di §6.1 sono condizionati al voto; entrano ` +
+      `SOLO nel tasso di gol, mai nel «gioca» e mai negli altri tassi. Delle altre famiglie di §6.3 non ` +
+      `c'è niente: niente casa/trasferta, niente avversario reale, niente arbitro, niente rigorista, ` +
+      `nessuna correlazione. Storico dichiarato: ${corpus.provenance}.`,
   };
 
   return { playerId: request.playerId, forecast, evidence };

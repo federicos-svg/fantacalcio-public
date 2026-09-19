@@ -12,6 +12,7 @@ import {
   type NoVoteKind,
   type ObservedChallengerHistory,
   type ObservedHistory,
+  type ObservedMatchSignal,
   type ObservedPlayerLine,
   type OpponentGameweek,
   type PlayerAppearance,
@@ -23,6 +24,7 @@ import {
   mulberry32,
   observedChallengerHistory,
   observedHistory,
+  observedMatchSignals,
 } from "../src/index.js";
 
 // FIXTURE SINTETICHE, SEMPRE. Identificatori costruiti, voti scelti sulla
@@ -467,12 +469,19 @@ describe("motore sfidante — i due estremi della memoria degenerano, e in due m
 // ─── LO SPEGNIMENTO DELLE FAMIGLIE ────────────────────────────────────────
 
 describe("motore sfidante — ogni famiglia si può spegnere, e spenta non resta niente", () => {
-  it("con `recentForm` spenta lo sfidante È il base, numero per numero", () => {
-    // §6.3 vieta di dare per buona una famiglia. La prova più severa che una
-    // famiglia sia davvero l'UNICA differenza è questa: spegnendola, i due
-    // motori producono la stessa identica previsione — stessa riga modale,
+  it("con tutte le famiglie spente lo sfidante È il base, numero per numero", () => {
+    // §6.3 vieta di dare per buona una famiglia. La prova più severa che le
+    // famiglie siano davvero l'UNICA differenza è questa: spegnendole tutte, i
+    // due motori producono la stessa identica previsione — stessa riga modale,
     // stessa distribuzione, stessi eventi. Ciò che resta diverso è solo la
     // targa, che DEVE restare diversa: il numero è lo stesso, chi l'ha fatto no.
+    //
+    // GLI INTERRUTTORI SONO QUATTRO, NON PIÙ DUE, e vanno spenti tutti: quando
+    // i minuti e i gol attesi sono diventati due famiglie, questa prova ha
+    // smesso di spegnere tutto ciò che c'era. Il numero non cambiava —
+    // `signalHistory` non porta segnali di partita, quindi le due famiglie
+    // nuove non avevano niente da mangiare — ma `familiesOn` sì, ed è giusto
+    // che sia così: un interruttore dichiara un PERMESSO, non un'osservazione.
     const history = sealed(signalHistory(GAMEWEEKS_PER_SEASON), []);
     const who = requests([IMPROVER, ...NOISE_PLAYERS]);
     const base = buildBaseForecasts({ history, players: who, asOf: ASOF });
@@ -480,7 +489,7 @@ describe("motore sfidante — ogni famiglia si può spegnere, e spenta non resta
       history,
       players: who,
       asOf: ASOF,
-      families: { recentForm: false, opponentHabits: false },
+      families: { recentForm: false, minutesPlayed: false, expectedGoals: false, opponentHabits: false },
     });
 
     off.forEach((row, i) => {
@@ -844,5 +853,508 @@ describe("motore sfidante — il verso che conta: niente rientra come storico, n
     expect(source).not.toContain("policyRegret");
     expect(source).not.toContain("realisedLeaguePoints");
     expect(source).not.toContain("bestElevenExPost");
+  });
+});
+
+
+// ─── I MINUTI E I GOL ATTESI ─────────────────────────────────────────────────
+//
+// Le due famiglie di §6.3 che questo motore ha imparato a mangiare. Le prove
+// qui sotto misurano quattro cose, e nessuna è «il motore è migliorato»:
+//
+//  1) che SENZA i due dati il motore produca ciò che produceva prima, bit a
+//     bit — la retrocompatibilità pagata con l'aritmetica e non con un `if`;
+//  2) che i due dati finiscano CIASCUNO nella sua stima e in nessun'altra: i
+//     minuti nel «gioca», i gol attesi nel «rende», e mai l'uno nell'altra;
+//  3) che un dato ASSENTE non valga come un dato a ZERO, nei due versi;
+//  4) che con zero osservazioni la previsione sia quella del RUOLO — che è la
+//     risposta giusta a «non lo so» — e non uno zero travestito.
+//
+// Fixture sintetiche come tutto il resto del file: una stagione inventata,
+// venti giornate, attaccanti che non segnano mai e che differiscono per UNA
+// COSA SOLA alla volta. È così che si misura un effetto invece di osservarlo.
+
+const XG_SEASON = S0;
+const XG_GAMEWEEKS = 20;
+
+/** Una giornata con voto, con o senza gol, per il ruolo che si chiede. */
+function playedOn(
+  playerId: string,
+  gameweek: number,
+  options: { readonly role?: Role; readonly goal?: boolean } = {},
+): PlayerAppearance {
+  const role = options.role ?? "A";
+  return {
+    playerId,
+    role,
+    season: XG_SEASON,
+    gameweek,
+    voted: true,
+    baseVote: 6,
+    started: true,
+    events: { ...noEvents, goal: options.goal === true },
+  };
+}
+
+/**
+ * VENTI GIORNATE IDENTICHE PER TUTTI: diciannove con voto e una senza, così il
+ * pool di ruolo ha sia il voto sia il senza voto che §13 pretende. Nessuno
+ * segna, salvo chi lo chiede: il conteggio dei gol resta uguale per tutti, ed
+ * è esattamente la situazione in cui i gol attesi devono poter dire qualcosa.
+ */
+function twentyGameweeks(
+  playerId: string,
+  options: { readonly role?: Role; readonly goalsOn?: readonly number[] } = {},
+): PlayerAppearance[] {
+  const role = options.role ?? "A";
+  const goalsOn = options.goalsOn ?? [];
+  const rows: PlayerAppearance[] = [];
+  for (let gw = 1; gw <= XG_GAMEWEEKS; gw += 1) {
+    if (gw === XG_GAMEWEEKS) rows.push(missed(playerId, XG_SEASON, gw, "clean", role));
+    else rows.push(playedOn(playerId, gw, { role, goal: goalsOn.includes(gw) }));
+  }
+  return rows;
+}
+
+/** I segnali di un giocatore, uguali su tutte le sue giornate a disposizione. */
+function flatSignals(
+  playerId: string,
+  each: { readonly minutesPlayed?: number; readonly expectedGoals?: number },
+): ObservedMatchSignal[] {
+  const rows: ObservedMatchSignal[] = [];
+  for (let gw = 1; gw <= XG_GAMEWEEKS; gw += 1) {
+    rows.push({ playerId, season: XG_SEASON, gameweek: gw, ...each });
+  }
+  return rows;
+}
+
+/** Chi segna qualche gol: serve a tenere il riferimento di ruolo lontano da zero. */
+const BOMBER = "ATT_BOMBER";
+
+/** Il corpo di prova: gli attaccanti dichiarati più il bomber e due difensori. */
+function xgHistory(extra: readonly string[]): ObservedHistory {
+  const rows: PlayerAppearance[] = [
+    ...twentyGameweeks(BOMBER, { goalsOn: [3, 7, 11] }),
+    ...twentyGameweeks("DIF_1", { role: "D" }),
+    ...twentyGameweeks("DIF_2", { role: "D" }),
+  ];
+  for (const id of extra) rows.push(...twentyGameweeks(id));
+  return sealed(rows, []);
+}
+
+const attackers = (ids: readonly string[]): readonly { playerId: string; role: Role; teamId: string }[] =>
+  ids.map((playerId) => ({ playerId, role: "A" as Role, teamId: "SQUADRA_1" }));
+
+/** Tutto ciò che esce, senza la targa: la targa cambia apposta, i numeri no. */
+function numbersOf(row: ChallengerForecast): string {
+  return JSON.stringify(row, (key, value) => (key === "sourceQuality" || key === "reason" ? undefined : value));
+}
+
+describe("motore sfidante — i minuti e i gol attesi, e le difese che non si toccano", () => {
+  it("senza i campi nuovi lo sfidante produce ESATTAMENTE ciò che produceva prima", () => {
+    // LA PROVA DELLA RETROCOMPATIBILITÀ, nella forma più severa disponibile:
+    // non «quasi uguale», non «entro una tolleranza», ma la stessa stringa.
+    // Due modi di non portare i segnali — non passarli affatto, e passarne un
+    // elenco vuoto — devono dare lo stesso identico numero, e il giocatore che
+    // non compare in nessun segnale non si deve accorgere che altri ce l'hanno.
+    const history = xgHistory(["ATT_NUDO", "ATT_VESTITO"]);
+    const who = attackers(["ATT_NUDO", "ATT_VESTITO"]);
+
+    const senza = buildChallengerForecasts({ history, players: who, asOf: ASOF });
+    const vuoti = buildChallengerForecasts({
+      history,
+      players: who,
+      asOf: ASOF,
+      signals: observedMatchSignals({ history, signals: [] }),
+    });
+    expect(vuoti.map(numbersOf)).toEqual(senza.map(numbersOf));
+
+    // E con i segnali di UN SOLO giocatore, l'altro resta identico a sé stesso.
+    const altrui = buildChallengerForecasts({
+      history,
+      players: who,
+      asOf: ASOF,
+      signals: observedMatchSignals({
+        history,
+        signals: flatSignals("ATT_VESTITO", { minutesPlayed: 90, expectedGoals: 0.7 }),
+      }),
+    });
+    // Il riferimento di RUOLO cambia per tutti — è il bersaglio dello shrink e
+    // lo costruiscono tutte le giornate del ruolo insieme — quindi ciò che
+    // resta identico è il giocatore visto da sé: nessuna sua osservazione
+    // nuova, nessun suo conteggio nuovo.
+    const nudoSenza = senza[0] as ChallengerForecast;
+    const nudoAltrui = altrui[0] as ChallengerForecast;
+    expect(nudoAltrui.evidence.minutesObservations).toBe(0);
+    expect(nudoAltrui.evidence.minutesWeight).toBe(0);
+    expect(nudoAltrui.evidence.expectedGoalsObservations).toBe(0);
+    expect(nudoAltrui.evidence.expectedGoalsWeight).toBe(0);
+    expect(nudoAltrui.evidence.availabilityWeight).toBe(nudoSenza.evidence.availabilityWeight);
+    expect(nudoAltrui.evidence.performanceWeight).toBe(nudoSenza.evidence.performanceWeight);
+  });
+
+  it("con le due famiglie SPENTE i segnali non esistono, anche se ci sono", () => {
+    // Un interruttore spento deve valere quanto un dato assente: se spegnere
+    // una famiglia lasciasse una scia, §6.3 non avrebbe più un modo di
+    // misurare quanto quella famiglia pesa.
+    const history = xgHistory(["ATT_UNO"]);
+    const who = attackers(["ATT_UNO"]);
+    const signals = observedMatchSignals({
+      history,
+      signals: flatSignals("ATT_UNO", { minutesPlayed: 12, expectedGoals: 0.9 }),
+    });
+    const senza = buildChallengerForecasts({ history, players: who, asOf: ASOF });
+    const spente = buildChallengerForecasts({
+      history,
+      players: who,
+      asOf: ASOF,
+      signals,
+      families: { minutesPlayed: false, expectedGoals: false },
+    });
+    // Tutto tranne l'elenco delle famiglie, che DEVE differire: un interruttore
+    // dichiara un permesso, e dire «la famiglia è spenta» è proprio ciò che
+    // distingue questa esecuzione da quella che non aveva i dati.
+    const senzaFamiglie = (row: ChallengerForecast): string =>
+      JSON.stringify(row, (key, value) =>
+        key === "sourceQuality" || key === "reason" || key === "familiesOn" ? undefined : value,
+      );
+    expect(senzaFamiglie(spente[0] as ChallengerForecast)).toBe(
+      senzaFamiglie(senza[0] as ChallengerForecast),
+    );
+    expect((spente[0] as ChallengerForecast).evidence.familiesOn).toEqual(["recentForm", "opponentHabits"]);
+    expect((senza[0] as ChallengerForecast).evidence.familiesOn).toEqual([
+      "recentForm",
+      "minutesPlayed",
+      "expectedGoals",
+      "opponentHabits",
+    ]);
+
+    // E con TUTTE le famiglie spente lo sfidante è il base, segnali o non
+    // segnali: il metro non si sposta perché qualcuno gli ha messo accanto due
+    // dati che non ha il diritto di vedere.
+    const base = buildBaseForecasts({ history, players: who, asOf: ASOF });
+    const off = buildChallengerForecasts({
+      history,
+      players: who,
+      asOf: ASOF,
+      signals,
+      families: { recentForm: false, minutesPlayed: false, expectedGoals: false, opponentHabits: false },
+    });
+    const strip = (f: unknown): string =>
+      JSON.stringify(f, (key, value) => (key === "sourceQuality" ? undefined : value));
+    expect(strip((off[0] as ChallengerForecast).forecast)).toBe(
+      strip((base[0] as { forecast: unknown }).forecast),
+    );
+  });
+
+  it("molti gol attesi e pochi gol battono pochi gol attesi e pochi gol", () => {
+    // LA DOMANDA A CUI SERVONO GLI xG: due attaccanti che hanno segnato
+    // ESATTAMENTE lo stesso numero di gol — zero — e che per la giornata dopo
+    // non sono la stessa previsione. Senza gol attesi il motore non li può
+    // distinguere; con i gol attesi sì, ed è tutto ciò che deve fare.
+    const history = xgHistory(["ATT_SFORTUNATO", "ATT_SCARSO", "ATT_MUTO"]);
+    const who = attackers(["ATT_SFORTUNATO", "ATT_SCARSO", "ATT_MUTO"]);
+    const out = buildChallengerForecasts({
+      history,
+      players: who,
+      asOf: ASOF,
+      signals: observedMatchSignals({
+        history,
+        signals: [
+          ...flatSignals("ATT_SFORTUNATO", { expectedGoals: 0.6 }),
+          ...flatSignals("ATT_SCARSO", { expectedGoals: 0.02 }),
+        ],
+      }),
+    });
+    const [sfortunato, scarso, muto] = out as readonly ChallengerForecast[];
+    const pGoal = (row: ChallengerForecast): number => row.forecast.distribution?.events.pGoal as number;
+
+    expect(pGoal(sfortunato as ChallengerForecast)).toBeGreaterThan(pGoal(scarso as ChallengerForecast));
+    // E chi si procura le occasioni sta sopra anche a chi non dichiara niente:
+    // «non lo so» non è una promozione, ma nemmeno una condanna.
+    expect(pGoal(sfortunato as ChallengerForecast)).toBeGreaterThan(pGoal(muto as ChallengerForecast));
+
+    // LA SEPARAZIONE, misurata e non dichiarata: i gol attesi non toccano il
+    // «gioca» e non toccano il voto. Due giocatori con xG diversissimi e
+    // giornate identiche hanno la STESSA probabilità di giocare e lo STESSO
+    // voto atteso, cifra per cifra.
+    expect((sfortunato as ChallengerForecast).forecast.voteProbability).toBe(
+      (scarso as ChallengerForecast).forecast.voteProbability,
+    );
+    expect(meanVote((sfortunato as ChallengerForecast).forecast)).toBe(
+      meanVote((scarso as ChallengerForecast).forecast),
+    );
+    // E nemmeno gli altri sei tassi: gli xA sono un altro dato, e non c'è.
+    expect((sfortunato as ChallengerForecast).forecast.distribution?.events.pAssist).toBe(
+      (scarso as ChallengerForecast).forecast.distribution?.events.pAssist,
+    );
+  });
+
+  it("chi entra sempre a partita in corso non è chi gioca novanta minuti", () => {
+    // IL BIT CHE NON BASTAVA. Questi due sono titolari tutte le domeniche e
+    // prendono voto tutte le domeniche: per il binario titolare/subentrato
+    // sono lo stesso giocatore. Uno però esce sempre dopo venti minuti, e per
+    // la giornata dopo non è la stessa scommessa.
+    const history = xgHistory(["ATT_NOVANTA", "ATT_VENTI"]);
+    const who = attackers(["ATT_NOVANTA", "ATT_VENTI"]);
+    const out = buildChallengerForecasts({
+      history,
+      players: who,
+      asOf: ASOF,
+      signals: observedMatchSignals({
+        history,
+        signals: [
+          ...flatSignals("ATT_NOVANTA", { minutesPlayed: 90 }),
+          ...flatSignals("ATT_VENTI", { minutesPlayed: 20 }),
+        ],
+      }),
+    });
+    const [novanta, venti] = out as readonly ChallengerForecast[];
+
+    expect((novanta as ChallengerForecast).forecast.voteProbability).toBeGreaterThan(
+      (venti as ChallengerForecast).forecast.voteProbability,
+    );
+    expect((novanta as ChallengerForecast).evidence.expectedMinutesShare).toBeGreaterThan(
+      (venti as ChallengerForecast).evidence.expectedMinutesShare,
+    );
+    expect((novanta as ChallengerForecast).evidence.minutesObservations).toBe(XG_GAMEWEEKS);
+
+    // LA SEPARAZIONE, nell'altro verso: i minuti non toccano il «rende». Due
+    // giocatori con minuti diversissimi e giornate identiche hanno lo STESSO
+    // voto atteso e gli STESSI tassi di evento, cifra per cifra.
+    expect(meanVote((novanta as ChallengerForecast).forecast)).toBe(
+      meanVote((venti as ChallengerForecast).forecast),
+    );
+    expect((novanta as ChallengerForecast).forecast.distribution?.events.pGoal).toBe(
+      (venti as ChallengerForecast).forecast.distribution?.events.pGoal,
+    );
+  });
+
+  it("una giornata senza gol attesi non vale come una giornata con gol attesi zero", () => {
+    // IL DATO ASSENTE NON È UN DATO A ZERO, ed è la difesa che una fonte
+    // incompleta mette alla prova per prima: chi non ha la lettura non deve
+    // finire sotto chi ha una lettura brutta.
+    const history = xgHistory(["ATT_ZERO", "ATT_IGNOTO"]);
+    const who = attackers(["ATT_ZERO", "ATT_IGNOTO"]);
+    const out = buildChallengerForecasts({
+      history,
+      players: who,
+      asOf: ASOF,
+      signals: observedMatchSignals({ history, signals: flatSignals("ATT_ZERO", { expectedGoals: 0 }) }),
+    });
+    const [zero, ignoto] = out as readonly ChallengerForecast[];
+    const pGoal = (row: ChallengerForecast): number => row.forecast.distribution?.events.pGoal as number;
+
+    expect(pGoal(zero as ChallengerForecast)).toBeLessThan(pGoal(ignoto as ChallengerForecast));
+    expect((zero as ChallengerForecast).evidence.expectedGoalsObservations).toBe(XG_GAMEWEEKS - 1);
+    expect((ignoto as ChallengerForecast).evidence.expectedGoalsObservations).toBe(0);
+  });
+
+  it("una giornata senza minuti non vale come una giornata con zero minuti", () => {
+    // Lo stesso verso, sull'altra famiglia: dichiarare «non è sceso in campo»
+    // è un'osservazione e pesa; non dichiarare niente non lo è e non pesa.
+    const history = xgHistory(["ATT_PANCHINA", "ATT_SENZA_LETTURA"]);
+    const who = attackers(["ATT_PANCHINA", "ATT_SENZA_LETTURA"]);
+    const out = buildChallengerForecasts({
+      history,
+      players: who,
+      asOf: ASOF,
+      signals: observedMatchSignals({ history, signals: flatSignals("ATT_PANCHINA", { minutesPlayed: 0 }) }),
+    });
+    const [panchina, ignoto] = out as readonly ChallengerForecast[];
+
+    expect((panchina as ChallengerForecast).forecast.voteProbability).toBeLessThan(
+      (ignoto as ChallengerForecast).forecast.voteProbability,
+    );
+    expect((panchina as ChallengerForecast).evidence.minutesObservations).toBe(XG_GAMEWEEKS);
+    expect((ignoto as ChallengerForecast).evidence.minutesObservations).toBe(0);
+  });
+
+  it("con zero osservazioni la previsione è quella del RUOLO, non uno zero travestito", () => {
+    // LA RISPOSTA GIUSTA A «NON LO SO». Chi non ha nemmeno una giornata prende
+    // il riferimento del suo ruolo — costruito anche sui gol attesi degli
+    // altri — e quel riferimento non è zero. Uno zero di comodo qui terrebbe
+    // fuori dalla formazione un giocatore su cui semplicemente non si sa nulla.
+    const history = xgHistory(["ATT_CON_XG"]);
+    const who = attackers(["ATT_CON_XG", "ATT_MAI_VISTO"]);
+    const out = buildChallengerForecasts({
+      history,
+      players: who,
+      asOf: ASOF,
+      signals: observedMatchSignals({ history, signals: flatSignals("ATT_CON_XG", { expectedGoals: 0.5, minutesPlayed: 80 }) }),
+    });
+    const maiVisto = out[1] as ChallengerForecast;
+
+    expect(maiVisto.evidence.gameweeksInHistory).toBe(0);
+    expect(maiVisto.forecast.distribution?.events.pGoal as number).toBeGreaterThan(0);
+    expect(maiVisto.evidence.expectedMinutesShare).toBeGreaterThan(0);
+    expect(maiVisto.forecast.voteProbability).toBeGreaterThan(0);
+
+    // E quando il RUOLO non ha nemmeno una giornata con i minuti dichiarati,
+    // la quota di partita attesa è `-1` — «non lo so» — e non `0`, che direbbe
+    // «non gioca mai».
+    const difensore = buildChallengerForecasts({
+      history,
+      players: [{ playerId: "DIF_1", role: "D", teamId: "SQUADRA_1" }],
+      asOf: ASOF,
+      signals: observedMatchSignals({ history, signals: flatSignals("ATT_CON_XG", { minutesPlayed: 80 }) }),
+    })[0] as ChallengerForecast;
+    expect(difensore.evidence.expectedMinutesShare).toBe(-1);
+  });
+
+  it("i gol attesi di una giornata SENZA voto non si contano, e non si tacciono", () => {
+    // §6.1 condiziona i tassi di evento al voto: un xG accumulato in una
+    // giornata finita senza voto non appartiene a quel condizionamento.
+    // Scartarlo è giusto; scartarlo in silenzio no — un dato buttato via senza
+    // dirlo è un dato perso due volte.
+    const history = xgHistory(["ATT_TAGLIATO"]);
+    const who = attackers(["ATT_TAGLIATO"]);
+    const soloConVoto = buildChallengerForecasts({
+      history,
+      players: who,
+      asOf: ASOF,
+      signals: observedMatchSignals({
+        history,
+        signals: flatSignals("ATT_TAGLIATO", { expectedGoals: 0.4 }).filter(
+          (row) => row.gameweek !== XG_GAMEWEEKS,
+        ),
+      }),
+    })[0] as ChallengerForecast;
+    const ancheSenzaVoto = buildChallengerForecasts({
+      history,
+      players: who,
+      asOf: ASOF,
+      signals: observedMatchSignals({ history, signals: flatSignals("ATT_TAGLIATO", { expectedGoals: 0.4 }) }),
+    })[0] as ChallengerForecast;
+
+    expect(ancheSenzaVoto.forecast.distribution?.events.pGoal).toBe(
+      soloConVoto.forecast.distribution?.events.pGoal,
+    );
+    expect(ancheSenzaVoto.evidence.expectedGoalsOffVote).toBe(1);
+    expect(soloConVoto.evidence.expectedGoalsOffVote).toBe(0);
+    expect(ancheSenzaVoto.evidence.reason).toContain("SENZA voto e non sono contate");
+  });
+
+  it("l'ordine dei segnali non sposta un bit", () => {
+    // Come per le giornate: due corpi con le stesse righe in ordine diverso
+    // devono dare lo stesso numero, e la somma di virgola mobile non è
+    // commutativa. Qui l'ordine dei segnali è quello del chiamante, e non deve
+    // contare.
+    const history = xgHistory(["ATT_A", "ATT_B"]);
+    const who = attackers(["ATT_A", "ATT_B"]);
+    const rows = [
+      ...flatSignals("ATT_A", { minutesPlayed: 61, expectedGoals: 0.31 }),
+      ...flatSignals("ATT_B", { minutesPlayed: 17, expectedGoals: 0.72 }),
+    ];
+    const dritto = buildChallengerForecasts({
+      history,
+      players: who,
+      asOf: ASOF,
+      signals: observedMatchSignals({ history, signals: rows }),
+    });
+    const rovescio = buildChallengerForecasts({
+      history,
+      players: who,
+      asOf: ASOF,
+      signals: observedMatchSignals({ history, signals: [...rows].reverse() }),
+    });
+    expect(rovescio.map(numbersOf)).toEqual(dritto.map(numbersOf));
+  });
+
+  it("la porta dei segnali rifiuta ciò che non è un'osservazione", () => {
+    const history = xgHistory(["ATT_X"]);
+    const ok = { playerId: "ATT_X", season: XG_SEASON, gameweek: 1 };
+
+    // Una riga che non dichiara né minuti né gol attesi non è un'osservazione.
+    expect(() => observedMatchSignals({ history, signals: [ok] })).toThrow(/né minuti né gol attesi/);
+    // Un'unità sbagliata non passa: 5400 sono novanta minuti in secondi.
+    expect(() =>
+      observedMatchSignals({ history, signals: [{ ...ok, minutesPlayed: 5400 }] }),
+    ).toThrow(/fuori da 0\.\.130/);
+    // Un xG di stagione entrato al posto di uno di giornata, nemmeno.
+    expect(() =>
+      observedMatchSignals({ history, signals: [{ ...ok, expectedGoals: 24 }] }),
+    ).toThrow(/fuori da 0\.\.10/);
+    // Due letture unite male conterebbero doppio.
+    expect(() =>
+      observedMatchSignals({
+        history,
+        signals: [
+          { ...ok, expectedGoals: 0.2 },
+          { ...ok, expectedGoals: 0.3 },
+        ],
+      }),
+    ).toThrow(/due righe di segnali/);
+    // Una riga che non trova la sua giornata riempirebbe un numeratore che il
+    // denominatore non conosce.
+    expect(() =>
+      observedMatchSignals({
+        history,
+        signals: [{ playerId: "ATT_X", season: XG_SEASON, gameweek: XG_GAMEWEEKS + 5, expectedGoals: 0.2 }],
+      }),
+    ).toThrow(/non ha nessuna giornata dichiarata/);
+    // E lo storico senza targa non apre nemmeno questa porta.
+    const forged = { seasons: SEASONS, appearances: [], teamGameweeks: [], origin: "OBSERVED" } as unknown as ObservedHistory;
+    expect(() => observedMatchSignals({ history: forged, signals: [] })).toThrow(
+      /non è passato da `observedHistory\(\)`/,
+    );
+  });
+
+  it("i segnali di un ALTRO corpo storico non entrano: una frazione ha un solo corpo", () => {
+    // Il numeratore dei minuti sono le giornate che li dichiarano, il
+    // denominatore le giornate a disposizione. Presi da due letture diverse non
+    // fanno una frazione: fanno un numero.
+    const history = xgHistory(["ATT_X"]);
+    const altro = xgHistory(["ATT_X"]);
+    const signals = observedMatchSignals({ history: altro, signals: flatSignals("ATT_X", { minutesPlayed: 90 }) });
+    expect(() =>
+      buildChallengerForecasts({ history, players: attackers(["ATT_X"]), asOf: ASOF, signals }),
+    ).toThrow(/corpo storico DIVERSO/);
+  });
+
+  it("il METRO resta cieco: la previsione base non conosce né minuti né gol attesi", () => {
+    // LA DIFESA CHE NON SI PAGA CON LA BUONA VOLONTÀ. §6.2 vuole il metro
+    // cieco a queste due cose, e il modo in cui questo lavoro lo garantisce non
+    // è «ci siamo ricordati di non guardarle»: è che il tipo del metro non le
+    // contiene, quindi `baseForecast.ts` non le può leggere nemmeno per
+    // sbaglio. Questa prova legge il sorgente del metro e pretende che i due
+    // nomi non ci compaiano, se non nella riga in cui dichiara di non averli.
+    const base = readFileSync(new URL("../src/baseForecast.ts", import.meta.url), "utf8");
+    expect(base).not.toContain("ObservedMatchSignal");
+    expect(base).not.toContain("minutesPlayed");
+    expect(base).not.toContain("expectedGoals");
+    expect(base).toContain("niente minuti giocati");
+    expect(base).toContain("niente xG");
+
+    // E il numero: sullo stesso corpo, con i segnali in mano, il metro produce
+    // ciò che produce lo sfidante a famiglie spente — cioè sé stesso.
+    const history = xgHistory(["ATT_X"]);
+    const who = attackers(["ATT_X"]);
+    const strip = (f: unknown): string =>
+      JSON.stringify(f, (key, value) => (key === "sourceQuality" ? undefined : value));
+    const metro = buildBaseForecasts({ history, players: who, asOf: ASOF })[0] as { forecast: unknown };
+    const spento = buildChallengerForecasts({
+      history,
+      players: who,
+      asOf: ASOF,
+      signals: observedMatchSignals({ history, signals: flatSignals("ATT_X", { minutesPlayed: 90, expectedGoals: 0.8 }) }),
+      families: { recentForm: false, minutesPlayed: false, expectedGoals: false, opponentHabits: false },
+    })[0] as ChallengerForecast;
+    expect(strip(spento.forecast)).toBe(strip(metro.forecast));
+  });
+
+  it("lo sfidante non si promuove da solo, nemmeno con i dati nuovi in mano", () => {
+    // La regola 3 dell'intestazione non si indebolisce perché il motore ha
+    // imparato a mangiare due dati in più: il giudizio di §2.4 resta fuori da
+    // questo file, e il file lo dimostra da sé.
+    const source = readFileSync(new URL("../src/challengerForecast.ts", import.meta.url), "utf8");
+    expect(source).not.toContain("policyMetrics");
+    expect(source).not.toContain("policyRegret");
+    expect(source).not.toContain("bestElevenExPost");
+    // E nessuna terza velocità: i due segnali nuovi appartengono alla famiglia
+    // RICCA e dimenticano con la mezza vita del rendimento, senza un parametro
+    // in più da tarare.
+    expect(source).not.toContain("minutesHalfLife");
+    expect(source).not.toContain("expectedGoalsHalfLife");
   });
 });

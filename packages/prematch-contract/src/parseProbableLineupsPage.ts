@@ -397,13 +397,22 @@ function lineupCandidate(
       // Panchina assente NON è panchina vuota: è la sezione che la pagina non
       // espone, e resta un'assenza dichiarata.
       bench: asField(bench),
-      // Questa pagina non porta sostituzioni, indisponibili, squalificati né
-      // ballottaggi: non li abbiamo guardati qui, e «non guardato» non è «la
-      // fonte non ce l'ha».
+      // Questa pagina non porta sostituzioni, indisponibili, squalificati,
+      // ballottaggi né stati dei giocatori: non li abbiamo guardati qui, e «non
+      // guardato» non è «la fonte non ce l'ha».
+      //
+      // GLI STATI RESTANO NON GUARDATI ANCHE ORA CHE IL CONTRATTO HA DOVE
+      // METTERLI. Per leggerli servirebbero famiglie di chiavi nuove nella
+      // tabella, e una famiglia nuova è **obbligatoria** per chi la tabella la
+      // compila: le tabelle che esistono diventerebbero illeggibili da un
+      // giorno all'altro. Chi vorrà accenderli qui dovrà prima decidere come si
+      // aggiunge una famiglia senza rompere le tabelle in uso — e finché non lo
+      // fa, questa riga dice la verità.
       substitutions: notObserved(),
       unavailable: notObserved(),
       suspended: notObserved(),
       duels: notObserved(),
+      conditions: notObserved(),
       completeness: completenessFrom(ancestry, shape.keys.lineupCompleteness, shape),
     },
   };
@@ -562,7 +571,17 @@ function matchCandidate(
     return stop(PROBABLE_LINEUPS_STOP_CODES.lineupUnreadable, "starters", "formazione non leggibile");
   }
 
-  return read({ home: home.value, away: away.value });
+  // Le previsioni per giocatore — percentuale di titolarità, «in dubbio» — non
+  // le guarda nessuno qui, per la stessa ragione degli stati: leggerle vorrebbe
+  // dire famiglie di chiavi nuove, e una famiglia nuova è obbligatoria per ogni
+  // tabella già scritta. Dichiararle non guardate è l'unica affermazione vera
+  // che questo parser possa fare su di loro.
+  return read({
+    home: home.value,
+    away: away.value,
+    homeForecasts: notObserved(),
+    awayForecasts: notObserved(),
+  });
 }
 
 /**
