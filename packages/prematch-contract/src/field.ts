@@ -145,8 +145,16 @@ export function readFieldOrUnobserved<T>(
   at: readonly string[],
   readValue: (value: unknown, valueAt: readonly string[]) => ReadOutcome<T>,
 ): ReadOutcome<Field<T>> {
-  // Solo la chiave **assente** passa di qui. Un `null` scritto apposta è un
-  // candidato malformato, e come tale si ferma dentro `readField`.
+  // Passa di qui la chiave che **non porta valore**: quella assente e quella
+  // presente con `undefined`, che a questa funzione arrivano identiche e
+  // identiche restano — riceve il valore, non il record, quindi `in` qui non
+  // esiste e distinguerle vorrebbe dire cambiare la firma di ogni chiamante.
+  // La distinzione non servirebbe comunque a niente: una chiave scritta
+  // `undefined` è un lettore che il campo non lo compila, cioè lo stesso fatto
+  // — non l'abbiamo guardato — che la chiave assente dichiara.
+  //
+  // Un `null` scritto apposta è un'altra cosa: non passa di qui, si ferma
+  // dentro `readField`, perché `readRecord` un `null` non lo accetta.
   if (candidate === undefined) return read(notObserved<T>());
   return readField(candidate, at, readValue);
 }

@@ -198,6 +198,102 @@ describe("la previsione su un giocatore vive con le probabili, non con il giocat
     ]);
   });
 
+  it("una percentuale che non è un numero finito non è una percentuale osservata", () => {
+    // `NaN` è il modo in cui un numero mal convertito arriva fin qui: supera
+    // `typeof === "number"`, e non è né sotto zero né sopra cento, quindi
+    // senza il controllo di finitezza verrebbe letto come una percentuale
+    // **osservata** e viaggerebbe a valle come un dato della fonte.
+    const outcome = readProbableLineupsPage(
+      paginaConPrevisioni({
+        homeForecasts: previsioni([
+          {
+            player: "Alfa 9",
+            startingProbability: { presence: "observed", value: Number.NaN },
+            doubtful: { presence: "not-observed" },
+          },
+        ]),
+      }),
+    );
+    expect(outcome.status).toBe("shape-not-recognised");
+    if (isRead(outcome)) return;
+    expect(outcome.at).toEqual([
+      "probableLineupsPage",
+      "matches",
+      "0",
+      "homeForecasts",
+      "value",
+      "forecasts",
+      "0",
+      "startingProbability",
+      "value",
+    ]);
+  });
+
+  it("una percentuale negativa si ferma come si ferma quella sopra cento", () => {
+    // L'intervallo ha due estremi e valgono uguale: un `-5` è il tipico esito
+    // di un trattino letto come segno, e lasciarlo passare metterebbe in
+    // circolo una probabilità sotto lo zero.
+    const outcome = readProbableLineupsPage(
+      paginaConPrevisioni({
+        homeForecasts: previsioni([
+          {
+            player: "Alfa 9",
+            startingProbability: { presence: "observed", value: -5 },
+            doubtful: { presence: "not-observed" },
+          },
+        ]),
+      }),
+    );
+    expect(outcome.status).toBe("out-of-contract");
+    if (isRead(outcome)) return;
+    expect(outcome.at).toEqual([
+      "probableLineupsPage",
+      "matches",
+      "0",
+      "homeForecasts",
+      "value",
+      "forecasts",
+      "0",
+      "startingProbability",
+      "value",
+    ]);
+  });
+
+  it("un elenco di previsioni SENZA la chiave della completezza si ferma, invece di darsi per completo", () => {
+    // Il caso che gli helper di questa suite non possono costruire, perché una
+    // completezza la mettono sempre: la chiave **manca del tutto**. Un ripiego
+    // qui — «se non c'è, allora completo» — direbbe che i giocatori non
+    // nominati sono titolari sicuri, cioè la deduzione che questo campo esiste
+    // per impedire. `unknown` è un fatto che chi legge la pagina dichiara; una
+    // chiave assente è un candidato costruito male, e va visto.
+    const outcome = readProbableLineupsPage(
+      paginaConPrevisioni({
+        homeForecasts: {
+          presence: "observed",
+          value: {
+            forecasts: [
+              {
+                player: "Alfa 9",
+                startingProbability: { presence: "observed", value: 85 },
+                doubtful: { presence: "not-observed" },
+              },
+            ],
+          },
+        },
+      }),
+    );
+    expect(outcome.status).toBe("shape-not-recognised");
+    if (isRead(outcome)) return;
+    expect(outcome.at).toEqual([
+      "probableLineupsPage",
+      "matches",
+      "0",
+      "homeForecasts",
+      "value",
+      "completeness",
+    ]);
+  });
+
   it("un «in dubbio» che non è un sì o un no dichiarato non si interpreta", () => {
     const outcome = readProbableLineupsPage(
       paginaConPrevisioni({

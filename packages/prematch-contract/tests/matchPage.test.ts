@@ -378,6 +378,24 @@ describe("gli stati di un giocatore non sono posti in una formazione", () => {
     if (!isRead(dichiarataCompleta)) throw new Error("atteso letto");
     expect(absenceIsMeaningful(dichiarataCompleta.value.conditions)).toBe(true);
   });
+
+  it("un elenco di stati SENZA la chiave della completezza si ferma, invece di darsi per completo", () => {
+    // `statiOsservati` una completezza la mette sempre, quindi il caso più
+    // pericoloso non lo costruisce nessuna prova: la chiave **manca del
+    // tutto**. Un ripiego qui — «se non c'è, allora completo» — farebbe
+    // concludere che chi non è nell'elenco degli infortunati sta bene, che è
+    // esattamente la deduzione che la completezza esiste per vietare.
+    const lineup = syntheticLineup("Alfa", "probable", {
+      conditions: {
+        presence: "observed",
+        value: { conditions: [{ player: "Alfa 3", kind: "injured" }] },
+      },
+    });
+    const outcome = readTeamLineup(lineup, ["l"]);
+    expect(outcome.status).toBe("shape-not-recognised");
+    if (isRead(outcome)) return;
+    expect(outcome.at).toEqual(["l", "conditions", "value", "completeness"]);
+  });
 });
 
 describe("la nota di un ballottaggio si porta, non si interpreta", () => {
