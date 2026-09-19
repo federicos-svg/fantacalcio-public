@@ -34,13 +34,30 @@
 // nomina l'undici e tace sulla panchina non è una fonte che ha detto «questi
 // undici e nessun altro». Vedi `Completeness` e `ObservedRoster` qui sotto.
 //
+// GLI STATI DI UN GIOCATORE NON SONO POSTI IN UNA FORMAZIONE. Infortunato,
+// squalificato, diffidato: sono cose che valgono **del giocatore**, e non del
+// suo posto nell'undici. Stanno quindi in un tipo loro — `ObservedPlayerCondition`
+// — e non dentro `ObservedPlayer`, che descrive un nome in una lista. Le liste
+// `unavailable` e `suspended` restano dove sono e significano quello che hanno
+// sempre significato: **la sezione che la pagina espone**, con i nomi che ci
+// stanno dentro. «La pagina ha una sezione indisponibili e contiene questo
+// nome» e «la fonte dichiara che questo giocatore è infortunato» sono due
+// fatti diversi, nessuno dei due si ricava dall'altro, e questo file non prova
+// a farlo.
+//
+// IL DIFFIDATO NON È UNO SQUALIFICATO, e tenerli separati non è pignoleria: un
+// diffidato **gioca**, e chi lo trattasse come uno squalificato lo toglierebbe
+// da una formazione in cui la fonte lo mette. Prima di `ObservedPlayerCondition`
+// il diffidato non aveva casa: la sola scelta era infilarlo in una delle due
+// liste esistenti, cioè dire il falso.
+//
 // QUESTO FILE NON MISURA NIENTE. Il confronto per giocatore, l'aggregazione per
 // fonte e per squadra, le soglie e i pesi sono lavoro futuro, esplicitamente non
 // progettato nel record che autorizza queste pagine. Qui c'è solo la materia
 // prima che quel lavoro richiederà: dati con la loro provenienza, e un'istantanea
 // che sa dire da che parte del fischio d'inizio sta.
 
-import { readField, type Field } from "./field.js";
+import { readField, readFieldOrUnobserved, type Field } from "./field.js";
 import { readProvenance, type Provenance } from "./provenance.js";
 import {
   carryFailure,
@@ -107,10 +124,28 @@ export interface ObservedRoster {
 }
 
 /**
+ * OGNI LISTA DI QUESTO CONTRATTO DICHIARA QUANTO È COMPLETA — questo è il tipo
+ * che lo dice, e il motivo per cui le due funzioni qui sotto non parlano solo
+ * dell'undici e della panchina.
+ *
+ * Una pagina pre-partita porta altre liste: gli stati dei giocatori, le
+ * previsioni di titolarità. Per tutte vale la stessa regola, e con lo stesso
+ * conto: chi non compare in una lista che nessuno ha dichiarato completa **non
+ * è un'informazione**. Un elenco di infortunati che non si dichiara completo
+ * non dice che gli altri stanno bene.
+ */
+export interface DeclaresCompleteness {
+  readonly completeness: Completeness;
+}
+
+/**
  * La completezza di una lista, tenendo conto anche del caso in cui la lista non
  * ci sia: nessuna lista, nessuna dichiarazione, quindi `unknown`.
+ *
+ * Il nome dice «roster» per la storia — è nata sull'undici — ma la domanda a
+ * cui risponde vale per qualunque lista che la propria completezza la dichiari.
  */
-export function rosterCompleteness(roster: Field<ObservedRoster>): Completeness {
+export function rosterCompleteness(roster: Field<DeclaresCompleteness>): Completeness {
   return roster.presence === "observed" ? roster.value.completeness : "unknown";
 }
 
@@ -122,7 +157,7 @@ export function rosterCompleteness(roster: Field<ObservedRoster>): Completeness 
  * prima di contare un giocatore come «non previsto»: fuori di qui quel conto si
  * fa a occhio, e a occhio si conta il silenzio come una previsione.
  */
-export function absenceIsMeaningful(roster: Field<ObservedRoster>): boolean {
+export function absenceIsMeaningful(roster: Field<DeclaresCompleteness>): boolean {
   return rosterCompleteness(roster) === "declared-complete";
 }
 
@@ -139,6 +174,65 @@ export interface ObservedPlayer {
   readonly shirtNumber: Field<number>;
   /** L'etichetta di ruolo della fonte, se c'è: non il ruolo di lega. */
   readonly role: Field<string>;
+}
+
+/**
+ * LO STATO IN CUI LA FONTE DICHIARA UN GIOCATORE. Elenco chiuso, tre valori, e
+ * nessuno dei tre si ricava da un altro.
+ *
+ *   * `injured` — la fonte lo dà infortunato: dice qualcosa del suo corpo, non
+ *     del regolamento;
+ *   * `suspended` — la fonte lo dà squalificato: **non può giocare**, e a dirlo
+ *     è una decisione, non una previsione;
+ *   * `warned` — il diffidato: un cartellino lo separa dalla squalifica, e
+ *     intanto **gioca**. È il valore che non c'era, ed è il motivo per cui
+ *     questo tipo è nato: l'unico modo di portarlo a valle era infilarlo fra
+ *     gli squalificati o fra gli indisponibili, cioè dichiarare che non gioca
+ *     uno che gioca.
+ *
+ * NON C'È UN QUARTO VALORE PER «IN DUBBIO», e non ci deve arrivare. Il dubbio
+ * non è uno stato del giocatore: è una **previsione** su chi scenderà in campo
+ * in una partita, e vive con la previsione — `ObservedStartingForecast` in
+ * `gameweekPages.ts`. Un giocatore in dubbio è sano e senza squalifiche:
+ * scriverlo qui gli attribuirebbe una condizione che la fonte non ha
+ * dichiarato.
+ */
+export type PlayerConditionKind = "injured" | "suspended" | "warned";
+
+/**
+ * Uno stato che la fonte dichiara per un giocatore che nomina.
+ *
+ * `player` è l'etichetta della fonte, con la stessa avvertenza di
+ * `ObservedPlayer.displayName`: non è un'identità risolta, e ricongiungerla a
+ * un nome dell'undici è un mestiere che questo pacchetto non fa. Nessuna
+ * funzione qui dentro confronta i due elenchi, e nessuna toglie dalla
+ * formazione un nome che compare fra gli squalificati: sarebbe una decisione
+ * sul prodotto presa dentro una lettura.
+ */
+export interface ObservedPlayerCondition {
+  readonly player: string;
+  readonly kind: PlayerConditionKind;
+}
+
+/**
+ * Gli stati dichiarati per una squadra, **con la dichiarazione di quanto
+ * l'elenco è completo**.
+ *
+ * La completezza viaggia insieme alla lista per la ragione di sempre, che qui
+ * morde più che altrove: un elenco di infortunati che nessuno dichiara completo
+ * **non dice che gli altri sono sani**. Chi lo leggesse così costruirebbe una
+ * formazione sopra una salute che nessuno ha affermato.
+ *
+ * NON È LA LISTA `unavailable`, E NON LA SOSTITUISCE. Quella è la **sezione**
+ * che la pagina espone, con dentro i nomi che ci stanno; questa dice **quale
+ * stato** la fonte attribuisce a un giocatore. Una fonte può avere l'una e non
+ * l'altra, e nessuna delle due si ricava dall'altra: dalla sezione
+ * «indisponibili» non si deduce che quei nomi siano infortunati — potrebbero
+ * essere squalificati — e da uno stato non si deduce una sezione.
+ */
+export interface ObservedConditionList {
+  readonly conditions: readonly ObservedPlayerCondition[];
+  readonly completeness: Completeness;
 }
 
 /**
@@ -160,10 +254,25 @@ export interface ObservedSubstitution {
  * `favourite` esiste solo se **la fonte** indica un favorito. Nessuna funzione
  * di questo pacchetto ne sceglie uno: un ballottaggio risolto da noi sarebbe un
  * output direttivo travestito da lettura.
+ *
+ * `note` È L'ANNOTAZIONE BREVE DELLA FONTE, e non è una deroga al divieto di
+ * ripubblicare testo editoriale: si legge con la stessa guardia di ogni altra
+ * etichetta di questo pacchetto — `readLabel` — quindi una riga sola e non più
+ * lunga di `MAX_LABEL_LENGTH`. Una nota che è una frase viene rifiutata
+ * `out-of-contract`, ed è la risposta giusta: a quella lunghezza non è più
+ * un'annotazione, è prosa, e la prosa resta dov'è.
+ *
+ * E NON SI LEGGE. La nota si porta a valle **come la fonte l'ha scritta**:
+ * nessuna funzione qui dentro ci cerca dentro un favorito, una percentuale o un
+ * «probabile». Un ballottaggio senza favorito dichiarato resta senza favorito
+ * anche quando la nota sembra suggerirne uno — dedurlo dal testo sarebbe
+ * esattamente il ballottaggio risolto da noi che il paragrafo sopra vieta,
+ * fatto per la porta di servizio.
  */
 export interface ObservedDuel {
   readonly contenders: readonly string[];
   readonly favourite: Field<string>;
+  readonly note: Field<string>;
 }
 
 /**
@@ -236,6 +345,17 @@ export interface ObservedTeamLineup {
   readonly unavailable: Field<ObservedRoster>;
   readonly suspended: Field<ObservedRoster>;
   readonly duels: Field<readonly ObservedDuel[]>;
+  /**
+   * GLI STATI DICHIARATI PER I GIOCATORI DI QUESTA SQUADRA — infortunati,
+   * squalificati, diffidati — con la loro dichiarazione di completezza.
+   *
+   * Sta accanto a `unavailable` e `suspended` e non al loro posto: quelle due
+   * sono le sezioni della pagina, questa è ciò che la fonte dice **del
+   * giocatore**. Una fonte può pubblicare l'una senza l'altra, e il diffidato —
+   * che gioca — non ha nessun'altra casa in cui arrivare a valle senza essere
+   * scambiato per uno che non gioca.
+   */
+  readonly conditions: Field<ObservedConditionList>;
   /**
    * La formazione **nel suo insieme**: la fonte dichiara di aver detto tutto
    * quello che c'era da dire su questa squadra, oppure no.
@@ -369,7 +489,56 @@ export function readDuel(candidate: unknown, at: readonly string[]): ReadOutcome
     );
   }
 
-  return read({ contenders: contenders.value, favourite: favourite.value });
+  // La nota è nata dopo i ballottaggi: un candidato che non la nomina è un
+  // lettore scritto prima, non una fonte che non ce l'ha.
+  const note = readFieldOrUnobserved(record.value["note"], [...at, "note"], readLabel);
+  if (!isRead(note)) return carryFailure(note);
+
+  return read({ contenders: contenders.value, favourite: favourite.value, note: note.value });
+}
+
+/**
+ * Legge uno stato dichiarato per un giocatore.
+ *
+ * `kind` è obbligatorio e chiuso: uno stato che la fonte scrive con una parola
+ * che non sappiamo classificare non diventa «infortunato» per somiglianza, e
+ * non diventa nemmeno un quarto valore inventato qui. Chi legge la pagina
+ * traduce i modi di dire della fonte in uno dei tre, oppure non produce la
+ * voce: una voce non prodotta è silenzio, una voce classificata a caso è una
+ * bugia che nessuno a valle può più smontare.
+ */
+export function readPlayerCondition(
+  candidate: unknown,
+  at: readonly string[],
+): ReadOutcome<ObservedPlayerCondition> {
+  const record = readRecord(candidate, at);
+  if (!isRead(record)) return carryFailure(record);
+
+  const player = readLabel(record.value["player"], [...at, "player"]);
+  if (!isRead(player)) return carryFailure(player);
+
+  const kind = record.value["kind"];
+  if (kind !== "injured" && kind !== "suspended" && kind !== "warned") {
+    return shapeNotRecognised<ObservedPlayerCondition>(
+      "lo stato di un giocatore è un valore chiuso: injured, suspended oppure warned",
+      [...at, "kind"],
+    );
+  }
+
+  return read({ player: player.value, kind });
+}
+
+function readConditionList(candidate: unknown, at: readonly string[]): ReadOutcome<ObservedConditionList> {
+  const record = readRecord(candidate, at);
+  if (!isRead(record)) return carryFailure(record);
+
+  const conditions = readList(record.value["conditions"], [...at, "conditions"], readPlayerCondition);
+  if (!isRead(conditions)) return carryFailure(conditions);
+
+  const completeness = readCompleteness(record.value["completeness"], [...at, "completeness"]);
+  if (!isRead(completeness)) return carryFailure(completeness);
+
+  return read({ conditions: conditions.value, completeness: completeness.value });
 }
 
 /**
@@ -381,7 +550,7 @@ export function readDuel(candidate: unknown, at: readonly string[]): ReadOutcome
  * fatto — e un candidato costruito male, che è un difetto e va visto. Un
  * ripiego silenzioso qui renderebbe i due casi indistinguibili per sempre.
  */
-function readCompleteness(candidate: unknown, at: readonly string[]): ReadOutcome<Completeness> {
+export function readCompleteness(candidate: unknown, at: readonly string[]): ReadOutcome<Completeness> {
   if (candidate === "declared-complete" || candidate === "declared-partial" || candidate === "unknown") {
     return read(candidate);
   }
@@ -447,6 +616,13 @@ export function readTeamLineup(candidate: unknown, at: readonly string[]): ReadO
   );
   if (!isRead(duels)) return carryFailure(duels);
 
+  // Gli stati sono nati dopo la formazione: un candidato che non li nomina è un
+  // lettore scritto prima che esistessero, e «non guardato» è l'unica cosa che
+  // si possa dire di lui. Un lettore che li guarda dichiara da sé
+  // `absent-in-source` quando la pagina non li espone.
+  const conditions = readFieldOrUnobserved(record.value["conditions"], [...at, "conditions"], readConditionList);
+  if (!isRead(conditions)) return carryFailure(conditions);
+
   const completeness = readCompleteness(record.value["completeness"], [...at, "completeness"]);
   if (!isRead(completeness)) return carryFailure(completeness);
 
@@ -461,6 +637,7 @@ export function readTeamLineup(candidate: unknown, at: readonly string[]): ReadO
     unavailable: unavailable.value,
     suspended: suspended.value,
     duels: duels.value,
+    conditions: conditions.value,
     completeness: completeness.value,
   });
 }

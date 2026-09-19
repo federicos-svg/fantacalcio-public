@@ -9,6 +9,7 @@ import {
   readStandings,
   type StandingsRow,
 } from "../src/gameweekPages.js";
+import { absenceIsMeaningful, rosterCompleteness } from "../src/matchPage.js";
 import { matchdayIfDeclared } from "../src/provenance.js";
 import { isRead } from "../src/readOutcome.js";
 import { syntheticLineup, syntheticProvenance } from "./synthetic.js";
@@ -48,6 +49,204 @@ describe("la pagina generale delle probabili", () => {
     const candidate = probableLineupsPage();
     delete candidate["provenance"];
     expect(readProbableLineupsPage(candidate).status).toBe("shape-not-recognised");
+  });
+});
+
+// LA PREVISIONE PER GIOCATORE — percentuale di titolarità e «in dubbio».
+//
+// Due facce per ogni prova, come sempre: la fonte il dato ce l'ha, e allora
+// arriva; la fonte non ce l'ha, e allora arriva un'assenza dichiarata. Quello
+// che non deve succedere mai è la terza cosa — uno zero al posto di un
+// silenzio, che a valle è indistinguibile da «non giocherà di sicuro».
+
+function previsioni(
+  forecasts: readonly Record<string, unknown>[],
+  completeness = "unknown",
+): Record<string, unknown> {
+  return { presence: "observed", value: { forecasts, completeness } };
+}
+
+function paginaConPrevisioni(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return probableLineupsPage({
+    matches: [
+      {
+        home: syntheticLineup("Alfa", "probable"),
+        away: syntheticLineup("Beta", "probable"),
+        ...overrides,
+      },
+    ],
+  });
+}
+
+describe("la previsione su un giocatore vive con le probabili, non con il giocatore osservato", () => {
+  it("la fonte ha il dato: percentuale e dubbio arrivano a chi consuma", () => {
+    const outcome = readProbableLineupsPage(
+      paginaConPrevisioni({
+        homeForecasts: previsioni(
+          [
+            {
+              player: "Alfa 9",
+              startingProbability: { presence: "observed", value: 85 },
+              doubtful: { presence: "observed", value: false },
+            },
+            {
+              player: "Alfa 10",
+              startingProbability: { presence: "observed", value: 55.5 },
+              doubtful: { presence: "observed", value: true },
+            },
+          ],
+          "declared-complete",
+        ),
+      }),
+    );
+    if (!isRead(outcome)) throw new Error("atteso letto");
+    const forecasts = outcome.value.matches[0]?.homeForecasts;
+    if (forecasts === undefined || forecasts.presence !== "observed") {
+      throw new Error("attese previsioni osservate");
+    }
+    expect(forecasts.value.forecasts[0]?.startingProbability).toEqual(observed(85));
+    // I decimali della fonte restano i decimali della fonte: arrotondarli
+    // sarebbe questo pacchetto che corregge chi legge.
+    expect(forecasts.value.forecasts[1]?.startingProbability).toEqual(observed(55.5));
+    expect(forecasts.value.forecasts[1]?.doubtful).toEqual(observed(true));
+  });
+
+  it("la fonte non ha il dato: assenza dichiarata, e MAI uno zero di comodo", () => {
+    const outcome = readProbableLineupsPage(
+      paginaConPrevisioni({
+        homeForecasts: previsioni([
+          {
+            player: "Alfa 9",
+            startingProbability: { presence: "absent-in-source" },
+            doubtful: { presence: "not-observed" },
+          },
+          {
+            player: "Alfa 10",
+            startingProbability: { presence: "observed", value: 0 },
+            doubtful: { presence: "observed", value: false },
+          },
+        ]),
+      }),
+    );
+    if (!isRead(outcome)) throw new Error("atteso letto");
+    const forecasts = outcome.value.matches[0]?.homeForecasts;
+    if (forecasts === undefined || forecasts.presence !== "observed") {
+      throw new Error("attese previsioni osservate");
+    }
+    const senzaDato = forecasts.value.forecasts[0];
+    expect(senzaDato?.startingProbability).toEqual(absentInSource());
+    expect(senzaDato?.startingProbability).not.toEqual(observed(0));
+    expect(senzaDato?.doubtful).toEqual(notObserved());
+    // Lo zero osservato, invece, è un dato: la fonte ha scritto zero.
+    expect(forecasts.value.forecasts[1]?.startingProbability).toEqual(observed(0));
+  });
+
+  it("«in dubbio» ha tre stati e non due: sì, no, e la fonte non si esprime", () => {
+    const outcome = readProbableLineupsPage(
+      paginaConPrevisioni({
+        homeForecasts: previsioni([
+          { player: "Alfa 9", startingProbability: { presence: "not-observed" }, doubtful: { presence: "observed", value: true } },
+          { player: "Alfa 10", startingProbability: { presence: "not-observed" }, doubtful: { presence: "observed", value: false } },
+          { player: "Alfa 11", startingProbability: { presence: "not-observed" }, doubtful: { presence: "absent-in-source" } },
+        ]),
+      }),
+    );
+    if (!isRead(outcome)) throw new Error("atteso letto");
+    const forecasts = outcome.value.matches[0]?.homeForecasts;
+    if (forecasts === undefined || forecasts.presence !== "observed") {
+      throw new Error("attese previsioni osservate");
+    }
+    expect(forecasts.value.forecasts.map((f) => f.doubtful)).toEqual([
+      observed(true),
+      observed(false),
+      absentInSource(),
+    ]);
+  });
+
+  it("un candidato scritto prima che la previsione esistesse resta leggibile, e la dichiara non guardata", () => {
+    const outcome = readProbableLineupsPage(probableLineupsPage());
+    if (!isRead(outcome)) throw new Error("atteso letto");
+    expect(outcome.value.matches[0]?.homeForecasts).toEqual(notObserved());
+    expect(outcome.value.matches[0]?.awayForecasts).toEqual(notObserved());
+    expect(outcome.value.matches[0]?.homeForecasts).not.toEqual(absentInSource());
+  });
+
+  it("una percentuale fuori scala si ferma, invece di essere riscalata in qualcosa di credibile", () => {
+    const outcome = readProbableLineupsPage(
+      paginaConPrevisioni({
+        homeForecasts: previsioni([
+          {
+            player: "Alfa 9",
+            startingProbability: { presence: "observed", value: 250 },
+            doubtful: { presence: "not-observed" },
+          },
+        ]),
+      }),
+    );
+    expect(outcome.status).toBe("out-of-contract");
+    if (isRead(outcome)) return;
+    expect(outcome.at).toEqual([
+      "probableLineupsPage",
+      "matches",
+      "0",
+      "homeForecasts",
+      "value",
+      "forecasts",
+      "0",
+      "startingProbability",
+      "value",
+    ]);
+  });
+
+  it("un «in dubbio» che non è un sì o un no dichiarato non si interpreta", () => {
+    const outcome = readProbableLineupsPage(
+      paginaConPrevisioni({
+        homeForecasts: previsioni([
+          {
+            player: "Alfa 9",
+            startingProbability: { presence: "not-observed" },
+            doubtful: { presence: "observed", value: "forse" },
+          },
+        ]),
+      }),
+    );
+    expect(outcome.status).toBe("shape-not-recognised");
+  });
+
+  it("l'elenco delle previsioni dichiara quanto è completo, e senza dichiarazione non dice niente sugli altri", () => {
+    const voce = {
+      player: "Alfa 9",
+      startingProbability: { presence: "observed", value: 85 },
+      doubtful: { presence: "not-observed" },
+    };
+    const senza = readProbableLineupsPage(paginaConPrevisioni({ homeForecasts: previsioni([voce]) }));
+    if (!isRead(senza)) throw new Error("atteso letto");
+    const parziale = senza.value.matches[0]?.homeForecasts ?? notObserved();
+    expect(rosterCompleteness(parziale)).toBe("unknown");
+    expect(absenceIsMeaningful(parziale)).toBe(false);
+
+    const completa = readProbableLineupsPage(
+      paginaConPrevisioni({ homeForecasts: previsioni([voce], "declared-complete") }),
+    );
+    if (!isRead(completa)) throw new Error("atteso letto");
+    expect(absenceIsMeaningful(completa.value.matches[0]?.homeForecasts ?? notObserved())).toBe(true);
+  });
+
+  it("una previsione può nominare un giocatore che non è in formazione, e non è un errore", () => {
+    // Una fonte dà una percentuale anche a chi poi non schiera. Rifiutarlo
+    // qui vorrebbe dire chiamare «fuori contratto» un fatto vero.
+    const outcome = readProbableLineupsPage(
+      paginaConPrevisioni({
+        homeForecasts: previsioni([
+          {
+            player: "Alfa 99",
+            startingProbability: { presence: "observed", value: 20 },
+            doubtful: { presence: "not-observed" },
+          },
+        ]),
+      }),
+    );
+    expect(outcome.status).toBe("read");
   });
 });
 

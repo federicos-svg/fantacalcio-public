@@ -268,6 +268,21 @@ describe("un blocco mancante: assenza dichiarata, non riempimento", () => {
     expect(casa.unavailable).toEqual({ presence: "not-observed" });
     expect(casa.duels).toEqual({ presence: "not-observed" });
   });
+
+  it("stati dei giocatori e previsioni: questo parser non li guarda, e lo dichiara", () => {
+    // Il contratto ora ha dove metterli, ma leggerli qui vorrebbe dire famiglie
+    // di chiavi nuove — obbligatorie per ogni tabella già scritta. Finche' non
+    // si guardano, «non guardato» e' l'unica affermazione vera possibile: e in
+    // particolare NON e' «la fonte non ce li ha», che sarebbe falso.
+    const esito = parseProbableLineupsPage(richiesta(pagina(blocco())));
+    if (!isRead(esito)) throw new Error("atteso letto");
+    const partita = esito.value.matches[0];
+    if (partita === undefined) throw new Error("partita mancante");
+    expect(partita.home.conditions).toEqual({ presence: "not-observed" });
+    expect(partita.homeForecasts).toEqual({ presence: "not-observed" });
+    expect(partita.awayForecasts).toEqual({ presence: "not-observed" });
+    expect(partita.homeForecasts).not.toEqual({ presence: "absent-in-source" });
+  });
 });
 
 describe("probabile e effettiva: si dichiarano, non si deducono", () => {

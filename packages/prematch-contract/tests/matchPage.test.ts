@@ -269,3 +269,176 @@ describe("da che parte del fischio d'inizio sta un'istantanea", () => {
     expect(matchPageSnapshot(outcome.value)).toBe("before-kick-off");
   });
 });
+
+// GLI STATI DI UN GIOCATORE, E LA NOTA DEL BALLOTTAGGIO.
+//
+// Ogni segnale si prova sulle sue due facce, perché il contratto vive nella
+// differenza fra loro: **la fonte il dato ce l'ha**, e allora arriva a valle
+// come lei lo ha scritto; **la fonte il dato non ce l'ha**, e allora arriva
+// un'assenza dichiarata — mai un elenco vuoto, mai uno zero, mai un favorito
+// scelto da noi.
+
+function statiOsservati(
+  conditions: readonly Record<string, unknown>[],
+  completeness = "unknown",
+): Record<string, unknown> {
+  return { presence: "observed", value: { conditions, completeness } };
+}
+
+describe("gli stati di un giocatore non sono posti in una formazione", () => {
+  it("la fonte li ha: i tre stati arrivano a valle come li ha scritti", () => {
+    const lineup = syntheticLineup("Alfa", "probable", {
+      conditions: statiOsservati(
+        [
+          { player: "Alfa 3", kind: "injured" },
+          { player: "Alfa 5", kind: "suspended" },
+          { player: "Alfa 7", kind: "warned" },
+        ],
+        "declared-complete",
+      ),
+    });
+    const outcome = readTeamLineup(lineup, ["l"]);
+    if (!isRead(outcome)) throw new Error("atteso letto");
+    const conditions = outcome.value.conditions;
+    if (conditions.presence !== "observed") throw new Error("attesi stati osservati");
+    expect(conditions.value.conditions).toEqual([
+      { player: "Alfa 3", kind: "injured" },
+      { player: "Alfa 5", kind: "suspended" },
+      { player: "Alfa 7", kind: "warned" },
+    ]);
+  });
+
+  it("IL DIFFIDATO GIOCA: non è uno squalificato, e non finisce fra chi non può giocare", () => {
+    const lineup = syntheticLineup("Alfa", "probable", {
+      conditions: statiOsservati([{ player: "Alfa 7", kind: "warned" }]),
+    });
+    const outcome = readTeamLineup(lineup, ["l"]);
+    if (!isRead(outcome)) throw new Error("atteso letto");
+    const conditions = outcome.value.conditions;
+    if (conditions.presence !== "observed") throw new Error("attesi stati osservati");
+    expect(conditions.value.conditions[0]?.kind).toBe("warned");
+    // E la lista degli squalificati resta quello che era — la sezione della
+    // pagina, qui non guardata: nessuno dei due dati si è travasato nell'altro.
+    expect(outcome.value.suspended).toEqual(notObserved());
+  });
+
+  it("la fonte non li ha: il campo lo dichiara, e non diventa un elenco vuoto", () => {
+    // Il candidato è quello di sempre — scritto prima che gli stati esistessero
+    // — e resta leggibile: «non guardato», l'unica cosa vera che si possa dire
+    // di un lettore che non li cerca.
+    const primaDegliStati = readTeamLineup(syntheticLineup("Alfa", "probable"), ["l"]);
+    if (!isRead(primaDegliStati)) throw new Error("atteso letto");
+    expect(primaDegliStati.value.conditions).toEqual(notObserved());
+    expect(primaDegliStati.value.conditions).not.toEqual(absentInSource());
+
+    // Chi invece la sezione l'ha guardata e non l'ha trovata dice un'altra
+    // cosa, e le due non collassano.
+    const guardataENonTrovata = readTeamLineup(
+      syntheticLineup("Alfa", "probable", { conditions: { presence: "absent-in-source" } }),
+      ["l"],
+    );
+    if (!isRead(guardataENonTrovata)) throw new Error("atteso letto");
+    expect(guardataENonTrovata.value.conditions).toEqual(absentInSource());
+  });
+
+  it("uno stato che non è uno dei tre non si arrotonda al più vicino", () => {
+    const lineup = syntheticLineup("Alfa", "probable", {
+      conditions: statiOsservati([{ player: "Alfa 3", kind: "acciaccato" }]),
+    });
+    const outcome = readTeamLineup(lineup, ["l"]);
+    expect(outcome.status).toBe("shape-not-recognised");
+    if (isRead(outcome)) return;
+    expect(outcome.at).toEqual(["l", "conditions", "value", "conditions", "0", "kind"]);
+  });
+
+  it("uno stato senza il nome del giocatore ferma l'elenco invece di saltarlo", () => {
+    const lineup = syntheticLineup("Alfa", "probable", {
+      conditions: statiOsservati([{ kind: "injured" }]),
+    });
+    expect(readTeamLineup(lineup, ["l"]).status).toBe("shape-not-recognised");
+  });
+
+  it("l'elenco degli stati dichiara quanto è completo, e senza dichiarazione non dice che gli altri stanno bene", () => {
+    const senzaDichiarazione = readTeamLineup(
+      syntheticLineup("Alfa", "probable", {
+        conditions: statiOsservati([{ player: "Alfa 3", kind: "injured" }]),
+      }),
+      ["l"],
+    );
+    if (!isRead(senzaDichiarazione)) throw new Error("atteso letto");
+    expect(rosterCompleteness(senzaDichiarazione.value.conditions)).toBe("unknown");
+    expect(absenceIsMeaningful(senzaDichiarazione.value.conditions)).toBe(false);
+
+    const dichiarataCompleta = readTeamLineup(
+      syntheticLineup("Alfa", "probable", {
+        conditions: statiOsservati([{ player: "Alfa 3", kind: "injured" }], "declared-complete"),
+      }),
+      ["l"],
+    );
+    if (!isRead(dichiarataCompleta)) throw new Error("atteso letto");
+    expect(absenceIsMeaningful(dichiarataCompleta.value.conditions)).toBe(true);
+  });
+});
+
+describe("la nota di un ballottaggio si porta, non si interpreta", () => {
+  it("la fonte la scrive: arriva a valle come l'ha scritta", () => {
+    const outcome = readDuel(
+      {
+        contenders: ["Alfa 9", "Alfa 10"],
+        favourite: { presence: "absent-in-source" },
+        note: { presence: "observed", value: "ballottaggio aperto" },
+      },
+      ["d"],
+    );
+    if (!isRead(outcome)) throw new Error("atteso letto");
+    expect(outcome.value.note).toEqual(observed("ballottaggio aperto"));
+  });
+
+  it("la fonte non la scrive: nessuna nota inventata, e il ballottaggio resta leggibile", () => {
+    const senzaChiave = readDuel(
+      { contenders: ["Alfa 9", "Alfa 10"], favourite: { presence: "absent-in-source" } },
+      ["d"],
+    );
+    if (!isRead(senzaChiave)) throw new Error("atteso letto");
+    expect(senzaChiave.value.note).toEqual(notObserved());
+
+    const guardataENonTrovata = readDuel(
+      {
+        contenders: ["Alfa 9", "Alfa 10"],
+        favourite: { presence: "absent-in-source" },
+        note: { presence: "absent-in-source" },
+      },
+      ["d"],
+    );
+    if (!isRead(guardataENonTrovata)) throw new Error("atteso letto");
+    expect(guardataENonTrovata.value.note).toEqual(absentInSource());
+  });
+
+  it("una nota lunga come una frase non è una nota: è prosa, e non entra", () => {
+    const outcome = readDuel(
+      {
+        contenders: ["Alfa 9", "Alfa 10"],
+        favourite: { presence: "absent-in-source" },
+        note: { presence: "observed", value: "a".repeat(121) },
+      },
+      ["d"],
+    );
+    expect(outcome.status).toBe("out-of-contract");
+  });
+
+  it("LA NOTA NON SCEGLIE IL FAVORITO, nemmeno quando sembra indicarlo", () => {
+    // È la regola del ballottaggio non risolto, difesa anche dalla porta di
+    // servizio: se bastasse leggere la nota per nominare un favorito, il
+    // contratto sceglierebbe al posto della fonte.
+    const outcome = readDuel(
+      {
+        contenders: ["Alfa 9", "Alfa 10"],
+        favourite: { presence: "absent-in-source" },
+        note: { presence: "observed", value: "Alfa 9 in vantaggio" },
+      },
+      ["d"],
+    );
+    if (!isRead(outcome)) throw new Error("atteso letto");
+    expect(outcome.value.favourite).toEqual(absentInSource());
+  });
+});

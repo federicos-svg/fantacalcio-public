@@ -8,6 +8,7 @@ import {
   observed,
   observedValue,
   readField,
+  readFieldOrUnobserved,
   type Field,
 } from "../src/field.js";
 import { isRead, readLabel, readWholeNumber } from "../src/readOutcome.js";
@@ -80,5 +81,44 @@ describe("nessun campo può contenere una frase", () => {
 
   it("una stringa su più righe è testo, e non entra", () => {
     expect(readLabel("prima riga\nseconda riga", ["c"]).status).toBe("out-of-contract");
+  });
+});
+
+describe("un campo nato dopo i suoi lettori", () => {
+  it("la chiave che il candidato non nomina è «non guardata», MAI «assente nella fonte»", () => {
+    // Un lettore scritto prima che il campo esistesse non dice niente sulla
+    // fonte: dice che nessuno gli ha chiesto di guardare.
+    expect(readFieldOrUnobserved(undefined, ["c"], readWholeNumber)).toEqual({
+      status: "read",
+      value: notObserved(),
+    });
+    expect(readFieldOrUnobserved(undefined, ["c"], readWholeNumber)).not.toEqual({
+      status: "read",
+      value: absentInSource(),
+    });
+  });
+
+  it("una chiave presente resta letta con tutta la severità di readField", () => {
+    expect(readFieldOrUnobserved({ presence: "observed", value: 7 }, ["c"], readWholeNumber)).toEqual({
+      status: "read",
+      value: observed(7),
+    });
+    expect(readFieldOrUnobserved({ presence: "forse" }, ["c"], readWholeNumber).status).toBe(
+      "shape-not-recognised",
+    );
+    expect(
+      readFieldOrUnobserved({ presence: "observed", value: "sette" }, ["c"], readWholeNumber).status,
+    ).toBe("shape-not-recognised");
+  });
+
+  it("chi il campo lo guarda continua a poter dire che la fonte non ce l'ha", () => {
+    expect(readFieldOrUnobserved({ presence: "absent-in-source" }, ["c"], readWholeNumber)).toEqual({
+      status: "read",
+      value: absentInSource(),
+    });
+  });
+
+  it("un null scritto apposta non è una chiave mancante: è un candidato rotto, e si ferma", () => {
+    expect(readFieldOrUnobserved(null, ["c"], readWholeNumber).status).toBe("shape-not-recognised");
   });
 });

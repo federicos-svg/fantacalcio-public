@@ -25,6 +25,12 @@
 // NON ESISTE, E NON DEVE NASCERE, un aiuto del tipo «dammi il valore, oppure
 // questo default». Sarebbe la deduzione riammessa dalla porta di servizio: chi
 // ha bisogno del valore deve gestire il caso in cui non c'è, in chiaro.
+//
+// ESISTE INVECE, e per un caso solo, `readFieldOrUnobserved`, in fondo a questo
+// file: un campo **aggiunto al contratto dopo** che i lettori erano già scritti,
+// e che quindi il candidato non nomina affatto. Non restituisce nessun valore —
+// restituisce `not-observed`, l'unica assenza che si possa affermare senza aver
+// guardato niente. Le ragioni, e i limiti, stanno sulla funzione.
 
 import {
   carryFailure,
@@ -103,4 +109,44 @@ export function readField<T>(
   const value = readValue(record.value["value"], [...at, "value"]);
   if (!isRead(value)) return carryFailure(value);
   return read(observed(value.value));
+}
+
+/**
+ * UN CAMPO CHE IL CANDIDATO PUÒ NON NOMINARE AFFATTO — e perché non è la
+ * scorciatoia che `readField` vieta.
+ *
+ * `readField` pretende che il campo ci sia, e ha ragione: chi costruisce il
+ * candidato sa quale delle due assenze ha visto, e deve scriverla. Ma un
+ * contratto che cresce ha un caso che quella regola non copre — **un campo
+ * aggiunto dopo**. Il lettore che gira oggi è stato scritto prima che quel
+ * campo esistesse: non lo nomina, non perché la fonte non ce l'abbia, ma
+ * perché nessuno gliel'ha ancora chiesto di guardarlo.
+ *
+ * Quella è esattamente `not-observed`, ed è l'unica assenza che si può
+ * affermare senza sapere niente: **un'affermazione su di noi**. La chiave che
+ * manca nel candidato non diventa e non deve mai diventare `absent-in-source`,
+ * che sarebbe un'affermazione sulla fonte fatta da chi la fonte non l'ha
+ * guardata.
+ *
+ * QUESTO NON È IL «DAMMI IL VALORE, OPPURE UN DEFAULT» vietato in cima a
+ * questo file: qui non esce nessun valore, mai — esce la dichiarazione più
+ * debole che il tipo possieda. E vale per il candidato, non per la pagina: una
+ * chiave presente resta letta con tutta la severità di `readField`, e un
+ * lettore che il campo lo guarda scrive `absent-in-source` da sé quando la
+ * pagina non ce l'ha.
+ *
+ * Si usa **solo** per i campi nati dopo che il contratto era già in uso. Un
+ * campo nuovo letto con `readField` renderebbe illeggibile ogni candidato
+ * costruito prima, e un contratto che rompe i suoi lettori a ogni aggiunta
+ * finisce per non aggiungere più niente.
+ */
+export function readFieldOrUnobserved<T>(
+  candidate: unknown,
+  at: readonly string[],
+  readValue: (value: unknown, valueAt: readonly string[]) => ReadOutcome<T>,
+): ReadOutcome<Field<T>> {
+  // Solo la chiave **assente** passa di qui. Un `null` scritto apposta è un
+  // candidato malformato, e come tale si ferma dentro `readField`.
+  if (candidate === undefined) return read(notObserved<T>());
+  return readField(candidate, at, readValue);
 }

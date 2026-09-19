@@ -87,6 +87,31 @@
 // giocatore. Ora il separatore è una voce obbligatoria della tabella privata e
 // la riga si apre nei nomi che contiene — vedi `joinsNames`.
 //
+// I SEGNALI CHE UNA PAGINA DI PROBABILI PORTA OLTRE ALLA FORMAZIONE, e dove
+// ciascuno vive. Sono tre case diverse, e la divisione non è estetica: ogni
+// segnale sta dove è vero.
+//
+//   * LA PERCENTUALE DI TITOLARITÀ e il «IN DUBBIO» sono una **previsione** su
+//     una partita che deve ancora cominciare, e stanno con la pagina delle
+//     probabili — `ObservedStartingForecast` in `gameweekPages.ts` — non dentro
+//     `ObservedPlayer`, che descrive anche chi è sceso in campo davvero e a cui
+//     una previsione non si applica;
+//   * INFORTUNATO, SQUALIFICATO, DIFFIDATO sono **stati di un giocatore**, non
+//     posti in una formazione: `ObservedPlayerCondition` in `matchPage.ts`. Il
+//     diffidato, che gioca, prima non aveva casa e finiva per forza fra chi non
+//     gioca. Le liste `unavailable` e `suspended` restano quello che erano — le
+//     sezioni della pagina — e nessuna delle due si ricava dall'altra;
+//   * LA NOTA DEL BALLOTTAGGIO sta sul ballottaggio, `ObservedDuel.note`, e
+//     passa dalla stessa guardia di ogni etichetta: una riga, non una frase.
+//     Non viene letta da nessuno qui dentro — un favorito dedotto dal testo
+//     sarebbe il ballottaggio risolto da noi, che resta vietato.
+//
+// Tutti e tre sono `Field`, tutte e due le liste dichiarano la propria
+// completezza, e nessuno dei tre arriva mai con uno zero al posto di un
+// silenzio. Il parser pubblico delle probabili non li produce e lo dichiara:
+// `not-observed`, perché leggerli richiederebbe famiglie di chiavi nuove, e una
+// famiglia nuova è obbligatoria per ogni tabella già scritta.
+//
 // QUELLO CHE LA MISURA TROVERÀ QUI, quando qualcuno la costruirà: ogni lista di
 // giocatori porta la propria `Completeness`, e `absenceIsMeaningful` dice se
 // l'assenza di un nome da quella lista significa qualcosa. Senza quel dato una
@@ -119,6 +144,7 @@ export {
   observed,
   observedValue,
   readField,
+  readFieldOrUnobserved,
   type Field,
 } from "./field.js";
 
@@ -140,21 +166,27 @@ export {
   canStandAsTruth,
   classifySnapshot,
   matchPageSnapshot,
+  readCompleteness,
   readDuel,
   readMatchPage,
   readPlayer,
+  readPlayerCondition,
   readSubstitution,
   readTeamLineup,
   rosterCompleteness,
   type Completeness,
+  type DeclaresCompleteness,
   type FormationShape,
   type LineupNature,
+  type ObservedConditionList,
   type ObservedDuel,
   type ObservedMatchPage,
   type ObservedPlayer,
+  type ObservedPlayerCondition,
   type ObservedRoster,
   type ObservedSubstitution,
   type ObservedTeamLineup,
+  type PlayerConditionKind,
   type SnapshotSide,
 } from "./matchPage.js";
 
@@ -213,14 +245,17 @@ export {
   readCalendarIndex,
   readProbableLineupsPage,
   readStandings,
+  readStartingForecast,
   type AgreementCheck,
   type FormOutcome,
   type ObservedCalendarIndex,
   type ObservedFixture,
+  type ObservedForecastList,
   type ObservedGameweekFixtures,
   type ObservedProbableLineupsPage,
   type ObservedProbableMatch,
   type ObservedScore,
   type ObservedStandings,
+  type ObservedStartingForecast,
   type StandingsRow,
 } from "./gameweekPages.js";
