@@ -196,6 +196,73 @@
 //     L'UNICITÀ NEL MONDO» in `resolveIdentities.ts`, dove quei conti sono
 //     definiti, e dove è scritto anche il caso in cui non rivelano niente.
 //
+// (f) UN TENTATIVO FATTO E RITIRATO: L'ABBREVIAZIONE DI PIÙ DI UN CARATTERE
+//     NON SI PUÒ RICONOSCERE IN MODO SICURO — questo paragrafo esiste perché
+//     la prossima persona non ci riprovi senza aver letto perché non regge.
+//
+//     OGNI NOME DI QUESTO PARAGRAFO È SINTETICO, come in tutto il resto di
+//     questo repository. Le forme vere misurate vivono nel deposito privato
+//     e non entrano qui: quello che serve sapere non è quali giocatori
+//     fossero, è la FORMA — e la forma si riproduce identica con nomi
+//     inventati, che è precisamente il motivo per cui la regola «solo
+//     fixture sintetiche» non costa niente a questo paragrafo.
+//
+//     Il problema misurato: un'abbreviazione a due lettere — le prime due
+//     lettere del nome proprio, «Lo.» per un «Lorens», «Se.» per un
+//     «Selman», «Ro.» per un «Robens» — sopravvive alla normalizzazione
+//     come token PIENO («lo», «se», «ro»), non trova corrispondenza esatta
+//     nell'altro nome, e (b) qui sopra la rifiuta esattamente come rifiuta
+//     «Vasch» contro «Vaschin» — su un confronto reale di 220 righe, quattro
+//     restavano senza aggancio per questa sola causa. Il tentativo: far sopravvivere, dalla stringa GREZZA (dove
+//     un punto dopo il segmento è un segnale che la normalizzazione toglie
+//     subito), l'informazione «questo token era scritto come
+//     un'abbreviazione», e trattare un token così marcato con la stessa
+//     logica già esistente per l'iniziale a un carattere di (c): prefisso
+//     verso un token libero dell'altro lato, mai un'ancora propria.
+//
+//     PERCHÉ NON REGGE. Una revisione indipendente ha eseguito quel codice e
+//     prodotto, con la stessa logica, agganci sbagliati con targa `moderate`:
+//
+//       «St. Ambrogio» contro «Stanislaw Ambrogio»   -> aggancio (sbagliato)
+//       «Rossi Jr.» contro «Rossi Jroen»              -> aggancio (sbagliato)
+//       «Costa Jr.» contro «Costa Jremy»               -> aggancio (sbagliato)
+//
+//     `Jr.`/`Sr.` sono suffissi generazionali, `St.` è tipicamente un
+//     prefisso di cognome (o di un nome proprio composto): portano il punto
+//     e NON sono l'abbreviazione del nome proprio dell'altra fonte. Il punto
+//     da solo non distingue i due casi: strutturalmente «Lo. Bregonzi»
+//     contro «Lorens Bregonzi» e «St. Ambrogio» contro «Stanislaw
+//     Ambrogio» sono IDENTICI — stessa forma, stessa posizione, la stessa
+//     ancora esatta altrove nella coppia («Bregonzi»/«Ambrogio»). La sola
+//     differenza è che cosa QUELLE LETTERE SIGNIFICANO — se «lo»/«st»
+//     stiano davvero troncando il nome proprio dell'altra fonte o siano un
+//     particella/suffisso fisso e indipendente — e quello non è scritto da
+//     nessuna parte nelle due stringhe: è un fatto sul mondo (una lingua,
+//     un'onomastica), non un fatto che due liste di nomi portino con sé.
+//
+//     PERCHÉ NON È UNA LISTA DA COMPLETARE. Escludere `jr`/`sr`/`st` con una
+//     lista ha l'asimmetria SBAGLIATA — è una lista di esclusioni, e una
+//     lista di esclusioni incompleta lascia passare il prossimo caso non
+//     previsto come un aggancio inventato, esattamente il guasto da evitare.
+//     Il contrario — una lista che AMMETTE solo le abbreviazioni riconosciute
+//     — cade nello stesso problema dall'altro verso se prova a riconoscere
+//     NOMI PROPRI: un dizionario di nomi è aperto, cresce con ogni nuovo
+//     giocatore, e costruirlo è un'acquisizione di dati con una fonte e una
+//     provenienza — una decisione che non spetta a questo modulo prendere da
+//     solo. Non è stata scartata per pigrizia: è stata scartata perché la
+//     riga «St.» resterebbe comunque indistinguibile — «Stefano» è un nome
+//     proprio italiano vero, e un dizionario che lo riconoscesse
+//     accetterebbe «St.» esattamente come nel caso sbagliato qui sopra. Il
+//     confine fra le due letture di «St.» non è nella stringa: è nel mondo.
+//
+//     LA CONSEGUENZA ACCETTATA: i quattro giocatori misurati restano senza
+//     aggancio da questo criterio — un buco visibile, non un aggancio
+//     silenzioso — perché la regola di questo file resta quella di (b):
+//     `token.length === 1` è l'UNICA lunghezza per cui nessuna parola vera
+//     di questo dominio (nessun suffisso, nessuna particella, nessun nome
+//     corto) può competere con un'iniziale — ed è per questo che l'unica
+//     forma sicura è quella che c'era già prima di questo paragrafo.
+//
 // E una cosa che questi due ranghi NON sanno: quale token sia il cognome.
 // Nessuna funzione qui sotto si chiama `surname`, e nessuna targa lo dice: la
 // piattaforma scrive il cognome per convenzione, ma il modulo vede token e

@@ -604,3 +604,92 @@ describe("i due ranghi nuovi non riscrivono la scala, ci si siedono dentro", () 
     }
   });
 });
+
+// UN TENTATIVO RITIRATO — §(f) in testa a `identityCriteria.ts`.
+//
+// Un'abbreviazione a due lettere — le prime due lettere del nome proprio,
+// «Lo.» per un «Lorens», «Se.» per un «Selman», «Ro.» per un «Robens» —
+// sopravvive alla normalizzazione come token PIENO, non
+// trova corrispondenza esatta nell'altro nome, e (b) la rifiuta esattamente
+// come rifiuta «Vasch» contro «Vaschin» — un buco misurato, non inventato
+// qui (quattro righe su 220 in un confronto reale). È stato tentato un
+// criterio che leggesse il punto nella stringa grezza per marcare quei token
+// come abbreviazioni e trattarli col prefisso di (c). Una revisione
+// indipendente lo ha eseguito e ha prodotto agganci SBAGLIATI, con targa
+// `moderate`: «St.» (prefisso di cognome o suffisso, non abbreviazione di un
+// nome proprio) e «Jr.»/«Sr.» (suffissi generazionali) portano lo stesso
+// punto, hanno la stessa forma, e strutturalmente non si distinguono da
+// «Lo.» — il segnale non basta. Il tentativo è stato ritirato; questo blocco
+// pinna sia il buco accettato sia i casi che l'avrebbero fatto sbagliare, con
+// fixture sintetiche nella stessa forma di quelle misurate/riprodotte.
+describe("un'abbreviazione di più di un carattere non aggancia: il tentativo è stato ritirato", () => {
+  it("REGRESSIONE (il buco accettato) — un'abbreviazione a due lettere con il punto resta senza aggancio", () => {
+    // Le tre forme misurate restano un buco visibile, non un aggancio
+    // inventato. Qui compaiono nei loro equivalenti SINTETICI, che ne
+    // riproducono la forma esatta: i nomi veri dei giocatori vivono nel
+    // deposito privato e non entrano in questo repository.
+    expect(coverage("Bregonzi Lo.", "Lorens Bregonzi")).toBeNull();
+    expect(coverage("Fontanari Se.", "Selman Fontanari")).toBeNull();
+    expect(coverage("Marioni Ro.", "Robens Marioni")).toBeNull();
+    const resolution = resolveIdentities(
+      roster("piattaforma", [record("L1", "Bregonzi Lo.", "ALFA")]),
+      roster("deposito", [record("R1", "Lorens Bregonzi", "ALFA")]),
+    );
+    expect(resolution.matches).toEqual([]);
+    expect(resolution.unresolved.map((item) => [item.ref, item.reason])).toEqual([
+      ["L1", "no_candidate"],
+      ["R1", "no_candidate"],
+    ]);
+  });
+
+  it("REGRESSIONE (rilievo del revisore) — un suffisso generazionale col punto non aggancia", () => {
+    // «Rossi Jr.» / «Rossi Jroen» e «Costa Jr.» / «Costa Jremy»: forme
+    // sintetiche identiche a quelle riprodotte dal revisore sul codice
+    // spedito. «Jr.» non abbrevia il nome proprio dell'altra fonte — è un
+    // suffisso fisso — e non deve mai agganciare per prefisso.
+    expect(coverage("Costavelli Jr.", "Costavelli Jroven")).toBeNull();
+    expect(coverage("Marchignoli Sr.", "Marchignoli Sreno")).toBeNull();
+    const resolution = resolveIdentities(
+      roster("piattaforma", [record("L1", "Costavelli Jr.", "ALFA")]),
+      roster("deposito", [record("R1", "Costavelli Jroven", "ALFA")]),
+    );
+    expect(resolution.matches).toEqual([]);
+  });
+
+  it("REGRESSIONE (rilievo del revisore) — un prefisso di cognome col punto non aggancia", () => {
+    // «St. Ambrogio» / «Stanislaw Ambrogio»: forma sintetica identica a
+    // quella riprodotta dal revisore. «St.» qui è un prefisso di cognome
+    // (o un'ambiguità genuina con un'abbreviazione — vedi §(f)), mai
+    // un'evidenza su cui questo modulo può decidere da solo.
+    expect(coverage("St. Ombrelli", "Stanivar Ombrelli")).toBeNull();
+    const resolution = resolveIdentities(
+      roster("piattaforma", [record("L1", "St. Ombrelli", "ALFA")]),
+      roster("deposito", [record("R1", "Stanivar Ombrelli", "ALFA")]),
+    );
+    expect(resolution.matches).toEqual([]);
+  });
+
+  it("REGRESSIONE — l'abbreviazione a UNA lettera continua ad agganciare: il ritiro non ha toccato (c)", () => {
+    // Il caso che ha sempre funzionato (rango 6, `Zurbetti M.` altrove nel
+    // file): qui lo si pinna di nuovo, con fixture proprie, per provare che
+    // il ritiro del tentativo su più caratteri non ha toccato l'iniziale a
+    // un carattere.
+    expect(coverage("Fontanari S.", "Selman Fontanari")).toBe("unordered_name");
+    const resolution = resolveIdentities(
+      roster("piattaforma", [record("L1", "Fontanari S.", "ALFA")]),
+      roster("deposito", [record("R1", "Selman Fontanari", "ALFA")]),
+    );
+    expect(resolution.matches.map((match) => match.criterion)).toEqual(["unordered_name_same_team"]);
+  });
+
+  it("REGRESSIONE — un token pieno più lungo, senza punto, non aggancia per prefisso (§(b) intatto)", () => {
+    // «Bregonzo» non è «Bregonzi»: un token pieno resta un cognome a sé,
+    // mai un'abbreviazione, qualunque sia la sua lunghezza o la punteggiatura.
+    expect(coverage("Bregonzo", "Lorens Bregonzi")).toBeNull();
+    expect(coverage("Bregonzo L.", "Lorens Bregonzi")).toBeNull();
+    // «Bregonzo» È letteralmente un prefisso di «Bregonzone» qui — la
+    // fixture che farebbe la differenza se il divieto per prefisso su un
+    // token pieno sparisse: senza quel divieto questa coppia agganceREBBE.
+    expect(coverage("Bregonzo", "Lorens Bregonzone")).toBeNull();
+  });
+});
