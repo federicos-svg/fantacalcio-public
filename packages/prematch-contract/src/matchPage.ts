@@ -174,6 +174,33 @@ export interface ObservedPlayer {
   readonly shirtNumber: Field<number>;
   /** L'etichetta di ruolo della fonte, se c'è: non il ruolo di lega. */
   readonly role: Field<string>;
+  /**
+   * L'IDENTIFICATIVO CHE LA FONTE SCRIVE ACCANTO AL NOME — e niente di più.
+   *
+   * NON È UN'IDENTITÀ RISOLTA, e questo campo non sposta di un millimetro il
+   * confine che l'intestazione del pacchetto dichiara: riconciliare due fonti
+   * resta un altro mestiere, che vive nel registro d'identità. Qui c'è
+   * esattamente ciò che c'era già per il nome — l'ETICHETTA della fonte,
+   * riportata come la fonte la scrive — con la differenza che questa etichetta,
+   * quando la fonte la mette, è quella che la fonte usa per parlare di quel
+   * giocatore a se stessa. Che sia confrontabile con l'identificativo di
+   * un'ALTRA fonte è un'affermazione che questo contratto non fa, non può fare e
+   * non deve sembrare di fare: la fa, se la misura lo sostiene, chi dichiara gli
+   * spazi di identificativo.
+   *
+   * PERCHÉ UN TESTO E NON UN NUMERO. Un identificativo si confronta, non si
+   * somma: la sua forma è affare della fonte, che può scriverlo con lettere, con
+   * zeri davanti o con un trattino, e trasformarlo in numero significherebbe
+   * perdere `007` e `A-12` per strada. La lettura lo accetta come etichetta
+   * breve — stessa regola del nome — quindi rifiuta testo editoriale finito lì.
+   *
+   * ASSENZA DICHIARATA, MAI UNA STRINGA VUOTA. Una fonte che non scrive
+   * identificativi lo dice tacendo (`absent-in-source`); un lettore che non lo
+   * cerca lo dice altrimenti (`not-observed`), e le due cose restano distinte
+   * perché a valle significano due cose diverse: la prima è un fatto sulla
+   * fonte, la seconda è un limite del nostro lettore.
+   */
+  readonly sourceIdentifier: Field<string>;
 }
 
 /**
@@ -446,7 +473,23 @@ export function readPlayer(candidate: unknown, at: readonly string[]): ReadOutco
   const role = readField(record.value["role"], [...at, "role"], readLabel);
   if (!isRead(role)) return carryFailure(role);
 
-  return read({ displayName: displayName.value, shirtNumber: shirtNumber.value, role: role.value });
+  // `readFieldOrUnobserved` e non `readField`: è un campo nato dopo, e il
+  // pacchetto dichiara che è il suo unico caso d'uso legittimo. Un lettore
+  // scritto prima che questo campo esistesse non lo nomina, e romperlo per
+  // questo significherebbe che il contratto non può più crescere.
+  const sourceIdentifier = readFieldOrUnobserved(
+    record.value["sourceIdentifier"],
+    [...at, "sourceIdentifier"],
+    readLabel,
+  );
+  if (!isRead(sourceIdentifier)) return carryFailure(sourceIdentifier);
+
+  return read({
+    displayName: displayName.value,
+    shirtNumber: shirtNumber.value,
+    role: role.value,
+    sourceIdentifier: sourceIdentifier.value,
+  });
 }
 
 export function readSubstitution(candidate: unknown, at: readonly string[]): ReadOutcome<ObservedSubstitution> {

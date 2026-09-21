@@ -79,6 +79,48 @@ function paginaConPrevisioni(overrides: Record<string, unknown> = {}): Record<st
 }
 
 describe("la previsione su un giocatore vive con le probabili, non con il giocatore osservato", () => {
+  /**
+   * PERCHÉ QUESTA PROVA È IL PERNO DI TUTTA LA CATENA, e non un dettaglio del
+   * contratto: una percentuale legata a un NOME non si può ricongiungere alla
+   * rosa di nessuno senza indovinare, e una percentuale legata
+   * all'identificativo della fonte sì. Prima di questo campo il dato arrivava e
+   * moriva in mano a chi consuma; il campo non fa il ricongiungimento — quello
+   * resta un altro mestiere — ma è ciò che lo rende possibile a chi lo fa.
+   */
+  it("la percentuale arriva insieme all'identificativo, non solo al nome", () => {
+    const outcome = readProbableLineupsPage(
+      paginaConPrevisioni({
+        homeForecasts: previsioni(
+          [
+            {
+              player: "Alfa 9",
+              startingProbability: { presence: "observed", value: 90 },
+              doubtful: { presence: "absent-in-source" },
+              sourceIdentifier: { presence: "observed", value: "7332" },
+            },
+            {
+              // Il secondo non lo porta: una fonte può scriverlo per alcuni e
+              // non per altri, e il contratto non pareggia i due casi.
+              player: "Alfa 10",
+              startingProbability: { presence: "observed", value: 40 },
+              doubtful: { presence: "absent-in-source" },
+              sourceIdentifier: { presence: "absent-in-source" },
+            },
+          ],
+          "declared-complete",
+        ),
+      }),
+    );
+    if (!isRead(outcome)) throw new Error("atteso letto");
+    const forecasts = outcome.value.matches[0]?.homeForecasts;
+    if (forecasts === undefined || forecasts.presence !== "observed") {
+      throw new Error("attese previsioni osservate");
+    }
+    expect(forecasts.value.forecasts[0]?.sourceIdentifier).toEqual(observed("7332"));
+    expect(forecasts.value.forecasts[0]?.startingProbability).toEqual(observed(90));
+    expect(forecasts.value.forecasts[1]?.sourceIdentifier).toEqual(absentInSource());
+  });
+
   it("la fonte ha il dato: percentuale e dubbio arrivano a chi consuma", () => {
     const outcome = readProbableLineupsPage(
       paginaConPrevisioni({
