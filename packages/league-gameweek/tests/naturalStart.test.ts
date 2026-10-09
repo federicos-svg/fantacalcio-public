@@ -300,8 +300,21 @@ describe("naturalStartPlan", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3. LA PARTENZA SCELTA
+// 3. DUE SALITE, UN CONFRONTO
 // ─────────────────────────────────────────────────────────────────────────────
+//
+// La salita del livello 2 parte dalla formazione del livello 1 ESATTAMENTE come
+// prima (A). Se la migliore naturale è un'altra formazione, parte una seconda
+// salita da lei (B); si consegna B solo se vale STRETTAMENTE di più. Conseguenze
+// che queste prove fissano: il risultato non vale mai meno di quello di prima, e
+// ogni volta che B non vince la proposta è IDENTICA a quella di prima.
+//
+// COME SI FISSA «QUELLO DI PRIMA». Il codice di prima non è più nel repository,
+// quindi la sua risposta è scritta qui sotto: per ogni rosa casuale (generata da
+// `mulberry32` con un seme per prova, quindi riproducibile) il risultato di
+// `origin/main` PRIMA delle naturali — formazione, stima, conto di `evaluated` —
+// misurato lanciando esattamente queste stesse richieste su quel codice. Non è
+// un'impronta di comodo: è il riferimento contro cui si dice «identica».
 
 function input(squad: readonly PlayerForecast[], extra: object = {}) {
   return {
@@ -313,8 +326,75 @@ function input(squad: readonly PlayerForecast[], extra: object = {}) {
   };
 }
 
-describe("la partenza della ricerca", () => {
-  it("con un livello 1 fuorviante parte dalla naturale, e il risultato vale più della partenza di prima", () => {
+/** Una rosa casuale e riproducibile, con o senza distribuzioni. */
+function randomSquad(trial: number, withDistribution: boolean): PlayerForecast[] {
+  const random = mulberry32(1000 + trial);
+  const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(random() * xs.length)] as T;
+  const probs = [0, 0.15, 0.4, 0.7, 0.95, 1] as const;
+  const squad: PlayerForecast[] = [];
+  for (const [role, n] of [["P", 3], ["D", 6 + (trial % 2)], ["C", 6], ["A", 4]] as const) {
+    for (let i = 0; i < n; i += 1) {
+      const p = pick(probs);
+      // Con la distribuzione il voto modale è quello della distribuzione (6,0).
+      const baseVote = withDistribution ? 6 : pick([5.5, 6, 6, 6.5]);
+      squad.push({
+        ...fc(`${role}${trial}_${i}`, role, p, baseVote, baseVote),
+        ...(withDistribution ? { distribution: distribution(role, p, true) } : {}),
+      });
+    }
+  }
+  return squad;
+}
+
+/** Le richieste del confronto: 8 rose senza distribuzioni, 4 con. */
+const DIFFERENTIAL_CASES = [
+  ...Array.from({ length: 8 }, (_, trial) => ({ trial, dist: false, budget: 96 })),
+  ...Array.from({ length: 4 }, (_, i) => ({ trial: 20 + i, dist: true, budget: 48 })),
+] as const;
+
+function differentialRequest(c: (typeof DIFFERENTIAL_CASES)[number]) {
+  return input(randomSquad(c.trial, c.dist), { scenarioBudget: c.budget, seed: 100 + c.trial });
+}
+
+/** Impronta FNV-1a a 32 bit della proposta (formazione, stima, conto): cambia con un ultimo bit. */
+function proposalFingerprint(p: ReturnType<typeof proposeLineup>): string {
+  const text = JSON.stringify({ lineup: p.lineup, estimate: p.estimate, evaluated: p.evaluated });
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
+/**
+ * IL RISULTATO DI `origin/main` PRIMA DELLE PARTENZE NATURALI, per ciascuno dei
+ * casi qui sopra. NON va «aggiornato» per far tornare il rosso: se cambia, la
+ * proposta di chi non ha una seconda salita vincente non è più quella di prima.
+ */
+const MAIN_BEFORE: ReadonlyArray<{
+  readonly fingerprint: string;
+  readonly objectiveValue: number;
+  readonly expectedOurTotal: number;
+  readonly ourTotalVariance: number;
+  readonly evaluated: number;
+}> = [
+  { fingerprint: "fc7010c5", objectiveValue: 0.6041666666666665, expectedOurTotal: 55.171875000000014, ourTotalVariance: 42.686604817705756, evaluated: 541 },
+  { fingerprint: "1ec43a5b", objectiveValue: 1.3854166666666667, expectedOurTotal: 61.984375000000014, ourTotalVariance: 64.98673502603697, evaluated: 275 },
+  { fingerprint: "d35b3773", objectiveValue: 0.07291666666666666, expectedOurTotal: 45.93229166666667, ourTotalVariance: 66.32093641493111, evaluated: 556 },
+  { fingerprint: "5f032b2e", objectiveValue: 0.6562499999999998, expectedOurTotal: 54.817708333333336, ourTotalVariance: 44.33395724826096, evaluated: 337 },
+  { fingerprint: "33adf0b1", objectiveValue: 0.125, expectedOurTotal: 49.671874999999986, ourTotalVariance: 45.045979817709394, evaluated: 311 },
+  { fingerprint: "b2b0d7ed", objectiveValue: 0.8854166666666661, expectedOurTotal: 58.04166666666665, ourTotalVariance: 35.65451388888778, evaluated: 700 },
+  { fingerprint: "28dbd4e2", objectiveValue: 0.010416666666666666, expectedOurTotal: 47.125000000000014, ourTotalVariance: 46.63020833333303, evaluated: 70 },
+  { fingerprint: "d2c56236", objectiveValue: 0.6354166666666666, expectedOurTotal: 63.58333333333337, ourTotalVariance: 32.15451388887914, evaluated: 37 },
+  { fingerprint: "992cb2b5", objectiveValue: 1.4166666666666665, expectedOurTotal: 67.29166666666667, ourTotalVariance: 53.18576388888869, evaluated: 135 },
+  { fingerprint: "8e0566e8", objectiveValue: 1.1458333333333333, expectedOurTotal: 65.83333333333333, ourTotalVariance: 70.7326388888896, evaluated: 796 },
+  { fingerprint: "b6c26223", objectiveValue: 2.604166666666667, expectedOurTotal: 71.79166666666666, ourTotalVariance: 58.664930555556566, evaluated: 650 },
+  { fingerprint: "3fed891d", objectiveValue: 1.6666666666666659, expectedOurTotal: 64.18750000000001, ourTotalVariance: 87.85026041666697, evaluated: 1330 },
+];
+
+describe("due salite, un confronto", () => {
+  it("con un livello 1 fuorviante la seconda salita parte dalla naturale, e il risultato non vale meno", () => {
     const squad = misleadingSquad();
     const proposal = proposeLineup(input(squad));
     expect(proposal.feasible).toBe(true);
@@ -325,65 +405,113 @@ describe("la partenza della ricerca", () => {
     expect(level1.goalkeeperId).toBe("a_P");
     expect(level1.starterIds.filter((id) => id.startsWith("a_")).length).toBeGreaterThanOrEqual(8);
 
-    // LA PARTENZA SCELTA È UNA NATURALE: lo dice la prosa, e lo conferma la
-    // formazione consegnata, che — con zero mosse — È la naturale di quel modulo.
-    expect(proposal.reason).toContain("partenza: la formazione naturale");
-    expect(proposal.reason).toContain("con 0 mossa/e accettata/e");
-    const prep = prepareGameweek(input(squad));
-    const natural = buildLineupFromPlan(naturalStartPlan(proposal.lineup!.module, prep.squad, new Set())!, prep.byId);
-    expect(proposal.lineup).toEqual(natural);
+    // La seconda salita c'è stata, dalla naturale, e la prosa lo dice.
+    expect(proposal.reason).toContain("seconda salita dalla naturale");
 
-    // «MAI MENO DI PRIMA»: sugli stessi scenari la finale vale strettamente più
-    // della partenza del livello 1.
+    // «MAI MENO DI PRIMA»: sugli stessi scenari la finale non vale meno della
+    // partenza del livello 1 — e nemmeno meno del risultato di prima, che qui è
+    // la prima salita: lo conferma il confronto sulle rose casuali.
+    const prep = prepareGameweek(input(squad));
     const vFinal = valuate(prep, proposal.lineup!);
     const vLevel1 = valuate(prep, level1);
     expect(compareLineupValuations(vFinal, vLevel1)).toBeGreaterThan(0);
-    expect(vFinal.objectiveValue).toBeGreaterThan(vLevel1.objectiveValue);
-    // La stima dichiarata è quella della formazione consegnata.
     expect(proposal.estimate.objectiveValue).toBeCloseTo(vFinal.objectiveValue, 12);
   });
 
-  it("le valutazioni in più sono al più sette, dichiarate nella ragione, e non entrano in `evaluated`", () => {
-    const proposal = proposeLineup(input(misleadingSquad()));
-    const m = /(\d+) naturali distinte valutate in più/.exec(proposal.reason);
-    expect(m).not.toBeNull();
-    expect(Number(m![1])).toBeGreaterThanOrEqual(1);
-    expect(Number(m![1])).toBeLessThanOrEqual(7);
-  });
+  it("sulle rose casuali: mai meno di prima, e quando la seconda non vince la proposta è IDENTICA a quella di prima", () => {
+    let secondRan = 0;
+    let secondWon = 0;
+    let identical = 0;
+    DIFFERENTIAL_CASES.forEach((c, i) => {
+      const before = MAIN_BEFORE[i]!;
+      const proposal = proposeLineup(differentialRequest(c));
+      expect(proposal.feasible).toBe(true);
+      const cmp = compareLineupValuations(
+        proposal.estimate,
+        before as unknown as LineupValuation,
+      );
+      // 1) MAI MENO DI PRIMA, sul criterio della ricerca (obiettivo, totale, varianza).
+      expect(cmp, `caso ${i}: l'obiettivo finale non deve scendere`).toBeGreaterThanOrEqual(0);
 
-  it("quando il livello 1 è già la migliore partenza, la ricerca parte da lui e lo dice", () => {
-    // Tutti certi, tutti uguali: una sola formazione conta e l'ottimo esatto del
-    // livello 1 non può essere battuto da una naturale.
-    const certi = misleadingSquad().map((f) => ({ ...f, voteProbability: 1 }));
-    const proposal = proposeLineup(input(certi, { scenarioBudget: 16 }));
-    expect(proposal.reason).toContain("partenza: la formazione del livello 1");
-    expect(proposal.reason).not.toContain("partenza: la formazione naturale");
-  });
-
-  it("su rose casuali il risultato non vale MAI meno della formazione del livello 1, sugli stessi scenari", () => {
-    const random = mulberry32(7);
-    const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(random() * xs.length)] as T;
-    const probs = [0, 0.15, 0.4, 0.7, 0.95, 1] as const;
-    let strictlyBetter = 0;
-    for (let trial = 0; trial < 8; trial += 1) {
-      const squad: PlayerForecast[] = [];
-      for (const [role, n] of [["P", 3], ["D", 6 + (trial % 2)], ["C", 6], ["A", 4]] as const) {
-        for (let i = 0; i < n; i += 1) {
-          const baseVote = pick([5.5, 6, 6, 6.5]);
-          squad.push(fc(`${role}${trial}_${i}`, role, pick(probs), baseVote, baseVote));
-        }
+      const ran = proposal.reason.includes("seconda salita dalla naturale");
+      const won = proposal.reason.includes("consegnata perché ha battuto strettamente la prima");
+      if (ran) secondRan += 1;
+      if (won) secondWon += 1;
+      if (!won) {
+        // 2) SE LA SECONDA NON VINCE, LA PROPOSTA È QUELLA DI PRIMA: formazione,
+        // panchina, stima, conto di `evaluated`, all'ultimo bit.
+        expect(proposalFingerprint(proposal), `caso ${i}: la proposta deve essere quella di prima`).toBe(
+          before.fingerprint,
+        );
+        identical += 1;
+        expect(proposal.evaluated).toBe(before.evaluated);
+      } else {
+        // 3) SE VINCE, VINCE STRETTAMENTE, e il conto è quello di prima più il
+        // lavoro della seconda salita, dichiarato nella ragione.
+        expect(cmp, `caso ${i}: la seconda vince solo se è strettamente migliore`).toBeGreaterThan(0);
+        const extra = Number(/(\d+) valutazioni in più, comprese nel conto/.exec(proposal.reason)?.[1]);
+        expect(proposal.evaluated).toBe(before.evaluated + extra);
       }
-      const request = input(squad, { scenarioBudget: 96, seed: 100 + trial });
+    });
+    // Non è una prova vacua: la seconda salita gira davvero, a volte vince, e a
+    // volte no.
+    expect(secondRan).toBeGreaterThan(0);
+    expect(secondWon).toBeGreaterThan(0);
+    expect(identical).toBeGreaterThan(0);
+  });
+
+  it("la prosa dice sempre che cosa è successo della seconda salita", () => {
+    for (const c of DIFFERENTIAL_CASES) {
+      const { reason } = proposeLineup(differentialRequest(c));
+      const said =
+        reason.includes("salita unica") ||
+        reason.includes("consegnata la prima") ||
+        reason.includes("consegnata perché ha battuto strettamente la prima");
+      expect(said, reason).toBe(true);
+      // Nessuna frase sulle «0 naturali»: o la salita è unica, o c'è un numero vero.
+      expect(reason).not.toMatch(/\b0 naturali/);
+    }
+  });
+
+  it("quando la migliore naturale È la partenza del livello 1, la salita è una sola e lo dice", () => {
+    // Rosa e vincoli in cui la naturale del modulo imposto coincide con la
+    // formazione del livello 1 (stessi undici, stessa panchina): non c'è niente
+    // da provare di nuovo.
+    const squad = [
+      fc("P1", "P", 1, 6.5, 6.5),
+      fc("P2", "P", 1, 6, 3),
+      fc("D1", "D", 0.5, 6.5, 6),
+      fc("D2", "D", 0.5, 6.5, 6),
+      fc("D3", "D", 0.5, 6.5, 6),
+      fc("D4", "D", 1, 6.5, 6),
+      fc("Db1", "D", 1, 6.5, 4.5),
+      fc("C1", "C", 0.5, 6, 6),
+      fc("C2", "C", 0.5, 6, 6),
+      fc("C3", "C", 0.5, 6, 6),
+      fc("C4", "C", 1, 6, 6),
+      fc("Cb1", "C", 1, 6, 5),
+      fc("A1", "A", 1, 6, 13),
+      fc("A2", "A", 1, 6, 13),
+    ];
+    const proposal = proposeLineup(
+      input(squad, {
+        constraints: { lockedStarterIds: ["D1", "D2", "D3", "C1", "C2", "C3"], lockedModule: "442", locked: false },
+      }),
+    );
+    expect(proposal.feasible).toBe(true);
+    expect(proposal.reason).toContain("salita unica");
+    expect(proposal.reason).not.toContain("seconda salita");
+  });
+
+  it("il risultato non vale MAI meno della formazione del livello 1, sugli stessi scenari", () => {
+    DIFFERENTIAL_CASES.forEach((c) => {
+      const request = differentialRequest(c);
       const proposal = proposeLineup(request);
-      if (!proposal.feasible) continue;
       const prep = prepareGameweek(request);
       const vFinal = valuate(prep, proposal.lineup!);
       const vLevel1 = valuate(prep, proposal.pointForecast.lineup!);
       expect(compareLineupValuations(vFinal, vLevel1)).toBeGreaterThanOrEqual(0);
-      if (compareLineupValuations(vFinal, vLevel1) > 0) strictlyBetter += 1;
-    }
-    // Non è una prova vacua: in almeno una rosa la partenza ha fatto la differenza.
-    expect(strictlyBetter).toBeGreaterThan(0);
+    });
   });
 });
 
@@ -391,7 +519,7 @@ describe("la partenza della ricerca", () => {
 // 4. I VINCOLI
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("la partenza naturale rispetta i vincoli", () => {
+describe("le due salite rispettano i vincoli", () => {
   it("gli imposti sono titolari anche se la naturale li lascerebbe fuori", () => {
     const squad = misleadingSquad();
     // a_P (portiere al 20 %) e due fragili di movimento: la naturale libera li lascia in panchina.
@@ -400,27 +528,24 @@ describe("la partenza naturale rispetta i vincoli", () => {
     expect(proposal.feasible).toBe(true);
     const fielded = new Set([proposal.lineup!.goalkeeperId, ...proposal.lineup!.starterIds]);
     for (const id of locked) expect(fielded.has(id)).toBe(true);
-    // E la partenza era davvero una naturale vincolata (non il livello 1).
     expect(proposal.constraints.rejections).toEqual([]);
-    expect(proposal.reason).toContain("partenza: la formazione naturale");
+    // E la seconda salita c'è stata davvero, dalla naturale vincolata.
+    expect(proposal.reason).toContain("seconda salita dalla naturale");
   });
 
-  it("il modulo imposto resta quello: la naturale è costruita solo per lui", () => {
+  it("il modulo imposto resta quello, in entrambe le salite", () => {
     const squad = misleadingSquad();
     for (const module of ["442", "541"] as const satisfies readonly Module[]) {
       const proposal = proposeLineup(input(squad, { constraints: { lockedStarterIds: [], lockedModule: module, locked: false } }));
       expect(proposal.feasible).toBe(true);
       expect(proposal.lineup!.module).toBe(module);
-      // Al più una naturale distinta dal livello 1: un modulo solo.
-      const m = /(\d+) naturali distinte valutate in più/.exec(proposal.reason);
-      expect(Number(m![1])).toBeLessThanOrEqual(1);
+      expect(proposal.reason).toMatch(/seconda salita|salita unica/);
     }
   });
 
   it("imposti e modulo insieme", () => {
     const squad = misleadingSquad();
-    const locked = ["a_D1", "a_D2", "a_D3", "a_D4", "a_D5"].filter((id) => squad.some((f) => f.id === id));
-    expect(locked).toHaveLength(4);
+    const locked = ["a_D1", "a_D2", "a_D3", "a_D4"];
     const proposal = proposeLineup(
       input(squad, { constraints: { lockedStarterIds: [...locked, "a_A1"], lockedModule: "442", locked: false } }),
     );
@@ -431,7 +556,7 @@ describe("la partenza naturale rispetta i vincoli", () => {
     }
   });
 
-  it("`locked: true` non cerca e non valuta partenze: la formazione data, con una sola valutazione", () => {
+  it("`locked: true` non cerca e non fa nessuna salita: la formazione data, con una sola valutazione", () => {
     const squad = misleadingSquad();
     const given: Lineup = {
       module: "442",
@@ -448,7 +573,7 @@ describe("la partenza naturale rispetta i vincoli", () => {
     expect(proposal.lineup).toEqual(given);
     expect(proposal.evaluated).toBe(1);
     expect(proposal.constraints.optimized).toBe(false);
-    expect(proposal.reason).not.toContain("partenza");
+    expect(proposal.reason).not.toContain("salita");
     expect(proposal.reason).not.toContain("naturale");
   });
 });

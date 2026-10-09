@@ -137,11 +137,15 @@
 // panchina e il tetto di §10 iniziano a contare, con un hill climbing steepest
 // ascent. Non pretende l'ottimo globale, e non lo dichiara: parte da un punto
 // che a incertezza nulla È l'ottimo, e da lì migliora solo su mosse che
-// migliorano strettamente. Il punto di partenza è il migliore, sugli stessi
-// scenari, fra la formazione del livello 1 e le formazioni «naturali» (una per
-// modulo ammesso, i giocatori di valore più alto per reparto: `naturalStartPlan`):
-// il livello 1 lavora su righe modali che sui dati veri sono quasi tutte
-// uguali, e un innesco arbitrario allunga la salita e ne condiziona l'approdo.
+// migliorano strettamente. LE SALITE SONO DUE (multi-start): la prima parte dalla
+// formazione del livello 1, come ha sempre fatto; la seconda parte dalla migliore
+// formazione «naturale» (una per modulo ammesso, i giocatori di valore più alto
+// per reparto: `naturalStartPlan`) SE È DIVERSA dalla prima partenza, e si
+// consegna solo se vale STRETTAMENTE di più. Il livello 1 lavora su righe modali
+// che sui dati veri sono quasi tutte uguali: il suo innesco è arbitrario, e la
+// salita da lì si ferma su un ottimo locale che un altro punto di partenza può
+// migliorare — o peggiorare, ed è per questo che le salite sono due e non una:
+// il risultato non vale mai meno di quello della prima, per costruzione.
 // Con `locked: true` non c'è nessuno dei due livelli: non si cerca, si valuta
 // la formazione data e la si consegna, con `constraints.optimized = false`.
 //
@@ -486,11 +490,14 @@ export interface LineupProposal {
     readonly refinementCapReached: boolean;
   };
   /**
-   * Formazioni valutate dal ciclo di ricerca: Tier 1, la formazione di partenza
-   * e il vicinato di ogni passo. NON comprende le formazioni «naturali»
-   * candidate alla partenza (una per modulo ammesso, al più sette valutazioni
-   * in più sugli stessi scenari): le dichiara la `reason`. Scelta dichiarata e
-   * contestabile — una prova tiene a mano la composizione di questo numero.
+   * Formazioni valutate. Con la PRIMA salita consegnata (il caso di prima delle
+   * partenze naturali, e quello di ogni volta che la seconda non la batte) è
+   * Tier 1 + la formazione di partenza + il vicinato di ogni passo, IDENTICO a
+   * quello che il produttore dava senza la seconda salita — una prova ne tiene
+   * a mano la composizione. Con la SECONDA consegnata ci si aggiunge tutto il
+   * lavoro della seconda salita (le naturali valutate e il suo vicinato).
+   * Il lavoro di una seconda salita che NON ha vinto non è qui: lo dichiara la
+   * `reason`, con il numero. Scelta dichiarata e contestabile.
    */
   readonly evaluated: number;
   readonly objectiveLabel: string;
@@ -1153,10 +1160,10 @@ export function startingBench(squad: readonly PlayerForecast[], chosen: Readonly
  *
  * Non è un criterio di scelta della formazione finale e non pretende di
  * esserlo: è l'ordine con cui si COSTRUISCE UNA PARTENZA, e a deciderne il
- * merito è la valutazione sugli scenari. È un numero deliberatamente semplice
- * (un prodotto, nessun modificatore di reparto, niente panchina): se la
- * partenza che ne esce vale meno di quella del livello 1, perde il confronto e
- * non succede niente.
+ * merito è il confronto fra le due salite sugli scenari. È un numero
+ * deliberatamente semplice (un prodotto, nessun modificatore di reparto, niente
+ * panchina): se la salita che parte da lì arriva a un'altra formazione che non
+ * vale strettamente di più, perde il confronto e non succede niente.
  */
 export function naturalStartValue(f: PlayerForecast): number {
   const meanIfPlays =
@@ -1173,8 +1180,8 @@ function compareByNaturalValueDesc(a: PlayerForecast, b: PlayerForecast): number
 }
 
 /**
- * LA FORMAZIONE «NATURALE» DI UN MODULO — una partenza candidata per la ricerca
- * del livello 2, accanto a quella del livello 1.
+ * LA FORMAZIONE «NATURALE» DI UN MODULO — il punto di partenza della SECONDA
+ * salita del livello 2 (la prima parte dal livello 1, come sempre).
  *
  * PERCHÉ ESISTE. Il livello 1 lavora sulle righe MODALI, e sui dati veri quasi
  * tutte le righe modali valgono 6,0 esatto (il voto più probabile di quasi tutti
@@ -1186,7 +1193,13 @@ function compareByNaturalValueDesc(a: PlayerForecast, b: PlayerForecast): number
  * rifà: la prova sintetica riproduce il MECCANISMO (righe modali uguali, livello
  * 1 arbitrario, naturale migliore), non il numero. La ricerca è locale e non
  * cerca l'ottimo globale: partire da lontano costa tempo e, se il paesaggio ha
- * più di un ottimo locale, può costare la formazione.
+ * più di un ottimo locale, può costare la formazione. NEMMENO UNA PARTENZA
+ * MIGLIORE PORTA A UN OTTIMO MIGLIORE (l'ha mostrato un confronto differenziale
+ * contro il codice di prima, fatto in una revisione indipendente e non
+ * versionato qui: la salita dalla sola naturale arrivava più in basso in una
+ * quota non piccola dei casi), ed è per questo che la naturale non SOSTITUISCE la
+ * partenza del livello 1: ne affianca una seconda salita, e si consegna la
+ * migliore delle due arrivate.
  *
  * COME È FATTA. Il portiere e, per ciascun ruolo di movimento, i giocatori col
  * valore più alto (`naturalStartValue`), in numero pari a quanto il modulo
@@ -1548,6 +1561,17 @@ export function prepareGameweek(input: LineupProposalInput): GameweekPreparation
   };
 }
 
+/** Una salita del livello 2 arrivata in fondo: dove si è fermata e come. */
+interface Climb {
+  readonly plan: LineupPlan;
+  readonly lineup: Lineup;
+  readonly value: LineupValuation;
+  /** Mosse accettate. */
+  readonly iterations: number;
+  /** `true` se si è fermata sul tetto di iterazioni invece che su un ottimo locale. */
+  readonly capReached: boolean;
+}
+
 export function proposeLineup(input: LineupProposalInput): LineupProposal {
   const prepared = prepareGameweek(input);
   const {
@@ -1749,79 +1773,139 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
   // deterministico fra mosse che valgono uguale, mai a muoversi di lato. Se
   // fosse un criterio di accettazione, la ricerca si sposterebbe fra formazioni
   // equivalenti solo perché una ha un id alfabeticamente più piccolo.
-  let current = startPlan;
-  let currentLineup = pointForecastLineup;
-  let currentValue = valueOf(currentLineup);
+  const startValue = valueOf(pointForecastLineup);
 
-  // ── LA PARTENZA: LA MIGLIORE FRA LA FORMAZIONE DEL LIVELLO 1 E LE «NATURALI».
-  // Il livello 1 lavora sulle righe modali e, quando sono quasi tutte uguali, è
-  // un innesco arbitrario (`naturalStartPlan` dice cosa è stato misurato). Si
-  // valutano allora, sugli STESSI scenari e con lo STESSO criterio di confronto
-  // della ricerca, anche le formazioni naturali — una per modulo ammesso — e la
-  // ricerca parte dalla migliore.
+  // La salita, una funzione sola perché ne girano al più DUE con le stesse
+  // identiche regole (vedi sotto): `evaluate` è l'unica cosa che le distingue,
+  // ed è lì che si conta il lavoro di ciascuna.
+  const climb = (
+    from: { readonly plan: LineupPlan; readonly lineup: Lineup; readonly value: LineupValuation },
+    evaluate: (lineup: Lineup) => LineupValuation,
+  ): Climb => {
+    let current = from.plan;
+    let currentLineup = from.lineup;
+    let currentValue = from.value;
+    let iterations = 0;
+    let capReached = false;
+    for (;;) {
+      if (iterations >= MAX_REFINEMENT_ITERATIONS) {
+        capReached = true;
+        break;
+      }
+      let bestMove: { plan: LineupPlan; lineup: Lineup; value: LineupValuation } | null = null;
+      for (const plan of neighbours(current, squad, byId, lockedIds, constraints.lockedModule)) {
+        const lineup = buildLineup(plan);
+        const value = evaluate(lineup);
+        if (bestMove === null) {
+          bestMove = { plan, lineup, value };
+          continue;
+        }
+        const cmp = compareLineupValuations(value, bestMove.value);
+        if (cmp > 0 || (cmp === 0 && tieBreakKey(lineup) < tieBreakKey(bestMove.lineup))) {
+          bestMove = { plan, lineup, value };
+        }
+      }
+      if (bestMove === null || compareLineupValuations(bestMove.value, currentValue) <= 0) break;
+      current = bestMove.plan;
+      currentLineup = bestMove.lineup;
+      currentValue = bestMove.value;
+      iterations += 1;
+    }
+    return { plan: current, lineup: currentLineup, value: currentValue, iterations, capReached };
+  };
+
+  // ── PRIMA SALITA (A): DALLA FORMAZIONE DEL LIVELLO 1, ESATTAMENTE COME PRIMA.
+  // Non guarda le naturali, non sa che esistono: è la salita di sempre, mossa
+  // per mossa, e il suo risultato — formazione, panchina, stima, conto di
+  // `evaluated` — è quello che il produttore consegnava prima delle naturali.
+  const first = climb({ plan: startPlan, lineup: pointForecastLineup, value: startValue }, valueOf);
+  // Da qui `valueOf` non gira più: `evaluated` è il conto di A, e resta tale.
+
+  // ── SECONDA SALITA (B): DALLA MIGLIORE FORMAZIONE «NATURALE», SOLO SE DIVERSA.
+  // Il livello 1 lavora sulle righe modali, che sui dati veri sono quasi tutte
+  // uguali: il suo innesco è arbitrario (`naturalStartPlan` dice cosa è stato
+  // misurato) e la salita da lì si ferma su UN ottimo locale. Si prova allora
+  // una seconda salita da un altro punto. Si valutano, sugli STESSI scenari e
+  // con lo STESSO criterio di confronto (`compareLineupValuations`), le
+  // formazioni naturali — una per modulo ammesso — e si sceglie la migliore:
+  // a parità vince quella che coincide con la partenza del livello 1 (non c'è
+  // niente da provare di nuovo), poi il primo modulo nell'ordine di `MODULES`.
+  //   - se la migliore naturale COINCIDE con la partenza del livello 1 (stesso
+  //     modulo, stessi undici, stessa panchina), la seconda salita sarebbe la
+  //     prima: non si fa;
+  //   - altrimenti si sale da lei, con le stesse regole, gli stessi vincoli e gli
+  //     stessi scenari. Non serve che la sua partenza valga più di quella del
+  //     livello 1: la seconda salita è lì per arrivare in un posto diverso.
   //
-  // IL RISULTATO NON PUÒ VALERE MENO DELLA PARTENZA DI PRIMA, per costruzione:
-  // la formazione del livello 1 è fra le candidate, una naturale la sostituisce
-  // SOLO se vale strettamente di più, e la ricerca accetta soltanto mosse che
-  // migliorano strettamente. A parità vince il livello 1, poi il primo modulo
-  // nell'ordine di `MODULES`: la scelta non dipende dall'ordine di generazione.
-  // Una naturale uguale alla formazione già valutata (stesso modulo, stessi
-  // undici, stessa panchina) non si rivaluta.
-  //
-  // COSA NON GARANTISCE: un risultato non peggiore della formazione FINALE di
-  // prima. Partendo da un altro punto la salita può fermarsi su un altro ottimo
-  // locale, in genere migliore ma non per teorema.
-  //
-  // IL CONTO. Queste valutazioni NON entrano in `evaluated`: quel numero
-  // continua a dire «Tier 1 + partenza + vicinato» (una prova ne tiene a mano
-  // la composizione), e le candidate in più sono dichiarate nella `reason`.
-  const visited = new Set([tieBreakKey(pointForecastLineup)]);
+  // PERCHÉ NON «PARTIRE DALLA MIGLIORE DELLE DUE». Era la prima stesura, ed è
+  // stata smentita da un confronto differenziale contro il codice di prima, a
+  // parità di seme e di scenari, su rose sintetiche (revisione indipendente:
+  // misura riferita, NON versionata in questo repository): con le distribuzioni
+  // l'obiettivo finale usciva peggiore in 34 casi su 194 (peggior caso −0,083),
+  // e senza distribuzioni la formazione finale cambiava in 35 casi su 76. Una
+  // partenza migliore NON porta a un ottimo locale migliore: la ricerca è
+  // locale, e partire da più in alto non è partire da più vicino. Con due
+  // salite e il confronto alla fine, invece, il risultato non può valere meno
+  // di quello di prima per costruzione — e questo SÌ lo verifica una prova
+  // (`tests/naturalStart.test.ts`, contro risultati misurati sul codice di prima).
+  const level1Key = tieBreakKey(pointForecastLineup);
   let naturalsEvaluated = 0;
-  let startedFromNatural: Module | null = null;
+  let bestNatural: {
+    readonly module: Module;
+    readonly plan: LineupPlan;
+    readonly lineup: Lineup;
+    readonly value: LineupValuation;
+    readonly isLevel1: boolean;
+  } | null = null;
   for (const module of constraints.lockedModule === undefined ? MODULES : [constraints.lockedModule]) {
     const plan = naturalStartPlan(module, squad, lockedIds);
     if (plan === null) continue;
     const lineup = buildLineup(plan);
-    const key = tieBreakKey(lineup);
-    if (visited.has(key)) continue;
-    visited.add(key);
-    naturalsEvaluated += 1;
-    const value = valuationOf(lineup, opponentLineups, context, scenarios, competition);
-    if (compareLineupValuations(value, currentValue) > 0) {
-      current = plan;
-      currentLineup = lineup;
-      currentValue = value;
-      startedFromNatural = module;
+    const isLevel1 = tieBreakKey(lineup) === level1Key;
+    // La naturale che è già la partenza del livello 1 non si rivaluta: è la
+    // stessa formazione sugli stessi scenari.
+    let value = startValue;
+    if (!isLevel1) {
+      naturalsEvaluated += 1;
+      value = valuationOf(lineup, opponentLineups, context, scenarios, competition);
     }
+    if (bestNatural !== null) {
+      const cmp = compareLineupValuations(value, bestNatural.value);
+      if (!(cmp > 0 || (cmp === 0 && isLevel1 && !bestNatural.isLevel1))) continue;
+    }
+    bestNatural = { module, plan, lineup, value, isLevel1 };
   }
 
-  let iterations = 0;
-  let capReached = false;
-
-  for (;;) {
-    if (iterations >= MAX_REFINEMENT_ITERATIONS) {
-      capReached = true;
-      break;
-    }
-    let bestMove: { plan: LineupPlan; lineup: Lineup; value: LineupValuation } | null = null;
-    for (const plan of neighbours(current, squad, byId, lockedIds, constraints.lockedModule)) {
-      const lineup = buildLineup(plan);
-      const value = valueOf(lineup);
-      if (bestMove === null) {
-        bestMove = { plan, lineup, value };
-        continue;
-      }
-      const cmp = compareLineupValuations(value, bestMove.value);
-      if (cmp > 0 || (cmp === 0 && tieBreakKey(lineup) < tieBreakKey(bestMove.lineup))) {
-        bestMove = { plan, lineup, value };
-      }
-    }
-    if (bestMove === null || compareLineupValuations(bestMove.value, currentValue) <= 0) break;
-    current = bestMove.plan;
-    currentLineup = bestMove.lineup;
-    currentValue = bestMove.value;
-    iterations += 1;
+  let secondEvaluated = 0;
+  let second: Climb | null = null;
+  if (bestNatural !== null && !bestNatural.isLevel1) {
+    second = climb(bestNatural, (lineup) => {
+      secondEvaluated += 1;
+      return valuationOf(lineup, opponentLineups, context, scenarios, competition);
+    });
   }
+
+  // ── IL CONFRONTO FINALE. Si consegna B SOLO se vale STRETTAMENTE di più di A
+  // con `compareLineupValuations`; a parità, o se B è peggiore, si consegna A
+  // con la sua panchina, la sua stima e il suo conto. Conseguenza voluta: il
+  // risultato non vale mai meno di quello di prima, e ogni volta che B non vince
+  // la proposta è IDENTICA a quella di prima (salvo la prosa di `reason`, che
+  // dice cos'è successo).
+  const secondWon = second !== null && compareLineupValuations(second.value, first.value) > 0;
+  const final: Climb = secondWon ? (second as Climb) : first;
+  const currentLineup = final.lineup;
+  const currentValue = final.value;
+  const iterations = final.iterations;
+  const capReached = final.capReached;
+  // IL CONTO DI `evaluated`. Con A consegnata è il conto di A, quello di prima
+  // — una prova ne tiene a mano la composizione (Tier 1 + partenza + vicinato) e
+  // la proposta deve restare identica. Con B consegnata è A più tutto il lavoro
+  // della seconda salita (le naturali valutate e il suo vicinato): per arrivare
+  // a B si è dovuto fare anche A, e il conto dice quanto è costata la proposta
+  // consegnata. Il lavoro della seconda salita che non ha vinto non entra qui, e
+  // la `reason` lo dichiara comunque.
+  const secondWork = naturalsEvaluated + secondEvaluated;
+  const totalEvaluated = secondWon ? evaluated + secondWork : evaluated;
 
   // Il risultato DEVE essere legale. Se non lo è non è un input sbagliato — gli
   // input sono già stati controllati — è un bug di questo file, e si ferma qui.
@@ -1850,17 +1934,38 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
     }
   }
 
+  // Che cosa è successo della seconda salita, in prosa — e senza mai usare le
+  // parole che altre parti della `reason` riservano a sé («mossa/e accettata/e»
+  // nel suo conto di mosse, «TETTO» per il tetto raggiunto dalla salita
+  // consegnata).
+  let secondNote: string;
+  if (bestNatural === null) {
+    // Ramo DIFENSIVO: se il livello 1 ha trovato una formazione, la naturale del
+    // suo modulo esiste (stessa idoneità: chi non prende voto resta fuori in
+    // entrambi). Si dichiara comunque, invece di indovinare.
+    secondNote = "salita unica: nessuna formazione naturale è praticabile con questa rosa";
+  } else if (bestNatural.isLevel1 || second === null) {
+    secondNote =
+      "salita unica: la migliore formazione naturale coincide con la partenza del livello 1, " +
+      "una nuova salita da lì ripeterebbe la prima";
+  } else if (secondWon) {
+    secondNote =
+      `seconda salita dalla naturale ${bestNatural.module}, consegnata perché ha battuto strettamente la prima — ` +
+      `obiettivo ${second.value.objectiveValue} contro ${first.value.objectiveValue}, la prima aveva fatto ` +
+      `${first.iterations} mosse; ${secondWork} valutazioni in più, comprese nel conto`;
+  } else {
+    secondNote =
+      `seconda salita dalla naturale ${bestNatural.module}, non strettamente migliore della prima — ` +
+      `obiettivo ${second.value.objectiveValue} contro ${first.value.objectiveValue}, mosse ${second.iterations}, ` +
+      `${secondWork} valutazioni in più NON comprese nel conto — consegnata la prima` +
+      (second.capReached ? "; la seconda ha toccato il tetto di iterazioni" : "");
+  }
+
   const reason =
     `innesco a previsione puntuale con l'ottimizzatore esatto sulla formazione avversaria modale ` +
     `(${tierOne.reason}), poi raffinamento hill climbing su ${scenarios.length} scenari (${method}) ` +
     `contro ${opponentCandidates.length} formazione/i avversaria/e pesata/e, con ${iterations} ` +
-    `mossa/e accettata/e` +
-    (startedFromNatural === null
-      ? ` (partenza: la formazione del livello 1, non battuta da nessuna delle ${naturalsEvaluated} ` +
-        "naturali distinte valutate in più)"
-      : ` (partenza: la formazione naturale ${startedFromNatural}, che sugli stessi scenari vale più di ` +
-        `quella del livello 1; ${naturalsEvaluated} naturali distinte valutate in più)`) +
-    `; criterio: ${objectiveLabel}` +
+    `mossa/e accettata/e (${secondNote}); criterio: ${objectiveLabel}` +
     (currentValue.undecidedWeight > 0
       ? `; MASSA NON ATTRIBUITA ${currentValue.undecidedWeight}: scenari che il regolamento non copre, ` +
         "l'obiettivo qui sopra è un minorante"
@@ -1897,7 +2002,7 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
       allResolved: currentValue.allResolved,
       refinementCapReached: capReached,
     },
-    evaluated,
+    evaluated: totalEvaluated,
     objectiveLabel,
     constraints: reportOf(true),
     leagueRuleVersion: LEAGUE_RULE_VERSION,
