@@ -24,8 +24,9 @@ import {
   startingBench,
 } from "../src/index.js";
 
-// LA PARTENZA DELLA RICERCA DEL LIVELLO 2: la migliore fra la formazione del
-// livello 1 e le formazioni «naturali», una per modulo ammesso.
+// LA SECONDA SALITA DEL LIVELLO 2 (multi-start): la prima sale dal livello 1,
+// come sempre; la seconda dalla migliore formazione «naturale», una per modulo
+// ammesso, e si consegna solo se batte strettamente la prima.
 //
 // FIXTURE SINTETICHE: identificatori costruiti, voti e probabilità scelti a
 // mano, nessun dato reale, nessuna rete.
@@ -35,10 +36,11 @@ import {
 // fra pari con l'ordine degli id: la formazione che ne esce ha il portiere al
 // 5 % di probabilità titolare, e la ricerca locale impiega 16 mosse a tornare
 // indietro. La formazione «naturale» mette in campo i giocatori col valore più
-// alto — probabilità di voto per fantavoto medio — ed è una partenza candidata.
-// Sotto: che cosa è quel valore, come si costruisce la formazione, che i
-// vincoli entrano per costruzione, e che la partenza scelta non vale mai meno di
-// quella di prima.
+// alto — probabilità di voto per fantavoto medio — ed è la partenza della
+// seconda salita. Sotto: che cosa è quel valore, come si costruisce la
+// formazione, che i vincoli entrano per costruzione, che il risultato non vale
+// mai meno di quello di prima e che, quando la seconda salita non vince, è
+// identico a prima.
 
 const CONTEXT: GameweekContext = { matchday: 10, weAreHome: true };
 const ASOF = "2026-10-01T10:00:00Z";
