@@ -1101,6 +1101,25 @@ function benchCapSquad(): PlayerForecast[] {
   ];
 }
 
+/**
+ * I SEI INCERTI SONO IMPOSTI TITOLARI, E IL MODULO È IL 4-4-2. Le due prove che
+ * usano questa rosa hanno una PREMESSA: la ricerca parte da una formazione con
+ * tutti e sei gli incerti in campo, perché è la sola in cui il tetto di cinque
+ * sostituzioni morde e l'ordine della panchina decide quale ruolo resta
+ * scoperto. Da quando la ricerca parte dalla migliore fra la formazione del
+ * livello 1 e le formazioni «naturali», senza questi vincoli parte da una
+ * naturale che schiera i certi (Db1, Db2, Cb1, Cb2…) e lascia gli incerti in
+ * panchina: stessi punti di lega attesi, un altro ottimo locale in cui il tetto
+ * non morde più, quindi un'altra panchina e un altro numero di mosse. I vincoli
+ * ripristinano la premessa senza toccare un solo numero delle prove (la
+ * naturale di questo 4-4-2 coincide col livello 1 e non si rivaluta).
+ */
+const BENCH_CAP_CONSTRAINTS: LineupConstraints = {
+  lockedStarterIds: ["D1", "D2", "D3", "C1", "C2", "C3"],
+  lockedModule: "442",
+  locked: false,
+};
+
 /** L'ordine euristico puro: punteggio atteso decrescente, senza la ricerca. */
 const PANCHINA_EURISTICA = ["Cb1", "Cb2", "Db1", "Db2", "Cb3", "Db3", "P2"] as const;
 
@@ -1129,6 +1148,7 @@ describe("ordine della panchina: la ricerca lo sceglie sugli scenari (§10 tetto
       squad,
       opponent: { lineup: OPP_LINEUP, players: opponent },
       context: CONTEXT,
+      constraints: BENCH_CAP_CONSTRAINTS,
     });
 
     expect(proposal.lineup!.module).toBe("442");
@@ -1211,6 +1231,7 @@ describe("il tetto di iterazioni non è un numero decorativo", () => {
       squad: benchCapSquad(),
       opponent: { lineup: OPP_LINEUP, players: opponentFlat() },
       context: CONTEXT,
+      constraints: BENCH_CAP_CONSTRAINTS,
     });
     const mosse = Number(/con (\d+) mossa\/e accettata\/e/.exec(proposal.reason)?.[1]);
     expect(mosse).toBe(1); // la premessa: la ricerca si è mossa davvero

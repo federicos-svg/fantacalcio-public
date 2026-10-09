@@ -37,7 +37,16 @@
 //    gol subiti del portiere, che sono una distribuzione su conteggi esatti;
 //  - la CORRELAZIONE fra giocatori ed eventi. Ogni estrazione è indipendente:
 //    la base di §6.2 lo dichiara, e il motore ricco la toglierà campionando la
-//    partita reale prima dei giocatori;
+//    partita reale prima dei giocatori. UN'ECCEZIONE, DICHIARATA E UNICA: i
+//    GRUPPI ESCLUSIVI (`PlayerForecast.exclusiveGroup`, in `lineupProposer.ts`).
+//    Giocatori dello stesso gruppo prendono voto AL PIÙ UNO per scenario, e
+//    questo modulo ne è complice in un punto solo: `samplePlayerLine` accetta
+//    che l'esito gioca/non-gioca gli arrivi già deciso, invece di estrarlo.
+//    Perché serve: tre portieri dello stesso club con probabilità 0,70 / 0,05 /
+//    0,01 estratti indipendenti lasciano la porta senza nessun voto nel 28 %
+//    degli scenari (0,30 × 0,95 × 0,99), mentre in campo ne gioca esattamente
+//    uno. Non è una correlazione fra eventi o fra voti — quelle restano
+//    indipendenti, dentro e fuori dal gruppo — è l'esclusione fra PRESENZE;
 //  - il BONUS IMBATTIBILITÀ del portiere. §13 lo nomina per escluderlo da un
 //    senza voto, ma §12 — l'unica tabella che prezza gli eventi — non lo
 //    prezza. Non lo si inventa: non viene campionato, e chi lo volesse deve
@@ -335,13 +344,31 @@ function pickIndex(masses: readonly number[], u: number): number {
  * Il numero di estrazioni dipende dall'esito, ed è voluto: chi non gioca non ha
  * eventi da estrarre, e consumare numeri casuali per esiti che non esistono
  * costerebbe senza comprare nulla.
+ *
+ * `plays` È L'ECCEZIONE ALL'INDIPENDENZA, e l'unico modo di farla. Se il
+ * chiamante ha già deciso se il giocatore prende voto — perché appartiene a un
+ * GRUPPO ESCLUSIVO e l'esito lo ha sorteggiato il gruppo intero con un numero
+ * solo — passa `true` o `false`, e la prima estrazione NON si fa: l'esito vale
+ * `plays`, e tutto il resto (voto, eventi, fattispecie del senza voto) è
+ * identico, nell'ordine di sempre. Non consumare quel numero non è un'economia:
+ * consumarlo e ignorarlo sposterebbe tutte le estrazioni successive e
+ * renderebbe lo scenario di un giocatore dipendente da una scelta che non ha
+ * fatto lui. SENZA il parametro (`undefined`) la funzione è quella di sempre,
+ * estrazione per estrazione: una prova la confronta bit a bit.
+ *
+ * Questa funzione non controlla che `plays` sia coerente con `pPlays`: un
+ * `true` su un giocatore con `pPlays = 0` produce una riga di chi prende voto
+ * con una probabilità che dice zero. Il gruppo non può produrlo — l'intervallo
+ * cumulato di chi ha probabilità zero è vuoto — e chi chiama da fuori sceglie
+ * di dichiararlo.
  */
 export function samplePlayerLine(
   player: { readonly id: string; readonly role: Role },
   distribution: PlayerDistribution,
   random: () => number,
+  plays?: boolean,
 ): PlayerLine {
-  if (random() >= distribution.pPlays) {
+  if (plays === undefined ? random() >= distribution.pPlays : !plays) {
     // ── NON PRENDE VOTO: una delle cinque fattispecie di §13. La riga porta
     // solo ciò che serve a `resolveNoVote` per decidere; il punteggio d'ufficio
     // lo calcola lui, perché §13 è codice in un posto solo.
@@ -408,4 +435,51 @@ export function samplePlayerLine(
     receivedAnyBonus: goal || assist || penSaved,
     missedPenalty: penMissed,
   };
+}
+
+/**
+ * IL FANTAVOTO MEDIO DI CHI PRENDE VOTO, dalla distribuzione: la media che
+ * `samplePlayerLine` produrrebbe in infiniti scenari dati per «gioca».
+ *
+ * PERCHÉ ESISTE. La riga di `expected` è MODALE, non media (dichiarazione 4 in
+ * testa a `lineupProposer.ts`): sui dati veri quasi tutte le righe modali
+ * valgono 6,0 esatto, perché il voto più probabile di quasi tutti è 6,0, e un
+ * criterio che ordina i giocatori su quella riga li trova tutti pari. La
+ * media distingue chi ha il 17 % di probabilità di un 7 da chi ne ha il 2 %, e
+ * chi ha un bonus atteso da chi non lo ha: è la stessa informazione che il
+ * livello 2 usa per valutare, portata in un numero solo per chi deve ordinare.
+ *
+ * LA CONTA È LA STESSA DELL'ESTRAZIONE, voce per voce: voto base atteso, più
+ * ciascun evento con la sua probabilità per la sua tariffa di §12, più — per il
+ * solo portiere — i gol subiti attesi a −1 l'uno (§12-bis). Poiché `samplePlayerLine`
+ * estrae voto ed eventi indipendenti, la media della somma è la somma delle
+ * medie, ed è esatta: non è un'approssimazione di quel che lo scenario fa.
+ *
+ * È la media CONDIZIONATA A GIOCARE. Moltiplicarla per `pPlays` dà il valore
+ * atteso della giornata di chi può non essere in campo; il senza voto non entra
+ * qui, perché la sua fattispecie (§13) non è un fantavoto di chi ha giocato.
+ * Non convalida la distribuzione: lo fa `assertPlayerDistribution`, a monte.
+ */
+export function meanFantasyScoreIfPlays(
+  player: { readonly role: Role },
+  distribution: PlayerDistribution,
+): number {
+  let mean = 0;
+  for (const mass of distribution.baseVote) mean += mass.vote * mass.probability;
+  const events = distribution.events;
+  mean += events.pGoal * BONUS_MALUS_TARIFF.goal;
+  mean += events.pAssist * BONUS_MALUS_TARIFF.assist;
+  mean += events.pYellow * BONUS_MALUS_TARIFF.yellowCard;
+  mean += events.pRed * BONUS_MALUS_TARIFF.redCard;
+  mean += events.pOwnGoal * BONUS_MALUS_TARIFF.ownGoal;
+  mean += events.pPenMissed * BONUS_MALUS_TARIFF.penaltyMissed;
+  mean += events.pPenSaved * BONUS_MALUS_TARIFF.penaltySaved;
+  if (player.role === GOAL_CONCEDED_MALUS_ROLE) {
+    const conceded = events.goalsConceded ?? [];
+    for (let goals = 0; goals < conceded.length; goals += 1) {
+      mean += goals * GOAL_CONCEDED_MALUS * (conceded[goals] as number);
+    }
+  }
+  // Come nell'estrazione: un −0 non deve far differire due formazioni uguali.
+  return mean + 0;
 }

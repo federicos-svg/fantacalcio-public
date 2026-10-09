@@ -16,7 +16,17 @@
 // ── LE CINQUE DICHIARAZIONI CHE NON SONO REGOLE DI LEGA ──────────────────────
 //
 // 1) SEMPLIFICAZIONE DELLO SCENARIO. Uno scenario assegna gioca/non-gioca a ogni
-//    giocatore delle due rose (Bernoulli indipendenti con `voteProbability`).
+//    giocatore delle due rose (Bernoulli indipendenti con `voteProbability`),
+//    CON UNA SOLA ECCEZIONE DICHIARATA: i giocatori dello stesso GRUPPO ESCLUSIVO
+//    (`PlayerForecast.exclusiveGroup`) prendono voto al più uno per scenario.
+//    Serve ai portieri dello stesso club, di cui in campo ne gioca esattamente
+//    uno: estratti indipendenti con 0,70 / 0,05 / 0,01 lasciano la porta senza
+//    voto nel 28 % degli scenari (0,30 × 0,95 × 0,99), e su una giornata vera la
+//    stima dei punti di lega ne è uscita falsata di circa 0,24 (misura fatta
+//    fuori da questo repository, che non può contenere i dati veri: qui la prova
+//    è sintetica e mostra il meccanismo, non quel numero). Senza gruppi
+//    dichiarati niente cambia, nemmeno all'ultimo bit: lo fissano delle impronte
+//    misurate sul codice di prima (`tests/exclusiveGroups.test.ts`).
 //    Chi gioca ha la riga attesa; chi NON gioca è un SENZA VOTO PURO —
 //    `baseVote:null, fantasyScore:null, cards:"none", otherBonusMalus:0` — che
 //    `resolveNoVote` manda in sostituzione (§13 `sv_clean: must_be_replaced`) e
@@ -127,7 +137,11 @@
 // panchina e il tetto di §10 iniziano a contare, con un hill climbing steepest
 // ascent. Non pretende l'ottimo globale, e non lo dichiara: parte da un punto
 // che a incertezza nulla È l'ottimo, e da lì migliora solo su mosse che
-// migliorano strettamente.
+// migliorano strettamente. Il punto di partenza è il migliore, sugli stessi
+// scenari, fra la formazione del livello 1 e le formazioni «naturali» (una per
+// modulo ammesso, i giocatori di valore più alto per reparto: `naturalStartPlan`):
+// il livello 1 lavora su righe modali che sui dati veri sono quasi tutte
+// uguali, e un innesco arbitrario allunga la salita e ne condiziona l'approdo.
 // Con `locked: true` non c'è nessuno dei due livelli: non si cerca, si valuta
 // la formazione data e la si consegna, con `constraints.optimized = false`.
 //
@@ -182,6 +196,7 @@ import {
 import {
   type PlayerDistribution,
   assertPlayerDistribution,
+  meanFantasyScoreIfPlays,
   samplePlayerLine,
 } from "./playerScenario.js";
 import {
@@ -228,6 +243,32 @@ export interface PlayerForecast {
    * distribuzione — e `assertForecasts` lo verifica invece di sperarlo.
    */
   readonly distribution?: PlayerDistribution;
+  /**
+   * IL GRUPPO ESCLUSIVO — l'unica correlazione che questo contratto sa dire.
+   * FACOLTATIVO: assente, il giocatore è estratto indipendente dagli altri,
+   * come è sempre stato.
+   *
+   * I giocatori con lo STESSO nome di gruppo prendono voto AL PIÙ UNO per
+   * scenario, anche se stanno in rose diverse. La somma delle loro
+   * `voteProbability` è la probabilità che UNO di loro giochi, ed è per questo
+   * che non può superare 1 (`assertInput` lo rifiuta): con somma s < 1, in una
+   * quota 1 − s di scenari non gioca nessuno dei membri. Il caso d'uso sono i
+   * portieri dello stesso club: in campo ne va esattamente uno, e la
+   * probabilità del secondo non è «un'altra possibilità indipendente» ma il
+   * complemento del primo.
+   *
+   * COSA NON È. Non è un'esclusione fra voti o eventi: dentro e fuori dal
+   * gruppo, voto base ed eventi di chi gioca restano estratti indipendenti, con
+   * le distribuzioni di ciascuno. Non è nemmeno un obbligo di giocare: la
+   * probabilità di «nessuno» è il resto a 1, e chi vuole un gruppo che
+   * giochi sempre uno lo dichiara con somma 1.
+   *
+   * Un gruppo con meno di due membri che VARIANO da uno scenario all'altro
+   * (cioè con probabilità strettamente fra 0 e 1, oppure con distribuzione)
+   * non cambia niente: non c'è nessuno con cui escludersi. Il nome è
+   * un'etichetta libera e globale alle due rose, non un id.
+   */
+  readonly exclusiveGroup?: string;
 }
 
 export interface OpponentForecast {
@@ -444,7 +485,13 @@ export interface LineupProposal {
      */
     readonly refinementCapReached: boolean;
   };
-  /** Formazioni valutate in totale (Tier 1 + Tier 2). */
+  /**
+   * Formazioni valutate dal ciclo di ricerca: Tier 1, la formazione di partenza
+   * e il vicinato di ogni passo. NON comprende le formazioni «naturali»
+   * candidate alla partenza (una per modulo ammesso, al più sette valutazioni
+   * in più sugli stessi scenari): le dichiara la `reason`. Scelta dichiarata e
+   * contestabile — una prova tiene a mano la composizione di questo numero.
+   */
   readonly evaluated: number;
   readonly objectiveLabel: string;
   /** Che cosa il produttore ha fatto dei vincoli: rifiuti, avvertimenti, esito. */
@@ -463,6 +510,14 @@ export const DEFAULT_SEED = 20260903 as const;
 export const MAX_REFINEMENT_ITERATIONS = 50 as const;
 /** Il seme sta in [0, 2^32): oltre, `mulberry32` lo troncherebbe in silenzio. */
 export const SEED_MODULUS = 4294967296 as const;
+/**
+ * Tolleranza sulla somma delle probabilità di un gruppo esclusivo: la stessa
+ * (1e-9) delle somme di probabilità di `playerScenario.ts`, dove non è
+ * esportata. Serve in due punti con lo stesso significato: oltre `1 + tolleranza`
+ * il gruppo si rifiuta; entro `tolleranza` da 1 la massa «nessuno gioca» è
+ * zero per l'enumerazione esatta (vedi `buildScenarios`).
+ */
+const GROUP_SUM_TOLERANCE = 1e-9;
 
 const ROLES: readonly Role[] = ["P", "D", "C", "A"];
 const OUTFIELD_ROLES: readonly Role[] = ["D", "C", "A"];
@@ -510,6 +565,18 @@ export function assertForecasts(players: readonly PlayerForecast[], where: strin
     if (!Number.isFinite(f.expected.fantasyScore)) {
       throw new Error(`${where}: fantasyScore non finito per ${f.id}: ${String(f.expected.fantasyScore)}`);
     }
+    // Il gruppo esclusivo, se c'è, è un nome: una stringa non vuota. Un gruppo
+    // «vuoto» o un numero non è un gruppo mancante, è una dichiarazione che non si
+    // sa leggere, e ignorarla farebbe estrarre indipendenti dei giocatori che chi
+    // chiama crede esclusivi.
+    if (f.exclusiveGroup !== undefined && (typeof f.exclusiveGroup !== "string" || f.exclusiveGroup.length === 0)) {
+      throw new Error(
+        `${where}: exclusiveGroup non valido per ${f.id}: ${JSON.stringify(f.exclusiveGroup)}. ` +
+          "Il gruppo esclusivo è una stringa non vuota, oppure è assente: un valore che non si sa " +
+          "leggere non si ignora, perché ignorarlo vorrebbe dire estrarre indipendenti dei giocatori " +
+          "che chi chiama ha dichiarato in esclusione.",
+      );
+    }
     // VINCOLO G — LA GRIGLIA DEI VOTI. Non è pignoleria: `midfieldModifier`
     // tabula differenze a passi di 0,5 e `strikerAttackModifier` tabula 6.0 /
     // 6.5 / 7.0 / 7.5 / >=8, e il regolamento vieta di interpolare (§21
@@ -553,6 +620,45 @@ export function assertForecasts(players: readonly PlayerForecast[], where: strin
       );
     }
   }
+  assertExclusiveGroupMass(players, where);
+}
+
+/**
+ * LA SOMMA DI UN GRUPPO ESCLUSIVO È UNA PROBABILITÀ, E UNA PROBABILITÀ NON
+ * SUPERA 1. Con membri che prendono voto «al più uno», `Σ voteProbability` è la
+ * probabilità che uno di loro giochi; sopra 1 non c'è nessun mondo in cui le
+ * `voteProbability` dichiarate siano tutte vere insieme, e la ricerca non può
+ * né rispettarle né scegliere quale tradire. Si rifiuta, dicendo il gruppo, la
+ * somma e i membri, perché chi deve correggere deve sapere da dove cominciare.
+ *
+ * Si chiama due volte e le due chiamate non sono ridondanti: dentro
+ * `assertForecasts` vede UNA rosa (e lo fa anche per chi usa quella funzione da
+ * sola, come la distribuzione delle formazioni avversarie); dentro
+ * `assertInput` vede LE DUE, che è l'unico punto in cui un gruppo a cavallo
+ * delle rose — metà da una parte, metà dall'altra — ha la sua somma intera.
+ * La tolleranza è quella delle altre somme di probabilità del contratto (1e-9,
+ * la stessa di `playerScenario.ts`): virgola mobile, non permissività.
+ */
+function assertExclusiveGroupMass(players: readonly PlayerForecast[], where: string): void {
+  const groups = new Map<string, { sum: number; members: string[] }>();
+  for (const f of players) {
+    if (f.exclusiveGroup === undefined) continue;
+    const group = groups.get(f.exclusiveGroup) ?? { sum: 0, members: [] };
+    group.sum += f.voteProbability;
+    group.members.push(`${f.id} (${f.voteProbability})`);
+    groups.set(f.exclusiveGroup, group);
+  }
+  for (const [name, group] of groups) {
+    if (group.sum > 1 + GROUP_SUM_TOLERANCE) {
+      throw new Error(
+        `${where}: il gruppo esclusivo «${name}» ha voteProbability che sommano ${group.sum}, oltre 1: ` +
+          `${group.members.join(", ")}. I membri di un gruppo prendono voto AL PIÙ UNO per scenario, ` +
+          "quindi la somma è la probabilità che uno di loro giochi e non può superare 1. Se sono giocatori " +
+          "che possono giocare insieme non sono un gruppo esclusivo; se lo sono, le probabilità vanno " +
+          "ricalcolate perché sommino al massimo a uno.",
+      );
+    }
+  }
 }
 
 function assertInput(input: LineupProposalInput): void {
@@ -563,6 +669,8 @@ function assertInput(input: LineupProposalInput): void {
   if (shared.length > 0) {
     throw new Error(`id condivisi fra le due rose: ${shared.join(", ")}. Un giocatore non gioca contro se stesso.`);
   }
+  // I gruppi esclusivi valgono fra le due rose: la somma si controlla sull'unione.
+  assertExclusiveGroupMass([...input.squad, ...input.opponent.players], "le due rose");
   const budget = input.scenarioBudget ?? DEFAULT_SCENARIO_BUDGET;
   if (!Number.isInteger(budget) || budget < 1) {
     throw new Error(`scenarioBudget non valido: ${String(input.scenarioBudget)} (serve un intero >= 1)`);
@@ -1035,6 +1143,93 @@ export function startingBench(squad: readonly PlayerForecast[], chosen: Readonly
     .slice()
     .sort(compareForBenchStart)
     .map((f) => f.id);
+}
+
+/**
+ * IL VALORE CON CUI SI ORDINA LA FORMAZIONE «NATURALE»: la probabilità di
+ * prendere voto per il fantavoto medio di chi lo prende. Il fantavoto medio è
+ * la media della distribuzione quando c'è (`meanFantasyScoreIfPlays`), altrimenti
+ * la riga attesa — che senza distribuzione è tutto ciò che si sa.
+ *
+ * Non è un criterio di scelta della formazione finale e non pretende di
+ * esserlo: è l'ordine con cui si COSTRUISCE UNA PARTENZA, e a deciderne il
+ * merito è la valutazione sugli scenari. È un numero deliberatamente semplice
+ * (un prodotto, nessun modificatore di reparto, niente panchina): se la
+ * partenza che ne esce vale meno di quella del livello 1, perde il confronto e
+ * non succede niente.
+ */
+export function naturalStartValue(f: PlayerForecast): number {
+  const meanIfPlays =
+    f.distribution !== undefined ? meanFantasyScoreIfPlays(f, f.distribution) : f.expected.fantasyScore;
+  return f.voteProbability * meanIfPlays;
+}
+
+/** Valore naturale decrescente; a parità, l'ordine dichiarato dei titolari. */
+function compareByNaturalValueDesc(a: PlayerForecast, b: PlayerForecast): number {
+  const va = naturalStartValue(a);
+  const vb = naturalStartValue(b);
+  if (va !== vb) return vb - va;
+  return compareByExpectedDesc(a, b);
+}
+
+/**
+ * LA FORMAZIONE «NATURALE» DI UN MODULO — una partenza candidata per la ricerca
+ * del livello 2, accanto a quella del livello 1.
+ *
+ * PERCHÉ ESISTE. Il livello 1 lavora sulle righe MODALI, e sui dati veri quasi
+ * tutte le righe modali valgono 6,0 esatto (il voto più probabile di quasi tutti
+ * è 6,0): i giocatori sono pari, e la formazione puntuale che ne esce sceglie
+ * fra pari con l'ordine degli id. Su una giornata vera è uscito un 5-4-1 col
+ * portiere al 5 % di probabilità titolare, a circa due decimi di punto di lega
+ * sotto la formazione finale e a sedici mosse da lei. QUELLA MISURA NON SI PUÒ
+ * RIFARE QUI — i dati veri non stanno in questo repository — e nessuna prova la
+ * rifà: la prova sintetica riproduce il MECCANISMO (righe modali uguali, livello
+ * 1 arbitrario, naturale migliore), non il numero. La ricerca è locale e non
+ * cerca l'ottimo globale: partire da lontano costa tempo e, se il paesaggio ha
+ * più di un ottimo locale, può costare la formazione.
+ *
+ * COME È FATTA. Il portiere e, per ciascun ruolo di movimento, i giocatori col
+ * valore più alto (`naturalStartValue`), in numero pari a quanto il modulo
+ * chiede; la panchina è quella che il livello 2 usa già per ogni partenza
+ * (`startingBench`). Chi non prende voto in nessuno scenario (`neverPlays`) non
+ * entra mai fra i titolari, come nel vicinato — a meno che il fantallenatore
+ * lo IMPONGA, e allora entra, perché i vincoli non si discutono.
+ *
+ * I VINCOLI SONO RISPETTATI QUI, NON SOLO PIÙ AVANTI. Gli imposti sono sempre
+ * titolari: occupano il loro posto e il resto del reparto si riempie per valore.
+ * Se gli imposti di un ruolo non stanno nel modulo, o se un reparto non ha
+ * abbastanza giocatori che possano prendere voto, il modulo non è praticabile e
+ * la naturale non esiste (`null`). Il modulo imposto lo sceglie chi chiama,
+ * passando solo quel modulo: questa funzione ne costruisce uno alla volta.
+ */
+export function naturalStartPlan(
+  module: Module,
+  squad: readonly PlayerForecast[],
+  lockedIds: ReadonlySet<string>,
+): LineupPlan | null {
+  const shape = moduleShape(module);
+  const wanted: ReadonlyArray<readonly [Role, number]> = [
+    ["P", 1],
+    ["D", shape.defenders],
+    ["C", shape.midfielders],
+    ["A", shape.strikers],
+  ];
+  let keeperId: string | null = null;
+  const starterIds: string[] = [];
+  for (const [role, count] of wanted) {
+    const imposed = squad.filter((f) => f.role === role && lockedIds.has(f.id));
+    if (imposed.length > count) return null;
+    const pool = squad
+      .filter((f) => f.role === role && !lockedIds.has(f.id) && !neverPlays(f))
+      .sort(compareByNaturalValueDesc);
+    const missing = count - imposed.length;
+    if (pool.length < missing) return null;
+    const picked = [...imposed, ...pool.slice(0, missing)];
+    if (role === "P") keeperId = (picked[0] as PlayerForecast).id;
+    else for (const f of picked) starterIds.push(f.id);
+  }
+  const chosen = new Set([keeperId as string, ...starterIds]);
+  return { module, keeperId: keeperId as string, starterIds, benchIds: startingBench(squad, chosen) };
 }
 
 /**
@@ -1557,6 +1752,49 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
   let current = startPlan;
   let currentLineup = pointForecastLineup;
   let currentValue = valueOf(currentLineup);
+
+  // ── LA PARTENZA: LA MIGLIORE FRA LA FORMAZIONE DEL LIVELLO 1 E LE «NATURALI».
+  // Il livello 1 lavora sulle righe modali e, quando sono quasi tutte uguali, è
+  // un innesco arbitrario (`naturalStartPlan` dice cosa è stato misurato). Si
+  // valutano allora, sugli STESSI scenari e con lo STESSO criterio di confronto
+  // della ricerca, anche le formazioni naturali — una per modulo ammesso — e la
+  // ricerca parte dalla migliore.
+  //
+  // IL RISULTATO NON PUÒ VALERE MENO DELLA PARTENZA DI PRIMA, per costruzione:
+  // la formazione del livello 1 è fra le candidate, una naturale la sostituisce
+  // SOLO se vale strettamente di più, e la ricerca accetta soltanto mosse che
+  // migliorano strettamente. A parità vince il livello 1, poi il primo modulo
+  // nell'ordine di `MODULES`: la scelta non dipende dall'ordine di generazione.
+  // Una naturale uguale alla formazione già valutata (stesso modulo, stessi
+  // undici, stessa panchina) non si rivaluta.
+  //
+  // COSA NON GARANTISCE: un risultato non peggiore della formazione FINALE di
+  // prima. Partendo da un altro punto la salita può fermarsi su un altro ottimo
+  // locale, in genere migliore ma non per teorema.
+  //
+  // IL CONTO. Queste valutazioni NON entrano in `evaluated`: quel numero
+  // continua a dire «Tier 1 + partenza + vicinato» (una prova ne tiene a mano
+  // la composizione), e le candidate in più sono dichiarate nella `reason`.
+  const visited = new Set([tieBreakKey(pointForecastLineup)]);
+  let naturalsEvaluated = 0;
+  let startedFromNatural: Module | null = null;
+  for (const module of constraints.lockedModule === undefined ? MODULES : [constraints.lockedModule]) {
+    const plan = naturalStartPlan(module, squad, lockedIds);
+    if (plan === null) continue;
+    const lineup = buildLineup(plan);
+    const key = tieBreakKey(lineup);
+    if (visited.has(key)) continue;
+    visited.add(key);
+    naturalsEvaluated += 1;
+    const value = valuationOf(lineup, opponentLineups, context, scenarios, competition);
+    if (compareLineupValuations(value, currentValue) > 0) {
+      current = plan;
+      currentLineup = lineup;
+      currentValue = value;
+      startedFromNatural = module;
+    }
+  }
+
   let iterations = 0;
   let capReached = false;
 
@@ -1616,7 +1854,13 @@ export function proposeLineup(input: LineupProposalInput): LineupProposal {
     `innesco a previsione puntuale con l'ottimizzatore esatto sulla formazione avversaria modale ` +
     `(${tierOne.reason}), poi raffinamento hill climbing su ${scenarios.length} scenari (${method}) ` +
     `contro ${opponentCandidates.length} formazione/i avversaria/e pesata/e, con ${iterations} ` +
-    `mossa/e accettata/e; criterio: ${objectiveLabel}` +
+    `mossa/e accettata/e` +
+    (startedFromNatural === null
+      ? ` (partenza: la formazione del livello 1, non battuta da nessuna delle ${naturalsEvaluated} ` +
+        "naturali distinte valutate in più)"
+      : ` (partenza: la formazione naturale ${startedFromNatural}, che sugli stessi scenari vale più di ` +
+        `quella del livello 1; ${naturalsEvaluated} naturali distinte valutate in più)`) +
+    `; criterio: ${objectiveLabel}` +
     (currentValue.undecidedWeight > 0
       ? `; MASSA NON ATTRIBUITA ${currentValue.undecidedWeight}: scenari che il regolamento non copre, ` +
         "l'obiettivo qui sopra è un minorante"
@@ -1855,6 +2099,26 @@ function replan(
  * vettore delle disponibilità non dipende da quante formazioni avversarie ci
  * sono, e due giornate con lo stesso seme hanno gli stessi scenari qualunque
  * sia il numero di candidate e l'ordine con cui la ricerca le visita.
+ *
+ * I GRUPPI ESCLUSIVI (`PlayerForecast.exclusiveGroup`) sono l'unica eccezione
+ * all'indipendenza dei giocatori, e il loro posto nell'ordine delle estrazioni
+ * è fissato qui. Un gruppo conta solo se ha almeno DUE membri che variano (cioè
+ * in `stochastic`): con uno solo non c'è nessuno con cui escludersi.
+ *  - CAMPIONATO. In ogni scenario, PRIMA dei giocatori, ogni gruppo estrae UN
+ *    numero `u` (i gruppi in ordine di prima apparizione in `stochastic`). Gioca
+ *    il membro j se `u` cade nel suo intervallo cumulato `[Σ precedenti, Σ fino
+ *    a j)`, nell'ordine di `stochastic`; se `u` supera la somma non gioca nessuno.
+ *    Ogni membro usa quella decisione al posto della sua prima estrazione, e
+ *    tutto il resto (voto, eventi) lo estrae come sempre, dal flusso comune.
+ *  - ESATTO. Il peso congiunto di un gruppo è `p_j` se gioca il solo j, `1 − Σ`
+ *    se non gioca nessuno, ZERO se ne giocano due o più: quelle combinazioni non
+ *    esistono e si scartano, non si emettono a peso nullo (uno scenario
+ *    impossibile non deve poter alzare `allResolved` o `fullyTabulated`). Lo
+ *    stesso vale per «nessuno» quando `1 − Σ` è entro la tolleranza dello zero:
+ *    un gruppo che somma 1 fino all'ultimo bit non ha uno scenario fantasma di
+ *    massa 1e-16 in cui la porta resta scoperta.
+ *  - SENZA GRUPPI niente di tutto questo gira: nessuna estrazione in più, nessun
+ *    fattore in più nel peso, gli scenari sono quelli di prima bit a bit.
  */
 function buildScenarios(
   everyone: readonly PlayerForecast[],
@@ -1876,18 +2140,56 @@ function buildScenarios(
   const playing = stochastic.map(expectedLine);
   const absent = stochastic.map(absentLine);
 
+  // I gruppi esclusivi che contano, e a quale gruppo appartiene ciascun
+  // giocatore che varia (-1 = a nessuno). Senza gruppi: nessun gruppo e tutti -1.
+  const groups = exclusiveGroupPlans(stochastic);
+  const groupOf = new Array<number>(stochastic.length).fill(-1);
+  groups.forEach((group, g) => {
+    for (const i of group.members) groupOf[i] = g;
+  });
+
   const out: Scenario[] = [];
   if (exact) {
     // L'enumerazione esiste solo senza distribuzioni, e lì `stochastic` è
     // esattamente l'insieme degli incerti: una maschera di bit per giocatore.
     const total = Math.pow(2, stochastic.length);
     for (let mask = 0; mask < total; mask += 1) {
-      const players = new Map(base);
+      // Il fattore dei gruppi, PRIMA di costruire la mappa: una combinazione
+      // impossibile si scarta senza pagare la copia. Senza gruppi il ciclo non
+      // gira e `weight` parte da 1 come sempre (1 × x è esatto: bit a bit).
       let weight = 1;
+      let impossible = false;
+      for (const group of groups) {
+        let playingMembers = 0;
+        let only = -1;
+        for (const i of group.members) {
+          if ((mask & (1 << i)) !== 0) {
+            playingMembers += 1;
+            only = i;
+          }
+        }
+        if (playingMembers >= 2) {
+          impossible = true;
+          break;
+        }
+        if (playingMembers === 1) {
+          weight *= stochastic[only]!.voteProbability;
+        } else {
+          const nobody = 1 - group.total;
+          if (nobody <= GROUP_SUM_TOLERANCE) {
+            impossible = true;
+            break;
+          }
+          weight *= nobody;
+        }
+      }
+      if (impossible) continue;
+      const players = new Map(base);
       for (let i = 0; i < stochastic.length; i += 1) {
         const plays = (mask & (1 << i)) !== 0;
         players.set(stochastic[i]!.id, plays ? playing[i]! : absent[i]!);
-        weight *= plays ? stochastic[i]!.voteProbability : 1 - stochastic[i]!.voteProbability;
+        // Chi sta in un gruppo ha già pagato il suo fattore insieme al gruppo.
+        if (groupOf[i] === -1) weight *= plays ? stochastic[i]!.voteProbability : 1 - stochastic[i]!.voteProbability;
       }
       // Prodotto cartesiano: la stessa disponibilità contro ciascuna formazione
       // avversaria, col peso congiunto. Le due estrazioni sono indipendenti per
@@ -1906,10 +2208,43 @@ function buildScenarios(
   const opponentIndices = drawOpponentLineupIndices(opponentWeights, budget, seed, mulberry32);
   const random = mulberry32(playerDrawSubSeed(seed));
   const weight = 1 / budget;
+  // Chi gioca, per ciascun gruppo, nello scenario in corso (indice in
+  // `stochastic`, oppure -1 = nessuno). Si riscrive a ogni scenario.
+  const groupWinner = new Array<number>(groups.length).fill(-1);
   for (let s = 0; s < budget; s += 1) {
     const players = new Map(base);
+    // UN numero per gruppo, PRIMA dei giocatori: la decisione di presenza del
+    // gruppo non dipende da quanti numeri i giocatori consumano dopo.
+    for (let g = 0; g < groups.length; g += 1) {
+      const group = groups[g] as ExclusiveGroupPlan;
+      const u = random();
+      let winner = -1;
+      for (let k = 0; k < group.members.length; k += 1) {
+        if (u < (group.cumulative[k] as number)) {
+          winner = group.members[k] as number;
+          break;
+        }
+      }
+      groupWinner[g] = winner;
+    }
     for (let i = 0; i < stochastic.length; i += 1) {
       const f = stochastic[i] as PlayerForecast;
+      const g = groupOf[i] as number;
+      if (g !== -1) {
+        // Membro di un gruppo: la presenza l'ha decisa il gruppo, il resto
+        // (voto, eventi) lo estrae lui. Senza distribuzione la riga è la modale
+        // o il senza voto puro, come per chiunque.
+        const plays = groupWinner[g] === i;
+        players.set(
+          f.id,
+          f.distribution === undefined
+            ? plays
+              ? (playing[i] as PlayerLine)
+              : (absent[i] as PlayerLine)
+            : samplePlayerLine(f, f.distribution, random, plays),
+        );
+        continue;
+      }
       // Senza distribuzione l'estrazione è quella di sempre: UN numero casuale,
       // gioca alla riga attesa o è un senza voto puro. Con la distribuzione la
       // riga la costruisce §6.1, e §13 resta codice in un posto solo.
@@ -1925,4 +2260,47 @@ function buildScenarios(
     out.push({ weight, players, opponentIndex: opponentIndices[s] as number });
   }
   return out;
+}
+
+/** Un gruppo esclusivo come lo vede la costruzione degli scenari. */
+interface ExclusiveGroupPlan {
+  readonly name: string;
+  /** Indici in `stochastic` dei membri che variano, nell'ordine di `stochastic`. */
+  readonly members: readonly number[];
+  /** Somme cumulate delle loro `voteProbability`, parallele a `members`. */
+  readonly cumulative: readonly number[];
+  /** La somma di tutte: la probabilità che giochi uno dei membri. */
+  readonly total: number;
+}
+
+/**
+ * I gruppi esclusivi che contano per gli scenari: quelli con ALMENO DUE membri
+ * in `stochastic`, nell'ordine di prima apparizione. Chi non varia (certo di
+ * giocare o certo di non giocare, senza distribuzione) non è un membro attivo:
+ * sta nella base degli scenari, uguale in tutti, e la somma delle probabilità di
+ * un gruppo valido (≤ 1) lascia comunque ai membri che variano tutta la massa
+ * che gli serve. L'ordine dei membri è quello di `stochastic`, che ripete
+ * l'ordine della rosa canonica e poi quello della rosa avversaria: è lui a
+ * decidere quale intervallo cumulato tocca a chi, quindi fa parte del
+ * determinismo.
+ */
+function exclusiveGroupPlans(stochastic: readonly PlayerForecast[]): ExclusiveGroupPlan[] {
+  const membersByName = new Map<string, number[]>();
+  stochastic.forEach((f, i) => {
+    if (f.exclusiveGroup === undefined) return;
+    const members = membersByName.get(f.exclusiveGroup);
+    if (members === undefined) membersByName.set(f.exclusiveGroup, [i]);
+    else members.push(i);
+  });
+  const plans: ExclusiveGroupPlan[] = [];
+  for (const [name, members] of membersByName) {
+    if (members.length < 2) continue;
+    let sum = 0;
+    const cumulative = members.map((i) => {
+      sum += (stochastic[i] as PlayerForecast).voteProbability;
+      return sum;
+    });
+    plans.push({ name, members, cumulative, total: sum });
+  }
+  return plans;
 }
