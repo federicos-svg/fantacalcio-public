@@ -6,6 +6,7 @@ import {
   BASE_VOTE_STEP,
   MAX_TILT_DELTA_MEAN,
   SCALABLE_EVENTS,
+  SCALE_LAWS,
   AdjustmentError,
   type Adjustment,
   type AdjustmentErrorCode,
@@ -39,7 +40,7 @@ import {
 // COSA DIMOSTRANO. Tre cose, e ciascuna ha le sue prove nominate:
 //  1. OGNI RITOCCO CONSERVA LE INVARIANTI — somma delle probabilità, griglia del
 //     voto, riga modale ricalcolata — su ciascun tipo di ritocco e su sequenze
-//     casuali (seme dichiarato) di tutti e quattro.
+//     casuali (seme dichiarato) di tutti e cinque.
 //  2. SENZA RITOCCHI L'USCITA È IDENTICA, bit a bit: stessa array, stessi
 //     oggetti. Lo stesso vale per un ritocco che non cambia nessun numero.
 //  3. UN RITOCCO FUORI DAI LIMITI SI RIFIUTA con un `AdjustmentError` nominato,
@@ -68,6 +69,16 @@ import {
 //  [M16] `setPPlays` non porta con sé `pStarter` e `pSub`.
 //  [M17] la soglia di un evento nella riga modale diventa «≥ 0,5» invece di «> 0,5».
 //  [M18] a parità di massa la riga modale sceglie il voto (o i gol subiti) più alto.
+//  [M19] `scaleEvent` con `law: "hazard"` fa il conto lineare (la legge è ignorata).
+//  [M20] la `note` non si accoda a `sourceQuality`.
+//  [M21] `setEvent` accetta un valore fuori da [0, 1].
+//  [M22] la `note` si accoda con un separatore o una forma diversi da `"; "`.
+//  [M23] la `note` tocca `asOf`.
+//  [M24] una `note` vuota viene accettata.
+//  [M25] una `note` su una previsione senza distribuzione viene ignorata in silenzio.
+//  [M26] una `law` sconosciuta viene accettata.
+//  [M27] un ritocco che non cambia numeri ma porta una `note` non la accoda.
+//  [M28] `setEvent` al valore che c'è non lascia la stessa array.
 
 const ASOF = "2026-10-01T10:00:00Z";
 const QUALITY = "fixture sintetica";
@@ -912,6 +923,504 @@ describe("la porta dei ritocchi — le invarianti reggono su sequenze casuali di
   });
 });
 
+// ═══ scaleEvent: LA LEGGE `hazard` ══════════════════════════════════════════
+
+/**
+ * COPIA LETTERALE del conto che chi ritocca fa oggi per scalare una probabilità
+ * con una forza relativa (il tasso dell'evento, non la probabilità). Sta qui,
+ * scritta a mano e ricopiata operazione per operazione, perché la prova è
+ * proprio che la porta faccia LO STESSO conto, all'ultimo bit.
+ */
+const legacyScale = (p: number, factor: number): number => Math.min(1, Math.max(0, 1 - Math.pow(1 - p, factor)));
+
+describe("scaleEvent — la legge `hazard` scala il tasso, e il default `linear` non cambia niente", () => {
+  const P_GRID = [0, 1e-12, 0.001, 0.01, 0.1, 0.2, 0.3, 0.45, 0.5, 0.6, 0.77, 0.9, 0.999, 1];
+  const F_GRID = [0, 0.6, 0.8, 0.95, 1, 1.05, 1.15, 1.3, 1.6, 2.5, 10, 1000];
+
+  const withGoal = (p: number): PlayerForecast =>
+    make({
+      id: "H",
+      role: "C",
+      baseVote: [{ vote: 6, probability: 1 }],
+      events: { pGoal: p },
+      expected: p > 0.5 ? { fantasyScore: 9, receivedAnyBonus: true } : {},
+    });
+
+  it("[M19] `hazard` è uguale bit a bit alla copia letterale della formula, su una griglia di p e di factor", () => {
+    let compared = 0;
+    for (const p of P_GRID) {
+      for (const factor of F_GRID) {
+        const out = one(withGoal(p), { kind: "scaleEvent", playerId: "H", event: "pGoal", factor, law: "hazard" });
+        expect(dist(out).events.pGoal, `p=${p} factor=${factor}`).toBe(legacyScale(p, factor));
+        expectInvariants(out);
+        compared += 1;
+      }
+    }
+    expect(compared).toBe(P_GRID.length * F_GRID.length);
+  });
+
+  it("vale per ognuno dei sette eventi, non solo per pGoal", () => {
+    for (const event of SCALABLE_EVENTS) {
+      const before = centro();
+      const out = one(before, { kind: "scaleEvent", playerId: "CENTRO", event, factor: 1.37, law: "hazard" });
+      const was = (dist(before).events as unknown as Record<string, number>)[event] as number;
+      expect((dist(out).events as unknown as Record<string, number>)[event]).toBe(legacyScale(was, 1.37));
+    }
+  });
+
+  it("[M19] `hazard` e `linear` sono due leggi: 0,3 con factor 2 dà 0,51 contro 0,6", () => {
+    const hazard = one(withGoal(0.3), { kind: "scaleEvent", playerId: "H", event: "pGoal", factor: 2, law: "hazard" });
+    const linear = one(withGoal(0.3), { kind: "scaleEvent", playerId: "H", event: "pGoal", factor: 2, law: "linear" });
+    // 1 − 0,7² = 0,51 (conto a mano); lineare 0,3 × 2 = 0,6.
+    expect(dist(hazard).events.pGoal).toBeCloseTo(0.51, 12);
+    expect(dist(linear).events.pGoal).toBeCloseTo(0.6, 12);
+  });
+
+  it("[M19] la riga modale segue la legge: 0,3 con factor 1,8 supera 0,5 in lineare (0,54) e non in hazard (≈ 0,474)", () => {
+    const linear = one(withGoal(0.3), { kind: "scaleEvent", playerId: "H", event: "pGoal", factor: 1.8 });
+    const hazard = one(withGoal(0.3), { kind: "scaleEvent", playerId: "H", event: "pGoal", factor: 1.8, law: "hazard" });
+    expect(dist(linear).events.pGoal).toBeCloseTo(0.54, 12);
+    expect(linear.expected.fantasyScore).toBe(9);
+    // 1 − 0,7^1,8 = 0,4738…: sotto la soglia, la riga non si muove.
+    expect(dist(hazard).events.pGoal).toBeGreaterThan(0.47);
+    expect(dist(hazard).events.pGoal).toBeLessThan(0.5);
+    expect(hazard.expected.fantasyScore).toBe(6);
+  });
+
+  it("`hazard` resta una probabilità senza un tetto da raggiungere: factor 0 azzera, factor enorme non supera 1, è monotona", () => {
+    const at = (factor: number): number =>
+      dist(one(withGoal(0.2), { kind: "scaleEvent", playerId: "H", event: "pGoal", factor, law: "hazard" })).events.pGoal;
+    expect(at(0)).toBe(0);
+    expect(at(1e9)).toBeLessThanOrEqual(1);
+    expect(at(0.5)).toBeLessThan(at(1));
+    expect(at(1)).toBeLessThan(at(2));
+    expect(at(2)).toBeLessThan(at(10));
+    expect(at(1)).toBeCloseTo(0.2, 15);
+  });
+
+  it("senza `law` e con `law: \"linear\"` il conto è lo stesso di sempre", () => {
+    expect(SCALE_LAWS).toEqual(["linear", "hazard"]);
+    for (const factor of [0, 0.5, 1, 1.2, 10]) {
+      const omitted = one(centro(), { kind: "scaleEvent", playerId: "CENTRO", event: "pGoal", factor });
+      const linear = one(centro(), { kind: "scaleEvent", playerId: "CENTRO", event: "pGoal", factor, law: "linear" });
+      expect(JSON.stringify(linear)).toBe(JSON.stringify(omitted));
+      expect(dist(omitted).events.pGoal).toBe(Math.min(1, 0.45 * factor));
+    }
+  });
+
+  it("[M26] una legge sconosciuta si rifiuta", () => {
+    for (const law of ["exponential", "", 1, null]) {
+      expectRejection(
+        () =>
+          applyAdjustments(
+            [centro()],
+            [{ kind: "scaleEvent", playerId: "CENTRO", event: "pGoal", factor: 2, law } as unknown as Adjustment],
+          ),
+        "malformed_adjustment",
+        0,
+      );
+    }
+  });
+
+  it("i limiti di factor sono quelli di sempre, anche con `hazard`", () => {
+    for (const factor of [-0.1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expectRejection(
+        () => applyAdjustments([centro()], [{ kind: "scaleEvent", playerId: "CENTRO", event: "pGoal", factor, law: "hazard" }]),
+        "out_of_bounds",
+        0,
+      );
+    }
+  });
+});
+
+// ═══ setEvent ════════════════════════════════════════════════════════════════
+
+describe("setEvent — fissa la probabilità di un evento a un valore", () => {
+  it("imposta il valore dell'evento nominato e nessun altro; il resto della previsione non si muove", () => {
+    for (const event of SCALABLE_EVENTS) {
+      const before = centro();
+      const out = one(before, { kind: "setEvent", playerId: "CENTRO", event, value: 0.37 });
+      const b = dist(before).events as unknown as Record<string, number>;
+      const a = dist(out).events as unknown as Record<string, number>;
+      expect(a[event]).toBe(0.37);
+      for (const other of SCALABLE_EVENTS.filter((e) => e !== event)) expect(a[other]).toBe(b[other]);
+      expect(dist(out).baseVote).toEqual(dist(before).baseVote);
+      expect(dist(out).svKind).toEqual(dist(before).svKind);
+      expectInvariants(out);
+    }
+  });
+
+  it("la riga modale segue il valore, in su e in giù, come per le altre tariffe di §12", () => {
+    const up = one(centro(), { kind: "setEvent", playerId: "CENTRO", event: "pGoal", value: 0.7 });
+    expect(up.expected).toEqual({ baseVote: 6, fantasyScore: 9, receivedAnyBonus: true, missedPenalty: false });
+    const down = one(up, { kind: "setEvent", playerId: "CENTRO", event: "pGoal", value: 0.2 });
+    expect(down.expected).toEqual(centro().expected);
+    const missed = one(centro(), { kind: "setEvent", playerId: "CENTRO", event: "pPenMissed", value: 1 });
+    expect(missed.expected).toEqual({ baseVote: 6, fantasyScore: 3, receivedAnyBonus: false, missedPenalty: true });
+  });
+
+  it("zero e uno sono valori validi, e sono ESATTAMENTE quelli scritti", () => {
+    expect(dist(one(centro(), { kind: "setEvent", playerId: "CENTRO", event: "pAssist", value: 0 })).events.pAssist).toBe(0);
+    expect(dist(one(centro(), { kind: "setEvent", playerId: "CENTRO", event: "pAssist", value: 1 })).events.pAssist).toBe(1);
+  });
+
+  it("[M28] fissare un evento al valore che ha già lascia la stessa array", () => {
+    const input = [centro()];
+    expect(applyAdjustments(input, [{ kind: "setEvent", playerId: "CENTRO", event: "pGoal", value: 0.45 }])).toBe(input);
+  });
+
+  it("[M21] fuori dai limiti: sotto 0, sopra 1, non finito", () => {
+    for (const value of [-0.0001, 1.0001, 2, -1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expectRejection(
+        () => applyAdjustments([centro()], [{ kind: "setEvent", playerId: "CENTRO", event: "pGoal", value }]),
+        "out_of_bounds",
+        0,
+      );
+    }
+  });
+
+  it("un evento che non c'è, un valore che non è un numero, i gol subiti come evento: ritocco illeggibile", () => {
+    const broken: unknown[] = [
+      { kind: "setEvent", playerId: "CENTRO", event: "pFoo", value: 0.5 },
+      { kind: "setEvent", playerId: "CENTRO", event: "goalsConceded", value: 0.5 },
+      { kind: "setEvent", playerId: "CENTRO", value: 0.5 },
+      { kind: "setEvent", playerId: "CENTRO", event: "pGoal", value: "0.5" },
+      { kind: "setEvent", playerId: "CENTRO", event: "pGoal" },
+    ];
+    for (const adjustment of broken) {
+      expectRejection(() => applyAdjustments([centro()], [adjustment as Adjustment]), "malformed_adjustment", 0);
+    }
+  });
+
+  it("[M14] una previsione senza distribuzione non si ignora in silenzio", () => {
+    expectRejection(
+      () => applyAdjustments([soloRiga()], [{ kind: "setEvent", playerId: "SOLO_RIGA", event: "pGoal", value: 0.4 }]),
+      "no_distribution",
+      0,
+    );
+  });
+});
+
+// ═══ LA NOTA ═════════════════════════════════════════════════════════════════
+
+describe("la nota — si accoda a sourceQuality, nell'ordine dei ritocchi, e basta", () => {
+  it("[M20] [M22] `${sourceQuality}; ${note}`: la nota porta la propria etichetta, la porta mette solo il separatore", () => {
+    const out = one(centro(), {
+      kind: "scaleEvent",
+      playerId: "CENTRO",
+      event: "pGoal",
+      factor: 1.2,
+      note: "avversario: SQUADRA_X (difesa 1.10)",
+    });
+    expect(dist(out).sourceQuality).toBe(`${QUALITY}; avversario: SQUADRA_X (difesa 1.10)`);
+  });
+
+  it("[M23] `asOf` e tutto il resto restano: cambia la sola targa", () => {
+    for (const adjustment of [
+      { kind: "tiltBaseVote", playerId: "CENTRO", deltaMean: 0.1, note: "n" },
+      { kind: "scaleEvent", playerId: "CENTRO", event: "pAssist", factor: 0.5, note: "n" },
+      { kind: "setEvent", playerId: "CENTRO", event: "pAssist", value: 0.3, note: "n" },
+      { kind: "setPPlays", playerId: "CENTRO", pPlays: 0.5, note: "n" },
+    ] as const) {
+      const withNote = one(centro(), adjustment);
+      const { note: _note, ...bare } = adjustment;
+      void _note;
+      const without = one(centro(), bare);
+      expect(dist(withNote).asOf).toBe(ASOF);
+      expect(dist(withNote).sourceQuality).toBe(`${QUALITY}; n`);
+      expect(dist(without).sourceQuality).toBe(QUALITY);
+      // Tolta la targa, le due uscite sono la stessa.
+      expect({ ...withNote, distribution: { ...dist(withNote), sourceQuality: QUALITY } }).toEqual(without);
+    }
+    const keeper = one(porta(), { kind: "shiftGoalsConceded", playerId: "PORTA", factor: 2, note: "n" });
+    expect(dist(keeper).asOf).toBe(ASOF);
+    expect(dist(keeper).sourceQuality).toBe(`${QUALITY}; n`);
+  });
+
+  it("[M4] le note si accodano nell'ordine dei ritocchi: l'ordine invertito dà la targa invertita", () => {
+    const a: Adjustment = { kind: "scaleEvent", playerId: "CENTRO", event: "pGoal", factor: 0.5, note: "prima" };
+    const b: Adjustment = { kind: "setPPlays", playerId: "CENTRO", pPlays: 0.5, note: "seconda" };
+    const c: Adjustment = { kind: "setEvent", playerId: "CENTRO", event: "pAssist", value: 0.3 };
+    expect(dist(one(centro(), a, b, c)).sourceQuality).toBe(`${QUALITY}; prima; seconda`);
+    expect(dist(one(centro(), b, a, c)).sourceQuality).toBe(`${QUALITY}; seconda; prima`);
+    expect(dist(one(centro(), a, c, b)).sourceQuality).toBe(`${QUALITY}; prima; seconda`);
+  });
+
+  it("le note di giocatori diversi non si mescolano, e chi non ha note non cambia", () => {
+    const out = applyAdjustments(roster(), [
+      { kind: "scaleEvent", playerId: "CENTRO", event: "pGoal", factor: 0.5, note: "per il centro" },
+      { kind: "shiftGoalsConceded", playerId: "PORTA", factor: 2, note: "per la porta" },
+      { kind: "setEvent", playerId: "FASCIA", event: "pAssist", value: 0.3 },
+    ]);
+    expect(dist(out[0] as PlayerForecast).sourceQuality).toBe(`${QUALITY}; per il centro`);
+    expect(dist(out[1] as PlayerForecast).sourceQuality).toBe(`${QUALITY}; per la porta`);
+    expect(dist(out[2] as PlayerForecast).sourceQuality).toBe(QUALITY);
+  });
+
+  it("[M27] una nota è un cambiamento: un ritocco che non cambia nessun numero, con una nota, la accoda lo stesso", () => {
+    const input = [centro()];
+    const out = applyAdjustments(input, [
+      { kind: "scaleEvent", playerId: "CENTRO", event: "pGoal", factor: 1, note: "sempre in targa" },
+    ]);
+    expect(out).not.toBe(input);
+    expect(dist(out[0] as PlayerForecast).sourceQuality).toBe(`${QUALITY}; sempre in targa`);
+    expect(dist(out[0] as PlayerForecast).events).toEqual(dist(centro()).events);
+    // E senza nota, lo stesso ritocco è un'identità.
+    expect(applyAdjustments(input, [{ kind: "scaleEvent", playerId: "CENTRO", event: "pGoal", factor: 1 }])).toBe(input);
+  });
+
+  it("[M24] una nota deve essere una stringa non vuota", () => {
+    for (const note of ["", 1, null, false, {}]) {
+      expectRejection(
+        () =>
+          applyAdjustments(
+            [centro()],
+            [{ kind: "setPPlays", playerId: "CENTRO", pPlays: 0.5, note } as unknown as Adjustment],
+          ),
+        "malformed_adjustment",
+        0,
+      );
+    }
+  });
+
+  it("[M25] una nota su una previsione senza distribuzione non ha dove scriversi, e si rifiuta", () => {
+    expectRejection(
+      () => applyAdjustments([soloRiga()], [{ kind: "setPPlays", playerId: "SOLO_RIGA", pPlays: 0.5, note: "n" }]),
+      "no_distribution",
+      0,
+    );
+  });
+});
+
+// ═══ IL PERCORSO VECCHIO, RIFATTO CON LA PORTA ══════════════════════════════
+
+describe("la porta riproduce bit a bit i due ritocchi già in uso (copie letterali dei loro conti), targa compresa", () => {
+  const MODAL_FANTASY_GOAL = 3;
+  const MODAL_FANTASY_ASSIST = 1;
+  const MODAL_FANTASY_CONCEDED = -1;
+
+  const modaDi = (masse: readonly number[]): number => {
+    let migliore = 0;
+    masse.forEach((m, i) => {
+      if (m > (masse[migliore] ?? 0)) migliore = i;
+    });
+    return migliore;
+  };
+
+  /** Copia letterale: forza relativa dell'avversario su gol e assist, o sui gol subiti del portiere. */
+  function legacyForza(f: PlayerForecast, difesa: number, attacco: number, avversario: string): PlayerForecast {
+    const d = f.distribution as PlayerDistribution;
+    const e = d.events;
+    let pGoal = e.pGoal;
+    let pAssist = e.pAssist;
+    let goalsConceded = e.goalsConceded;
+    if (goalsConceded !== undefined) {
+      const inclinate = goalsConceded.map((m, k) => m * Math.pow(attacco, k));
+      const somma = inclinate.reduce((a, b) => a + b, 0);
+      if (somma > 0) goalsConceded = inclinate.map((m) => m / somma);
+    } else {
+      pGoal = legacyScale(pGoal, difesa);
+      pAssist = legacyScale(pAssist, difesa);
+    }
+    let delta = 0;
+    if ((pGoal > 0.5) !== (e.pGoal > 0.5)) delta += pGoal > 0.5 ? MODAL_FANTASY_GOAL : -MODAL_FANTASY_GOAL;
+    if ((pAssist > 0.5) !== (e.pAssist > 0.5)) delta += pAssist > 0.5 ? MODAL_FANTASY_ASSIST : -MODAL_FANTASY_ASSIST;
+    if (goalsConceded !== undefined && e.goalsConceded !== undefined) {
+      delta += (modaDi(goalsConceded) - modaDi(e.goalsConceded)) * MODAL_FANTASY_CONCEDED;
+    }
+    const receivedAnyBonus = pGoal > 0.5 || pAssist > 0.5 || e.pPenSaved > 0.5;
+    const expected =
+      delta === 0 && receivedAnyBonus === f.expected.receivedAnyBonus
+        ? f.expected
+        : { ...f.expected, fantasyScore: f.expected.fantasyScore + delta + 0, receivedAnyBonus };
+    return {
+      ...f,
+      expected,
+      distribution: {
+        ...d,
+        events: { ...e, pGoal, pAssist, ...(goalsConceded === undefined ? {} : { goalsConceded }) },
+        sourceQuality:
+          `${d.sourceQuality}; avversario: ${avversario} ` +
+          `(difesa ${difesa.toFixed(2)}, attacco ${attacco.toFixed(2)} rispetto alla media)`,
+      },
+    };
+  }
+
+  /** La stessa cosa, detta alla porta: la nota solo sul primo ritocco, perché la targa si scrive una volta. */
+  function throughTheDoorForza(f: PlayerForecast, difesa: number, attacco: number, avversario: string): PlayerForecast {
+    const note = `avversario: ${avversario} (difesa ${difesa.toFixed(2)}, attacco ${attacco.toFixed(2)} rispetto alla media)`;
+    const list: Adjustment[] =
+      f.role === "P"
+        ? [{ kind: "shiftGoalsConceded", playerId: f.id, factor: attacco, note }]
+        : [
+            { kind: "scaleEvent", playerId: f.id, event: "pGoal", factor: difesa, law: "hazard", note },
+            { kind: "scaleEvent", playerId: f.id, event: "pAssist", factor: difesa, law: "hazard" },
+          ];
+    return applyAdjustments([f], list)[0] as PlayerForecast;
+  }
+
+  it("la forza dell'avversario: gol e assist per chi corre, gol subiti per il portiere — JSON identico", () => {
+    const cases: readonly [() => PlayerForecast, number, number][] = [
+      [centro, 1.37, 0.9], // pGoal 0,45 → ≈ 0,559: attraversa 0,5 in su, la riga cambia
+      [centro, 0.6, 1.2], //  scende, nessun attraversamento
+      [centro, 1, 1], //      forza 1: il conto rifà 1 − (1 − p), la targa c'è comunque
+      [fascia, 1.2, 1], //    pGoal 0 resta 0, pAssist cambia
+      [concentrato, 1.6, 1], // pGoal 0,3 sale, non attraversa
+      [porta, 1, 1.3], //     gol subiti inclinati, il massimo resta a 1 gol
+      [porta, 1, 2], //       il massimo passa a 2 gol: la riga cambia
+      [porta, 1, 0.7], //     verso meno gol
+    ];
+    for (const [fixture, difesa, attacco] of cases) {
+      const f = fixture();
+      const old = legacyForza(f, difesa, attacco, "SQUADRA_X");
+      const via = throughTheDoorForza(f, difesa, attacco, "SQUADRA_X");
+      expect(JSON.stringify(via), `${f.id} difesa ${difesa} attacco ${attacco}`).toBe(JSON.stringify(old));
+    }
+  });
+
+  /** Copia letterale: i rigori. Qui `tira` e `realizzazione` sono dati, non derivati. */
+  function legacyRigori(
+    f: PlayerForecast,
+    s: { rfStorico: number; rsStorico: number },
+    rigorista: { tira: number; realizzazione: number } | null,
+    nota: string,
+  ): PlayerForecast {
+    const d = f.distribution as PlayerDistribution;
+    let pGoal = Math.max(0, d.events.pGoal - s.rfStorico);
+    let pPenMissed = Math.max(0, d.events.pPenMissed - s.rsStorico);
+    if (rigorista !== null) {
+      pGoal = 1 - (1 - pGoal) * (1 - rigorista.tira * rigorista.realizzazione);
+      pPenMissed = Math.min(1, pPenMissed + rigorista.tira * (1 - rigorista.realizzazione));
+    }
+    pGoal = Math.min(1, Math.max(0, pGoal));
+    if (pGoal === d.events.pGoal && pPenMissed === d.events.pPenMissed) return f;
+    const golPrima = d.events.pGoal > 0.5;
+    const golDopo = pGoal > 0.5;
+    const sbagliatoPrima = d.events.pPenMissed > 0.5;
+    const sbagliatoDopo = pPenMissed > 0.5;
+    const delta =
+      (golDopo ? 3 : 0) - (golPrima ? 3 : 0) + (sbagliatoDopo ? -3 : 0) - (sbagliatoPrima ? -3 : 0);
+    const expected =
+      delta === 0 && golPrima === golDopo
+        ? f.expected
+        : {
+            ...f.expected,
+            fantasyScore: f.expected.fantasyScore + delta + 0,
+            receivedAnyBonus:
+              golDopo || (golPrima ? d.events.pAssist > 0.5 || d.events.pPenSaved > 0.5 : f.expected.receivedAnyBonus),
+            missedPenalty: sbagliatoDopo,
+          };
+    return {
+      ...f,
+      expected,
+      distribution: { ...d, events: { ...d.events, pGoal, pPenMissed }, sourceQuality: `${d.sourceQuality}; rigori: ${nota}` },
+    };
+  }
+
+  function throughTheDoorRigori(
+    f: PlayerForecast,
+    s: { rfStorico: number; rsStorico: number },
+    rigorista: { tira: number; realizzazione: number } | null,
+    nota: string,
+  ): PlayerForecast {
+    const d = f.distribution as PlayerDistribution;
+    let pGoal = Math.max(0, d.events.pGoal - s.rfStorico);
+    let pPenMissed = Math.max(0, d.events.pPenMissed - s.rsStorico);
+    if (rigorista !== null) {
+      pGoal = 1 - (1 - pGoal) * (1 - rigorista.tira * rigorista.realizzazione);
+      pPenMissed = Math.min(1, pPenMissed + rigorista.tira * (1 - rigorista.realizzazione));
+    }
+    pGoal = Math.min(1, Math.max(0, pGoal));
+    if (pGoal === d.events.pGoal && pPenMissed === d.events.pPenMissed) return f;
+    return applyAdjustments([f], [
+      { kind: "setEvent", playerId: f.id, event: "pGoal", value: pGoal, note: `rigori: ${nota}` },
+      { kind: "setEvent", playerId: f.id, event: "pPenMissed", value: pPenMissed },
+    ])[0] as PlayerForecast;
+  }
+
+  it("i rigoristi: il valore finale lo compone chi chiama, la porta lo fissa — JSON identico", () => {
+    const sicuro = make({
+      id: "RIGORISTA",
+      role: "A",
+      baseVote: [{ vote: 6, probability: 1 }],
+      events: { pGoal: 0.6, pAssist: 0.1, pPenMissed: 0.02 },
+      expected: { fantasyScore: 9, receivedAnyBonus: true },
+    });
+    const cases: readonly [PlayerForecast, { rfStorico: number; rsStorico: number }, { tira: number; realizzazione: number } | null][] = [
+      [centro(), { rfStorico: 0.02, rsStorico: 0.005 }, { tira: 0.3, realizzazione: 0.8 }], // sale oltre 0,5
+      [centro(), { rfStorico: 0.1, rsStorico: 0 }, null], //                                  non è lui: tolto lo storico
+      [sicuro, { rfStorico: 0.2, rsStorico: 0 }, null], //                                    pGoal 0,6 → 0,4: la riga scende
+      [sicuro, { rfStorico: 0, rsStorico: 0 }, { tira: 0.9, realizzazione: 0.1 }], //         molti rigori sbagliati
+      [fascia(), { rfStorico: 0, rsStorico: 0 }, { tira: 0.2, realizzazione: 0.75 }], //      da zero
+      [centro(), { rfStorico: 0, rsStorico: 0 }, null], //                                    niente da cambiare: la previsione resta la stessa
+    ];
+    for (const [f, storico, rigorista] of cases) {
+      const nota = rigorista === null ? "non è il rigorista attuale del club" : "rigorista del club";
+      const old = legacyRigori(f, storico, rigorista, nota);
+      const via = throughTheDoorRigori(f, storico, rigorista, nota);
+      expect(JSON.stringify(via), `${f.id} ${JSON.stringify(storico)} ${JSON.stringify(rigorista)}`).toBe(JSON.stringify(old));
+    }
+  });
+});
+
+// ═══ LE INVARIANTI CON TUTTI E CINQUE I RITOCCHI, LE LEGGI E LE NOTE ═════════
+
+describe("la porta dei ritocchi — le invarianti reggono su sequenze casuali con setEvent, hazard e note", () => {
+  function randomAdjustments(random: () => number): Adjustment[] {
+    const pick = <T>(items: readonly T[]): T => items[Math.floor(random() * items.length)] as T;
+    const list: Adjustment[] = [];
+    const length = 1 + Math.floor(random() * 7);
+    for (let n = 0; n < length; n += 1) {
+      const kind = pick(["tiltBaseVote", "scaleEvent", "setEvent", "setPPlays", "shiftGoalsConceded"] as const);
+      const playerId = pick(["CENTRO", "PORTA", "FASCIA", "CONCENTRATO", "UFFICIO"]);
+      const note = random() < 0.4 ? { note: `nota ${n}` } : {};
+      if (kind === "tiltBaseVote") {
+        list.push({ kind, playerId: pick(["CENTRO", "PORTA", "FASCIA"]), deltaMean: (random() - 0.5) * 0.1, ...note });
+      } else if (kind === "scaleEvent") {
+        list.push({
+          kind,
+          playerId,
+          event: pick(SCALABLE_EVENTS),
+          factor: pick([0, 0.3, 0.8, 1, 1.5, 4, 12]),
+          law: pick(["linear", "hazard"] as const),
+          ...note,
+        });
+      } else if (kind === "setEvent") {
+        list.push({ kind, playerId, event: pick(SCALABLE_EVENTS), value: pick([0, 0.2, 0.5, 0.7, 1]), ...note });
+      } else if (kind === "setPPlays") {
+        list.push({ kind, playerId, pPlays: pick([0, 0.25, 0.5, 0.9, 1]), ...note });
+      } else {
+        list.push({ kind, playerId: "PORTA", factor: pick([0.2, 0.5, 1, 2, 5]), ...note });
+      }
+    }
+    return list;
+  }
+
+  it("300 sequenze con seme dichiarato: le invarianti reggono, e la targa è esattamente la somma delle note, nell'ordine", () => {
+    const random = mulberry32(20261011);
+    let withNotes = 0;
+    for (let run = 0; run < 300; run += 1) {
+      const input = deepFreeze(roster());
+      const list = randomAdjustments(random);
+      const out = applyAdjustments(input, list);
+      const named = new Set(list.map((a) => a.playerId));
+      out.forEach((f, i) => {
+        if (!named.has(f.id)) {
+          expect(f).toBe(input[i]);
+          return;
+        }
+        expectInvariants(f);
+        const notes = list.filter((a) => a.playerId === f.id && a.note !== undefined).map((a) => `; ${a.note}`);
+        withNotes += notes.length;
+        expect(dist(f).sourceQuality).toBe(QUALITY + notes.join(""));
+        expect(dist(f).asOf).toBe(ASOF);
+        expect(dist(f).baseVote.map((m) => m.vote)).toEqual(dist(input[i] as PlayerForecast).baseVote.map((m) => m.vote));
+      });
+    }
+    expect(withNotes).toBeGreaterThan(200);
+  });
+});
+
 // ═══ LA RIGA MODALE È QUELLA DEI PRODUTTORI ═════════════════════════════════
 
 describe("la riga modale della porta è la stessa dei due produttori (la duplicazione dichiarata ha la sua prova)", () => {
@@ -1126,8 +1635,8 @@ describe("il modulo della porta importa solo da playerScenario a runtime, ed è 
     }
   });
 
-  it("l'unione dei ritocchi è chiusa a quattro tipi", () => {
+  it("l'unione dei ritocchi è chiusa a cinque tipi", () => {
     const kinds = [...source.matchAll(/readonly kind: "([A-Za-z]+)";/g)].map((m) => m[1]);
-    expect(kinds).toEqual(["tiltBaseVote", "scaleEvent", "setPPlays", "shiftGoalsConceded"]);
+    expect(kinds).toEqual(["tiltBaseVote", "scaleEvent", "setEvent", "setPPlays", "shiftGoalsConceded"]);
   });
 });

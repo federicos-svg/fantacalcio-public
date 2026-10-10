@@ -19,7 +19,7 @@
 // senza romperla. Per la stessa ragione la forma del voto (griglia, reticolo,
 // riga modale) ha UN solo proprietario, e non uno per ogni ritocco.
 //
-// I QUATTRO RITOCCHI. L'unione è chiusa: un quinto tipo è una modifica di
+// I CINQUE RITOCCHI. L'unione è chiusa: un sesto tipo è una modifica di
 // questo file, non una stringa che un chiamante inventa.
 //  - `tiltBaseVote` sposta la MEDIA del voto base di `deltaMean`. Il conto è
 //    un'INCLINAZIONE ESPONENZIALE: ogni massa `p_i` diventa proporzionale a
@@ -39,11 +39,24 @@
 //    giudica la plausibilità di un effetto — quella è un'altra guardia. Se la
 //    media richiesta cade fuori dal supporto (una distribuzione concentrata, o
 //    un voto certo) il ritocco è IMPOSSIBILE e si rifiuta.
-//  - `scaleEvent` moltiplica una delle sette probabilità di evento di §12 per
-//    `factor` e la TRONCA a 1: `p' = min(1, p·factor)`. Il tetto non è un
-//    ripiego, è ciò che tiene il risultato una probabilità; factor 0 azzera.
-//    L'ordine conta proprio per il tetto: `×10` poi `×0,5` non è `×0,5` poi
-//    `×10`, ed è per questo che la lista si applica NELL'ORDINE in cui è scritta.
+//  - `scaleEvent` scala una delle sette probabilità di evento di §12 per
+//    `factor`, secondo una di due LEGGI (`law`, facoltativa). `"linear"` (il
+//    default) moltiplica e TRONCA a 1: `p' = min(1, p·factor)`; il tetto non è
+//    un ripiego, è ciò che tiene il risultato una probabilità. `"hazard"` scala
+//    il TASSO dell'evento invece della probabilità: `p' = 1 − (1 − p)^factor`,
+//    con `min`/`max` a [0, 1] in uscita; resta una probabilità per costruzione
+//    e non ha un tetto da raggiungere. Con `factor` 0 azzerano entrambe. Con
+//    `hazard`, `factor` 1 rifà `1 − (1 − p)`, che può differire da `p`
+//    all'ultimo bit: nessuna scorciatoia, il conto è sempre lo stesso. Una
+//    prova confronta `hazard` bit a bit con una copia letterale della formula.
+//    L'ordine conta (`×10` poi `×0,5` non è `×0,5` poi `×10`, per il tetto della
+//    legge lineare), ed è per questo che la lista si applica NELL'ORDINE in cui
+//    è scritta.
+//  - `setEvent` FISSA la probabilità di un evento a `value`, in [0, 1]. Serve a
+//    chi il valore finale lo compone da sé (più fonti, un conto che non è una
+//    scala) e non ha un fattore da dare: la porta non chiede come ci è
+//    arrivato, garantisce che sia una probabilità e che la riga modale e il
+//    contratto lo seguano.
 //  - `setPPlays` fissa P(prende voto). Aggiorna insieme `voteProbability` della
 //    riga modale e `pPlays` della distribuzione — sono lo stesso numero detto
 //    due volte, e il contratto pretende che coincidano — e porta con sé
@@ -54,6 +67,17 @@
 //  - `shiftGoalsConceded` sposta i gol subiti del portiere: la massa su `k` gol
 //    diventa proporzionale a `m_k · factor^k`, poi si ri-normalizza. `factor > 1`
 //    porta massa verso più gol subiti, `< 1` verso meno. Solo per il portiere.
+//
+// LA NOTA. Ogni ritocco può portare una `note` (stringa non vuota). Se c'è, la
+// porta la accoda a `sourceQuality` della distribuzione col separatore `"; "`:
+// `${sourceQuality}; ${note}`. La nota porta la propria etichetta («avversario:
+// …», «rigori: …»), la porta non ne aggiunge una. Le note si accodano
+// nell'ordine dei ritocchi: due ritocchi con nota sullo stesso giocatore danno
+// due segmenti, e chi vuole un segmento solo per più ritocchi lo mette su uno
+// di loro. Una nota è un cambiamento: un ritocco che non cambia nessun numero
+// ma porta una nota restituisce comunque una previsione nuova. `asOf` non si
+// tocca mai. Una nota su una previsione senza distribuzione, cioè senza un
+// `sourceQuality` dove scriverla, si rifiuta con `no_distribution`.
 //
 // LA RIGA MODALE SI RICALCOLA, NON SI RITOCCA. Dopo ogni ritocco che cambia una
 // distribuzione, `expected` si rifà da zero con la regola dei produttori
@@ -79,8 +103,8 @@
 //
 // L'IDENTITÀ. Lista vuota → l'uscita È l'ingresso (`===`, la stessa array); un
 // giocatore non nominato esce come lo stesso oggetto; un ritocco che non cambia
-// nessun numero (`scaleEvent` ×1, `tiltBaseVote` di zero, `setPPlays` al valore
-// che c'è) lascia lo stesso oggetto. Quando i numeri cambiano non ci sono
+// nessun numero (`scaleEvent` lineare ×1, `tiltBaseVote` di zero, `setPPlays` o
+// `setEvent` al valore che c'è) e non porta una `note` lascia lo stesso oggetto. Quando i numeri cambiano non ci sono
 // scorciatoie: `shiftGoalsConceded` con `factor` 1 rifà comunque la
 // ri-normalizzazione, e può spostare una massa all'ultimo bit.
 //
@@ -102,16 +126,15 @@
 //    volta e un gruppo può stare a cavallo delle due rose: il controllo
 //    completo è di `assertForecasts` / `assertInput`, che vedono l'unione, e
 //    la prova di questo file mostra che lo rifiutano.
-//  - `asOf` e `sourceQuality` NON si toccano: la targa di una previsione
-//    ritoccata la scrive chi ritocca, nel punto in cui chiama, perché solo lui
+//  - `asOf` non si tocca mai, e `sourceQuality` cambia solo con una `note`: la
+//    targa di una previsione ritoccata la scrive chi ritocca, perché solo lui
 //    sa perché.
-//  - `tiltBaseVote`, `scaleEvent` e `shiftGoalsConceded` su una previsione
-//    SENZA distribuzione si rifiutano (`no_distribution`) invece di essere
-//    ignorati in silenzio: non c'è niente da inclinare, e farlo finta di
+//  - `tiltBaseVote`, `scaleEvent`, `setEvent` e `shiftGoalsConceded` su una
+//    previsione SENZA distribuzione si rifiutano (`no_distribution`) invece di
+//    essere ignorati in silenzio: non c'è niente da inclinare, e farlo finta di
 //    niente lascerebbe credere al chiamante che il ritocco sia entrato.
-//  - `scaleEvent` è lineare con tetto. Un ritocco che deve scalare un TASSO
-//    d'evento (cioè `1 − (1 − p)^factor`) o fissare un valore assoluto non è
-//    questo tipo: se serve, è un'estensione dell'unione in questo file.
+//  - Un ritocco che non sia uno di questi cinque non è esprimibile: è
+//    un'estensione dell'unione in questo file, mai un tipo inventato fuori.
 //
 // IMPORT. Un solo modulo a runtime, `playerScenario.ts` (la tariffa, la
 // convalida); il resto sono tipi. Lo verifica `tests/adjustments.test.ts`.
@@ -148,41 +171,61 @@ export type ScalableEvent = (typeof SCALABLE_EVENTS)[number];
  */
 export const MAX_TILT_DELTA_MEAN = BASE_VOTE_STEP;
 
-/** Sposta la media del voto base di `deltaMean`, restando sul supporto dichiarato. */
-export interface TiltBaseVote {
-  readonly kind: "tiltBaseVote";
+/** Quello che ogni ritocco ha in comune: il giocatore, e una nota facoltativa per `sourceQuality`. */
+interface AdjustmentBase {
   readonly playerId: string;
+  /**
+   * Stringa non vuota, accodata a `sourceQuality` come `${sourceQuality}; ${note}`.
+   * Porta la propria etichetta. Vedi «LA NOTA» in testa al file.
+   */
+  readonly note?: string;
+}
+
+/** Sposta la media del voto base di `deltaMean`, restando sul supporto dichiarato. */
+export interface TiltBaseVote extends AdjustmentBase {
+  readonly kind: "tiltBaseVote";
   /** In voti, con segno. `|deltaMean| ≤ MAX_TILT_DELTA_MEAN`. */
   readonly deltaMean: number;
 }
 
-/** Moltiplica una probabilità di evento per `factor` e la tronca a 1. */
-export interface ScaleEvent {
+/** Le due leggi di `scaleEvent`: `linear` = `min(1, p·factor)`, `hazard` = `1 − (1 − p)^factor`. */
+export const SCALE_LAWS = ["linear", "hazard"] as const;
+export type ScaleLaw = (typeof SCALE_LAWS)[number];
+
+/** Scala una probabilità di evento per `factor`, secondo `law` (default `linear`). */
+export interface ScaleEvent extends AdjustmentBase {
   readonly kind: "scaleEvent";
-  readonly playerId: string;
   readonly event: ScalableEvent;
   /** Finito e ≥ 0. */
   readonly factor: number;
+  /** Omessa = `linear`. */
+  readonly law?: ScaleLaw;
+}
+
+/** Fissa la probabilità di un evento a `value`. */
+export interface SetEvent extends AdjustmentBase {
+  readonly kind: "setEvent";
+  readonly event: ScalableEvent;
+  /** In [0, 1]. */
+  readonly value: number;
 }
 
 /** Fissa P(prende voto). */
-export interface SetPPlays {
+export interface SetPPlays extends AdjustmentBase {
   readonly kind: "setPPlays";
-  readonly playerId: string;
   /** In [0, 1]. */
   readonly pPlays: number;
 }
 
 /** Sposta i gol subiti del portiere: la massa su `k` gol diventa `m_k · factor^k`, ri-normalizzata. */
-export interface ShiftGoalsConceded {
+export interface ShiftGoalsConceded extends AdjustmentBase {
   readonly kind: "shiftGoalsConceded";
-  readonly playerId: string;
   /** Finito e > 0. */
   readonly factor: number;
 }
 
 /** L'unione chiusa dei ritocchi che la porta sa fare. */
-export type Adjustment = TiltBaseVote | ScaleEvent | SetPPlays | ShiftGoalsConceded;
+export type Adjustment = TiltBaseVote | ScaleEvent | SetEvent | SetPPlays | ShiftGoalsConceded;
 
 export type AdjustmentErrorCode =
   /** Il ritocco non si sa leggere: tipo ignoto, campo mancante o del tipo sbagliato. */
@@ -193,7 +236,7 @@ export type AdjustmentErrorCode =
   | "unknown_player"
   /** Due previsioni con lo stesso id: non si sa quale ritoccare. */
   | "duplicate_player"
-  /** Il ritocco agisce su una distribuzione e la previsione non ne ha. */
+  /** Il ritocco (o la sua nota) agisce su una distribuzione e la previsione non ne ha. */
   | "no_distribution"
   /** `shiftGoalsConceded` su chi non ha gol subiti da spostare. */
   | "not_a_goalkeeper"
@@ -307,12 +350,23 @@ function checkAdjustment(raw: unknown, index: number): Adjustment {
   if (typeof adjustment["playerId"] !== "string" || adjustment["playerId"].length === 0) {
     throw malformed(index, `playerId mancante o non valido (${show(adjustment["playerId"])})`);
   }
+  const note = adjustment["note"];
+  if (note !== undefined && (typeof note !== "string" || note.length === 0)) {
+    throw malformed(index, `${show(kind)}: «note» deve essere una stringa non vuota (${show(note)})`);
+  }
   const requireNumber = (field: string): number => {
     const value = adjustment[field];
     if (typeof value !== "number") {
       throw malformed(index, `${show(kind)}: «${field}» deve essere un numero (${show(value)})`);
     }
     return value;
+  };
+  const requireEvent = (tag: string): string => {
+    const event = adjustment["event"];
+    if (typeof event !== "string" || !(SCALABLE_EVENTS as readonly string[]).includes(event)) {
+      throw malformed(index, `${tag}: event ${show(event)} non è fra ${SCALABLE_EVENTS.join(", ")}`);
+    }
+    return event;
   };
   switch (kind) {
     case "tiltBaseVote": {
@@ -325,13 +379,23 @@ function checkAdjustment(raw: unknown, index: number): Adjustment {
     }
     case "scaleEvent": {
       const factor = requireNumber("factor");
-      const event = adjustment["event"];
-      if (typeof event !== "string" || !(SCALABLE_EVENTS as readonly string[]).includes(event)) {
-        throw malformed(index, `scaleEvent: event ${show(event)} non è fra ${SCALABLE_EVENTS.join(", ")}`);
+      const event = requireEvent("scaleEvent");
+      const law = adjustment["law"];
+      if (law !== undefined && !(SCALE_LAWS as readonly unknown[]).includes(law)) {
+        throw malformed(index, `scaleEvent: law ${show(law)} non è fra ${SCALE_LAWS.join(", ")}`);
       }
       const typed = adjustment as unknown as ScaleEvent;
       if (!Number.isFinite(factor) || factor < 0) {
-        throw outOfBounds(index, typed, `factor ${String(factor)} non è un numero finito ≥ 0.`);
+        throw outOfBounds(index, typed, `factor ${String(factor)} non è un numero finito ≥ 0 (evento ${event}).`);
+      }
+      return typed;
+    }
+    case "setEvent": {
+      const value = requireNumber("value");
+      const event = requireEvent("setEvent");
+      const typed = adjustment as unknown as SetEvent;
+      if (!Number.isFinite(value) || value < 0 || value > 1) {
+        throw outOfBounds(index, typed, `value ${String(value)} fuori da [0, 1] (evento ${event}).`);
       }
       return typed;
     }
@@ -352,7 +416,7 @@ function checkAdjustment(raw: unknown, index: number): Adjustment {
       return typed;
     }
     default:
-      throw malformed(index, `tipo ${show(kind)} sconosciuto. L'unione è chiusa: tiltBaseVote, scaleEvent, setPPlays, shiftGoalsConceded.`);
+      throw malformed(index, `tipo ${show(kind)} sconosciuto. L'unione è chiusa: tiltBaseVote, scaleEvent, setEvent, setPPlays, shiftGoalsConceded.`);
   }
 }
 
@@ -398,7 +462,7 @@ function withDistribution(forecast: PlayerForecast, distribution: PlayerDistribu
   return { ...forecast, expected: modalRowOfDistribution(distribution), distribution };
 }
 
-// ─── I QUATTRO CONTI ─────────────────────────────────────────────────────────
+// ─── I CONTI ──────────────────────────────────────────────────────────────────
 
 /** La media del voto base: la somma pesata, nello stesso ordine di `meanFantasyScoreIfPlays`. */
 function meanVote(masses: readonly BaseVoteMass[]): number {
@@ -493,9 +557,19 @@ function tiltBaseVote(
 function scaleEvent(forecast: PlayerForecast, adjustment: ScaleEvent, index: number): PlayerForecast {
   const distribution = needDistribution(forecast, adjustment, index);
   const current = distribution.events[adjustment.event];
-  const scaled = Math.min(1, current * adjustment.factor);
+  const scaled =
+    adjustment.law === "hazard"
+      ? Math.min(1, Math.max(0, 1 - Math.pow(1 - current, adjustment.factor)))
+      : Math.min(1, current * adjustment.factor);
   if (scaled === current) return forecast;
   const events = { ...distribution.events, [adjustment.event]: scaled } as PlayerEventRates;
+  return withDistribution(forecast, { ...distribution, events });
+}
+
+function setEvent(forecast: PlayerForecast, adjustment: SetEvent, index: number): PlayerForecast {
+  const distribution = needDistribution(forecast, adjustment, index);
+  if (distribution.events[adjustment.event] === adjustment.value) return forecast;
+  const events = { ...distribution.events, [adjustment.event]: adjustment.value } as PlayerEventRates;
   return withDistribution(forecast, { ...distribution, events });
 }
 
@@ -555,11 +629,19 @@ function applyOne(forecast: PlayerForecast, adjustment: Adjustment, index: numbe
       return tiltBaseVote(forecast, adjustment, index);
     case "scaleEvent":
       return scaleEvent(forecast, adjustment, index);
+    case "setEvent":
+      return setEvent(forecast, adjustment, index);
     case "setPPlays":
       return setPPlays(forecast, adjustment);
     case "shiftGoalsConceded":
       return shiftGoalsConceded(forecast, adjustment, index);
   }
+}
+
+/** Accoda la nota a `sourceQuality`, col separatore e la forma `${sourceQuality}; ${note}`. */
+function withNote(forecast: PlayerForecast, adjustment: Adjustment, note: string, index: number): PlayerForecast {
+  const distribution = needDistribution(forecast, adjustment, index);
+  return { ...forecast, distribution: { ...distribution, sourceQuality: `${distribution.sourceQuality}; ${note}` } };
 }
 
 // ─── LA PORTA ────────────────────────────────────────────────────────────────
@@ -604,7 +686,8 @@ export function applyAdjustments(
       checkContract(before, "invalid_input", index, `ritocco n.${index}: previsione in ingresso di ${before.id}`);
       checkedInput.add(position);
     }
-    const after = applyOne(before, adjustment, index);
+    const applied = applyOne(before, adjustment, index);
+    const after = adjustment.note === undefined ? applied : withNote(applied, adjustment, adjustment.note, index);
     if (after === before) return;
     checkContract(after, "invariant_broken", index, `ritocco n.${index} (${adjustment.kind}): uscita di ${after.id}`);
     changed.set(position, after);
