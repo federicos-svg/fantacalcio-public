@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   BEHAVIOUR_QUANTITIES,
+  EARLY_SEASON_REPEAT_FLOOR,
   type BehaviourEstimate,
   type BehaviourQuantityId,
   type EstimateBasis,
@@ -611,5 +612,281 @@ describe("opponentLineupDistribution — capo a capo dal profilo reale (§8.3 �
     const moduleFieldedReference = behaviourEstimate(fantasmaProfile, "moduleFielded").leagueReference;
     const idx433 = MODULES.indexOf("433");
     expect(module433Weight).toBeCloseTo(moduleFieldedReference[idx433] as number, 10);
+  });
+});
+
+// ─── 6) ZERO COPPIE OSSERVATE: LA QUOTA «RIPETE» NON È UNA MISURA ───────────
+// (decisione tecnica dell'Executive del 2026-10-10, contestabile)
+//
+// Una squadra che non ha nemmeno una coppia di giornate confermate e
+// consecutive ha `observations === 0` sulla stima `elevenIdenticalToPrevious`:
+// la sua `share` è il riferimento di lega preso in prestito (0,5 se nessuno ha
+// una coppia, la quota degli altri altrimenti), non una misura sua. Quella
+// quota NON deve fare della formazione di ieri la più pesata: pesa il floor
+// del 10 % in QUALUNQUE giornata, e `repeatPreviousFloored` lo dice.
+
+/** Lo stesso profilo, con le osservazioni di UNA sola quantità riportate a `n`. */
+function withRepeatObservations(profile: TeamBehaviourProfile, n: number): TeamBehaviourProfile {
+  return {
+    ...profile,
+    estimates: profile.estimates.map((e) =>
+      e.quantity === "elevenIdenticalToPrevious" ? { ...e, observations: n } : e,
+    ),
+  };
+}
+
+describe("opponentLineupDistribution — la precedente senza nessuna coppia osservata", () => {
+  const PREVIOUS_LINEUP: Lineup = {
+    module: "541",
+    goalkeeperId: "o-gk",
+    starterIds: ["o-d1", "o-d2", "o-d3", "o-d4", "o-d5", "o-c1", "o-c2", "o-c3", "o-c4", "o-a1"],
+    benchIds: ["o-a2", "o-a3"],
+  };
+
+  const run = (behaviour: TeamBehaviourProfile, matchday: number) =>
+    opponentLineupDistribution({
+      opponentForecast: FULL_OPPONENT_SQUAD,
+      opponentBehaviour: behaviour,
+      ourReferenceLineup: OUR_REFERENCE_LINEUP,
+      ourReferencePlayers: OUR_REFERENCE_PLAYERS,
+      context: CONTEXT(matchday),
+      previousLineup: PREVIOUS_LINEUP,
+    });
+
+  describe("con observations === 0 il peso è il floor e il flag è vero, a qualunque giornata", () => {
+    // 0,5 è l'uniforme a due categorie (nessuna coppia in tutta la lega); 0,89
+    // è la quota che una squadra senza coppie prende in prestito da una lega
+    // che ripete quasi sempre. In nessuno dei due casi è una misura SUA.
+    const cases = [0.5, 0.89].flatMap((borrowedShare) =>
+      [1, 3, 6, 7, 10, 30].map((matchday) => ({ borrowedShare, matchday })),
+    );
+    it.each(cases)(
+      "quota in prestito $borrowedShare, giornata $matchday: pesa il floor, non la quota",
+      ({ borrowedShare, matchday }) => {
+        const behaviour = withRepeatObservations(
+          handBuiltProfile({
+            moduleShare: UNIFORM_MODULE_SHARE,
+            repeatShare: borrowedShare,
+            gameweeksObserved: 0,
+            basis: "riferimento-di-lega",
+          }),
+          0,
+        );
+        const result = run(behaviour, matchday);
+        expect(result.feasible).toBe(true);
+        expect(result.repeatPreviousWeight).toBe(EARLY_SEASON_REPEAT_FLOOR);
+        expect(result.repeatPreviousFloored).toBe(true);
+        expect(sum(result.distribution.map((d) => d.weight))).toBeCloseTo(1, 10);
+        const repeatCandidate = result.distribution.find((d) => lineupKey(d.lineup) === lineupKey(PREVIOUS_LINEUP));
+        expect(repeatCandidate?.weight).toBeCloseTo(EARLY_SEASON_REPEAT_FLOOR, 10);
+        // Il resto (0,9) va ai moduli, uniformi qui: la precedente NON è la più pesata.
+        const heaviestOther = Math.max(
+          ...result.distribution.filter((d) => lineupKey(d.lineup) !== lineupKey(PREVIOUS_LINEUP)).map((d) => d.weight),
+        );
+        expect(heaviestOther).toBeGreaterThan(EARLY_SEASON_REPEAT_FLOOR);
+        expect(result.reason).toMatch(/nessuna coppia di giornate consecutive osservata/);
+        // Fuori dalle prime 6 giornate il motivo NON può dire «prime 6 giornate».
+        if (matchday > 6) expect(result.reason).not.toMatch(/prime 6 giornate/);
+      },
+    );
+
+    it("conta le osservazioni della STIMA, non le giornate della squadra: molte giornate ma nessuna coppia consecutiva", () => {
+      const behaviour = withRepeatObservations(
+        handBuiltProfile({ moduleShare: UNIFORM_MODULE_SHARE, repeatShare: 0.5, gameweeksObserved: 5 }),
+        0,
+      );
+      expect(behaviour.gameweeksObserved).toBe(5);
+      const result = run(behaviour, 12);
+      expect(result.repeatPreviousWeight).toBe(EARLY_SEASON_REPEAT_FLOOR);
+      expect(result.repeatPreviousFloored).toBe(true);
+    });
+
+    it("un profilo contraddittorio resta fail-closed anche a zero osservazioni", () => {
+      const behaviour = withRepeatObservations(
+        handBuiltProfile({ moduleShare: UNIFORM_MODULE_SHARE, repeatShare: 1.5 }),
+        0,
+      );
+      expect(() => run(behaviour, 10)).toThrow(/non è una quota valida in \[0, 1\]/);
+    });
+  });
+
+  describe("con observations >= 1 tutto come prima", () => {
+    it.each([1, 2, 10])("%i osservazioni, fuori finestra: pesa la quota stimata, anche se è 0,5", (n) => {
+      const behaviour = withRepeatObservations(
+        handBuiltProfile({ moduleShare: UNIFORM_MODULE_SHARE, repeatShare: 0.5 }),
+        n,
+      );
+      const result = run(behaviour, 10);
+      expect(result.repeatPreviousWeight).toBeCloseTo(0.5, 10);
+      expect(result.repeatPreviousFloored).toBe(false);
+    });
+
+    it.each([1, 2, 10])("%i osservazioni, dentro la finestra: il floor alza solo una quota sotto il 10 %", (n) => {
+      const low = run(
+        withRepeatObservations(handBuiltProfile({ moduleShare: UNIFORM_MODULE_SHARE, repeatShare: 0.02 }), n),
+        3,
+      );
+      expect(low.repeatPreviousWeight).toBeCloseTo(EARLY_SEASON_REPEAT_FLOOR, 10);
+      expect(low.repeatPreviousFloored).toBe(true);
+      const high = run(
+        withRepeatObservations(handBuiltProfile({ moduleShare: UNIFORM_MODULE_SHARE, repeatShare: 0.4 }), n),
+        3,
+      );
+      expect(high.repeatPreviousWeight).toBeCloseTo(0.4, 10);
+      expect(high.repeatPreviousFloored).toBe(false);
+    });
+
+    it("un profilo che non porta il campo observations non è letto come «zero osservazioni»", () => {
+      // Le trascrizioni parziali di `BehaviourEstimate` (solo `quantity` e
+      // `share`) esistono fuori da questo pacchetto: per loro il comportamento
+      // è quello di sempre, e per essere corrette devono portare il campo.
+      const complete = handBuiltProfile({ moduleShare: UNIFORM_MODULE_SHARE, repeatShare: 0.5 });
+      const partial = {
+        ...complete,
+        estimates: complete.estimates.map(({ quantity, share }) => ({ quantity, share })),
+      } as unknown as TeamBehaviourProfile;
+      const result = run(partial, 10);
+      expect(result.repeatPreviousWeight).toBeCloseTo(0.5, 10);
+      expect(result.repeatPreviousFloored).toBe(false);
+    });
+  });
+
+  describe("lo scenario che ha motivato la correzione: due certi contro due al 55 %", () => {
+    // Rosa avversaria con quattro attaccanti: due dati al 100 % e con il
+    // punteggio atteso più alto, due dati al 55 % e con quello più basso. La
+    // formazione di ieri schierava i due al 55 %. Sintetico, tutto: nessun
+    // dato vero.
+    const attacker = (id: string, voteProbability: number, score: number): PlayerForecast => ({
+      id,
+      role: "A",
+      voteProbability,
+      expected: { baseVote: score, fantasyScore: score, receivedAnyBonus: false, missedPenalty: false },
+    });
+    const SQUAD: readonly PlayerForecast[] = [
+      ...FULL_OPPONENT_SQUAD.filter((f) => f.role !== "A"),
+      attacker("o-a1", 1, 6.5),
+      attacker("o-a2", 1, 6.5),
+      attacker("o-a3", 0.55, 5.5),
+      attacker("o-a4", 0.55, 5.5),
+    ];
+    // 352 è il modulo più usato dalla squadra di prova e anche quello di ieri.
+    const MODULE_SHARE = MODULES.map((m) => (m === "352" ? 0.4 : 0.1));
+    const SWAP: Readonly<Record<string, string>> = { "o-a1": "o-a3", "o-a2": "o-a4", "o-a3": "o-a1", "o-a4": "o-a2" };
+    const swap = (id: string): string => SWAP[id] ?? id;
+
+    const distribute = (behaviour: TeamBehaviourProfile, previousLineup?: Lineup) =>
+      opponentLineupDistribution({
+        opponentForecast: SQUAD,
+        opponentBehaviour: behaviour,
+        ourReferenceLineup: OUR_REFERENCE_LINEUP,
+        ourReferencePlayers: OUR_REFERENCE_PLAYERS,
+        context: CONTEXT(10),
+        ...(previousLineup === undefined ? {} : { previousLineup }),
+      });
+
+    // L'undici di ieri: quello razionale di oggi per 352, con i due al 100 %
+    // scambiati con i due al 55 %. Costruito dalla distribuzione stessa, così
+    // differisce da lei SOLO per i due nomi.
+    const base = distribute(handBuiltProfile({ moduleShare: MODULE_SHARE }));
+    const rational352 = base.distribution.find((d) => d.lineup.module === "352")?.lineup as Lineup;
+    const YESTERDAY: Lineup = {
+      module: rational352.module,
+      goalkeeperId: rational352.goalkeeperId,
+      starterIds: rational352.starterIds.map(swap),
+      benchIds: rational352.benchIds.map(swap),
+    };
+
+    it("premessa: ieri schierava i due al 55 %, l'undici razionale di oggi i due al 100 %", () => {
+      expect(rational352.starterIds).toContain("o-a1");
+      expect(rational352.starterIds).toContain("o-a2");
+      expect(YESTERDAY.starterIds).toContain("o-a3");
+      expect(YESTERDAY.starterIds).toContain("o-a4");
+      expect(lineupKey(YESTERDAY)).not.toBe(lineupKey(rational352));
+    });
+
+    it("con una quota di ripetizione MISURATA di 0,5 la modale è ancora ieri (il comportamento di prima, per chi ha osservazioni)", () => {
+      const measured = withRepeatObservations(
+        handBuiltProfile({ moduleShare: MODULE_SHARE, repeatShare: 0.5 }),
+        1,
+      );
+      const result = distribute(measured, YESTERDAY);
+      expect(result.repeatPreviousWeight).toBeCloseTo(0.5, 10);
+      expect(lineupKey(result.modalLineup as Lineup)).toBe(lineupKey(YESTERDAY));
+    });
+
+    it("con la stessa quota 0,5 ma ZERO osservazioni la modale contiene i due al 100 % e non i due al 55 %", () => {
+      const unmeasured = withRepeatObservations(
+        handBuiltProfile({ moduleShare: MODULE_SHARE, repeatShare: 0.5, gameweeksObserved: 0, basis: "riferimento-di-lega" }),
+        0,
+      );
+      const result = distribute(unmeasured, YESTERDAY);
+      expect(result.repeatPreviousWeight).toBe(EARLY_SEASON_REPEAT_FLOOR);
+      expect(result.repeatPreviousFloored).toBe(true);
+      const modal = result.modalLineup as Lineup;
+      expect(lineupKey(modal)).not.toBe(lineupKey(YESTERDAY));
+      expect(modal.starterIds).toContain("o-a1");
+      expect(modal.starterIds).toContain("o-a2");
+      expect(modal.starterIds).not.toContain("o-a3");
+      expect(modal.starterIds).not.toContain("o-a4");
+      // 0,9 ai moduli, di cui il 40 % a 352: 0,36 contro lo 0,10 di ieri.
+      const modalWeight = result.distribution.find((d) => lineupKey(d.lineup) === lineupKey(modal))?.weight;
+      expect(modalWeight).toBeCloseTo(0.9 * 0.4, 10);
+      expect(result.distribution.find((d) => lineupKey(d.lineup) === lineupKey(YESTERDAY))?.weight).toBeCloseTo(
+        EARLY_SEASON_REPEAT_FLOOR,
+        10,
+      );
+    });
+  });
+
+  describe("capo a capo dal profilo reale: una squadra senza coppie non eredita l'abitudine della lega", () => {
+    // "forte" ripete lo stesso undici per dodici giornate consecutive: la
+    // lega, nel suo insieme, ripete quasi sempre. "isolata" compare in due
+    // giornate NON consecutive (2 e 5): ha giornate osservate, e zero coppie.
+    // "fantasma" è dichiarata e non compare mai.
+    const gameweeks: ObservedLeagueGameweek[] = [];
+    for (let g = 1; g <= 12; g += 1) {
+      const matches = [
+        { home: synthLineup("forte", "433"), away: synthLineup("rivale", "352"), outcome: "pareggio" as const },
+      ];
+      if (g === 2 || g === 5) {
+        matches.push({
+          home: synthLineup("isolata", "442"),
+          away: synthLineup("rivale2", "541"),
+          outcome: "pareggio" as const,
+        });
+      }
+      gameweeks.push({ gameweek: g, matches });
+    }
+    const profile = leagueBehaviourProfile({
+      history: observedLeagueGameweeks({ gameweeks, provenance: "prova zero coppie, sintetica" }),
+      teams: ["forte", "isolata", "rivale", "rivale2", "fantasma"],
+    });
+    const repeatOf = (teamId: string) => behaviourEstimate(teamBehaviourProfile(profile, teamId), "elevenIdenticalToPrevious");
+
+    it("premessa: isolata ha giornate ma zero coppie, e la quota che il profilo le dà è quella della lega, ben sopra 0,5", () => {
+      const isolata = teamBehaviourProfile(profile, "isolata");
+      expect(isolata.gameweeksObserved).toBe(2);
+      expect(repeatOf("isolata").observations).toBe(0);
+      expect(repeatOf("isolata").leagueReferenceWeight).toBe(1);
+      expect(repeatOf("isolata").share[0]).toBeCloseTo(repeatOf("isolata").leagueReference[0] as number, 12);
+      expect(repeatOf("isolata").share[0]).toBeGreaterThan(0.8);
+      expect(repeatOf("fantasma").observations).toBe(0);
+      expect(repeatOf("forte").observations).toBeGreaterThan(0);
+    });
+
+    it.each(["isolata", "fantasma"])("%s: la precedente pesa il floor, a giornata 3 e a giornata 20", (teamId) => {
+      for (const matchday of [3, 20]) {
+        const result = run(teamBehaviourProfile(profile, teamId), matchday);
+        expect(result.repeatPreviousWeight).toBe(EARLY_SEASON_REPEAT_FLOOR);
+        expect(result.repeatPreviousFloored).toBe(true);
+      }
+    });
+
+    it("forte, che ha coppie osservate, pesa la quota stimata come sempre", () => {
+      const result = run(teamBehaviourProfile(profile, "forte"), 20);
+      expect(result.repeatPreviousWeight).toBeCloseTo(repeatOf("forte").share[0] as number, 12);
+      expect(result.repeatPreviousWeight).toBeGreaterThan(0.8);
+      expect(result.repeatPreviousFloored).toBe(false);
+    });
   });
 });
