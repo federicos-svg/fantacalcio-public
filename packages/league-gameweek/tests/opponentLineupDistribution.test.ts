@@ -656,8 +656,12 @@ describe("opponentLineupDistribution — la precedente senza nessuna coppia osse
   describe("con observations === 0 il peso è il floor e il flag è vero, a qualunque giornata", () => {
     // 0,5 è l'uniforme a due categorie (nessuna coppia in tutta la lega); 0,89
     // è la quota che una squadra senza coppie prende in prestito da una lega
-    // che ripete quasi sempre. In nessuno dei due casi è una misura SUA.
-    const cases = [0.5, 0.89].flatMap((borrowedShare) =>
+    // che ripete quasi sempre; 0,02 è quella presa in prestito da una lega che
+    // non ripete quasi mai, SOTTO il floor: il peso resta il floor e non scende
+    // con la quota (review della PR #123: con `Math.min(quota, floor)` al posto
+    // del floor, senza questo caso, tutte le prove restavano verdi). In nessuno
+    // dei tre casi è una misura SUA.
+    const cases = [0.02, 0.5, 0.89].flatMap((borrowedShare) =>
       [1, 3, 6, 7, 10, 30].map((matchday) => ({ borrowedShare, matchday })),
     );
     it.each(cases)(
