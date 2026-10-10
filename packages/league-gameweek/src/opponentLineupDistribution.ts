@@ -63,6 +63,35 @@
 //    punto 4. Senza formazione precedente questo pezzo semplicemente non
 //    esiste: non si inventa un "undici precedente" che nessuno ha osservato.
 //
+//    AGGIUNTA DEL 2026-10-10 — LA QUOTA SENZA NESSUNA COPPIA NON È UNA MISURA
+//    (decisione tecnica dell'Executive, contestabile; ciò che sta sopra resta
+//    com'era). La quota «ripete la formazione» è misurata su COPPIE di giornate
+//    confermate e consecutive (`elevenIdenticalToPrevious`, §8.3): una squadra
+//    che non ne ha nemmeno una ha `observations === 0` su quella stima, e la
+//    sua `share` non è un conteggio suo ma il riferimento di lega preso in
+//    prestito per intero (`leagueReferenceWeight = 1`). Quel riferimento vale
+//    esattamente 0,5 solo se NESSUNA squadra della lega ha una coppia (è
+//    l'uniforme a due categorie, ancorata da `k' = 8`); se qualcun'altra ne ha,
+//    vale la quota di ripetizione di quella lega — un'abitudine altrui
+//    attribuita a una squadra di cui non si è visto nulla. In nessuno dei due
+//    casi dice qualcosa su QUESTA squadra, e alzarla a peso della precedente la
+//    fa diventare la formazione più pesata della distribuzione senza che un
+//    dato la sostenga: per avere 0,5 di undici IDENTICI ognuno degli undici
+//    nomi dovrebbe ripetersi con probabilità di circa 0,94 ([Ipotesi]
+//    indipendenza fra i nomi: è l'aritmetica 0,5^(1/11), non una misura),
+//    mentre le probabili di oggi possono dare a quegli stessi nomi molto meno
+//    di 1 — e al loro posto stanno compagni dati a 1. Perciò: con
+//    `observations === 0` la precedente pesa `EARLY_SEASON_REPEAT_FLOOR` in
+//    QUALUNQUE giornata, non solo nelle prime 6, e `repeatPreviousFloored` lo
+//    dice (qui significa «il peso è il pavimento, non la quota stimata»: o
+//    perché il pavimento ha alzato una quota osservata sotto il 10 %, o perché
+//    non c'è nessuna quota osservata da alzare). Nessun numero nuovo: è lo
+//    stesso 10 % del disegno, applicato anche dove la stima è vuota. Con
+//    `observations >= 1` non cambia niente. Un profilo che non porta il campo
+//    `observations` (una trascrizione parziale di `BehaviourEstimate`) NON è
+//    letto come «zero osservazioni» e resta com'era: per essere corretto deve
+//    portarlo, e questo file non lo indovina.
+//
 // ── CHE COSA QUESTO FILE NON FA, E PERCHÉ NON LO INVENTA ────────────────────
 //
 // LE VARIANTI-BALLOTTAGGIO DI §8.4 PUNTO 6 NON SONO IMPLEMENTATE. Il disegno
@@ -117,6 +146,12 @@ import { type WeightedOpponentLineup, lineupKey, modalOpponentIndex } from "./op
 /**
  * Il floor testuale di §8.4 punto 5: "mai sotto il 10 % nelle prime 6
  * giornate". Non è una scelta di questo file: è copiato dal disegno.
+ *
+ * Dal 2026-10-10 è anche il PESO della formazione precedente quando la stima
+ * «ripete la formazione» della squadra non ha nessuna osservazione, in
+ * qualunque giornata (nota «AGGIUNTA DEL 2026-10-10» in testa al file). Il
+ * VALORE resta quello del disegno; quell'USO, invece, non è testo del disegno
+ * ma una decisione tecnica dell'Executive, contestabile.
  */
 export const EARLY_SEASON_REPEAT_FLOOR = 0.1 as const;
 
@@ -167,7 +202,12 @@ export interface OpponentLineupDistributionResult {
   readonly illegalModules: readonly Module[];
   /** Peso assegnato a `previousLineup`. `null` se non fornita o non usata. */
   readonly repeatPreviousWeight: number | null;
-  /** `true` se il floor del 10% (§8.4 punto 5) ha alzato la quota osservata. */
+  /**
+   * `true` se il peso della precedente è il floor del 10% e non la quota
+   * stimata: o il floor (§8.4 punto 5, prime 6 giornate) ha alzato una quota
+   * osservata sotto il 10%, o la squadra non ha nessuna coppia di giornate
+   * consecutive osservata e la quota non è una misura (qualunque giornata).
+   */
   readonly repeatPreviousFloored: boolean;
   /** Propagato da `TeamBehaviourProfile.basis`: dice se questa squadra è mai stata osservata. */
   readonly basis: EstimateBasis;
@@ -270,9 +310,12 @@ export function opponentLineupDistribution(
 
   // ── PUNTO 5: la formazione della giornata precedente, se fornita. Il peso
   // è la quota "ripete la formazione" osservata, con il floor testuale nelle
-  // prime 6 giornate; il resto del peso va ai moduli.
+  // prime 6 giornate; se la squadra non ha nessuna coppia osservata la quota
+  // non è una misura e il peso è il floor in qualunque giornata (nota
+  // «AGGIUNTA DEL 2026-10-10» in testa al file); il resto del peso va ai moduli.
   let repeatWeight: number | null = null;
   let repeatFloored = false;
+  let repeatUnmeasured = false;
   if (input.previousLineup !== undefined) {
     const previous = input.previousLineup;
     const previousViolations = lineupViolations(previous, opponentLines);
@@ -318,9 +361,23 @@ export function opponentLineupDistribution(
           "candidate della distribuzione senza che nessuno se ne accorga.",
       );
     }
-    const withinEarlyWindow = input.context.matchday <= EARLY_SEASON_WINDOW_GAMEWEEKS;
-    repeatWeight = withinEarlyWindow ? Math.max(observedShare, EARLY_SEASON_REPEAT_FLOOR) : observedShare;
-    repeatFloored = withinEarlyWindow && EARLY_SEASON_REPEAT_FLOOR > observedShare;
+    // ZERO COPPIE OSSERVATE: la `share` qui sopra è il riferimento di lega
+    // preso in prestito per intero (0,5 se nessuna squadra ha una coppia, la
+    // quota di ripetizione degli altri altrimenti), non una misura di QUESTA
+    // squadra — e il controllo è sul conteggio della stima, non su
+    // `gameweeksObserved`: una squadra con molte giornate ma tutte non
+    // consecutive ha `observations === 0` su questa quantità. Il confronto è
+    // `=== 0` e non `!(> 0)`: un campo assente non si legge come «nessuna
+    // osservazione», resta il comportamento di prima (vedi la nota in testa).
+    repeatUnmeasured = repeatEstimate.observations === 0;
+    if (repeatUnmeasured) {
+      repeatWeight = EARLY_SEASON_REPEAT_FLOOR;
+      repeatFloored = true;
+    } else {
+      const withinEarlyWindow = input.context.matchday <= EARLY_SEASON_WINDOW_GAMEWEEKS;
+      repeatWeight = withinEarlyWindow ? Math.max(observedShare, EARLY_SEASON_REPEAT_FLOOR) : observedShare;
+      repeatFloored = withinEarlyWindow && EARLY_SEASON_REPEAT_FLOOR > observedShare;
+    }
   }
 
   // ── COMPOSIZIONE FINALE. Ordine dichiarato: moduli in ordine di §9, poi la
@@ -366,7 +423,12 @@ export function opponentLineupDistribution(
   if (repeatWeight !== null) {
     reasonParts.push(
       `più la formazione della giornata precedente, peso ${repeatWeight.toFixed(4)}` +
-        (repeatFloored ? " (floor 10% prime 6 giornate, §8.4 punto 5)" : " (quota di ripetizione osservata)"),
+        (repeatUnmeasured
+          ? " (nessuna coppia di giornate consecutive osservata per questa squadra: la quota di ripetizione " +
+            "non è una misura, pesa il floor 10% in qualunque giornata)"
+          : repeatFloored
+            ? " (floor 10% prime 6 giornate, §8.4 punto 5)"
+            : " (quota di ripetizione osservata)"),
     );
   }
   reasonParts.push(
