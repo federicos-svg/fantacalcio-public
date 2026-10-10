@@ -877,22 +877,21 @@ describe("opponentLineupDistribution — la precedente senza nessuna coppia osse
     });
     const repeatOf = (teamId: string) => behaviourEstimate(teamBehaviourProfile(profile, teamId), "elevenIdenticalToPrevious");
 
-    it("premessa: isolata ha giornate ma zero coppie, e la quota che il profilo le dà è quella della lega, ben sopra 0,5", () => {
+    it("premessa: isolata ha giornate ma zero coppie, e la lega ripete molto: la sua quota NON è l'abitudine della lega", () => {
       const isolata = teamBehaviourProfile(profile, "isolata");
       expect(isolata.gameweeksObserved).toBe(2);
       expect(repeatOf("isolata").observations).toBe(0);
-      expect(repeatOf("isolata").leagueReferenceWeight).toBe(1);
-      expect(repeatOf("isolata").share[0]).toBeCloseTo(repeatOf("isolata").leagueReference[0] as number, 12);
-      // La soglia era 0,8 con l'ancora uniforme (la lega ripete 22 coppie su 22:
-      // (22 + 8·0,5) / (22 + 8) ≈ 0,867). Con l'ancora allo 0,10 (nota del
-      // 2026-10-11) la stessa lega dà (22 + 8·0,10) / (22 + 8) = 0,76: il valore
-      // atteso cambia per effetto di quella decisione. Quello che la premessa
-      // deve dire non è cambiato — la quota in prestito è l'abitudine della
-      // lega, ben sopra 0,5, e SOPRA il 10 % del pavimento — quindi la soglia è
-      // 0,5 come dice il titolo, senza fissare il numero esatto dell'ancora
-      // (che hanno le prove della nota del 2026-10-11, più sotto).
-      expect(repeatOf("isolata").share[0]).toBeGreaterThan(0.5);
-      expect(repeatOf("isolata").share[0]).toBeGreaterThan(EARLY_SEASON_REPEAT_FLOOR);
+      // Fino al 2026-10-10 il profilo le prestava il riferimento di lega per
+      // intero (peso 1), e la prova leggeva «quota in prestito ben sopra 0,5». Dal
+      // 2026-10-11 la squadra tira verso la quota di partenza e il riferimento di
+      // lega, riportato, pesa zero: il valore atteso di questa premessa cambia per
+      // effetto di quella decisione. Che cosa sia diventata la quota (0,10) lo
+      // fissano le prove della sezione 7; qui resta ciò che dà senso al caso: la
+      // LEGA ripete molto (22 coppie su 22), cioè c'è un'abitudine altrui da non
+      // ereditare — il riferimento riportato è ben sopra 0,5 e sopra il pavimento.
+      expect(repeatOf("isolata").leagueReferenceWeight).toBe(0);
+      expect(repeatOf("isolata").leagueReference[0]).toBeGreaterThan(0.5);
+      expect(repeatOf("isolata").leagueReference[0]).toBeGreaterThan(EARLY_SEASON_REPEAT_FLOOR);
       expect(repeatOf("fantasma").observations).toBe(0);
       expect(repeatOf("forte").observations).toBeGreaterThan(0);
     });
@@ -908,7 +907,12 @@ describe("opponentLineupDistribution — la precedente senza nessuna coppia osse
     it("forte, che ha coppie osservate, pesa la quota stimata come sempre", () => {
       const result = run(teamBehaviourProfile(profile, "forte"), 20);
       expect(result.repeatPreviousWeight).toBeCloseTo(repeatOf("forte").share[0] as number, 12);
-      expect(result.repeatPreviousWeight).toBeGreaterThan(0.8);
+      // La soglia era 0,8 con l'ancora uniforme (11 coppie identiche, bersaglio
+      // di squadra = riferimento di lega: ≈ 0,96). Con la squadra ancorata allo
+      // 0,10 (nota del 2026-10-11) la quota è (11 + 4·0,10) / (11 + 4) = 0,76: il
+      // valore atteso cambia per effetto di quella decisione. Resta «alta», ben
+      // sopra il pavimento: la soglia è 0,5.
+      expect(result.repeatPreviousWeight).toBeGreaterThan(0.5);
       expect(result.repeatPreviousFloored).toBe(false);
     });
   });
@@ -921,9 +925,13 @@ describe("opponentLineupDistribution — la precedente senza nessuna coppia osse
 // IL DIFETTO CHE QUESTE PROVE CHIUDONO. Con l'ancora uniforme dello shrink di
 // lega, una squadra con UNA coppia osservata e «non identica» (cioè che aveva
 // cambiato formazione) riceveva una quota di ripetizione ≈ 0,356 — 3,5 volte lo
-// 0,10 di una squadra mai osservata. Tutte le prove sotto vanno dal profilo VERO
-// al peso, su storie sintetiche costruite coppia per coppia: nessun valore è
-// scritto a mano come se il profilo lo avesse prodotto.
+// 0,10 di una squadra mai osservata. La regola di Pico è sulla SQUADRA («cambiare
+// formazione abbassa la fiducia che la ripeta»), quindi le proprietà valgono in
+// OGNI lega, comprese quelle che ripetono molto: la quota di squadra tira verso
+// lo 0,10 e non verso il riferimento di lega (secondo passo della correzione).
+// Tutte le prove sotto vanno dal profilo VERO al peso, su storie sintetiche
+// costruite coppia per coppia: nessun valore è scritto a mano come se il
+// profilo lo avesse prodotto.
 //
 // LA FORMA DELLE STORIE. Ogni squadra in esame ha una sequenza di coppie
 // «identica» / «diversa» fra giornate consecutive (nessun'altra squadra del
@@ -1036,40 +1044,41 @@ describe("opponentLineupDistribution — si parte sempre dal 10 % e si sale solo
     });
   });
 
-  describe("(b) una coppia osservata e «non identica»: il peso non supera il 10 %", () => {
-    // La lega dell'esempio: l'unica coppia di tutta la lega è questa, e non è
-    // identica. Nelle prime 6 giornate il pavimento tiene il peso a 0,10;
-    // dopo, scende sotto.
-    const profile = leagueFromPairs({ [SQUADRA]: ["diversa"] });
+  /** Le leghe in cui si prova, a parità di squadra in esame: da sola, e con un'altra che ripete o cambia. */
+  const LEGHE: ReadonlyArray<readonly [string, Readonly<Record<string, readonly Coppia[]>>]> = [
+    ["la squadra da sola (nessun'altra coppia in lega)", {}],
+    ["gli altri ripetono quasi sempre (con la coppia della squadra: 3 identiche su 5)", { Z: ["identica", "identica", "identica", "diversa"] }],
+    ["gli altri ripetono sempre", { Z: ["identica", "identica", "identica", "identica", "identica"] }],
+    ["gli altri cambiano sempre", { Z: ["diversa", "diversa", "diversa"] }],
+  ];
 
-    it("la quota che il profilo dà è sotto lo 0,10 di chi non è mai stato osservato", () => {
+  describe("(b) una coppia osservata e «non identica»: il peso non supera il 10 %, in OGNI lega", () => {
+    // Nelle prime 6 giornate il pavimento tiene il peso a 0,10; dopo, scende
+    // sotto. E questo vale anche dove la lega ripete molto: la quota di squadra
+    // non passa dal riferimento di lega.
+    it.each(LEGHE)("%s", (_nome, altre) => {
+      const profile = leagueFromPairs({ ...altre, [SQUADRA]: ["diversa"] });
       const estimate = repeatShareOf(profile);
       expect(estimate.observations).toBe(1);
       expect(estimate.counts).toEqual([0, 1]);
       expect(estimate.share[0] as number).toBeLessThanOrEqual(ELEVEN_REPEAT_STARTING_SHARE);
-    });
-
-    it.each(GIORNATE_DENTRO_LA_FINESTRA)("giornata %i, dentro la finestra: il pavimento la tiene a 0,10", (matchday) => {
-      const result = weightOf(profile, matchday);
-      expect(result.repeatPreviousWeight).toBe(0.1);
-      expect(result.repeatPreviousFloored).toBe(true);
-    });
-
-    it.each(GIORNATE_FUORI_DALLA_FINESTRA)("giornata %i, fuori dalla finestra: scende sotto 0,10", (matchday) => {
-      const result = weightOf(profile, matchday);
-      expect(result.repeatPreviousWeight as number).toBeLessThan(0.1);
-      expect(result.repeatPreviousWeight as number).toBeGreaterThan(0);
-      expect(result.repeatPreviousFloored).toBe(false);
+      for (const matchday of GIORNATE_DENTRO_LA_FINESTRA) {
+        const result = weightOf(profile, matchday);
+        expect(result.repeatPreviousWeight, `giornata ${matchday}`).toBe(0.1);
+        expect(result.repeatPreviousFloored, `giornata ${matchday}`).toBe(true);
+      }
+      for (const matchday of GIORNATE_FUORI_DALLA_FINESTRA) {
+        const result = weightOf(profile, matchday);
+        expect(result.repeatPreviousWeight as number, `giornata ${matchday}`).toBeLessThan(0.1);
+        expect(result.repeatPreviousWeight as number, `giornata ${matchday}`).toBeGreaterThan(0);
+        expect(result.repeatPreviousFloored, `giornata ${matchday}`).toBe(false);
+      }
     });
   });
 
-  describe("(c) una coppia osservata e «identica»: il peso supera il 10 %", () => {
-    const leghe: ReadonlyArray<readonly [string, Readonly<Record<string, readonly Coppia[]>>]> = [
-      ["nessun'altra coppia in tutta la lega", { [SQUADRA]: ["identica"] }],
-      ["gli altri non ripetono mai", { [SQUADRA]: ["identica"], Z: ["diversa", "diversa", "diversa"] }],
-    ];
-    it.each(leghe)("%s", (_nome, sequenze) => {
-      const profile = leagueFromPairs(sequenze);
+  describe("(c) una coppia osservata e «identica»: il peso supera il 10 %, in OGNI lega", () => {
+    it.each(LEGHE)("%s", (_nome, altre) => {
+      const profile = leagueFromPairs({ ...altre, [SQUADRA]: ["identica"] });
       const estimate = repeatShareOf(profile);
       expect(estimate.observations).toBe(1);
       expect(estimate.counts).toEqual([1, 0]);
@@ -1084,20 +1093,14 @@ describe("opponentLineupDistribution — si parte sempre dal 10 % e si sale solo
 
   describe("(d) monotonia: una coppia «identica» in più non abbassa mai il peso, una «non identica» in più non lo alza mai", () => {
     // TUTTE le storie di squadra fino a sei coppie (127 sequenze, la vuota
-    // compresa), in tre leghe: la squadra da sola, con una squadra che ripete
-    // quasi sempre, con una che cambia sempre. Si confronta la storia con la
-    // stessa storia più UNA coppia, sulla quota del profilo, sul riferimento di
-    // lega e sul peso della precedente (dentro e fuori dalla finestra delle
-    // prime 6 giornate).
-    //
-    // IL PASSO DA ZERO A UNA COPPIA È COPERTO DA (a), (b), (c) E DAL LIMITE
-    // DICHIARATO QUI SOTTO, non da questo ciclo, per una ragione che non è di
-    // comodo: «identica» alza sempre (0,10 → > 0,10, in qualunque lega), ma
-    // «non identica» da zero coppie scende sotto lo 0,10 solo se la lega non
-    // ripete più del 10 % — vedi il limite. Da una coppia in su vale in ogni
-    // lega, ed è quello che si prova qui: la stima è una media pesata fra
-    // frequenza e riferimento, e il riferimento si muove nello stesso verso
-    // della coppia aggiunta.
+    // compresa), in quattro leghe: la squadra da sola, con una che ripete quasi
+    // sempre, con una che ripete sempre, con una che cambia sempre. Si
+    // confronta la storia con la stessa storia più UNA coppia, sulla quota del
+    // profilo, sul riferimento di lega (che si muove nello stesso verso) e sul
+    // peso della precedente (dentro e fuori dalla finestra delle prime 6
+    // giornate). Il passo da ZERO a una coppia è compreso, in ogni lega: lo
+    // 0,10 dello zero coppie è il punto di partenza da cui «identica» sale e
+    // «non identica» scende, senza eccezioni.
     const sequenzeFinoA = (lunghezza: number): Coppia[][] => {
       let correnti: Coppia[][] = [[]];
       const tutte: Coppia[][] = [[]];
@@ -1107,25 +1110,18 @@ describe("opponentLineupDistribution — si parte sempre dal 10 % e si sale solo
       }
       return tutte;
     };
-    const leghe: ReadonlyArray<readonly [string, Readonly<Record<string, readonly Coppia[]>>]> = [
-      ["la squadra da sola", {}],
-      ["con una squadra che ripete quasi sempre", { Z: ["identica", "identica", "identica", "diversa"] }],
-      ["con una squadra che cambia sempre", { Z: ["diversa", "diversa"] }],
-    ];
     const EPS = 1e-12;
 
-    it.each(leghe)("%s", (_nome, altre) => {
+    it.each(LEGHE)("%s", (nomeLega, altre) => {
       let confronti = 0;
       for (const base of sequenzeFinoA(6)) {
         const prima = leagueFromPairs({ ...altre, [SQUADRA]: base });
         const pesiPrima = [3, 20].map((matchday) => weightOf(prima, matchday).repeatPreviousWeight as number);
         for (const coppia of ["identica", "diversa"] as const) {
-          // Da zero coppie, «non identica» ha il suo esito dichiarato (limite).
-          if (base.length === 0 && coppia === "diversa") continue;
           const dopo = leagueFromPairs({ ...altre, [SQUADRA]: [...base, coppia] });
           const verso = coppia === "identica" ? 1 : -1;
           const spostamento = (a: number, b: number) => verso * (b - a);
-          const etichetta = `${[...base, coppia].join(",")} (${_nome})`;
+          const etichetta = `${[...base, coppia].join(",") || "(vuota)"} (${nomeLega})`;
           expect(
             spostamento(repeatShareOf(prima).share[0] as number, repeatShareOf(dopo).share[0] as number),
             `quota: ${etichetta}`,
@@ -1145,14 +1141,13 @@ describe("opponentLineupDistribution — si parte sempre dal 10 % e si sale solo
           confronti += 1;
         }
       }
-      // 127 sequenze x 2 coppie, meno la vuota con «diversa»: la prova non è
-      // vuota per una svista nel generatore.
-      expect(confronti).toBe(127 * 2 - 1);
+      // 127 sequenze x 2 coppie: la prova non è vuota per una svista nel generatore.
+      expect(confronti).toBe(127 * 2);
     });
   });
 
   describe("(e) i numeri dell'esempio: una lega con una sola coppia, «non identica»", () => {
-    it("prima ≈ 0,356 (uniforme), dopo ≈ 0,071 (ancora al 10 %): sotto lo 0,10 di chi non è mai stato osservato", () => {
+    it("prima ≈ 0,356 (uniforme), dopo 0,08 (squadra ancorata al 10 %): sotto lo 0,10 di chi non è mai stato osservato", () => {
       // IL CALCOLO DI PRIMA, scritto a mano: riferimento (0 + 8·0,5) / (1 + 8) ≈
       // 0,444 e squadra (0 + 4·0,444) / (1 + 4) ≈ 0,356, cioè 3,5 volte lo 0,10.
       const riferimentoPrima = (0 + 8 * 0.5) / (1 + 8);
@@ -1161,54 +1156,89 @@ describe("opponentLineupDistribution — si parte sempre dal 10 % e si sale solo
       expect(quotaPrima).toBeCloseTo(0.3556, 4);
       expect(quotaPrima / 0.1).toBeGreaterThan(3.5);
 
-      // IL CALCOLO DI ADESSO, dal profilo vero: (0 + 8·0,10) / (1 + 8) ≈ 0,0889 e
-      // (0 + 4·0,0889) / (1 + 4) ≈ 0,0711.
+      // IL CALCOLO DI ADESSO, dal profilo vero. Il riferimento di lega, riportato
+      // e non usato: (0 + 8·0,10) / (1 + 8) ≈ 0,0889. La squadra, ancorata allo
+      // 0,10 con k = 4: (0 + 4·0,10) / (1 + 4) = 0,08.
       const profile = leagueFromPairs({ [SQUADRA]: ["diversa"] });
       const estimate = repeatShareOf(profile);
       expect(estimate.leagueReference[0] as number).toBeCloseTo((0 + 8 * 0.1) / (1 + 8), 12);
       expect(estimate.leagueReference[0] as number).toBeCloseTo(0.0889, 4);
-      expect(estimate.share[0] as number).toBeCloseTo((0 + 4 * ((0 + 8 * 0.1) / (1 + 8))) / (1 + 4), 12);
-      expect(estimate.share[0] as number).toBeCloseTo(0.0711, 4);
+      expect(estimate.share[0] as number).toBeCloseTo((0 + 4 * 0.1) / (1 + 4), 12);
+      expect(estimate.share[0] as number).toBeCloseTo(0.08, 12);
       expect(estimate.share[0] as number).toBeLessThanOrEqual(0.1);
+      // I campi dicono ciò che è stato usato: l'ancora, non la lega.
+      expect(estimate.leagueReferenceWeight).toBe(0);
+      expect(estimate.teamAnchor).toEqual([0.1, 0.9]);
+      expect(estimate.teamAnchorWeight as number).toBeCloseTo(4 / 5, 12);
+      expect(estimate.basis).toBe("osservazioni-e-quota-di-partenza");
 
       // Il peso, fuori dalla finestra: la quota stessa; dentro: il pavimento.
-      expect(weightOf(profile, 20).repeatPreviousWeight as number).toBeCloseTo(0.0711, 4);
+      expect(weightOf(profile, 20).repeatPreviousWeight as number).toBeCloseTo(0.08, 12);
       expect(weightOf(profile, 20).repeatPreviousWeight as number).toBeLessThanOrEqual(0.1);
       expect(weightOf(profile, 3).repeatPreviousWeight).toBe(0.1);
     });
 
-    it("e con NESSUNA coppia in tutta la lega il riferimento è proprio l'ancora: 0,10 / 0,90", () => {
+    it("e con NESSUNA coppia in tutta la lega il riferimento è proprio l'ancora: 0,10 / 0,90; la squadra senza coppie la prende intera", () => {
       const profile = leagueFromPairs({ [SQUADRA]: [] });
       const estimate = repeatShareOf(profile);
       expect(estimate.leagueObservations).toBe(0);
       expect(estimate.leagueReference[0] as number).toBeCloseTo(0.1, 12);
       expect(estimate.leagueReference[1] as number).toBeCloseTo(0.9, 12);
+      expect(estimate.share).toEqual([0.1, 0.9]);
+      expect(estimate.basis).toBe("quota-di-partenza");
+      expect(estimate.teamAnchorWeight).toBe(1);
+    });
+
+    it("la quota di una squadra è (identiche + k·0,10) / (coppie + k) per ogni storia fino a sei coppie, in ogni lega", () => {
+      // La forma chiusa, controllata su tutte le storie e su tutte le leghe:
+      // dipende solo dalla squadra, mai dalle altre.
+      const sequenze: Coppia[][] = [[]];
+      let correnti: Coppia[][] = [[]];
+      for (let n = 1; n <= 6; n += 1) {
+        correnti = correnti.flatMap((s): Coppia[][] => [[...s, "identica"], [...s, "diversa"]]);
+        sequenze.push(...correnti);
+      }
+      for (const [nomeLega, altre] of LEGHE) {
+        for (const sequenza of sequenze) {
+          const estimate = repeatShareOf(leagueFromPairs({ ...altre, [SQUADRA]: sequenza }));
+          const identiche = sequenza.filter((c) => c === "identica").length;
+          expect(estimate.share[0] as number, `${sequenza.join(",") || "(vuota)"} (${nomeLega})`).toBeCloseTo(
+            (identiche + 4 * 0.1) / (sequenza.length + 4),
+            12,
+          );
+        }
+      }
     });
   });
 
-  describe("limite dichiarato: il passo da zero a una coppia «non identica» dipende dalla lega", () => {
-    // NON È UNA REGOLA VOLUTA, È UNA CONSEGUENZA DICHIARATA. La decisione del
-    // 2026-10-11 sposta l'ancora di LEGA; `k = 4` resta quello di §8.4, e con UNA
-    // coppia la squadra prende 4/5 del riferimento di lega. Se la lega ripete
-    // molto, quel riferimento è alto e una coppia «non identica» pesa più dello
-    // 0,10 di chi non ha nessuna coppia (che prende il pavimento per la nota
-    // del 2026-10-10, non il riferimento). Cambiare questo vuole un'altra
-    // decisione (ancorare anche lo shrink di SQUADRA allo 0,10, o far valere il
-    // pavimento da qualche coppia in su): qui si fissa solo che oggi è così, così
-    // chi lo cambia lo cambia sapendolo.
-    it("in una lega che ripete quasi sempre, UNA coppia «non identica» pesa più dello 0,10 dello zero coppie", () => {
-      const profile = leagueFromPairs({ [SQUADRA]: ["diversa"], Z: ["identica", "identica", "identica", "diversa"] });
+  describe("il limite della prima stesura non c'è più: in una lega che ripete molto, UNA coppia «non identica» pesa come altrove", () => {
+    // Nella prima stesura della correzione (solo l'ancora di LEGA) una squadra con
+    // una coppia «non identica» prendeva 4/5 del riferimento di lega, e in una lega
+    // che ripete molto pesava più dello 0,10 di chi non ha coppie (3 identiche su 5
+    // in lega: ≈ 0,23). Qui si fissa che non è più così: la quota di squadra non
+    // passa dal riferimento di lega, che si riporta e pesa zero.
+    it("la lega ripete molto, la squadra con una coppia «non identica» pesa 0,08 e quella con zero coppie 0,10", () => {
+      const altre: Readonly<Record<string, readonly Coppia[]>> = { Z: ["identica", "identica", "identica", "diversa"] };
+      const profile = leagueFromPairs({ ...altre, [SQUADRA]: ["diversa"] });
       const estimate = repeatShareOf(profile);
-      // Una coppia osservata: la squadra prende k / (n + k) = 4/5 del riferimento
-      // di lega, e quel riferimento (3 coppie identiche su 5 in lega) è ben oltre
-      // lo 0,10. Nessun numero dell'ancora è scritto qui: la prova dice la forma.
-      expect(estimate.leagueReferenceWeight).toBeCloseTo(4 / 5, 12);
-      expect(estimate.share[0] as number).toBeCloseTo((4 / 5) * (estimate.leagueReference[0] as number), 12);
-      expect(estimate.leagueReference[0] as number).toBeGreaterThan(0.1);
-      expect(weightOf(profile, 20).repeatPreviousWeight as number).toBeGreaterThan(0.1);
-      // E la stessa squadra con ZERO coppie, nella stessa lega, pesa 0,10.
-      const senzaCoppie = leagueFromPairs({ [SQUADRA]: [], Z: ["identica", "identica", "identica", "diversa"] });
+      // La lega ripete molto, e lo dice: il riferimento riportato è ben sopra lo 0,10...
+      expect(estimate.leagueReference[0] as number).toBeGreaterThan(0.2);
+      // ...ma non entra nella stima della squadra.
+      expect(estimate.leagueReferenceWeight).toBe(0);
+      expect(estimate.share[0] as number).toBeCloseTo(0.08, 12);
+      expect(weightOf(profile, 20).repeatPreviousWeight as number).toBeCloseTo(0.08, 12);
+      expect(weightOf(profile, 20).repeatPreviousWeight as number).toBeLessThanOrEqual(0.1);
+      // La stessa squadra con ZERO coppie, nella stessa lega, pesa 0,10.
+      const senzaCoppie = leagueFromPairs({ ...altre, [SQUADRA]: [] });
+      expect(repeatShareOf(senzaCoppie).share).toEqual([0.1, 0.9]);
       expect(weightOf(senzaCoppie, 20).repeatPreviousWeight).toBe(0.1);
+    });
+
+    it("la stessa storia di squadra dà la stessa quota in leghe diverse", () => {
+      const quote = LEGHE.map(([, altre]) =>
+        repeatShareOf(leagueFromPairs({ ...altre, [SQUADRA]: ["diversa", "identica"] })).share[0],
+      );
+      for (const quota of quote) expect(quota).toBe(quote[0]);
     });
   });
 });

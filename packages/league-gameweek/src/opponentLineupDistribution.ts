@@ -103,18 +103,28 @@
 //    UNA coppia osservata e «non identica» (cioè che aveva cambiato formazione)
 //    riceveva dal profilo una quota di ripetizione ≈ 0,356 contro lo 0,10 di
 //    una squadra mai osservata — la prova contraria pesava 3,5 volte l'assenza
-//    di prove. È stata corretta in `leagueBehaviourProfile.ts` (l'ancora esterna
-//    di lega di «ripete la formazione» è [0,10, 0,90], non l'uniforme), e questo
-//    file NON CAMBIA UNA RIGA DI CALCOLO: legge la stessa `share[0]`, solo che
-//    ora è coerente con la regola «si parte dal 10 % e si sale se ripete».
-//    Conseguenze, per chi legge i pesi: zero coppie → 0,10 (invariato, in
-//    qualunque giornata); una coppia «non identica» → ≤ 0,10 (nelle prime 6
-//    giornate il pavimento lo tiene a 0,10, `repeatPreviousFloored` vero; dopo,
-//    scende sotto, ≈ 0,071 nell'esempio — a meno che la lega non ripeta molto:
-//    il limite dichiarato nella stessa nota di `leagueBehaviourProfile.ts`); una
-//    coppia «identica» → > 0,10, in qualunque lega. Il pavimento non ha più un
+//    di prove. È stata corretta in `leagueBehaviourProfile.ts`, in due passi (la
+//    nota «AGGIUNTA DEL 2026-10-11» di quel file li racconta): l'ancora di LEGA
+//    di «ripete la formazione» è [0,10, 0,90] e, soprattutto, la stima di
+//    SQUADRA tira verso [0,10, 0,90] e non verso il riferimento di lega, quindi
+//    non dipende da com'è fatta la lega. Questo file NON CAMBIA UNA RIGA DI
+//    CALCOLO: legge la stessa `share[0]`, solo che ora è coerente con la regola
+//    «si parte dal 10 % e si sale se ripete». Conseguenze, per chi legge i
+//    pesi, IN OGNI LEGA: zero coppie → 0,10 (in qualunque giornata); una coppia
+//    «non identica» → 0,08 di quota, quindi ≤ 0,10 (nelle prime 6 giornate il
+//    pavimento la tiene a 0,10, `repeatPreviousFloored` vero; dopo, pesa 0,08);
+//    una coppia «identica» → 0,28, quindi > 0,10. Il pavimento non ha più un
 //    letterale suo: `EARLY_SEASON_REPEAT_FLOOR` discende da
 //    `ELEVEN_REPEAT_STARTING_SHARE`, l'unico posto in cui vive il 10 %.
+//
+//    IL CONTROLLO `observations === 0` RESTA, E NON È PIÙ L'UNICO A TENERE LO
+//    0,10. Nella catena reale una squadra senza coppie ha già per quota la
+//    quota di partenza (0,10), quindi il pavimento e il controllo danno lo
+//    stesso numero. Il controllo resta perché questo file legge un profilo
+//    che può venire da fuori (una trascrizione, un profilo scritto a mano) e
+//    perché è lui a dire `repeatPreviousFloored`: «il peso è il pavimento, non
+//    una quota misurata». Non l'ho tolto: toglierlo sarebbe un cambiamento di
+//    comportamento per chi passa una quota in prestito, e nessuno l'ha chiesto.
 //
 // ── CHE COSA QUESTO FILE NON FA, E PERCHÉ NON LO INVENTA ────────────────────
 //
@@ -394,12 +404,12 @@ export function opponentLineupDistribution(
           "candidate della distribuzione senza che nessuno se ne accorga.",
       );
     }
-    // ZERO COPPIE OSSERVATE: la `share` qui sopra è il riferimento di lega
-    // preso in prestito per intero (0,10 se nessuna squadra ha una coppia, la
-    // quota di ripetizione degli altri altrimenti), non una misura di QUESTA
-    // squadra — e il controllo è sul conteggio della stima, non su
-    // `gameweeksObserved`: una squadra con molte giornate ma tutte non
-    // consecutive ha `observations === 0` su questa quantità. Il confronto è
+    // ZERO COPPIE OSSERVATE: la `share` qui sopra non è una misura di QUESTA
+    // squadra (dal 2026-10-11 il profilo le dà la quota di partenza, 0,10; prima
+    // le dava il riferimento di lega, e un profilo che viene da fuori può ancora
+    // portare una quota in prestito). Il controllo è sul conteggio della
+    // stima, non su `gameweeksObserved`: una squadra con molte giornate ma
+    // tutte non consecutive ha `observations === 0` su questa quantità. Il confronto è
     // `=== 0` e non `!(> 0)`: un campo assente non si legge come «nessuna
     // osservazione», resta il comportamento di prima (vedi la nota in testa).
     repeatUnmeasured = repeatEstimate.observations === 0;
