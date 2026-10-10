@@ -105,7 +105,9 @@
 //    tutto il file — quella di §8.4, che era già scritta per i moduli — invece
 //    di una formula per le distribuzioni e una per i tassi, con due ancore
 //    scelte separatamente e due modi di sbagliare. L'ancora esterna è quindi
-//    sempre la stessa cosa: uniforme sulle categorie dichiarate.
+//    la stessa cosa per ogni quantità: uniforme sulle categorie dichiarate —
+//    con UNA sola eccezione, `elevenIdenticalToPrevious`, che dal 2026-10-11
+//    ha un'ancora sua (nota «AGGIUNTA DEL 2026-10-11» qui sotto, dopo c).
 // b) I DUE PESI VENGONO DA §8.4 E NON LI SCELGO IO: `TEAM_PSEUDO_GAMEWEEKS = 4`
 //    (k) e `LEAGUE_PSEUDO_GAMEWEEKS = 8` (k'), in giornate equivalenti — quattro
 //    giornate per fidarsi di una squadra invece che della lega, e una giornata
@@ -115,7 +117,60 @@
 //    PRECISA: a inizio stagione anche la LEGA ha pochi dati, e una squadra senza
 //    osservazioni ereditava un riferimento che era a sua volta rumore. Con
 //    l'ancora uniforme il caso «nessuno ha ancora giocato» dà l'uniforme, che è
-//    la risposta giusta a «non lo so» e non uno zero travestito.
+//    la risposta giusta a «non lo so» e non uno zero travestito. (Vale per ogni
+//    quantità tranne `elevenIdenticalToPrevious`: per quella, «non lo so» non è
+//    0,5 ma la quota da cui si parte — vedi la nota che segue.)
+//
+//    AGGIUNTA DEL 2026-10-11 — L'ANCORA DI «RIPETE LA FORMAZIONE» È IL 10 %, NON
+//    L'UNIFORME (decisione di Pico, in modale, 2026-10-11, alla domanda «Correggo:
+//    si parte sempre dal 10% e si sale solo se l'avversario ripete davvero la
+//    formazione?»: «Sì, correggi», con la motivazione «Cambiare formazione
+//    abbassa la fiducia che la ripeta, ripeterla la alza. La regola resta la
+//    stessa per tutte le giornate.»; il resto — dove vive il numero, il nome, la
+//    forma dell'eccezione — è scelta tecnica, contestabile; ciò che sta sopra
+//    resta com'era, tranne i due richiami che rimandano qui, in a) e in c)). Il
+//    DIFETTO: con ancora uniforme e `k' = 8`, una lega con UNA sola coppia
+//    osservata e «non identica» dava un riferimento (0 + 8·0,5) / (1 + 8) ≈ 0,444
+//    per «identico», e la squadra con quella coppia (0 + 4·0,444) / (1 + 4) ≈
+//    0,356 — cioè un avversario che ha CAMBIATO formazione pesava la ripetizione
+//    3,5 volte uno mai osservato (0,10, `EARLY_SEASON_REPEAT_FLOOR` di
+//    `opponentLineupDistribution.ts`, dal commit 6875a7e): una prova contraria
+//    valeva più dell'assenza di prove. Ora, per la SOLA quantità
+//    `elevenIdenticalToPrevious`, l'ancora esterna dello shrink di LEGA è
+//    [`ELEVEN_REPEAT_STARTING_SHARE`, 1 − `ELEVEN_REPEAT_STARTING_SHARE`] =
+//    [0,10, 0,90] invece di [0,5, 0,5]: lo stesso esempio dà (0 + 8·0,10) /
+//    (1 + 8) ≈ 0,089 per la lega e (0 + 4·0,089) / (1 + 4) ≈ 0,071 per la
+//    squadra, sotto lo 0,10 di chi non è mai stato osservato. Una coppia
+//    «identica» alza (1 coppia identica, nessun'altra: lega 0,20, squadra
+//    0,36), una «non identica» abbassa, e aggiungere una coppia a una squadra
+//    che ne ha già almeno una non inverte mai il verso: «identica» non abbassa
+//    la stima, «non identica» non la alza (la stima è una media pesata fra
+//    frequenza e riferimento, e il riferimento di lega si muove nello stesso
+//    verso della coppia aggiunta: provato su tutte le storie fino a sei coppie
+//    in `opponentLineupDistribution.test.ts`, sezione 7).
+//
+//    UN LIMITE, DICHIARATO E NON RISOLTO QUI. «Una coppia non identica pesa
+//    ≤ 0,10» vale nella lega dell'esempio e in ogni lega che non ripete più del
+//    10 %: in una lega che ripete molto, UNA coppia «non identica» prende
+//    comunque `k / (n + k)` = 4/5 del riferimento di lega, che è alto, e può
+//    pesare più dello 0,10 che una squadra con ZERO coppie riceve dal
+//    pavimento (nota del 2026-10-10). È la conseguenza di spostare l'ancora di
+//    LEGA e non quella di SQUADRA, che è ciò che la decisione dice; ancorare
+//    anche lo shrink di squadra allo 0,10, o far valere il pavimento da
+//    qualche coppia in su, cambierebbe un altro numero del metodo e vuole un'altra
+//    decisione. Fissato da una prova, così chi lo cambia lo cambia sapendolo.
+//
+//    `k`, `k'` e le altre tre quantità non cambiano: restano l'uniforme di
+//    prima, bit a bit.
+//
+//    IL 10 % VIVE IN UN POSTO SOLO. `ELEVEN_REPEAT_STARTING_SHARE` è definito
+//    qui, e `EARLY_SEASON_REPEAT_FLOOR` (il pavimento di §8.4 punto 5, in
+//    `opponentLineupDistribution.ts`) NE DISCENDE invece di ripetere il
+//    letterale: la direzione dell'import impone la scelta, perché la
+//    distribuzione importa il profilo e non viceversa. Il pavimento tiene la
+//    sua funzione (prime 6 giornate, e zero coppie in qualunque giornata); è
+//    il valore a non poter divergere. NON è un numero nuovo del metodo: 0,10 è
+//    già quello del disegno e della nota del 2026-10-10.
 // d) LE GIORNATE CONSECUTIVE SONO CONSECUTIVE PER NUMERO, non «le prossime che
 //    ho in mano». Le quantità che confrontano una giornata con la precedente
 //    (l'undici ripetuto, il modulo dopo una sconfitta) contano un'occasione solo
@@ -190,10 +245,24 @@ export const LEAGUE_BEHAVIOUR_MARK =
 export const TEAM_PSEUDO_GAMEWEEKS = 4 as const;
 
 /**
- * K' — le giornate equivalenti con cui l'uniforme pesa dentro il riferimento
- * della lega. §8.4, testuale: `k' = 8`, «cioè una giornata di tutte le squadre».
+ * K' — le giornate equivalenti con cui l'ANCORA ESTERNA pesa dentro il
+ * riferimento della lega (l'uniforme, salvo dove una nota dice altrimenti:
+ * `elevenIdenticalToPrevious`). §8.4, testuale: `k' = 8`, «cioè una giornata di
+ * tutte le squadre».
  */
 export const LEAGUE_PSEUDO_GAMEWEEKS = 8 as const;
+
+/**
+ * LA QUOTA DA CUI SI PARTE per «ripete la formazione»: 0,10, e si sale solo se
+ * l'avversario ripete davvero. È l'ancora esterna dello shrink di lega della
+ * sola quantità `elevenIdenticalToPrevious` (decisione di Pico, 2026-10-11:
+ * nota «AGGIUNTA DEL 2026-10-11» in testa al file) E, tramite
+ * `EARLY_SEASON_REPEAT_FLOOR` di `opponentLineupDistribution.ts`, il pavimento
+ * del peso della formazione precedente: due usi, UN SOLO letterale, qui. Scelta
+ * tecnica, contestabile: vive in questo file perché `opponentLineupDistribution`
+ * importa il profilo e non viceversa.
+ */
+export const ELEVEN_REPEAT_STARTING_SHARE = 0.1 as const;
 
 // ─── LA FOTOGRAFIA DI GIORNATA (§8.2), COME ARRIVA QUI ───────────────────────
 
@@ -381,6 +450,14 @@ export interface BehaviourQuantity {
   readonly label: string;
   /** Che cosa è UN'OCCASIONE per questa quantità, cioè il denominatore. */
   readonly trial: string;
+  /**
+   * L'ANCORA ESTERNA dello shrink di LEGA, quando non è l'uniforme. Assente =
+   * uniforme sulle categorie (nota a). Se presente ha la lunghezza di
+   * `categories`, somma 1, e la posizione `i` è la categoria `i`: stessa
+   * convenzione d'ordine, stessa guardia nelle prove. Oggi l'ha solo
+   * `elevenIdenticalToPrevious` (nota «AGGIUNTA DEL 2026-10-11»).
+   */
+  readonly leagueAnchor?: readonly number[];
 }
 
 export const BEHAVIOUR_QUANTITIES: readonly BehaviourQuantity[] = [
@@ -397,6 +474,8 @@ export const BEHAVIOUR_QUANTITIES: readonly BehaviourQuantity[] = [
       "Se gli undici nomi in campo (portiere più titolari, come insieme) coincidono con quelli della " +
       "giornata immediatamente precedente.",
     trial: "Una coppia di giornate confermate con numeri consecutivi.",
+    // Posizione 0 = «identico», 1 = «diverso» (l'ordine di `categories`).
+    leagueAnchor: [ELEVEN_REPEAT_STARTING_SHARE, 1 - ELEVEN_REPEAT_STARTING_SHARE],
   },
   {
     id: "moduleChangedAfterDefeat",
@@ -441,7 +520,10 @@ export interface BehaviourEstimate {
   readonly notMeasurable: number;
   /** LA STIMA: shrink dei conteggi verso il riferimento di lega. Somma 1. */
   readonly share: readonly number[];
-  /** Il riferimento di lega usato: shrink dei conteggi di tutti verso l'uniforme. */
+  /**
+   * Il riferimento di lega usato: shrink dei conteggi di tutti verso l'ancora
+   * esterna (l'uniforme, tranne `elevenIdenticalToPrevious`).
+   */
   readonly leagueReference: readonly number[];
   readonly leagueCounts: readonly number[];
   readonly leagueObservations: number;
@@ -510,7 +592,7 @@ function shrinkToPrior(
   return counts.map((count, i) => (count + pseudo * (prior[i] as number)) / denominator);
 }
 
-/** L'ancora esterna: uniforme sulle categorie dichiarate (nota a). */
+/** L'ancora esterna DI DEFAULT: uniforme sulle categorie dichiarate (nota a). */
 function uniform(size: number): number[] {
   return new Array<number>(size).fill(1 / size);
 }
@@ -822,9 +904,10 @@ export function leagueBehaviourProfile(input: LeagueBehaviourInput): LeagueBehav
   }
 
   // IL RIFERIMENTO DELLA LEGA: conteggi di tutte le squadre, shrinkati verso
-  // l'uniforme (nota c). Le somme scorrono in ordine di id, così due chiamanti
-  // che dichiarano le stesse squadre in ordine diverso sommano gli stessi
-  // numeri nella stessa sequenza.
+  // l'ancora esterna della quantità — l'uniforme (nota c), tranne dove la
+  // definizione ne dichiara una sua (nota «AGGIUNTA DEL 2026-10-11»). Le somme
+  // scorrono in ordine di id, così due chiamanti che dichiarano le stesse
+  // squadre in ordine diverso sommano gli stessi numeri nella stessa sequenza.
   const reference: LeagueReferenceEstimate[] = [];
   const referenceShare = new Map<BehaviourQuantityId, number[]>();
   const referenceCounts = new Map<BehaviourQuantityId, number[]>();
@@ -838,7 +921,8 @@ export function leagueBehaviourProfile(input: LeagueBehaviourInput): LeagueBehav
       }
     }
     const observations = totals.reduce((sum, value) => sum + value, 0);
-    const share = shrinkToPrior(totals, observations, uniform(totals.length), LEAGUE_PSEUDO_GAMEWEEKS);
+    const anchor = quantity.leagueAnchor ?? uniform(totals.length);
+    const share = shrinkToPrior(totals, observations, anchor, LEAGUE_PSEUDO_GAMEWEEKS);
     referenceCounts.set(quantity.id, totals);
     referenceObservations.set(quantity.id, observations);
     referenceShare.set(quantity.id, share);
@@ -882,7 +966,8 @@ export function leagueBehaviourProfile(input: LeagueBehaviourInput): LeagueBehav
             ? ` (${tally.unconfirmed} lette ma non confermate, tenute fuori)`
             : "") +
           `: questo non è un profilo, è il RIFERIMENTO DELLA LEGA dichiarato come tale. Il riferimento è a ` +
-          `sua volta uno shrink dei conteggi di tutte le squadre verso l'uniforme, con peso ` +
+          `sua volta uno shrink dei conteggi di tutte le squadre verso l'ancora esterna (l'uniforme; per ` +
+          `«ripete la formazione», il ${Math.round(ELEVEN_REPEAT_STARTING_SHARE * 100)} %), con peso ` +
           `${LEAGUE_PSEUDO_GAMEWEEKS} giornate equivalenti. Storico dichiarato: ${provenance}.`
         : `${LEAGUE_BEHAVIOUR_MARK}. ${tally.confirmed} giornate confermate osservate per ${teamId}` +
           (tally.unconfirmed > 0
@@ -890,8 +975,10 @@ export function leagueBehaviourProfile(input: LeagueBehaviourInput): LeagueBehav
             : "") +
           `. Ogni stima è uno shrink dei conteggi verso il riferimento di lega con peso ` +
           `${TEAM_PSEUDO_GAMEWEEKS} giornate equivalenti (§8.4), e il riferimento è a sua volta uno shrink ` +
-          `verso l'uniforme con peso ${LEAGUE_PSEUDO_GAMEWEEKS}. I numeri dicono CHE COSA è stato ` +
-          `schierato: nessuno di essi dice perché. Storico dichiarato: ${provenance}.`;
+          `verso l'ancora esterna (l'uniforme; per «ripete la formazione», il ` +
+          `${Math.round(ELEVEN_REPEAT_STARTING_SHARE * 100)} %) con peso ${LEAGUE_PSEUDO_GAMEWEEKS}. ` +
+          `I numeri dicono CHE COSA è stato schierato: nessuno di essi dice perché. ` +
+          `Storico dichiarato: ${provenance}.`;
     return {
       teamId,
       gameweeksObserved: tally.confirmed,

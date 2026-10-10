@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 
 import {
   BEHAVIOUR_QUANTITIES,
+  ELEVEN_REPEAT_STARTING_SHARE,
   LEAGUE_BEHAVIOUR_MARK,
   LEAGUE_PSEUDO_GAMEWEEKS,
   TEAM_PSEUDO_GAMEWEEKS,
@@ -849,5 +850,66 @@ describe("il contratto dell'uscita", () => {
     expect(codice).not.toMatch(/\bDate\b/);
     expect(codice).not.toMatch(/\bMath\.random\b/);
     expect(codice).not.toMatch(/\bperformance\.now\b/);
+  });
+});
+
+// ─── 9. L'ANCORA DI LEGA DI «RIPETE LA FORMAZIONE» (decisione del 2026-10-11) ─
+//
+// Per la SOLA quantità `elevenIdenticalToPrevious` l'ancora esterna dello shrink
+// di lega è [0,10, 0,90] e non l'uniforme (nota «AGGIUNTA DEL 2026-10-11» in
+// testa al modulo). Le prove che ne misurano gli EFFETTI sul peso della
+// formazione precedente (zero coppie, una coppia «non identica», una «identica»,
+// monotonia, i numeri dell'esempio) stanno in `opponentLineupDistribution.test.ts`,
+// dove il peso si calcola; qui stanno la FORMA dell'ancora e il suo CONFINE.
+
+describe("l'ancora di lega di «ripete la formazione»: definita bene, e solo per lei", () => {
+  it("l'ancora ha le categorie della quantità, somma 1, e la massa dello 0,10 sta su «identico»", () => {
+    const quantity = BEHAVIOUR_QUANTITIES.find((q) => q.id === "elevenIdenticalToPrevious");
+    expect(quantity?.leagueAnchor).toBeDefined();
+    const anchor = quantity?.leagueAnchor as readonly number[];
+    expect(anchor).toHaveLength((quantity?.categories ?? []).length);
+    expect(anchor.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
+    // L'indice si cerca per ETICHETTA, non si assume: invertire l'ordine di
+    // `categories` senza toccare l'ancora ribalterebbe il significato dello 0,10
+    // (sarebbe il 10 % di «diverso»), e nessun'altra prova lo direbbe.
+    const identico = (quantity?.categories ?? []).indexOf("identico");
+    expect(identico).toBeGreaterThanOrEqual(0);
+    expect(anchor[identico]).toBe(ELEVEN_REPEAT_STARTING_SHARE);
+    expect(ELEVEN_REPEAT_STARTING_SHARE).toBe(0.1);
+  });
+
+  it("le altre grandezze restano uniformi: nessuna ha un'ancora sua, e il riferimento è (conteggi + k'/n) / (occasioni + k')", () => {
+    // La prova che il confine della decisione regge: l'ancora [0,10, 0,90] è
+    // di UNA quantità. Si controlla su due storie diverse e sulla lega vuota
+    // (tutte le righe non confermate: zero occasioni ovunque), perché è lì, a
+    // zero conteggi, che l'ancora si vede da sola.
+    const storie: ReadonlyArray<readonly [string, readonly ObservedLeagueGameweek[]]> = [
+      ["sei giornate", season(17, { gameweeks: 6 })],
+      ["stagione piena", season(5)],
+      ["lega vuota", season(3, { gameweeks: 1, unconfirmed: TEAMS })],
+    ];
+    for (const [nome, gameweeks] of storie) {
+      const profile = profileOf(gameweeks);
+      for (const quantity of BEHAVIOUR_QUANTITIES) {
+        if (quantity.id === "elevenIdenticalToPrevious") continue;
+        expect(quantity.leagueAnchor, `${nome}: ${quantity.id} dichiara un'ancora sua`).toBeUndefined();
+        const row = profile.reference.find((r) => r.quantity === quantity.id);
+        expect(row).toBeDefined();
+        const size = quantity.categories.length;
+        for (let c = 0; c < size; c += 1) {
+          const atteso =
+            ((row?.counts[c] as number) + LEAGUE_PSEUDO_GAMEWEEKS / size) /
+            ((row?.observations as number) + LEAGUE_PSEUDO_GAMEWEEKS);
+          expect(row?.share[c] as number, `${nome}: ${quantity.id}[${c}]`).toBeCloseTo(atteso, 12);
+        }
+      }
+    }
+    // E nella lega vuota le altre sono ESATTAMENTE l'uniforme.
+    const vuota = profileOf(storie[2]?.[1] as readonly ObservedLeagueGameweek[]);
+    for (const row of vuota.reference) {
+      if (row.quantity === "elevenIdenticalToPrevious") continue;
+      expect(row.observations).toBe(0);
+      expect(row.share).toEqual(row.categories.map(() => 1 / row.categories.length));
+    }
   });
 });
