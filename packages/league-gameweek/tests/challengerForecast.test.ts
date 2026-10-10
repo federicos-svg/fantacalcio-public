@@ -2,11 +2,13 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   CHALLENGER_FORECAST_MARK,
+  DEFAULT_CHALLENGER_FAMILIES,
   DEFAULT_OPPONENT_HALF_LIFE_GAMEWEEKS,
   DEFAULT_PLAYER_HALF_LIFE_GAMEWEEKS,
   LEAGUE_PRIOR_GAMEWEEKS,
   OPPONENT_PRIOR_GAMEWEEKS,
   type AppearanceEvents,
+  type ChallengerFamilies,
   type ChallengerForecast,
   type ExPostCeilingInput,
   type NoVoteKind,
@@ -476,12 +478,14 @@ describe("motore sfidante — ogni famiglia si può spegnere, e spenta non resta
     // stessa distribuzione, stessi eventi. Ciò che resta diverso è solo la
     // targa, che DEVE restare diversa: il numero è lo stesso, chi l'ha fatto no.
     //
-    // GLI INTERRUTTORI SONO QUATTRO, NON PIÙ DUE, e vanno spenti tutti: quando
+    // GLI INTERRUTTORI SONO TRE, NON PIÙ DUE, e vanno spenti tutti: quando
     // i minuti e i gol attesi sono diventati due famiglie, questa prova ha
     // smesso di spegnere tutto ciò che c'era. Il numero non cambiava —
     // `signalHistory` non porta segnali di partita, quindi le due famiglie
     // nuove non avevano niente da mangiare — ma `familiesOn` sì, ed è giusto
     // che sia così: un interruttore dichiara un PERMESSO, non un'osservazione.
+    // (Erano quattro finché `opponentHabits` non è stata tolta: non era una
+    // famiglia, e a interruttore spento o acceso non spostava un numero.)
     const history = sealed(signalHistory(GAMEWEEKS_PER_SEASON), []);
     const who = requests([IMPROVER, ...NOISE_PLAYERS]);
     const base = buildBaseForecasts({ history, players: who, asOf: ASOF });
@@ -489,7 +493,7 @@ describe("motore sfidante — ogni famiglia si può spegnere, e spenta non resta
       history,
       players: who,
       asOf: ASOF,
-      families: { recentForm: false, minutesPlayed: false, expectedGoals: false, opponentHabits: false },
+      families: { recentForm: false, minutesPlayed: false, expectedGoals: false },
     });
 
     off.forEach((row, i) => {
@@ -500,6 +504,42 @@ describe("motore sfidante — ogni famiglia si può spegnere, e spenta non resta
       expect(row.forecast.distribution?.sourceQuality).not.toBe(reference.forecast.distribution?.sourceQuality);
       expect(row.evidence.familiesOn).toEqual([]);
     });
+  });
+
+  it("le famiglie sono tre, e tutte di §6.3: `opponentHabits` non è fra loro", () => {
+    // `opponentHabits` stava qui come quarta famiglia e non lo era (scelta
+    // (f-bis) del modulo: è §8.4, un doppione di `leagueBehaviourProfile.ts`).
+    // Nella previsione del giocatore non spostava un numero e finiva solo
+    // nell'etichetta, che dichiarava accesa una famiglia che nessuno leggeva.
+    // Quattro prove, una per luogo in cui il nome poteva tornare: i default, le
+    // evidenze, la targa che viaggia col numero e il tipo.
+    expect(Object.keys(DEFAULT_CHALLENGER_FAMILIES)).toEqual(["recentForm", "minutesPlayed", "expectedGoals"]);
+    expect(Object.values(DEFAULT_CHALLENGER_FAMILIES)).toEqual([true, true, true]);
+
+    const out = buildChallengerForecasts({
+      history: sealed(signalHistory(GAMEWEEKS_PER_SEASON)),
+      players: requests([IMPROVER]),
+      asOf: ASOF,
+    })[0] as ChallengerForecast;
+    expect(out.evidence.familiesOn).toEqual(["recentForm", "minutesPlayed", "expectedGoals"]);
+    expect(out.forecast.distribution?.sourceQuality).toContain("famiglie: recentForm, minutesPlayed, expectedGoals; storico:");
+    expect(out.evidence.reason).toContain("Famiglie accese: recentForm, minutesPlayed, expectedGoals. Minuti:");
+    expect(out.evidence.reason).not.toContain("opponentHabits");
+
+    // Il tipo: tre nomi e non uno di più. La direttiva è un'asserzione del
+    // COMPILATORE — se `opponentHabits` rientrasse in `ChallengerFamilies`, la
+    // costruzione sotto compilerebbe e `tsc --noEmit` segnalerebbe la direttiva
+    // inutilizzata, prima che vitest parta.
+    const tre: ChallengerFamilies = { recentForm: true, minutesPlayed: true, expectedGoals: true };
+    expect(Object.keys(tre)).toHaveLength(3);
+    const quattro: ChallengerFamilies = {
+      recentForm: true,
+      minutesPlayed: true,
+      expectedGoals: true,
+      // @ts-expect-error — `opponentHabits` non è un interruttore di `ChallengerFamilies`.
+      opponentHabits: false,
+    };
+    expect(quattro).toBeDefined();
   });
 
   it("la targa dice sempre PREVISIONE, e dice anche con quale memoria", () => {
@@ -668,15 +708,34 @@ describe("motore sfidante — le abitudini dell'avversario vanno LENTE, perché 
     expect(few.evidence.ownShare).toBeCloseTo(3 / (3 + OPPONENT_PRIOR_GAMEWEEKS), 1);
   });
 
-  it("famiglia spenta: restano la lega e l'uniforme, e l'avversario non sposta niente", () => {
+  it("non c'è un interruttore: i conteggi dell'avversario entrano sempre, e senza giornate sue resta il riferimento", () => {
+    // `opponentHabits` era un quarto interruttore di `ChallengerFamilies` e non
+    // era una famiglia di §6.3 (scelta (f-bis) del modulo): è stato tolto. Qui
+    // si prova la conseguenza sui due versi. Con giornate sue, l'avversario
+    // sposta la stima — senza dover essere «acceso» da nessuno. Senza giornate
+    // sue (un fantallenatore mai visto) la stima È il riferimento di lega, e
+    // quel «niente di suo» lo dicono i dati, non un permesso.
     const shared = { corpus: corpus(30), managerId: "ALLEN_1", competition: "LEAGUE" as const, legalModules: MODULES };
-    const off = challengerOpponentHabits({ ...shared, families: { recentForm: true, opponentHabits: false } });
-    expect(off.evidence.ownShare).toBe(0);
-    expect(off.evidence.observedGameweeks).toBe(0);
+    const seen = challengerOpponentHabits(shared);
+    expect(seen.evidence.ownShare).toBeGreaterThan(0.85);
+    expect(seen.evidence.observedGameweeks).toBe(30);
+
+    const unseen = challengerOpponentHabits({ ...shared, managerId: "MAI_VISTO" });
+    expect(unseen.evidence.ownShare).toBe(0);
+    expect(unseen.evidence.observedGameweeks).toBe(0);
     // Nessun modulo può staccarsi: senza i conteggi dell'avversario resta il
     // riferimento di lega, che su otto fantallenatori è quasi uniforme.
-    for (const row of off.moduleWeights) expect(row.weight).toBeLessThan(0.45);
-    expect(off.sourceQuality).toContain(CHALLENGER_FORECAST_MARK);
+    for (const row of unseen.moduleWeights) expect(row.weight).toBeLessThan(0.45);
+    expect(unseen.sourceQuality).toContain(CHALLENGER_FORECAST_MARK);
+
+    // E la porta non si può riaprire dal tipo: `families` non è più un campo di
+    // `OpponentHabitsInput`. Il compilatore lo rifiuta, e se tornasse a
+    // compilare `tsc --noEmit` segnalerebbe questa direttiva come inutilizzata.
+    challengerOpponentHabits({
+      ...shared,
+      // @ts-expect-error — `families` non esiste più sulle abitudini dell'avversario.
+      families: { recentForm: true },
+    });
   });
 
   it("campionato e coppa non si mescolano (§8.3), e le righe doppie si fermano", () => {
@@ -1021,12 +1080,11 @@ describe("motore sfidante — i minuti e i gol attesi, e le difese che non si to
     expect(senzaFamiglie(spente[0] as ChallengerForecast)).toBe(
       senzaFamiglie(senza[0] as ChallengerForecast),
     );
-    expect((spente[0] as ChallengerForecast).evidence.familiesOn).toEqual(["recentForm", "opponentHabits"]);
+    expect((spente[0] as ChallengerForecast).evidence.familiesOn).toEqual(["recentForm"]);
     expect((senza[0] as ChallengerForecast).evidence.familiesOn).toEqual([
       "recentForm",
       "minutesPlayed",
       "expectedGoals",
-      "opponentHabits",
     ]);
 
     // E con TUTTE le famiglie spente lo sfidante è il base, segnali o non
@@ -1038,7 +1096,7 @@ describe("motore sfidante — i minuti e i gol attesi, e le difese che non si to
       players: who,
       asOf: ASOF,
       signals,
-      families: { recentForm: false, minutesPlayed: false, expectedGoals: false, opponentHabits: false },
+      families: { recentForm: false, minutesPlayed: false, expectedGoals: false },
     });
     const strip = (f: unknown): string =>
       JSON.stringify(f, (key, value) => (key === "sourceQuality" ? undefined : value));
@@ -1338,7 +1396,7 @@ describe("motore sfidante — i minuti e i gol attesi, e le difese che non si to
       players: who,
       asOf: ASOF,
       signals: observedMatchSignals({ history, signals: flatSignals("ATT_X", { minutesPlayed: 90, expectedGoals: 0.8 }) }),
-      families: { recentForm: false, minutesPlayed: false, expectedGoals: false, opponentHabits: false },
+      families: { recentForm: false, minutesPlayed: false, expectedGoals: false },
     })[0] as ChallengerForecast;
     expect(strip(spento.forecast)).toBe(strip(metro.forecast));
   });

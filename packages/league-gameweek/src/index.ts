@@ -4,7 +4,8 @@
 // del generatore), previsione base dai voti storici (§6.2, WP-4), profilo di
 // comportamento della lega (§8.3, WP-6), distribuzione delle formazioni
 // avversarie (§8.4, WP-6), motore sfidante che impara dalla stagione (§6.3),
-// ledger in ombra champion/challenger e criterio di cambio (§2.4, WP-9).
+// ledger in ombra champion/challenger e criterio di cambio (§2.4, WP-9),
+// porta unica dei ritocchi alle previsioni.
 // Fase 2 — Lineup Coach.
 export * from "./leagueGameweek.js";
 export * from "./gameweekSimulator.js";
@@ -21,3 +22,4 @@ export * from "./opponentLineupDistribution.js";
 export * from "./historicalPolicyComparison.js";
 export * from "./challengerForecast.js";
 export * from "./championChallengerLedger.js";
+export * from "./adjustments.js";

@@ -122,10 +122,20 @@
 //    stima resta attaccata al suo riferimento finché non si è guadagnata il
 //    diritto di allontanarsene.
 //
-// d) LO SHRINK DEL RENDIMENTO RESTA QUELLO DEL BASE, `K = 10`, E SI MISURA SUL
-//    PESO RESIDUO. Cambiarlo avrebbe voluto dire cambiare due cose insieme — la
-//    memoria e la fiducia — e poi non poter più dire quale delle due ha prodotto
-//    la differenza. Una cosa per volta: qui la novità è la MEMORIA.
+// d) LO SHRINK DEL RENDIMENTO RESTA QUELLO DEL BASE, LO STESSO `K`, E SI MISURA
+//    SUL PESO RESIDUO. Cambiarlo avrebbe voluto dire cambiare due cose
+//    insieme — la memoria e la fiducia — e poi non poter più dire quale delle
+//    due ha prodotto la differenza. Una cosa per volta: qui la novità è la
+//    MEMORIA.
+//
+//    «QUELLO DEL BASE» È LETTERALE: il `K` di questo file è
+//    `SHRINK_PSEUDO_OBSERVATIONS` di `baseForecast.ts`, IMPORTATO, e non un
+//    secondo `10` scritto qui. Finché erano due costanti uguali di valore, la
+//    promessa di questo punto («cambia la memoria e basta») non la teneva
+//    nessuno: chi ne avesse cambiata una non avrebbe rotto niente di rosso. Il
+//    vecchio nome `CHALLENGER_SHRINK_PSEUDO_OBSERVATIONS` resta esportato come
+//    alias deprecato dello stesso valore, e la prova che lo sfidante segue il
+//    base è in `challengerForecastKeFamiglie.test.ts`.
 //
 //    L'ALTERNATIVA CHE NON HO PRESO, e che è la prima obiezione seria a questo
 //    file. Una media pesata esponenzialmente ha, per la varianza, una
@@ -165,8 +175,20 @@
 //    per la formazione è una decisione del proprietario; che il motore che li
 //    usa sia quello che si schiera, no, ed è un'altra decisione, di un altro.
 //
-// f-bis) `opponentHabits` NON È UNA FAMIGLIA DI §6.3, ED È UN DOPPIONE. VA
-//    LETTA PRIMA DI COLLEGARLA A QUALUNQUE COSA.
+// f-bis) LE ABITUDINI DELL'AVVERSARIO (`challengerOpponentHabits`) NON SONO UNA
+//    FAMIGLIA DI §6.3, E SONO UN DOPPIONE. VANNO LETTE PRIMA DI COLLEGARLE A
+//    QUALUNQUE COSA.
+//
+//    NON HANNO PIÙ UN INTERRUTTORE. `ChallengerFamilies` ne aveva un quarto,
+//    `opponentHabits`, che le faceva passare per una famiglia dello sfidante: è
+//    stato tolto, insieme al ramo che a interruttore spento escludeva i
+//    conteggi dell'avversario. Nella previsione del giocatore quel quarto
+//    interruttore non entrava in nessun conto e finiva solo in `familiesOn`,
+//    quindi `reason` e `sourceQuality` dichiaravano accesa una famiglia che il
+//    motore non leggeva; adesso ogni nome in `familiesOn` è una famiglia che la
+//    previsione LEGGE, se il corpo storico porta il dato. I numeri delle
+//    previsioni non si sono mossi, e lo prova l'impronta registrata in
+//    `challengerForecastKeFamiglie.test.ts`.
 //
 //    §6.3 non elenca le abitudini di modulo dell'avversario, in nessuna forma:
 //    la matematica scritta qui sotto è quella di §8.4 — stessi `k = 4` e
@@ -237,6 +259,8 @@
 //    volte; il prezzo dell'alternativa era modificare il metro per comodità
 //    dello sfidante, che è esattamente il modo in cui un confronto si corrompe.
 //    Se un giorno il base esporterà quei mattoni, questo file si accorcia.
+//    La costante `K` dello shrink NON è più fra le cose duplicate: il base la
+//    esporta già e questo file la importa (scelta (d)).
 //
 // h) I MINUTI GIOCATI STANNO NEL «GIOCA», E SOLO LÌ.
 //
@@ -334,6 +358,7 @@
 import type { Role } from "./gameweekSimulator.js";
 import {
   HISTORY_SEASONS,
+  SHRINK_PSEUDO_OBSERVATIONS,
   type AppearanceEvents,
   type BaseForecast,
   type BaseForecastEvidence,
@@ -387,8 +412,21 @@ export const DEFAULT_PLAYER_HALF_LIFE_GAMEWEEKS = 8 as const;
  */
 export const DEFAULT_OPPONENT_HALF_LIFE_GAMEWEEKS = 60 as const;
 
-/** Lo shrink del rendimento, in osservazioni equivalenti — scelta (d), = §6.2. */
-export const CHALLENGER_SHRINK_PSEUDO_OBSERVATIONS = 10 as const;
+/**
+ * ALIAS DEPRECATO di `SHRINK_PSEUDO_OBSERVATIONS` (`baseForecast.ts`) — scelta
+ * (d). Non è più un secondo `10` scritto qui: è lo STESSO valore del base,
+ * importato da là, e questo nome resta esportato solo perché prima esisteva.
+ * Dentro questo file si usa `SHRINK_PSEUDO_OBSERVATIONS` e basta.
+ *
+ * Perché una costante sola: lo sfidante cambia la MEMORIA e non la fiducia
+ * (scelta (d)), e quella promessa vale finché i due motori leggono lo stesso
+ * numero. Due costanti uguali di valore la promettevano senza tenerla: chi ne
+ * avesse cambiata una non avrebbe rotto niente di rosso, e i due motori
+ * avrebbero smesso di rispondere alla stessa domanda.
+ *
+ * @deprecated usa `SHRINK_PSEUDO_OBSERVATIONS`.
+ */
+export const CHALLENGER_SHRINK_PSEUDO_OBSERVATIONS = SHRINK_PSEUDO_OBSERVATIONS;
 
 /**
  * QUANTO DURA UNA PARTITA, in minuti — scelta (h). I minuti osservati si
@@ -421,17 +459,23 @@ export const OPPONENT_PRIOR_GAMEWEEKS = 4 as const;
 export const LEAGUE_PRIOR_GAMEWEEKS = 8 as const;
 
 /**
- * I QUATTRO INTERRUTTORI. §6.3 vieta di dare per buona una famiglia: quindi
- * ciò che questo motore aggiunge si dichiara e si spegne. Con TUTTI spenti il
+ * I TRE INTERRUTTORI. §6.3 vieta di dare per buona una famiglia: quindi ciò
+ * che questo motore aggiunge si dichiara e si spegne. Con TUTTI spenti il
  * motore ricade sulla legge del base — decadimento a grana di stagione,
- * nessuna abitudine, nessun minuto, nessun gol atteso — e la differenza fra i
- * due si riduce a zero: è il modo più diretto per vedere quanto di ciò che fa
- * viene da queste scelte e quanto dal contorno.
+ * nessun minuto, nessun gol atteso — e la differenza fra i due si riduce a
+ * zero: è il modo più diretto per vedere quanto di ciò che fa viene da queste
+ * scelte e quanto dal contorno.
  *
- * TRE SU QUATTRO SONO FAMIGLIE DI §6.3: la forma recente, i minuti giocati e i
- * gol attesi. Il quarto — `opponentHabits` — è §8.4 travestito da famiglia,
- * scelta (f-bis) in testa al file, ed è un doppione con un contratto più
- * povero di `leagueBehaviourProfile.ts`.
+ * SONO TRE, E SONO TUTTE FAMIGLIE DI §6.3: la forma recente, i minuti giocati
+ * e i gol attesi. Ce n'era una quarta, `opponentHabits`, che NON lo era — era
+ * §8.4 travestito da famiglia, un doppione con un contratto più povero di
+ * `leagueBehaviourProfile.ts`, scelta (f-bis) in testa al file — ed è stata
+ * tolta. Nella previsione del giocatore (`buildChallengerForecasts`) accenderla
+ * o spegnerla non entrava in nessun conto: cambiava solo un'etichetta,
+ * `familiesOn`, e con lei `reason` e `sourceQuality` di ogni previsione, che
+ * dichiaravano «accesa» una famiglia che il motore non leggeva. L'unico posto in
+ * cui contava era `challengerOpponentHabits`, che oggi non ha più interruttori:
+ * i conteggi dell'avversario entrano sempre.
  *
  * SPENTA NON VUOL DIRE ZERO, E ACCESA NON VUOL DIRE DISPONIBILE. Un
  * interruttore dice se questo motore ha il PERMESSO di usare una famiglia; se
@@ -460,26 +504,12 @@ export interface ChallengerFamilies {
    * quella. Spenta: restano fuori, e `pGoal` è esattamente quello di prima.
    */
   readonly expectedGoals: boolean;
-  /**
-   * LE ABITUDINI DELL'AVVERSARIO — **NON è una famiglia di §6.3: è §8.4, e
-   * DUPLICA la quantità `moduleFielded` di `leagueBehaviourProfile.ts` con un
-   * contratto dati più povero (nessun `LineupRecordStatus`: non sa se quella
-   * formazione fosse confermata o solo letta). Va riconciliata con quel modulo
-   * PRIMA che una delle due venga collegata a qualunque produzione** — scelta
-   * (f-bis) in testa al file.
-   *
-   * Accesa: i conteggi dell'avversario entrano nella stima dei suoi moduli.
-   * Spenta: la stima resta il RIFERIMENTO (lega e uniforme), e l'avversario non
-   * sposta niente di suo.
-   */
-  readonly opponentHabits: boolean;
 }
 
 export const DEFAULT_CHALLENGER_FAMILIES: ChallengerFamilies = {
   recentForm: true,
   minutesPlayed: true,
   expectedGoals: true,
-  opponentHabits: true,
 };
 
 /** Le due velocità, una per famiglia di quantità. Nessuna delle due è l'altra. */
@@ -917,8 +947,8 @@ function gridIndex(vote: number): number {
 /** Lo shrink: peso osservato più K osservazioni finte distribuite come il ruolo. */
 function shrink(observedWeight: number, totalWeight: number, prior: number): number {
   return (
-    (observedWeight + CHALLENGER_SHRINK_PSEUDO_OBSERVATIONS * prior) /
-    (totalWeight + CHALLENGER_SHRINK_PSEUDO_OBSERVATIONS)
+    (observedWeight + SHRINK_PSEUDO_OBSERVATIONS * prior) /
+    (totalWeight + SHRINK_PSEUDO_OBSERVATIONS)
   );
 }
 
@@ -950,8 +980,8 @@ function shrinkWithSignal(
   prior: number,
 ): number {
   return (
-    (observedWeight + signalWeighted + CHALLENGER_SHRINK_PSEUDO_OBSERVATIONS * prior) /
-    (totalWeight + signalWeight + CHALLENGER_SHRINK_PSEUDO_OBSERVATIONS)
+    (observedWeight + signalWeighted + SHRINK_PSEUDO_OBSERVATIONS * prior) /
+    (totalWeight + signalWeight + SHRINK_PSEUDO_OBSERVATIONS)
   );
 }
 
@@ -1481,7 +1511,6 @@ export function buildChallengerForecasts(
   if (families.recentForm) familiesOn.push("recentForm");
   if (families.minutesPlayed) familiesOn.push("minutesPlayed");
   if (families.expectedGoals) familiesOn.push("expectedGoals");
-  if (families.opponentHabits) familiesOn.push("opponentHabits");
 
   const seen = new Set<string>();
   const out: ChallengerForecast[] = [];
@@ -1738,9 +1767,9 @@ function forecastOne(
   );
 
   const priorShareAvailability =
-    CHALLENGER_SHRINK_PSEUDO_OBSERVATIONS / (own.availabilityWeight + CHALLENGER_SHRINK_PSEUDO_OBSERVATIONS);
+    SHRINK_PSEUDO_OBSERVATIONS / (own.availabilityWeight + SHRINK_PSEUDO_OBSERVATIONS);
   const priorSharePerformance =
-    CHALLENGER_SHRINK_PSEUDO_OBSERVATIONS / (own.votedWeight + CHALLENGER_SHRINK_PSEUDO_OBSERVATIONS);
+    SHRINK_PSEUDO_OBSERVATIONS / (own.votedWeight + SHRINK_PSEUDO_OBSERVATIONS);
   const newestGameweeksAgo = Number.isFinite(tally.newestGameweeksAgo) ? tally.newestGameweeksAgo : -1;
   // LA QUOTA DI PARTITA ATTESA, letta con lo stesso shrink del resto. Se il
   // RUOLO non ha nemmeno una giornata con i minuti dichiarati non c'è niente
@@ -1779,7 +1808,7 @@ function forecastOne(
       `nelle ultime ${HISTORY_SEASONS} stagioni; l'ultima è ${newestGameweeksAgo} giornate osservate fa su ` +
       `una linea del tempo di ${corpus.timelineLength}. Con mezza vita ${halfLife} giornate restano ` +
       `${own.availabilityWeight} di peso sulla disponibilità e ${own.votedWeight} sul rendimento: ` +
-      `dimenticare COSTA prove, e con lo shrink a ${CHALLENGER_SHRINK_PSEUDO_OBSERVATIONS} osservazioni ` +
+      `dimenticare COSTA prove, e con lo shrink a ${SHRINK_PSEUDO_OBSERVATIONS} osservazioni ` +
       `equivalenti il ruolo ${request.role} pesa ${priorShareAvailability} sulla disponibilità e ` +
       `${priorSharePerformance} sul rendimento. Famiglie accese: ` +
       `${familiesOn.length === 0 ? "nessuna (è la legge del base)" : familiesOn.join(", ")}. ` +
@@ -1895,7 +1924,6 @@ export interface OpponentHabitsInput {
   /** I moduli legali CON LA ROSA DEL MOMENTO, dichiarati da chi chiama. */
   readonly legalModules: readonly string[];
   readonly tuning?: Partial<ChallengerTuning>;
-  readonly families?: Partial<ChallengerFamilies>;
 }
 
 /**
@@ -1911,13 +1939,13 @@ export interface OpponentHabitsInput {
  *
  * Funzione pura, nessun orologio, nessun `Math.random`.
  *
- * Con la famiglia `opponentHabits` SPENTA i conteggi dell'avversario non
- * entrano: resta il riferimento (lega verso uniforme), che è esattamente ciò
- * che si vuole dire con «questa famiglia è spenta» — non un errore, non uno
- * zero, ma la stima che si avrebbe senza di lei.
+ * NON HA INTERRUTTORI: i conteggi dell'avversario entrano sempre. Un interruttore
+ * c'era (la «famiglia» `opponentHabits`) e non c'è più, perché questa non è una
+ * famiglia dello sfidante — scelta (f-bis) in testa al file. Senza conteggi
+ * suoi, cioè per un avversario mai visto, la stima È il riferimento (lega verso
+ * uniforme): lo dicono i dati, non un permesso.
  */
 export function challengerOpponentHabits(input: OpponentHabitsInput): OpponentHabits {
-  const families: ChallengerFamilies = { ...DEFAULT_CHALLENGER_FAMILIES, ...(input.families ?? {}) };
   const tuning: ChallengerTuning = { ...DEFAULT_CHALLENGER_TUNING, ...(input.tuning ?? {}) };
   const halfLife = assertHalfLife(tuning.opponentHalfLifeGameweeks, "abitudini dell'avversario");
   const provenance = assertDeclaredProvenance(input.corpus?.history);
@@ -1988,36 +2016,33 @@ export function challengerOpponentHabits(input: OpponentHabitsInput): OpponentHa
     (_, i) =>
       ((leagueCounts[i] as number) + LEAGUE_PRIOR_GAMEWEEKS * uniform) / (leagueTotal + LEAGUE_PRIOR_GAMEWEEKS),
   );
-  // w_t,m = (c_t,m + k · q_m) / (n_t + k) — avversario verso lega. Famiglia
-  // spenta: `c_t,m` e `n_t` valgono zero, e la stima È il riferimento.
-  const effectiveOwn = families.opponentHabits ? ownCounts : legal.map(() => 0);
-  const effectiveOwnTotal = families.opponentHabits ? ownTotal : 0;
+  // w_t,m = (c_t,m + k · q_m) / (n_t + k) — avversario verso lega. Senza
+  // giornate sue, `c_t,m` e `n_t` valgono zero e la stima È il riferimento.
   const raw = legal.map(
     (_, i) =>
-      ((effectiveOwn[i] as number) + OPPONENT_PRIOR_GAMEWEEKS * (league[i] as number)) /
-      (effectiveOwnTotal + OPPONENT_PRIOR_GAMEWEEKS),
+      ((ownCounts[i] as number) + OPPONENT_PRIOR_GAMEWEEKS * (league[i] as number)) /
+      (ownTotal + OPPONENT_PRIOR_GAMEWEEKS),
   );
   const weights = normalised(raw, `abitudini di ${input.managerId}`);
 
-  const ownShare = effectiveOwnTotal / (effectiveOwnTotal + OPPONENT_PRIOR_GAMEWEEKS);
+  const ownShare = ownTotal / (ownTotal + OPPONENT_PRIOR_GAMEWEEKS);
   return {
     managerId: input.managerId,
     competition: input.competition,
     moduleWeights: legal.map((module, i) => ({ module, weight: weights[i] as number })),
     evidence: {
-      observedGameweeks: families.opponentHabits ? ownRows : 0,
-      decayedWeight: effectiveOwnTotal,
+      observedGameweeks: ownRows,
+      decayedWeight: ownTotal,
       ownShare,
       leagueShare: 1 - ownShare,
       halfLifeGameweeks: halfLife,
       reason:
         `Abitudini di ${input.managerId} (${input.competition}) sui ${legal.length} moduli dichiarati ` +
-        `legali. ${families.opponentHabits ? ownRows : 0} giornate sue contate, peso ${effectiveOwnTotal} ` +
+        `legali. ${ownRows} giornate sue contate, peso ${ownTotal} ` +
         `dopo un decadimento LENTO (mezza vita ${halfLife} giornate: su una trentina di osservazioni un ` +
         `decadimento veloce lascerebbe tre giornate a decidere un'abitudine). Shrink a due livelli di §8.4: ` +
         `l'avversario pesa ${ownShare} e il riferimento di lega ${1 - ownShare}; la lega a sua volta è ` +
-        `shrinkata verso l'uniforme con ${LEAGUE_PRIOR_GAMEWEEKS} giornate equivalenti. Famiglia ` +
-        `\`opponentHabits\` ${families.opponentHabits ? "accesa" : "SPENTA: questa è la sola stima di riferimento"}.`,
+        `shrinkata verso l'uniforme con ${LEAGUE_PRIOR_GAMEWEEKS} giornate equivalenti.`,
     },
     sourceQuality: `${CHALLENGER_FORECAST_MARK}; abitudini §8.4; storico: ${provenance}`,
   };
