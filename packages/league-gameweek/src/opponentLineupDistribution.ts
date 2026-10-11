@@ -68,15 +68,16 @@
 //    com'era). La quota «ripete la formazione» è misurata su COPPIE di giornate
 //    confermate e consecutive (`elevenIdenticalToPrevious`, §8.3): una squadra
 //    che non ne ha nemmeno una ha `observations === 0` su quella stima, e la
-//    sua `share` non è un conteggio suo ma il riferimento di lega preso in
-//    prestito per intero (`leagueReferenceWeight = 1`). Quel riferimento vale
-//    esattamente 0,5 solo se NESSUNA squadra della lega ha una coppia (è
-//    l'uniforme a due categorie, ancorata da `k' = 8`); se qualcun'altra ne ha,
-//    vale la quota di ripetizione di quella lega — un'abitudine altrui
-//    attribuita a una squadra di cui non si è visto nulla. In nessuno dei due
-//    casi dice qualcosa su QUESTA squadra, e alzarla a peso della precedente la
-//    fa diventare la formazione più pesata della distribuzione senza che un
-//    dato la sostenga: per avere 0,5 di undici IDENTICI ognuno degli undici
+//    sua `share` NON era un conteggio suo: al 2026-10-10 era il riferimento di
+//    lega preso in prestito per intero (`leagueReferenceWeight = 1`; dal
+//    2026-10-11 non più, vedi la nota che segue). Quel riferimento valeva
+//    esattamente 0,5 solo se NESSUNA squadra della lega aveva una coppia (era
+//    l'uniforme a due categorie, ancorata da `k' = 8`); se qualcun'altra ne
+//    aveva, valeva la quota di ripetizione di quella lega — un'abitudine altrui
+//    attribuita a una squadra di cui non si era visto nulla. In nessuno dei due
+//    casi diceva qualcosa su QUESTA squadra, e farne il peso della precedente
+//    la faceva diventare la formazione più pesata della distribuzione senza che
+//    un dato la sostenesse: per avere 0,5 di undici IDENTICI ognuno degli undici
 //    nomi dovrebbe ripetersi con probabilità di circa 0,94 ([Ipotesi]
 //    indipendenza fra i nomi: è l'aritmetica 0,5^(1/11), non una misura),
 //    mentre le probabili di oggi possono dare a quegli stessi nomi molto meno
@@ -91,6 +92,39 @@
 //    `observations` (una trascrizione parziale di `BehaviourEstimate`) NON è
 //    letto come «zero osservazioni» e resta com'era: per essere corretto deve
 //    portarlo, e questo file non lo indovina.
+//
+//    AGGIUNTA DEL 2026-10-11 — UNA COPPIA «DIVERSA» NON PESA PIÙ DI ZERO COPPIE
+//    (decisione di Pico, in modale, 2026-10-11: «Sì, correggi» a «si parte sempre
+//    dal 10% e si sale solo se l'avversario ripete davvero la formazione?» —
+//    «Cambiare formazione abbassa la fiducia che la ripeta, ripeterla la alza.
+//    La regola resta la stessa per tutte le giornate.»; ciò che sta sopra resta
+//    com'era, salvo il richiamo allo 0,5 qui sopra, che dice dov'era). Il
+//    difetto stava a MONTE di questo file: con ancora uniforme, una squadra con
+//    UNA coppia osservata e «non identica» (cioè che aveva cambiato formazione)
+//    riceveva dal profilo una quota di ripetizione ≈ 0,356 contro lo 0,10 di
+//    una squadra mai osservata — la prova contraria pesava 3,5 volte l'assenza
+//    di prove. È stata corretta in `leagueBehaviourProfile.ts`, su due livelli (la
+//    nota «AGGIUNTA DEL 2026-10-11» di quel file li descrive): l'ancora di LEGA
+//    di «ripete la formazione» è [0,10, 0,90] e, soprattutto, la stima di
+//    SQUADRA tira verso [0,10, 0,90] e non verso il riferimento di lega, quindi
+//    non dipende da com'è fatta la lega. Questo file NON CAMBIA UNA RIGA DI
+//    CALCOLO: legge la stessa `share[0]`, solo che ora è coerente con la regola
+//    «si parte dal 10 % e si sale se ripete». Conseguenze, per chi legge i
+//    pesi, IN OGNI LEGA: zero coppie → 0,10 (in qualunque giornata); una coppia
+//    «non identica» → 0,08 di quota, quindi ≤ 0,10 (nelle prime 6 giornate il
+//    pavimento la tiene a 0,10, `repeatPreviousFloored` vero; dopo, pesa 0,08);
+//    una coppia «identica» → 0,28, quindi > 0,10. Il pavimento non ha più un
+//    letterale suo: `EARLY_SEASON_REPEAT_FLOOR` discende da
+//    `ELEVEN_REPEAT_STARTING_SHARE`, l'unico posto in cui vive il 10 %.
+//
+//    IL CONTROLLO `observations === 0` RESTA, E NON È PIÙ L'UNICO A TENERE LO
+//    0,10. Nella catena reale una squadra senza coppie ha già per quota la
+//    quota di partenza (0,10), quindi il pavimento e il controllo danno lo
+//    stesso numero. Il controllo resta perché questo file legge un profilo
+//    che può venire da fuori (una trascrizione, un profilo scritto a mano) e
+//    perché è lui a dire `repeatPreviousFloored`: «il peso è il pavimento, non
+//    una quota misurata». Non l'ho tolto: toglierlo sarebbe un cambiamento di
+//    comportamento per chi passa una quota in prestito, e nessuno l'ha chiesto.
 //
 // ── CHE COSA QUESTO FILE NON FA, E PERCHÉ NON LO INVENTA ────────────────────
 //
@@ -130,6 +164,7 @@ import {
 import { MODULES, type Module } from "./leagueGameweek.js";
 import { bestLineupExPost } from "./lineupOptimizer.js";
 import {
+  ELEVEN_REPEAT_STARTING_SHARE,
   type EstimateBasis,
   type TeamBehaviourProfile,
   behaviourEstimate,
@@ -152,8 +187,16 @@ import { type WeightedOpponentLineup, lineupKey, modalOpponentIndex } from "./op
  * qualunque giornata (nota «AGGIUNTA DEL 2026-10-10» in testa al file). Il
  * VALORE resta quello del disegno; quell'USO, invece, non è testo del disegno
  * ma una decisione tecnica dell'Executive, contestabile.
+ *
+ * Dal 2026-10-11 il valore NON è più un letterale di questo file: DISCENDE da
+ * `ELEVEN_REPEAT_STARTING_SHARE` di `leagueBehaviourProfile.ts` (nota
+ * «AGGIUNTA DEL 2026-10-11» in testa al file), perché lo stesso 10 % è anche
+ * l'ancora da cui parte il profilo, e due letterali che oggi coincidono sono
+ * due numeri che domani possono divergere senza che nessuna prova lo dica.
+ * Scelta tecnica, contestabile: il numero è uno, il pavimento resta il nome
+ * della sua funzione qui (finestra delle prime 6 giornate, zero coppie).
  */
-export const EARLY_SEASON_REPEAT_FLOOR = 0.1 as const;
+export const EARLY_SEASON_REPEAT_FLOOR = ELEVEN_REPEAT_STARTING_SHARE;
 
 /** Quante giornate contano come "prime 6" per il floor di cui sopra. */
 export const EARLY_SEASON_WINDOW_GAMEWEEKS = 6 as const;
@@ -361,12 +404,12 @@ export function opponentLineupDistribution(
           "candidate della distribuzione senza che nessuno se ne accorga.",
       );
     }
-    // ZERO COPPIE OSSERVATE: la `share` qui sopra è il riferimento di lega
-    // preso in prestito per intero (0,5 se nessuna squadra ha una coppia, la
-    // quota di ripetizione degli altri altrimenti), non una misura di QUESTA
-    // squadra — e il controllo è sul conteggio della stima, non su
-    // `gameweeksObserved`: una squadra con molte giornate ma tutte non
-    // consecutive ha `observations === 0` su questa quantità. Il confronto è
+    // ZERO COPPIE OSSERVATE: la `share` qui sopra non è una misura di QUESTA
+    // squadra (dal 2026-10-11 il profilo le dà la quota di partenza, 0,10; prima
+    // le dava il riferimento di lega, e un profilo che viene da fuori può ancora
+    // portare una quota in prestito). Il controllo è sul conteggio della
+    // stima, non su `gameweeksObserved`: una squadra con molte giornate ma
+    // tutte non consecutive ha `observations === 0` su questa quantità. Il confronto è
     // `=== 0` e non `!(> 0)`: un campo assente non si legge come «nessuna
     // osservazione», resta il comportamento di prima (vedi la nota in testa).
     repeatUnmeasured = repeatEstimate.observations === 0;

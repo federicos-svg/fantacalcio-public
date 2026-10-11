@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 
 import {
   BEHAVIOUR_QUANTITIES,
+  ELEVEN_REPEAT_STARTING_SHARE,
   LEAGUE_BEHAVIOUR_MARK,
   LEAGUE_PSEUDO_GAMEWEEKS,
   TEAM_PSEUDO_GAMEWEEKS,
@@ -11,6 +12,7 @@ import {
   observedLeagueGameweeks,
   teamBehaviourProfile,
   type AvailablePlayer,
+  type BehaviourEstimate,
   type BehaviourQuantityId,
   type LeagueBehaviourProfile,
   type ObservedLeagueGameweek,
@@ -175,8 +177,19 @@ function profileOf(gameweeks: readonly ObservedLeagueGameweek[]): LeagueBehaviou
  */
 function naiveShare(profile: LeagueBehaviourProfile, teamId: string, quantity: BehaviourQuantityId): number[] {
   const estimate = behaviourEstimate(teamBehaviourProfile(profile, teamId), quantity);
-  if (estimate.observations === 0) return [...estimate.leagueReference];
+  if (estimate.observations === 0) return [...bersaglio(estimate)];
   return estimate.counts.map((count) => count / estimate.observations);
+}
+
+/**
+ * IL BERSAGLIO VERSO CUI LO SHRINK DI SQUADRA TIRA DAVVERO: il riferimento di
+ * lega, salvo per le quantità che dichiarano un `teamAnchor` (oggi solo «ripete
+ * la formazione»: nota «AGGIUNTA DEL 2026-10-11» in testa al modulo), dove il
+ * riferimento di lega si riporta ma non entra. Le misure di contrazione e di
+ * deviazione si fanno rispetto a ciò che la stima usa, non a ciò che riporta.
+ */
+function bersaglio(estimate: BehaviourEstimate): readonly number[] {
+  return estimate.teamAnchor ?? estimate.leagueReference;
 }
 
 /** La deviazione massima dal riferimento, su tutte le squadre e le quantità. */
@@ -187,7 +200,7 @@ function worstDeviation(profile: LeagueBehaviourProfile, estimator: "stima" | "i
       const values =
         estimator === "stima" ? estimate.share : naiveShare(profile, team.teamId, estimate.quantity);
       for (let c = 0; c < estimate.categories.length; c += 1) {
-        worst = Math.max(worst, Math.abs((values[c] as number) - (estimate.leagueReference[c] as number)));
+        worst = Math.max(worst, Math.abs((values[c] as number) - (bersaglio(estimate)[c] as number)));
       }
     }
   }
@@ -224,7 +237,7 @@ describe("su comportamenti estratti a caso il profilo non trova abitudini", () =
           for (const estimate of team.estimates) {
             const naive = naiveShare(profile, team.teamId, estimate.quantity);
             for (let c = 0; c < estimate.categories.length; c += 1) {
-              const reference = estimate.leagueReference[c] as number;
+              const reference = bersaglio(estimate)[c] as number;
               const dStima = Math.abs((estimate.share[c] as number) - reference);
               const dIngenuo = Math.abs((naive[c] as number) - reference);
               peggiore = Math.max(peggiore, dStima);
@@ -333,7 +346,7 @@ describe("una squadra mai osservata non ha un profilo: ha il riferimento", () =>
   const ASSENTE = TEAMS[7] as string;
   const PRESENTE = TEAMS[0] as string;
 
-  it("riceve il riferimento della lega e lo dichiara come tale", () => {
+  it("riceve il riferimento della lega e lo dichiara come tale (salvo «ripete la formazione»: la quota di partenza)", () => {
     const profile = profileOf(season(21, { absent: [ASSENTE, TEAMS[6] as string] }));
     const assente = teamBehaviourProfile(profile, ASSENTE);
     expect(assente.gameweeksObserved).toBe(0);
@@ -341,6 +354,16 @@ describe("una squadra mai osservata non ha un profilo: ha il riferimento", () =>
     expect(assente.reason).toContain("RIFERIMENTO DELLA LEGA");
     for (const estimate of assente.estimates) {
       expect(estimate.observations).toBe(0);
+      if (estimate.teamAnchor !== undefined) {
+        // La quantità ancorata (nota del 2026-10-11): il riferimento di lega si
+        // riporta ma non entra nella stima, e i campi lo dicono — peso di lega
+        // zero, peso dell'ancora pieno, base «quota di partenza», mai «lega».
+        expect(estimate.quantity).toBe("elevenIdenticalToPrevious");
+        expect(estimate.basis).toBe("quota-di-partenza");
+        expect(estimate.leagueReferenceWeight).toBe(0);
+        expect(estimate.teamAnchorWeight).toBe(1);
+        continue;
+      }
       expect(estimate.basis).toBe("riferimento-di-lega");
       expect(estimate.leagueReferenceWeight).toBe(1);
       // Non «vicino»: IDENTICO al riferimento, bit a bit. Con zero occasioni la
@@ -816,10 +839,17 @@ describe("il contratto dell'uscita", () => {
         expect(estimate.share.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
         expect(estimate.leagueReference.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
         expect(estimate.counts.reduce((a, b) => a + b, 0)).toBe(estimate.observations);
-        expect(estimate.leagueReferenceWeight).toBeCloseTo(
-          TEAM_PSEUDO_GAMEWEEKS / (estimate.observations + TEAM_PSEUDO_GAMEWEEKS),
-          12,
-        );
+        const pesoDelBersaglio = TEAM_PSEUDO_GAMEWEEKS / (estimate.observations + TEAM_PSEUDO_GAMEWEEKS);
+        if (estimate.teamAnchor === undefined) {
+          expect(estimate.leagueReferenceWeight).toBeCloseTo(pesoDelBersaglio, 12);
+          expect(estimate.teamAnchorWeight).toBeUndefined();
+        } else {
+          // Quantità ancorata: il riferimento di lega pesa zero dentro la
+          // stima, e il peso `k / (n + k)` è quello dell'ancora.
+          expect(estimate.leagueReferenceWeight).toBe(0);
+          expect(estimate.teamAnchorWeight).toBeCloseTo(pesoDelBersaglio, 12);
+          expect(estimate.teamAnchor.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
+        }
       }
     }
     // I due pesi sono quelli di §8.4 e non si scelgono qui.
@@ -849,5 +879,90 @@ describe("il contratto dell'uscita", () => {
     expect(codice).not.toMatch(/\bDate\b/);
     expect(codice).not.toMatch(/\bMath\.random\b/);
     expect(codice).not.toMatch(/\bperformance\.now\b/);
+  });
+});
+
+// ─── 9. L'ANCORA DI «RIPETE LA FORMAZIONE» (decisione del 2026-10-11) ────────
+//
+// Per la SOLA quantità `elevenIdenticalToPrevious` l'ancora esterna dello shrink
+// di lega E il bersaglio dello shrink di squadra sono [0,10, 0,90] e non
+// l'uniforme / il riferimento di lega (nota «AGGIUNTA DEL 2026-10-11» in testa al
+// modulo). Le prove che ne misurano gli EFFETTI sul peso della formazione
+// precedente (zero coppie, una coppia «non identica» in ogni lega, una
+// «identica», monotonia, i numeri dell'esempio) stanno in
+// `opponentLineupDistribution.test.ts`, dove il peso si calcola; qui stanno la
+// FORMA dell'ancora e il suo CONFINE.
+
+describe("l'ancora di «ripete la formazione»: definita bene, e solo per lei", () => {
+  it("l'ancora ha le categorie della quantità, somma 1, e la massa dello 0,10 sta su «identico»", () => {
+    const quantity = BEHAVIOUR_QUANTITIES.find((q) => q.id === "elevenIdenticalToPrevious");
+    expect(quantity?.leagueAnchor).toBeDefined();
+    expect(quantity?.teamAnchor).toBeDefined();
+    // Una definizione sola per i due livelli: non due vettori che oggi
+    // coincidono e domani no.
+    expect(quantity?.teamAnchor).toEqual(quantity?.leagueAnchor);
+    const anchor = quantity?.leagueAnchor as readonly number[];
+    expect(anchor).toHaveLength((quantity?.categories ?? []).length);
+    expect(anchor.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
+    // L'indice si cerca per ETICHETTA, non si assume: invertire l'ordine di
+    // `categories` senza toccare l'ancora ribalterebbe il significato dello 0,10
+    // (sarebbe il 10 % di «diverso»), e nessun'altra prova lo direbbe.
+    const identico = (quantity?.categories ?? []).indexOf("identico");
+    expect(identico).toBeGreaterThanOrEqual(0);
+    expect(anchor[identico]).toBe(ELEVEN_REPEAT_STARTING_SHARE);
+    expect(ELEVEN_REPEAT_STARTING_SHARE).toBe(0.1);
+  });
+
+  it("le altre grandezze restano uniformi: nessuna ha un'ancora sua, il riferimento di lega è (conteggi + k'/n) / (occasioni + k') e la squadra tira verso di lui", () => {
+    // La prova che il confine della decisione regge: l'ancora [0,10, 0,90] è
+    // di UNA quantità, ai due livelli. Si controlla su due storie diverse e
+    // sulla lega vuota (tutte le righe non confermate: zero occasioni ovunque),
+    // perché è lì, a zero conteggi, che l'ancora si vede da sola.
+    const storie: ReadonlyArray<readonly [string, readonly ObservedLeagueGameweek[]]> = [
+      ["sei giornate", season(17, { gameweeks: 6 })],
+      ["stagione piena", season(5)],
+      ["lega vuota", season(3, { gameweeks: 1, unconfirmed: TEAMS })],
+    ];
+    for (const [nome, gameweeks] of storie) {
+      const profile = profileOf(gameweeks);
+      for (const quantity of BEHAVIOUR_QUANTITIES) {
+        if (quantity.id === "elevenIdenticalToPrevious") continue;
+        expect(quantity.leagueAnchor, `${nome}: ${quantity.id} dichiara un'ancora di lega sua`).toBeUndefined();
+        expect(quantity.teamAnchor, `${nome}: ${quantity.id} dichiara un bersaglio di squadra suo`).toBeUndefined();
+        const row = profile.reference.find((r) => r.quantity === quantity.id);
+        expect(row).toBeDefined();
+        const size = quantity.categories.length;
+        for (let c = 0; c < size; c += 1) {
+          const atteso =
+            ((row?.counts[c] as number) + LEAGUE_PSEUDO_GAMEWEEKS / size) /
+            ((row?.observations as number) + LEAGUE_PSEUDO_GAMEWEEKS);
+          expect(row?.share[c] as number, `${nome}: ${quantity.id}[${c}]`).toBeCloseTo(atteso, 12);
+        }
+        // E la squadra tira verso il riferimento di lega, con la forma di
+        // sempre: nessun campo dell'ancora, il peso del riferimento è k/(n+k).
+        for (const team of profile.teams) {
+          const estimate = behaviourEstimate(team, quantity.id);
+          expect(estimate.teamAnchor).toBeUndefined();
+          expect(estimate.teamAnchorWeight).toBeUndefined();
+          expect(estimate.leagueReferenceWeight).toBeCloseTo(
+            TEAM_PSEUDO_GAMEWEEKS / (estimate.observations + TEAM_PSEUDO_GAMEWEEKS),
+            12,
+          );
+          for (let c = 0; c < size; c += 1) {
+            const atteso =
+              ((estimate.counts[c] as number) + TEAM_PSEUDO_GAMEWEEKS * (estimate.leagueReference[c] as number)) /
+              (estimate.observations + TEAM_PSEUDO_GAMEWEEKS);
+            expect(estimate.share[c] as number, `${nome}: ${team.teamId} ${quantity.id}[${c}]`).toBeCloseTo(atteso, 12);
+          }
+        }
+      }
+    }
+    // E nella lega vuota le altre sono ESATTAMENTE l'uniforme.
+    const vuota = profileOf(storie[2]?.[1] as readonly ObservedLeagueGameweek[]);
+    for (const row of vuota.reference) {
+      if (row.quantity === "elevenIdenticalToPrevious") continue;
+      expect(row.observations).toBe(0);
+      expect(row.share).toEqual(row.categories.map(() => 1 / row.categories.length));
+    }
   });
 });
