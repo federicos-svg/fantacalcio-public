@@ -928,7 +928,8 @@ describe("opponentLineupDistribution — la precedente senza nessuna coppia osse
 // 0,10 di una squadra mai osservata. La regola di Pico è sulla SQUADRA («cambiare
 // formazione abbassa la fiducia che la ripeta»), quindi le proprietà valgono in
 // OGNI lega, comprese quelle che ripetono molto: la quota di squadra tira verso
-// lo 0,10 e non verso il riferimento di lega (secondo passo della correzione).
+// lo 0,10 e non verso il riferimento di lega (la correzione ha due livelli:
+// l'ancora di lega e il bersaglio di squadra).
 // Tutte le prove sotto vanno dal profilo VERO al peso, su storie sintetiche
 // costruite coppia per coppia: nessun valore è scritto a mano come se il
 // profilo lo avesse prodotto.
@@ -1211,12 +1212,12 @@ describe("opponentLineupDistribution — si parte sempre dal 10 % e si sale solo
     });
   });
 
-  describe("il limite della prima stesura non c'è più: in una lega che ripete molto, UNA coppia «non identica» pesa come altrove", () => {
-    // Nella prima stesura della correzione (solo l'ancora di LEGA) una squadra con
-    // una coppia «non identica» prendeva 4/5 del riferimento di lega, e in una lega
-    // che ripete molto pesava più dello 0,10 di chi non ha coppie (3 identiche su 5
-    // in lega: ≈ 0,23). Qui si fissa che non è più così: la quota di squadra non
-    // passa dal riferimento di lega, che si riporta e pesa zero.
+  describe("anche in una lega che ripete molto, UNA coppia «non identica» pesa come altrove: la stima di squadra non passa dalla lega", () => {
+    // Se fosse ancorato solo lo shrink di LEGA, una squadra con una coppia «non
+    // identica» prenderebbe 4/5 del riferimento di lega, e in una lega che ripete
+    // molto peserebbe più dello 0,10 di chi non ha coppie (3 identiche su 5 in
+    // lega: ≈ 0,23). Qui si fissa che non è così: la quota di squadra non passa
+    // dal riferimento di lega, che si riporta e pesa zero.
     it("la lega ripete molto, la squadra con una coppia «non identica» pesa 0,08 e quella con zero coppie 0,10", () => {
       const altre: Readonly<Record<string, readonly Coppia[]>> = { Z: ["identica", "identica", "identica", "diversa"] };
       const profile = leagueFromPairs({ ...altre, [SQUADRA]: ["diversa"] });

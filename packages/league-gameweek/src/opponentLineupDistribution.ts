@@ -68,16 +68,16 @@
 //    com'era). La quota «ripete la formazione» è misurata su COPPIE di giornate
 //    confermate e consecutive (`elevenIdenticalToPrevious`, §8.3): una squadra
 //    che non ne ha nemmeno una ha `observations === 0` su quella stima, e la
-//    sua `share` non è un conteggio suo ma il riferimento di lega preso in
-//    prestito per intero (`leagueReferenceWeight = 1`). Quel riferimento valeva
+//    sua `share` NON era un conteggio suo: al 2026-10-10 era il riferimento di
+//    lega preso in prestito per intero (`leagueReferenceWeight = 1`; dal
+//    2026-10-11 non più, vedi la nota che segue). Quel riferimento valeva
 //    esattamente 0,5 solo se NESSUNA squadra della lega aveva una coppia (era
-//    l'uniforme a due categorie, ancorata da `k' = 8`: dal 2026-10-11 l'ancora
-//    è lo 0,10, vedi la nota che segue); se qualcun'altra ne ha, vale la quota
-//    di ripetizione di quella lega — un'abitudine altrui
-//    attribuita a una squadra di cui non si è visto nulla. In nessuno dei due
-//    casi dice qualcosa su QUESTA squadra, e alzarla a peso della precedente la
-//    fa diventare la formazione più pesata della distribuzione senza che un
-//    dato la sostenga: per avere 0,5 di undici IDENTICI ognuno degli undici
+//    l'uniforme a due categorie, ancorata da `k' = 8`); se qualcun'altra ne
+//    aveva, valeva la quota di ripetizione di quella lega — un'abitudine altrui
+//    attribuita a una squadra di cui non si era visto nulla. In nessuno dei due
+//    casi diceva qualcosa su QUESTA squadra, e farne il peso della precedente
+//    la faceva diventare la formazione più pesata della distribuzione senza che
+//    un dato la sostenesse: per avere 0,5 di undici IDENTICI ognuno degli undici
 //    nomi dovrebbe ripetersi con probabilità di circa 0,94 ([Ipotesi]
 //    indipendenza fra i nomi: è l'aritmetica 0,5^(1/11), non una misura),
 //    mentre le probabili di oggi possono dare a quegli stessi nomi molto meno
@@ -103,8 +103,8 @@
 //    UNA coppia osservata e «non identica» (cioè che aveva cambiato formazione)
 //    riceveva dal profilo una quota di ripetizione ≈ 0,356 contro lo 0,10 di
 //    una squadra mai osservata — la prova contraria pesava 3,5 volte l'assenza
-//    di prove. È stata corretta in `leagueBehaviourProfile.ts`, in due passi (la
-//    nota «AGGIUNTA DEL 2026-10-11» di quel file li racconta): l'ancora di LEGA
+//    di prove. È stata corretta in `leagueBehaviourProfile.ts`, su due livelli (la
+//    nota «AGGIUNTA DEL 2026-10-11» di quel file li descrive): l'ancora di LEGA
 //    di «ripete la formazione» è [0,10, 0,90] e, soprattutto, la stima di
 //    SQUADRA tira verso [0,10, 0,90] e non verso il riferimento di lega, quindi
 //    non dipende da com'è fatta la lega. Questo file NON CAMBIA UNA RIGA DI

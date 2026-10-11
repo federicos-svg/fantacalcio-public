@@ -36,7 +36,9 @@
 //    vera. Perciò qui NON esiste una frequenza grezza in uscita: ogni quantità è
 //    uno SHRINK verso il riferimento della lega, con la stessa forma di
 //    `baseForecast.ts` — peso osservato più K osservazioni finte distribuite
-//    come il riferimento. Con zero osservazioni la stima È il riferimento; con
+//    come il riferimento. Con zero osservazioni la stima È il riferimento (salvo
+//    `elevenIdenticalToPrevious`: la sua stima È la quota di partenza, nota
+//    «AGGIUNTA DEL 2026-10-11» dopo la c); con
 //    molte il riferimento sparisce; in mezzo la miscela è continua e nessuna
 //    soglia fa saltare una squadra da un profilo all'altro a giornate +1. I
 //    conteggi grezzi restano in uscita — §8.3 vuole conteggi — ma come EVIDENZA
@@ -54,7 +56,9 @@
 //    qui vale identico.
 //
 // 3) UNA SQUADRA MAI OSSERVATA NON HA UN PROFILO. Ha il riferimento della lega,
-//    e lo dice: `basis: "riferimento-di-lega"`. L'elenco delle squadre della
+//    e lo dice: `basis: "riferimento-di-lega"` (salvo `elevenIdenticalToPrevious`,
+//    che ha la quota di partenza e `basis: "quota-di-partenza"`: nota «AGGIUNTA
+//    DEL 2026-10-11» dopo la c). L'elenco delle squadre della
 //    lega lo DICHIARA il chiamante e non si deduce da chi è comparso nelle
 //    fotografie — dedurlo significherebbe che una squadra mai vista sparisce
 //    invece di comparire col riferimento, che è il caso esatto per cui questa
@@ -137,22 +141,21 @@
 //    (0,10, `EARLY_SEASON_REPEAT_FLOOR` di `opponentLineupDistribution.ts`, dal
 //    commit 6875a7e): una prova contraria valeva più dell'assenza di prove.
 //
-//    LA CORREZIONE È DI DUE PASSI, FATTI IL GIORNO STESSO IN DUE COMMIT, E IL
-//    SECONDO CORREGGE LA LETTURA TROPPO STRETTA DEL PRIMO. Per la SOLA quantità
-//    `elevenIdenticalToPrevious`, con l'ancora A = [`ELEVEN_REPEAT_STARTING_SHARE`,
-//    1 − `ELEVEN_REPEAT_STARTING_SHARE`] = [0,10, 0,90]:
-//    1) l'ancora esterna dello shrink di LEGA è A invece dell'uniforme (primo
-//       commit): il riferimento di lega, lo stesso esempio, è (0 + 8·0,10) /
-//       (1 + 8) ≈ 0,089;
-//    2) lo shrink di SQUADRA tira verso A e NON verso il riferimento di lega
-//       (secondo commit): la stima è (conteggi + k·A) / (n + k), con `k = 4`, e
-//       non dipende più da nessun'altra squadra. Il primo passo da solo lasciava
-//       un buco: con una coppia osservata la squadra prende `k / (n + k)` = 4/5
-//       del riferimento di LEGA, e in una lega che ripete molto una coppia «non
-//       identica» pesava più dello 0,10 di una squadra mai osservata (3 coppie
-//       identiche su 5 in lega: ≈ 0,23). La regola di Pico è sulla SQUADRA, non
-//       sulla lega: «cambiare formazione abbassa la fiducia che la ripeta» vale
-//       in qualunque lega.
+//    LA CORREZIONE È SU DUE LIVELLI, E IL SECONDO È QUELLO CHE FA TENERE LA
+//    REGOLA. Per la SOLA quantità `elevenIdenticalToPrevious`, con l'ancora
+//    A = [`ELEVEN_REPEAT_STARTING_SHARE`, 1 − `ELEVEN_REPEAT_STARTING_SHARE`] =
+//    [0,10, 0,90]:
+//    1) l'ancora esterna dello shrink di LEGA è A invece dell'uniforme: il
+//       riferimento di lega, lo stesso esempio, è (0 + 8·0,10) / (1 + 8) ≈ 0,089;
+//    2) lo shrink di SQUADRA tira verso A e NON verso il riferimento di lega: la
+//       stima è (conteggi + k·A) / (n + k), con `k = 4`, e non dipende da
+//       nessun'altra squadra. Il livello 1 da solo lascerebbe un buco: con una
+//       coppia osservata la squadra prenderebbe `k / (n + k)` = 4/5 del
+//       riferimento di LEGA, e in una lega che ripete molto una coppia «non
+//       identica» peserebbe più dello 0,10 di una squadra mai osservata (3
+//       coppie identiche su 5 in lega: ≈ 0,23). La regola di Pico è sulla
+//       SQUADRA, non sulla lega: «cambiare formazione abbassa la fiducia che la
+//       ripeta» vale in qualunque lega.
 //    Lo stesso esempio dà dunque per la squadra (0 + 4·0,10) / (1 + 4) = 0,08,
 //    sotto lo 0,10 di chi non è mai stato osservato, in OGNI lega; una coppia
 //    «identica» dà (1 + 4·0,10) / (1 + 4) = 0,28, sopra lo 0,10, in ogni lega.
@@ -160,7 +163,8 @@
 //    (da zero compreso): «identica» non abbassa la stima, «non identica» non la
 //    alza (la stima (c + k·0,10) / (n + k) cresce con una coppia identica per
 //    ogni c ≤ n, e cala con una non identica). Provato su tutte le storie fino a
-//    sei coppie, in tre leghe, in `opponentLineupDistribution.test.ts`, sezione 7.
+//    sei coppie, in quattro leghe, in `opponentLineupDistribution.test.ts`,
+//    sezione 7.
 //
 //    COME SI RAPPRESENTA, perché l'uscita dica ciò che è stato usato davvero. Il
 //    riferimento di lega di questa quantità SI CALCOLA E SI RIPORTA come prima
@@ -282,10 +286,10 @@ export const ELEVEN_REPEAT_STARTING_SHARE = 0.1 as const;
  * L'ancora di «ripete la formazione» dai due lati: [identico, diverso]. Una
  * sola definizione, usata dall'ancora di lega e dal bersaglio di squadra.
  */
-const ELEVEN_REPEAT_ANCHOR: readonly number[] = [
+const ELEVEN_REPEAT_ANCHOR: readonly number[] = Object.freeze([
   ELEVEN_REPEAT_STARTING_SHARE,
   1 - ELEVEN_REPEAT_STARTING_SHARE,
-];
+]);
 
 // ─── LA FOTOGRAFIA DI GIORNATA (§8.2), COME ARRIVA QUI ───────────────────────
 
@@ -507,7 +511,7 @@ export const BEHAVIOUR_QUANTITIES: readonly BehaviourQuantity[] = [
       "giornata immediatamente precedente.",
     trial: "Una coppia di giornate confermate con numeri consecutivi.",
     // Posizione 0 = «identico», 1 = «diverso» (l'ordine di `categories`). La
-    // STESSA ancora per i due livelli: lega (primo passo) e squadra (secondo).
+    // STESSA ancora per i due livelli: lega e squadra.
     leagueAnchor: ELEVEN_REPEAT_ANCHOR,
     teamAnchor: ELEVEN_REPEAT_ANCHOR,
   },
@@ -604,7 +608,12 @@ export interface TeamBehaviourProfile {
   readonly reason: string;
 }
 
-/** Il riferimento della lega, esposto per sé: è ciò che riceve chi non ha dati. */
+/**
+ * Il riferimento della lega, esposto per sé: è ciò che riceve chi non ha dati —
+ * tranne per `elevenIdenticalToPrevious`, dove il riferimento si riporta ma chi
+ * non ha dati riceve la quota di partenza (`teamAnchor`, nota «AGGIUNTA DEL
+ * 2026-10-11» in testa al file).
+ */
 export interface LeagueReferenceEstimate {
   readonly quantity: BehaviourQuantityId;
   readonly label: string;
