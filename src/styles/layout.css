@@ -46,7 +46,15 @@
    prima. La barra in alto ha un carattere suo e non cambia. Le altre schermate
    (Formazione, Rose, Impostazioni) sono nei caratteri nuovi. */
 .app-shell[data-screen="asta"] { font-family: var(--font-sistema); }
-.app-shell[data-screen="asta"] :is(button, input, select, textarea) { font-family: revert; }
+/* `:where()` AZZERA LA SPECIFICITÀ DEL RIFERIMENTO ALLA SCHERMATA: la regola vale
+   (0,0,1), come `button, input, select, textarea { font-family: inherit }` di
+   base.css, e vince su quella solo perché viene dopo. Scritta con
+   `.app-shell[data-screen="asta"] :is(…)` valeva (0,2,1) e batteva anche i
+   `font-family: inherit` DICHIARATI dall'Asta (`.critical-roster`,
+   `.moment-facts__toggle` in asta.css): quei due controlli passavano da
+   «inherit» al carattere di default del browser (Arial) e il secondo scendeva da
+   28 a 26px rispetto a prima. e2e/asta-controlli-carattere.spec.ts li tiene fermi. */
+:where(.app-shell[data-screen="asta"]) :is(button, input, select, textarea) { font-family: revert; }
 
 /* LA BARRA — marchio a sinistra, voci accanto. Alta 45px (44 + il filo di
    sotto; era 44 con il filo dentro): le voci sono premibili su 44px di altezza,
