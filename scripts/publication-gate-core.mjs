@@ -69,8 +69,6 @@ export const ALLOWED_TOP_LEVEL_FILES = new Set([
   "PROJECT_STATE.md",
 ]);
 
-const ALLOWED_TOP_LEVEL = new Set([...ALLOWED_TOP_LEVEL_DIRS, ...ALLOWED_TOP_LEVEL_FILES]);
-
 /** The first path segment of a tracked path: `"packages/engine/x.ts"` -> `"packages"`. */
 export function topLevelEntry(path) {
   const idx = path.indexOf("/");
@@ -79,7 +77,13 @@ export function topLevelEntry(path) {
 
 export function checkForbiddenTopLevel(path) {
   const entry = topLevelEntry(path);
-  if (ALLOWED_TOP_LEVEL.has(entry)) return null;
+  // Una CARTELLA ammessa ammette tutto ciò che sta sotto. Un FILE ammesso
+  // ammette solo se stesso: il percorso intero deve coincidere con la voce, non
+  // basta che il primo segmento le somigli. Prima l'insieme era uno solo, quindi
+  // `.gitattributes/x.md` o `.gitignore/x.md` (una cartella con il nome di un file
+  // ammesso) passavano per il primo segmento.
+  if (ALLOWED_TOP_LEVEL_DIRS.has(entry)) return null;
+  if (ALLOWED_TOP_LEVEL_FILES.has(entry) && entry === path) return null;
   return { rule: "forbidden-top-level", detail: `top-level entry "${entry}" not in the public allowlist` };
 }
 
