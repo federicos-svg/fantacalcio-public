@@ -109,6 +109,7 @@ import {
   PROVA_TESTO_USCITA,
   PROVA_TITOLO,
 } from "../formazioneProva.js";
+import { codiceScritto, disponibilitaScritta, moduloScritto } from "../formazioneScritte.js";
 
 /**
  * QUELLO CHE LA PAGINA DICE QUANDO IL NOME NON È STATO LETTO.
@@ -302,6 +303,31 @@ function paragraph(text: string, extraCss = ""): HTMLElement {
   p.className = "fz-p";
   if (extraCss.length > 0) p.style.cssText = extraCss;
   p.textContent = text;
+  return p;
+}
+
+/**
+ * Un paragrafo in cui compaiono dei moduli. Il testo che si legge è lo stesso di
+ * `paragraph` (le parti si concatenano); cambia solo che ogni modulo sta in un
+ * pezzo che non va a capo, perché «4-4-2» spezzato dopo il secondo trattino si
+ * legge «4-4-» e poi «2» — la scrittura chiara che si è appena data ai moduli
+ * perderebbe la sua ragione proprio nelle righe che ne elencano più d'uno.
+ */
+function paragraphConModuli(
+  parti: ReadonlyArray<string | { readonly modulo: string }>,
+  extraCss = "",
+): HTMLElement {
+  const p = paragraph("", extraCss);
+  for (const parte of parti) {
+    if (typeof parte === "string") {
+      p.appendChild(document.createTextNode(parte));
+      continue;
+    }
+    const pezzo = document.createElement("span");
+    pezzo.className = "fz-modulo-scritto";
+    pezzo.textContent = moduloScritto(parte.modulo);
+    p.appendChild(pezzo);
+  }
   return p;
 }
 
@@ -758,7 +784,7 @@ function renderViolations(
   list.className = "fz-lista";
   list.style.cssText = `margin:0;`;
   list.innerHTML = violations
-    .map((violation) => `<li><strong>${escHtml(violation.code)}</strong> — ${escHtml(violation.message)}</li>`)
+    .map((violation) => `<li><strong>${escHtml(codiceScritto(violation.code))}</strong> — ${escHtml(violation.message)}</li>`)
     .join("");
   wrap.appendChild(list);
   return wrap;
@@ -773,7 +799,10 @@ function renderDifferences(differences: readonly LineupDifference[]): HTMLElemen
   list.innerHTML = differences
     .map((difference) => {
       const dove = difference.index === null ? difference.field : `${difference.field}[${difference.index}]`;
-      return `<li>${escHtml(dove)}: voluto <strong>${escHtml(String(difference.a))}</strong>, riletto <strong>${escHtml(String(difference.b))}</strong></li>`;
+      // Il modulo si legge con i trattini; ogni altro valore resta com'è.
+      const voce = (valore: unknown): string =>
+        difference.field === "module" ? moduloScritto(String(valore)) : String(valore);
+      return `<li>${escHtml(dove)}: voluto <strong>${escHtml(voce(difference.a))}</strong>, riletto <strong>${escHtml(voce(difference.b))}</strong></li>`;
     })
     .join("");
   return list;
@@ -1005,14 +1034,14 @@ function renderModuleBar(
     bottone.setAttribute(
       "aria-label",
       impedito.length > 0
-        ? `Modulo ${module} — non schierabile: ${impedito}`
-        : `Schiera il modulo ${module} — ${competition.label}`,
+        ? `Modulo ${moduloScritto(module)} — non schierabile: ${impedito}`
+        : `Schiera il modulo ${moduloScritto(module)} — ${competition.label}`,
     );
     bottone.className = "fz-modulo";
 
     const chiave = document.createElement("span");
     chiave.className = "fz-modulo__chiave";
-    chiave.textContent = module;
+    chiave.textContent = moduloScritto(module);
     bottone.appendChild(chiave);
 
     // IL MOTIVO SI LEGGE, non si scopre passandoci sopra: un `title` non esiste
@@ -1057,9 +1086,13 @@ function renderLineupControls(
   wrap.appendChild(renderModuleBar(competition, handlers));
 
   if (allowed === null) {
-    const riga = paragraph(
-      `Schierata con «${lineup === null ? "—" : lineup.module}». La lega non ha dichiarato quali moduli ammette: ` +
-        "da qui il modulo non si cambia, perché l'unica lista possibile sarebbe inventata.",
+    const riga = paragraphConModuli(
+      [
+        "Schierata con «",
+        lineup === null ? "—" : { modulo: lineup.module },
+        "». La lega non ha dichiarato quali moduli ammette: " +
+          "da qui il modulo non si cambia, perché l'unica lista possibile sarebbe inventata.",
+      ],
       `color:${C.textAccent};`,
     );
     riga.id = `formazione-moduli-non-dichiarati-${competition.competitionId}`;
@@ -1071,11 +1104,18 @@ function renderLineupControls(
     // elenco lo dice questa riga insieme alla violazione bloccante.
     const fuoriElenco = lineup !== null && !allowed.includes(lineup.module);
     wrap.appendChild(
-      paragraph(
-        `moduli dichiarati dalla lega: ${allowed.join(", ")}` +
-          (fuoriElenco
-            ? ` — la formazione è schierata con «${lineup.module}», che la lega non dichiara più`
-            : ""),
+      paragraphConModuli(
+        [
+          "moduli dichiarati dalla lega: ",
+          ...allowed.flatMap((modulo, i) => (i === 0 ? [{ modulo }] : [", ", { modulo }])),
+          ...(fuoriElenco
+            ? [
+                " — la formazione è schierata con «",
+                { modulo: lineup.module },
+                "», che la lega non dichiara più",
+              ]
+            : []),
+        ],
         `color:${fuoriElenco ? C.textAccent : C.textDim};`,
       ),
     );
@@ -1170,7 +1210,7 @@ function renderModuleControl(
   for (const module of competition.allowedModules ?? MODULES) {
     const option = document.createElement("option");
     option.value = module;
-    option.textContent = module;
+    option.textContent = moduloScritto(module);
     select.appendChild(option);
   }
   select.value = competition.constraints.lockedModule ?? "";
@@ -1189,7 +1229,7 @@ function renderModuleControl(
   attuale.textContent =
     competition.lineup === null
       ? "nessun modulo schierato dalla lega"
-      : `schierato adesso: ${competition.lineup.module}`;
+      : `schierato adesso: ${moduloScritto(competition.lineup.module)}`;
   wrap.appendChild(attuale);
 
   return wrap;
@@ -1569,7 +1609,8 @@ function renderPlayerToken(
   bottone.setAttribute("aria-pressed", preso ? "true" : "false");
 
   const ruolo = ROLE_LABEL[player.role] ?? player.role;
-  const disponibilita = player.availability === undefined ? "" : `, ${player.availability}`;
+  const disponibilita =
+    player.availability === undefined ? "" : `, ${disponibilitaScritta(player.availability)}`;
   // CHI È, DETTO A VOCE come è scritto sul gettone: il nome quando c'è, e
   // altrimenti l'identificativo con la sua dichiarazione. Una `aria-label` che
   // continuasse a dire l'identificativo mentre lo schermo dice il nome
@@ -1668,12 +1709,13 @@ function renderPlayerToken(
   }
   if (player.availability !== undefined) {
     const stato = document.createElement("span");
-    // La disponibilità è quella che la lega ha dichiarato, scritta com'è
-    // (`in_dubbio` compreso). Cambia solo il vestito: testo semplice per
-    // «disponibile», bordo tratteggiato per «in_dubbio», rosso per
-    // «indisponibile» — vedi `.fz-chip--*` in formazione.css.
+    // La disponibilità è quella che la lega ha dichiarato. Il valore resta
+    // quello del contratto (`in_dubbio` compreso) nella classe del vestito;
+    // quello che si legge è la parola — «in dubbio» — via `disponibilitaScritta`.
+    // Il vestito: testo semplice per «disponibile», bordo tratteggiato per «in
+    // dubbio», rosso per «indisponibile» — vedi `.fz-chip--*` in formazione.css.
     stato.className = `fz-chip fz-chip--${player.availability}`;
-    stato.textContent = player.availability;
+    stato.textContent = disponibilitaScritta(player.availability);
     segni.appendChild(stato);
   }
   if (player.locked) {
@@ -1686,7 +1728,7 @@ function renderPlayerToken(
   if (codici.length > 0) {
     const nota = document.createElement("span");
     nota.className = "formazione-riga__motivo fz-chip fz-chip--codice";
-    nota.textContent = codici.join(" ");
+    nota.textContent = codici.map(codiceScritto).join(", ");
     segni.appendChild(nota);
   }
   if (segni.childElementCount > 0) bottone.appendChild(segni);
@@ -1731,7 +1773,7 @@ function renderSpunta(
 
   const label = document.createElement("label");
   label.setAttribute("for", id);
-  label.textContent = "voglio";
+  label.textContent = "Lo voglio in campo";
   wrap.appendChild(label);
   return wrap;
 }
@@ -2113,10 +2155,14 @@ function renderPitch(
     box.className = "fz-allarme";
     box.appendChild(smallHeading("IN CAMPO, E SENZA UN POSTO IN QUESTO MODULO", C.stopRed));
     box.appendChild(
-      paragraph(
-        `Sono schierati fra gli undici, e il modulo «${layout.module}» non ha un posto per loro. ` +
-          "Finché restano qui la formazione non è quella che il modulo dichiara: cambia modulo, " +
-          "oppure mandali in panchina.",
+      paragraphConModuli(
+        [
+          "Sono schierati fra gli undici, e il modulo «",
+          { modulo: layout.module },
+          "» non ha un posto per loro. " +
+            "Finché restano qui la formazione non è quella che il modulo dichiara: cambia modulo, " +
+            "oppure mandali in panchina.",
+        ],
         `color:${C.textMid};`,
       ),
     );
@@ -2167,7 +2213,7 @@ function renderDropZone(
   bottone.className = "btn fz-mini";
   bottone.disabled = impedito.length > 0;
   bottone.textContent =
-    bersaglio.kind === "panchina" ? "Posa qui: in panchina" : "Posa qui: fuori dai convocati";
+    bersaglio.kind === "panchina" ? "Mettilo in panchina" : "Mettilo fuori dai convocati";
   bottone.setAttribute(
     "aria-label",
     impedito.length > 0
@@ -2326,14 +2372,16 @@ function renderQuarantine(
     riga.style.cssText = `display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;font-size:14px;line-height:1.5;color:${C.textMid};`;
     const testo = document.createElement("span");
     testo.style.cssText = "flex:1 1 240px;";
-    testo.innerHTML = `<strong style="font-family:${C.mono};">${escHtml(q.value)}</strong> — ${escHtml(q.reason)}`;
+    // Il valore messo da parte è un modulo o un id: il modulo si legge coi trattini.
+    const messoDaParte = q.kind === "modulo_non_ammesso" ? moduloScritto(q.value) : q.value;
+    testo.innerHTML = `<strong style="font-family:${C.mono};">${escHtml(messoDaParte)}</strong> — ${escHtml(q.reason)}`;
     riga.appendChild(testo);
     riga.appendChild(
       commandButton(
         `formazione-quarantena-togli-${competition.competitionId}-${q.value}`,
         "Togli questo vincolo",
         q.kind === "modulo_non_ammesso"
-          ? `Togli il blocco sul modulo «${q.value}» — ${competition.label}`
+          ? `Togli il blocco sul modulo «${moduloScritto(q.value)}» — ${competition.label}`
           : `Togli la spunta su «${q.value}» — ${competition.label}`,
         false,
         () => handlers.onRemoveQuarantined(competition.competitionId, q),
@@ -2516,7 +2564,7 @@ function renderCompetition(
           issue.playerIds.length === 0
             ? ""
             : ` <span style="font-family:${C.mono};color:${C.textDim};">(${escHtml(issue.playerIds.join(", "))})</span>`;
-        return `<li><strong>${escHtml(issue.code)}</strong> — ${escHtml(issue.message)}${chi}</li>`;
+        return `<li><strong>${escHtml(codiceScritto(issue.code))}</strong> — ${escHtml(issue.message)}${chi}</li>`;
       })
       .join("");
     impossibile.appendChild(list);
@@ -2541,7 +2589,7 @@ function renderCompetition(
           issue.playerIds.length === 0
             ? ""
             : ` <span style="font-family:${C.mono};color:${C.textDim};">(${escHtml(issue.playerIds.join(", "))})</span>`;
-        return `<li><strong>${escHtml(issue.code)}</strong> — ${escHtml(issue.message)}${chi}</li>`;
+        return `<li><strong>${escHtml(codiceScritto(issue.code))}</strong> — ${escHtml(issue.message)}${chi}</li>`;
       })
       .join("");
     avvisi.appendChild(list);

@@ -129,7 +129,7 @@ test("il ruolo e i segni già presenti restano dove erano", async ({ page, conte
 
   const inDubbio = page.locator(gettone(CAMPIONATO, "g-a3"));
   await expect(inDubbio).toHaveAttribute("data-ruolo", "A");
-  await expect(inDubbio).toContainText("in_dubbio");
+  await expect(inDubbio).toContainText("in dubbio");
   await expect(inDubbio.locator(".formazione-gettone__nome")).toHaveText("Attaccante Tre");
 
   expect(externalRequests).toEqual([]);

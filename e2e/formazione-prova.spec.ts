@@ -248,7 +248,7 @@ test("le spunte, il blocco totale e i motivi di rifiuto si provano davvero", asy
   await page.locator(`#formazione-spunta-${PROVA_COMPETITION_ID}-${indisponibile}`).check();
   const avvertimenti = page.locator(`#formazione-avvertimenti-vincoli-${PROVA_COMPETITION_ID}`);
   await expect(avvertimenti).toBeVisible();
-  await expect(avvertimenti).toContainText("LOCKED_PLAYER_NEVER_PLAYS");
+  await expect(avvertimenti).toContainText("giocatore che non gioca");
   await expect(avvertimenti).toContainText(indisponibile);
   await expect(page.locator(`#formazione-salva-${PROVA_COMPETITION_ID}`)).toBeEnabled();
 

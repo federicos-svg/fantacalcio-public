@@ -84,6 +84,8 @@
   color: var(--text-mid);
 }
 .fz-p--nota { font-size: 13px; }
+/* Un modulo scritto «4-4-2» non va a capo dopo un trattino: spezzato si legge «4-4-» e «2». */
+.fz-modulo-scritto { white-space: nowrap; }
 .fz-lista {
   margin: 4px 0 0;
   padding-left: 20px;
