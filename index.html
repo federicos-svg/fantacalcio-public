@@ -3,9 +3,37 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Fantacalcio Auction Copilot</title>
+  <title>Fantacalcio Copilot</title>
+  <!-- Il colore della barra del browser al telefono: l'ardesia del fondo. -->
+  <meta name="theme-color" content="#0d1a19" />
+  <!-- Il marchio «Tre esiti» (Pico, 31/10/2026). Il favicon SVG è il quadratino
+       ardesia col pallone menta: resta leggibile su scheda chiara e scura. Per
+       i browser che non leggono l'SVG ci sono i PNG a 32 e 48px; per la
+       schermata del telefono l'icona a 180px. Nessun manifest: il sito non è
+       un'app installabile e questo cambio non lo rende tale. -->
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+  <link rel="icon" href="/favicon-48.png" type="image/png" sizes="48x48" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <!-- I quattro caratteri con cui si apre ogni schermata (testo 400 e 600,
+       titoli e voci della barra 600 e 700), caricati in anticipo: il testo non
+       aspetta di scoprirli dal foglio di stile. Sono file del sito
+       (public/fonts/), non di un host esterno. `crossorigin` è obbligatorio per
+       i font anche same-origin, altrimenti il file verrebbe scaricato due volte.
+       Il quarto (Barlow Condensed 600, le voci della barra) prima non c'era: lo
+       scopriva il primo layout, DOPO la scrittura del documento, e la richiesta
+       partita lì teneva in sospeso l'evento `load` (vedi `MARCHIO_SRC` in
+       src/main.ts: stessa causa, stessa misura). -->
+  <link rel="preload" href="/fonts/barlow-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/barlow-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/barlow-condensed-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/barlow-condensed-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin />
+  <!-- Il marchio della barra, precaricato perché venga assegnato al `load` (e
+       non alla creazione) senza farsi aspettare: i byte ci sono già. Un preload
+       non tiene `load`, un `<img>` con `src` sì. -->
+  <link rel="preload" href="/brand/orizzontale-colori.svg" as="image" type="image/svg+xml" />
   <!-- Global CSS now lives in src/styles/*.css, imported by src/main.ts
-       (standard Vite CSS-import handling — see docs/data note in
+       (standard Vite CSS-import handling — see docs note in
        PROJECT_STATE.md for the Frontend Structure Foundation v1 batch). -->
 </head>
 <body>

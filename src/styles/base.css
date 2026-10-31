@@ -5,45 +5,84 @@
    token pipeline; see docs note in theme.ts). `C` itself is unchanged and
    still used directly by existing inline styles — these custom properties
    only back the *new* classes introduced in components.css/layout.css/
-   asta.css/listone.css. */
+   asta.css/listone.css.
+
+   LA DIREZIONE «LAVAGNA» (Pico, 31/10/2026): fondo ardesia verde, testo color
+   gesso, un'unica tinta d'accento — la menta. Marchio «Tre esiti», caratteri
+   Barlow (testo) e Barlow Condensed (titoli e numeri), ospitati in
+   src/styles/fonts.css. Che cosa NON cambia, per scelta di Pico: i colori dei
+   ruoli P/D/C/A (ROLE_COLORS in theme.ts) e il rosso dello STOP. Il verde dei
+   crediti e quello del ruolo D restano com'erano. */
 
 :root {
-  --bg: oklch(0.19 0.008 270);
-  --panel: oklch(0.24 0.01 270);
-  --panel-inner: oklch(0.28 0.012 270);
-  --border: oklch(0.32 0.012 270);
-  --accent: oklch(0.55 0.13 250);
-  --accent-dim: oklch(0.35 0.06 250);
+  /* ── Superfici — la lavagna: ardesia, pannello, interno, bordo.
+     Misure fatte sui valori sRGB (luminanza relativa WCAG). */
+  --bg: #0d1a19;
+  --panel: #152422;
+  --panel-inner: #1d2e2c;
+  --border: #304140;
+  /* ── L'accento è la menta, e VALE COME FONDO, COME BORDO E COME TESTO: su
+     --bg/--panel/--panel-inner sta a 10,64 / 9,60 / 8,48 :1, quindi non serve
+     più un secondo token «accento come testo» più chiaro (--text-accent resta
+     solo perché il codice lo usa già, ed è lo stesso valore).
+     SOPRA la menta il testo è --on-accent (ardesia quasi nera, 10,76:1): il
+     bianco, che stava sul vecchio accento blu, sulla menta si ferma a 1,5:1.
+     Mai la menta come fondo sotto testo chiaro. */
+  --accent: #63dbcd;
+  --on-accent: #041a18;
+  /* La menta al passaggio del mouse sui bottoni principali: un gradino più
+     chiara, e l'ardesia sopra resta a 12,7:1. Un valore e non un `filter`: il
+     contrasto si misura sul colore reso, e un filtro non si può misurare. */
+  --accent-hover: #8de8de;
+  /* Fondo scuro tinto d'accento (modulo acceso, valore evidenziato): sopra ci
+     stanno il testo primario (8,63:1), il medio (6,88:1) e il secondario
+     (5,01:1). */
+  --accent-dim: #1b4a45;
   /* ── Rampa del testo — tutti i livelli ≥ 4,5:1 (WCAG AA) su OGNI sfondo su
-     cui compaiono davvero (--bg 0.19, --panel 0.24, --panel-inner 0.28).
-     Lo sfondo peggiore è --panel-inner: lì servono L ≥ 0.6493 per 4,5:1, ed è
-     quel pavimento a fissare il gradino più basso della rampa. Misure reali
-     (oklch → sRGB → luminanza relativa WCAG), su --panel-inner:
-       --text-dim      4,69:1   (era 2,43:1 a L 0.50)
-       --text-sec      6,33:1   (era 4,01:1 a L 0.62)
-       --text-mid      8,36:1   (invariato: era già conforme)
-       --text-primary 13,00:1   (invariato)
-     I passi in L restano 0.08 / 0.08 / 0.14: la gerarchia non è più portata
-     dal solo colore — dove due livelli si toccano la differenza è anche di
-     corpo, peso, maiuscoletto o spaziatura (vedi .critical-role-plan-item em,
-     .status-filter__label, .hint-text). Il testo attenuato resta attenuato,
-     ma in asta si legge. */
-  --text-primary: oklch(0.96 0.005 270);
-  --text-sec: oklch(0.74 0.01 270);
-  --text-mid: oklch(0.82 0.006 270);
-  --text-dim: oklch(0.66 0.01 270);
-  /* L'accent COME TESTO, non come fondo: --accent pieno su --panel-inner sta
-     a 3,02:1. Questo token è il valore che il repo aveva già scelto due volte
-     ad hoc (.roster-badge-confirmed e .war-board-bid--locked, fix 9 #285) —
-     stesso hue/chroma, stessa lettura "è il colore accent", 5,09:1 su
-     --panel-inner. --accent resta intatto per fondi, bordi e focus ring. */
-  --text-accent: oklch(0.68 0.13 250);
-  /* Anche STOP è quasi solo testo (una sola border-color): a L 0.66 stava a
-     4,30:1 su --panel-inner, sotto AA. L 0.70 → 5,02:1, stesso hue/chroma. */
+     cui compaiono davvero (--bg, --panel, --panel-inner). Lo sfondo peggiore è
+     --panel-inner, ed è lì che il gradino più basso della rampa si ferma. Misure
+     reali (sRGB → luminanza relativa WCAG):
+                      su --bg   su --panel   su --panel-inner
+       --text-primary  15,46      13,94          12,32   (gesso)
+       --text-mid      12,32      11,11           9,82
+       --text-sec       8,98       8,10           7,16
+       --text-dim       6,25       5,64           4,98   (il minimo della rampa)
+     La gerarchia non è portata dal solo colore — dove due livelli si toccano la
+     differenza è anche di corpo, peso, maiuscoletto o spaziatura. Il testo
+     attenuato resta attenuato, ma in asta si legge. */
+  --text-primary: #f1efe6;
+  --text-mid: #d3d8d2;
+  --text-sec: #adbbb9;
+  --text-dim: #8e9c9a;
+  /* Resta come nome, vale come --accent: la menta sta già sopra AA su tutte e
+     tre le superfici. */
+  --text-accent: #63dbcd;
+  /* STOP: identico a prima, per scelta di Pico (non è parte del restyling). Anche
+     STOP è quasi solo testo (una sola border-color): su --panel-inner sta a
+     4,89:1. */
   --stop-red: oklch(0.7 0.19 25);
   --stop-red-dark: oklch(0.5 0.16 25);
+  /* Il fondo dei riquadri di allarme (STOP): un rosso quasi nero. Non è un nuovo
+     colore di STOP — il rosso resta quello sopra — è la superficie su cui il
+     rosso si legge (--stop-red su questo fondo: 5,99:1). */
+  --stop-surface: #2a1414;
   --green: oklch(0.65 0.15 145);
+  /* Il campo della Formazione: verde lavagna e linee a gesso. Servono solo a
+     src/styles/formazione.css; il testo sopra il campo sta sempre su una
+     targhetta di --bg o su una pastiglia propria, mai sul verde nudo. */
+  --campo: #12302b;
+  --campo-linea: rgba(241, 239, 230, 0.22);
+  /* ── Caratteri. `--font-ui` è il testo; `--font-display` i titoli, le
+     etichette in maiuscoletto e i numeri grandi. `--font-mono` è la
+     monospaziata di prima, IDENTICA: numeri e identificativi dell'Asta restano
+     com'erano (e con loro le misure che l'Asta dichiara). */
+  --font-ui: 'Barlow', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-display: 'Barlow Condensed', 'Barlow', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  /* Il carattere di testo di PRIMA, identico. Lo tiene l'Asta (vedi layout.css,
+     `.app-shell[data-screen="asta"]`): le sue misure dichiarate poggiano su
+     questo carattere, e l'Asta non è nel perimetro dell'impaginazione. */
+  --font-sistema: -apple-system, system-ui, 'Helvetica Neue', Arial, sans-serif;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -51,8 +90,12 @@ html, body { height: 100%; }
 body {
   background: var(--bg);
   color: var(--text-primary);
-  font-family: -apple-system, system-ui, 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--font-ui);
   font-size: 14px;
   line-height: 1.5;
 }
+/* I controlli del modulo non ereditano il carattere da soli: senza questa riga
+   restano nel carattere di sistema, in mezzo a una pagina in Barlow. Solo la
+   famiglia — corpo e peso restano quelli che ogni regola già decide. */
+button, input, select, textarea { font-family: inherit; }
 #app { min-height: 100vh; }

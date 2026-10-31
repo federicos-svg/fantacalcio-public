@@ -173,3 +173,151 @@ test("col dito si schiera davvero: modulo, scambio, panchina e Salva sono tutti 
 
   expect(externalRequests).toEqual([]);
 });
+
+test("la barra in alto sta su una riga sola, sotto i 56px, con le quattro voci", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
+  await page.goto("/");
+
+  // Prima la barra andava a capo (marchio sopra, voci sotto) e saliva a 85px, il
+  // doppio, su ogni schermata. Al telefono resta il simbolo del marchio e le
+  // quattro voci su una riga: nessuna voce tolta, nessuna fuori schermo.
+  const larghezza = page.viewportSize()?.width ?? 0;
+  await expect(page.locator(".topbar")).toBeVisible();
+  // UNA SOLA LETTURA, DENTRO LA PAGINA. L'app ricostruisce tutto il DOM a ogni
+  // cambio di stato: una misura fatta con più chiamate (`boundingBox` sulla barra,
+  // poi su ogni voce) può trovare la barra staccata fra una chiamata e l'altra e
+  // restituire `null`. Qui barra e voci si leggono nello stesso istante.
+  const barra = await page.evaluate(() => {
+    const rect = (el: Element) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width, height: r.height };
+    };
+    const topbar = document.querySelector(".topbar");
+    return {
+      barra: topbar === null ? null : rect(topbar),
+      voci: Array.from(document.querySelectorAll(".topbar__voce")).map(rect),
+    };
+  });
+  expect(barra.barra?.height ?? 999, "altezza della barra").toBeLessThanOrEqual(56);
+
+  expect(barra.voci, "le quattro voci ci sono tutte").toHaveLength(4);
+  const topPrima = barra.voci[0]?.y ?? -1;
+  for (const [i, b] of barra.voci.entries()) {
+    expect(b.y, `la voce ${i} sta sulla stessa riga della prima`).toBeCloseTo(topPrima, 0);
+    expect(b.x, `la voce ${i} a sinistra`).toBeGreaterThanOrEqual(0);
+    expect(b.x + b.width, `la voce ${i} a destra`).toBeLessThanOrEqual(larghezza);
+    expect(b.height, `la voce ${i} è premibile (≥ 44px)`).toBeGreaterThanOrEqual(44);
+  }
+  expect(await sbordoOrizzontale(page), "la barra non fa scorrere in orizzontale").toBe(0);
+
+  // Il simbolo c'è e il nome del prodotto resta nell'`alt`: togliere la scritta
+  // non toglie il nome a chi non vede.
+  const marchio = page.locator("img.topbar__marchio");
+  await expect(marchio).toBeVisible();
+  await expect(marchio).toHaveAttribute("alt", "Fantacalcio Copilot");
+  expect(externalRequests).toEqual([]);
+});
+
+test("nel campo i comandi hanno il fondo pieno: le linee del campo non li attraversano", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await apriSulTelefono(page, context, externalRequests);
+
+  // Le linee del campo (cerchio, aree, metà campo) stanno sotto i comandi; con un
+  // fondo trasparente si vedevano attraverso il bottone e tagliavano le scritte.
+  const campo = page.locator(`#formazione-titolari-${PROVA_COMPETITION_ID} .formazione-campo`);
+  const fondi = await campo.evaluate((el) => {
+    const trasparente = (c: string) => c === "transparent" || /^rgba\(.*,\s*0\)$/.test(c);
+    const fuori: string[] = [];
+    let quanti = 0;
+    for (const nodo of el.querySelectorAll<HTMLElement>(".fz-mini, .fz-spunta")) {
+      quanti += 1;
+      const c = getComputedStyle(nodo).backgroundColor;
+      if (trasparente(c)) fuori.push(`${nodo.className}: ${c}`);
+    }
+    return { quanti, fuori };
+  });
+  expect(fondi.quanti, "i comandi del campo ci sono").toBeGreaterThan(10);
+  expect(fondi.fuori, "comandi del campo con fondo trasparente").toEqual([]);
+  expect(externalRequests).toEqual([]);
+});
+
+/**
+ * UNA SOLA LETTURA, DENTRO LA PAGINA, di ciò che interessa dell'allineamento del
+ * campo: per ogni linea, la quota (in alto) della casella e del primo bottone di
+ * ogni scheda, e quante righe occupa l'etichetta «Lo voglio in campo».
+ */
+async function leggiAllineamento(page: Page) {
+  return page.evaluate(() => {
+    const linee = Array.from(document.querySelectorAll(".formazione-campo__linea"));
+    return {
+      linee: linee.map((linea) =>
+        Array.from(linea.querySelectorAll(".fz-unit")).map((unita) => {
+          const casella = unita.querySelector("input[type=checkbox]")?.getBoundingClientRect().top ?? NaN;
+          const bottone = unita.querySelector(".fz-mini")?.getBoundingClientRect().top ?? NaN;
+          const etichetta = unita.querySelector<HTMLElement>(".fz-spunta label");
+          const stile = etichetta === null ? null : getComputedStyle(etichetta);
+          const righe =
+            etichetta === null || stile === null
+              ? NaN
+              : Math.round(etichetta.getBoundingClientRect().height / parseFloat(stile.lineHeight));
+          return {
+            casella,
+            bottone,
+            righeEtichetta: righe,
+            corpo: stile === null ? NaN : parseFloat(stile.fontSize),
+          };
+        }),
+      ),
+      nota: (() => {
+        const nota = document.querySelector(".formazione-campo .fz-comandi__nota");
+        return nota === null ? null : getComputedStyle(nota).backgroundColor;
+      })(),
+    };
+  });
+}
+
+for (const modulo of ["442", "541"] as const) {
+  test(`campo al telefono, modulo ${modulo}: le schede di una fila restano allineate, l'etichetta sta su due righe al più, la nota del portiere ha il fondo`, async ({
+    page,
+    context,
+  }) => {
+    const externalRequests: string[] = [];
+    await apriSulTelefono(page, context, externalRequests);
+    const bottoneModulo = page.locator(`#formazione-modulo-schierato-${PROVA_COMPETITION_ID}-${modulo}`);
+    await bottoneModulo.scrollIntoViewIfNeeded();
+    if (await bottoneModulo.isEnabled()) await bottoneModulo.tap();
+    await expect(
+      page.locator(`#formazione-titolari-${PROVA_COMPETITION_ID} .formazione-campo`),
+    ).toHaveAttribute("data-modulo", modulo);
+
+    // I nomi vanno a capo su un numero diverso di righe da una scheda all'altra
+    // della stessa fila: la casella e «In panchina» devono stare comunque alla
+    // stessa quota (i testi sono quelli, cambia solo la disposizione).
+    const m = await leggiAllineamento(page);
+    expect(m.linee, "quattro linee").toHaveLength(4);
+    for (const [i, linea] of m.linee.entries()) {
+      expect(linea.length, `la linea ${i} ha schede`).toBeGreaterThan(0);
+      const c0 = linea[0]?.casella ?? NaN;
+      const b0 = linea[0]?.bottone ?? NaN;
+      for (const [k, scheda] of linea.entries()) {
+        expect(scheda.casella, `linea ${i}, scheda ${k}: casella alla stessa quota`).toBeCloseTo(c0, 0);
+        expect(scheda.bottone, `linea ${i}, scheda ${k}: «In panchina» alla stessa quota`).toBeCloseTo(b0, 0);
+        expect(scheda.righeEtichetta, `linea ${i}, scheda ${k}: «Lo voglio in campo» su due righe al più`).toBeLessThanOrEqual(2);
+        expect(scheda.corpo, `linea ${i}, scheda ${k}: corpo dell'etichetta ≥ 12px`).toBeGreaterThanOrEqual(12);
+      }
+    }
+
+    // La nota «esce quando entra un altro portiere» sta dentro l'area del
+    // portiere: senza fondo, le linee le passano attraverso le lettere.
+    expect(m.nota, "la nota del portiere esiste").not.toBeNull();
+    expect(m.nota, "la nota del portiere ha il fondo pieno").not.toMatch(/^rgba\(.*,\s*0\)$|^transparent$/);
+    expect(externalRequests).toEqual([]);
+  });
+}

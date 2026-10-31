@@ -1,4 +1,4 @@
-# Fantacalcio Auction Copilot — public core
+# Fantacalcio Copilot — public core
 
 Deterministic auction copilot core: append-only event log, hard-safe budget
 engine, listone UI, data contracts and synthetic-fixture test suites.

@@ -27,10 +27,12 @@
  */
 
 import { execSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
-import { evaluateTrackedFile } from "./publication-gate-core.mjs";
+import { checkStaleSiteAssets, evaluateTrackedFile } from "./publication-gate-core.mjs";
+import { SITE_ASSETS } from "./site-assets-core.mjs";
 
 const NUL = String.fromCharCode(0);
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -88,6 +90,17 @@ function readContent(path) {
   }
 }
 
+// sha256 of the WHOLE file, only for the paths in the closed site-asset list
+// (scripts/site-assets-core.mjs). null when unreadable: an unverified listed file
+// does not pass.
+function readSiteAssetDigest(path) {
+  try {
+    return createHash("sha256").update(readFileSync(join(ROOT, path))).digest("hex");
+  } catch {
+    return null;
+  }
+}
+
 const RULE_LABELS = {
   "forbidden-top-level": "FORBIDDEN TOP-LEVEL",
   "forbidden-path": "FORBIDDEN PATH",
@@ -96,6 +109,8 @@ const RULE_LABELS = {
   "pii-email": "PII",
   "private-fingerprint": "PRIVATE FINGERPRINT",
   "unexpected-binary": "UNEXPECTED BINARY",
+  "site-asset-changed": "SITE ASSET CHANGED",
+  "stale-site-asset": "STALE SITE ASSET",
 };
 
 async function main() {
@@ -106,9 +121,17 @@ async function main() {
   for (const path of paths) {
     const contentSample = readSample(path);
     const content = readContent(path);
-    const findings = await evaluateTrackedFile({ path, content, contentSample, fingerprintHashes });
+    const siteAssetDigest = SITE_ASSETS.digestOf(path) === null ? null : readSiteAssetDigest(path);
+    const findings = await evaluateTrackedFile({
+      path,
+      content,
+      contentSample,
+      fingerprintHashes,
+      siteAssetDigest,
+    });
     allFindings.push(...findings);
   }
+  allFindings.push(...checkStaleSiteAssets(paths));
 
   if (allFindings.length > 0) {
     console.error(`[PUBLICATION-GATE] FAIL — ${allFindings.length} violation(s):`);
@@ -126,7 +149,10 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`[PUBLICATION-GATE] OK — ${paths.length} tracked files clean for publication.`);
+  console.log(
+    `[PUBLICATION-GATE] OK — ${paths.length} tracked files clean for publication ` +
+      `(${SITE_ASSETS.size} site asset(s) allowed on a pinned sha256).`,
+  );
   process.exit(0);
 }
 

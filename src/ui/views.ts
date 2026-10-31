@@ -1802,7 +1802,7 @@ function renderRoseCard(
         name.title = playerDisplay;
 
         const price = document.createElement("span");
-        price.style.cssText = `font-family:${C.mono};color:oklch(0.78 0.006 270);flex:none;`;
+        price.style.cssText = `font-family:${C.mono};color:${C.textSec};flex:none;`;
         price.textContent = String(entry.price);
 
         // LA RIGA INTERA E LA PORTA, non una crocetta da centrare. Il gesto

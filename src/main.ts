@@ -19,6 +19,7 @@
 // exists and its requests are never gated. Keeping this import first is the
 // cheap way to make that impossible by construction.
 import "./offline/register.js";
+import "./styles/fonts.css";
 import "./styles/base.css";
 import "./styles/layout.css";
 import "./styles/components.css";
@@ -27,6 +28,7 @@ import "./styles/listone.css";
 import "./styles/bait.css";
 import "./styles/perMe.css";
 import "./styles/schedaCard.css";
+import "./styles/formazione.css";
 import {
   type AuctionEvent,
   type AuctionState,
@@ -2714,6 +2716,11 @@ function render(): void {
 
   const wrapper = document.createElement("div");
   wrapper.className = "app-shell";
+  // LA SCHERMATA, COME ATTRIBUTO. Serve soltanto a una regola di presentazione:
+  // l'Asta tiene il carattere di prima (layout.css, `.app-shell[data-screen]`),
+  // perché le sue misure dichiarate (e2e/call-screen-budget.spec.ts) sono
+  // fissate su quel carattere e l'Asta non è nel perimetro dell'impaginazione.
+  wrapper.dataset.screen = state.screen;
 
   wrapper.appendChild(renderHeader());
 
@@ -4235,16 +4242,69 @@ function renderFormazione(): HTMLElement {
 }
 
 // ── Header — persistent nav across the 4 shell screens ───────────────────────
+
+// IL MARCHIO NON TIENE L'EVENTO `load`. Un `<img>` con `src` assegnato al
+// momento della creazione parte subito e, finché non è decodificato, il
+// documento non è «caricato»: con questo file (21 KB di SVG, lettere tracciate)
+// `load` arrivava 45–130 ms dopo `DOMContentLoaded`; col file assegnato al `load`
+// e il quarto carattere precaricato (index.html) arriva 1–15 ms dopo, come sul
+// ramo prima del restyling (0–2 ms). Misure del 31/10/2026, stessa macchina e
+// stesso build, sei passaggi per variante. Chi aspetta il
+// `load` — `page.goto` di Playwright, e quindi ogni prova e2e — parte più tardi
+// di altrettanto, mentre il resto dell'avvio (le letture, e il deposito del
+// listone che risponde a tempo fisso) è già in corso: la prova PROBE L di
+// e2e/listone-identity-reconciliation.spec.ts, che corre contro un deposito a
+// +1200 ms, su 20 passaggi con due worker (osservazione del 31/10/2026, stessa
+// macchina, passaggi alternati) è andata in rosso 9 volte col marchio assegnato
+// alla creazione, 3 volte con questa correzione, 1 volta sul ramo prima del
+// restyling.
+// Quindi il file viene assegnato al `load`: da lì il marchio è un'immagine come
+// un'altra, e ogni render successivo lo trova già nella cache (`marchioSbloccato`
+// vale già `true`). Il marchio è precaricato da index.html (`rel=preload`), quindi
+// al `load` i byte ci sono già e la comparsa non si fa aspettare; finché non c'è
+// il file, layout.css lo nasconde (`:not([src])`) invece di mostrare l'`alt`. Che
+// il file NON sia assegnato prima del `load` lo prova e2e/marchio-dopo-il-load.spec.ts;
+// le misure di sopra sono osservazioni, non una prova che si rifà.
+const MARCHIO_SRC = "/brand/orizzontale-colori.svg";
+let marchioSbloccato = document.readyState === "complete";
+if (!marchioSbloccato) {
+  window.addEventListener(
+    "load",
+    () => {
+      marchioSbloccato = true;
+      for (const img of document.querySelectorAll<HTMLImageElement>("img.topbar__marchio:not([src])")) {
+        img.src = MARCHIO_SRC;
+      }
+    },
+    { once: true },
+  );
+}
+
 function renderHeader(): HTMLElement {
   const header = document.createElement("div");
   header.className = "topbar";
 
-  const logo = document.createElement("span");
-  logo.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.08em;color:${C.textSec};`;
-  logo.textContent = "FANTACALCIO COPILOT";
+  // IL MARCHIO ORIZZONTALE — «Tre esiti» più «FANTACALCIO COPILOT» (Pico,
+  // 31/10/2026) — al posto del testo grigio a 11px che stava qui. Un'immagine
+  // vera: le lettere sono già tracciati nel file, quindi non dipende dal
+  // carattere ospitato e non c'è un secondo testo da tenere allineato al
+  // titolo della scheda. Il nome accessibile è lo stesso che c'era (il nome del
+  // prodotto), e sta nell'`alt`. Il file sta nel pacchetto (public/brand/):
+  // nessuna richiesta esterna, precachato come ogni altro file costruito.
+  // Altezza 30px → larghezza 175px, sopra il minimo di 120px delle regole del
+  // marchio (e la scritta, a 24px di altezza, restava di 9px di maiuscolo);
+  // spazio libero intorno gestito dal gap della barra.
+  const logo = document.createElement("img");
+  logo.className = "topbar__marchio";
+  logo.alt = "Fantacalcio Copilot";
+  logo.width = 175;
+  logo.height = 30;
+  logo.decoding = "async";
+  // Il file si assegna DOPO l'evento `load`, non alla creazione: il perché sta
+  // nel commento di `MARCHIO_SRC`, qui sopra.
+  if (marchioSbloccato) logo.src = MARCHIO_SRC;
 
   const nav = document.createElement("nav");
-  nav.style.cssText = `display:flex;gap:20px;font-size:13px;`;
 
   const items: Array<{ label: string; screen: Screen }> = [
     // Prima di Asta, come Pico ha chiesto: la giornata viene prima del mercato.
@@ -4257,7 +4317,9 @@ function renderHeader(): HTMLElement {
     const link = document.createElement("span");
     link.textContent = item.label;
     const active = state.screen === item.screen;
-    link.style.cssText = `cursor:pointer;font-weight:${active ? "700" : "400"};color:${active ? C.textPrimary : C.textSec};`;
+    // La voce attiva non si distingue solo per colore: peso 700 e sottolineatura
+    // menta (le regole stanno in layout.css, `.topbar__voce--attiva`).
+    link.className = active ? "topbar__voce topbar__voce--attiva" : "topbar__voce";
     link.tabIndex = 0;
     link.setAttribute("role", "button");
     link.addEventListener("click", () => {

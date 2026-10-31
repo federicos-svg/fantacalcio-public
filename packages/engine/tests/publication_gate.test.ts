@@ -37,6 +37,31 @@ describe("checkForbiddenTopLevel — rule 1", () => {
     }
   });
 
+  it("allows .gitattributes by exact name, and nothing that merely starts with it", () => {
+    // Una sola voce, per un solo scopo: fissare i file del sito con impronta come
+    // non convertibili (packages/engine/tests/site_assets.test.ts). Un altro file
+    // di configurazione di git a quella radice NON passa per somiglianza.
+    expect(checkForbiddenTopLevel(".gitattributes")).toBeNull();
+    expect(checkForbiddenTopLevel(".gitattributes.bak")).not.toBeNull();
+    expect(checkForbiddenTopLevel(".gitmodules")).not.toBeNull();
+    expect(checkForbiddenTopLevel(".gitconfig")).not.toBeNull();
+  });
+
+  it("un file ammesso ammette solo sé stesso: una CARTELLA con quel nome non passa", () => {
+    // Prima l'insieme delle voci era uno solo e si confrontava il primo segmento
+    // del percorso: `.gitattributes/x.md` e `.gitignore/x.md` passavano come se
+    // fossero i due file. Adesso il percorso intero deve coincidere con la voce.
+    for (const file of ALLOWED_TOP_LEVEL_FILES) {
+      expect(checkForbiddenTopLevel(`${file}/x.md`), `${file}/x.md`).not.toBeNull();
+      expect(checkForbiddenTopLevel(`${file}/a/b.ts`), `${file}/a/b.ts`).not.toBeNull();
+    }
+    expect(checkForbiddenTopLevel(".gitattributes/x.md")).not.toBeNull();
+    expect(checkForbiddenTopLevel(".gitignore/x.md")).not.toBeNull();
+    // E il contrario: una cartella ammessa continua ad ammettere ciò che sta sotto.
+    expect(checkForbiddenTopLevel("src/x.ts")).toBeNull();
+    expect(checkForbiddenTopLevel("public/fonts/barlow-latin-400-normal.woff2")).toBeNull();
+  });
+
   it("fails a root-level file not on the allowlist", () => {
     const finding = checkForbiddenTopLevel("PROJECT_HISTORY.md");
     expect(finding).not.toBeNull();

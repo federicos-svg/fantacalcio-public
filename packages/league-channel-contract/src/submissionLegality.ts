@@ -217,6 +217,24 @@ function isKnownModule(module: Module): boolean {
   return MODULES.includes(module);
 }
 
+/**
+ * IL MODULO COME SI LEGGE IN UNA FRASE: «4-4-2», non «442». Cambia SOLO come si
+ * mostra: il valore che il contratto scambia con la lega, il modulo dentro il
+ * modello e ogni codice restano «442». Si usa nel punto in cui il modulo entra
+ * in un testo per chi guarda (violazioni, conflitto, quarantena, vincoli non
+ * rispettati), così la frase dice lo stesso che dice il bottone accanto.
+ *
+ * Solo i sette moduli di §9 prendono i trattini. Un valore che non è uno dei
+ * sette passa com'è: è proprio ciò che la violazione sta denunciando, e
+ * «999» scritto «9-9-9» sembrerebbe un modulo. La pagina ha la sua copia di
+ * questa riga (`moduloScritto` in `src/formazioneScritte.ts`, che non importa il
+ * contratto per scelta): `src/formazioneScritte.test.ts` le tiene d'accordo sui
+ * sette.
+ */
+export function moduleLabel(module: string): string {
+  return (MODULES as readonly string[]).includes(module) ? module.split("").join("-") : module;
+}
+
 /** Il modulo, e se l'elenco dichiarato dalla lega lo ammette. */
 function moduleViolations(
   submission: LineupSubmission,
@@ -228,7 +246,7 @@ function moduleViolations(
   if (!isKnownModule(module)) {
     violations.push({
       code: SUBMISSION_VIOLATION_CODES.moduloSconosciuto,
-      message: `modulo «${String(module)}» fuori dai sette di §9: non è schierabile in questa lega`,
+      message: `modulo «${moduleLabel(String(module))}» fuori dai sette di §9: non è schierabile in questa lega`,
       severity: "bloccante",
       observed: false,
     });
@@ -240,7 +258,7 @@ function moduleViolations(
     violations.push({
       code: SUBMISSION_VIOLATION_CODES.moduloNonVerificabile,
       message:
-        `la lega non ha dichiarato i moduli schierabili: la legalità di «${module}» non è ` +
+        `la lega non ha dichiarato i moduli schierabili: la legalità di «${moduleLabel(module)}» non è ` +
         "verificabile da qui, e non viene supposta da un elenco scritto a mano",
       severity: "avvertimento",
       observed: false,
@@ -252,8 +270,8 @@ function moduleViolations(
     violations.push({
       code: SUBMISSION_VIOLATION_CODES.moduloNonAmmesso,
       message:
-        `modulo «${module}» fuori dall'elenco dichiarato dalla lega ` +
-        `(${allowed.join(", ")}): l'invio verrebbe respinto`,
+        `modulo «${moduleLabel(module)}» fuori dall'elenco dichiarato dalla lega ` +
+        `(${allowed.map(moduleLabel).join(", ")}): l'invio verrebbe respinto`,
       severity: "bloccante",
       observed: true,
     });
@@ -282,7 +300,7 @@ function elevenViolations(submission: LineupSubmission): readonly SubmissionViol
       violations.push({
         code: SUBMISSION_VIOLATION_CODES.titolariNumeroErrato,
         message:
-          `il modulo «${lineup.module}» richiede ${expected} titolari di movimento ` +
+          `il modulo «${moduleLabel(lineup.module)}» richiede ${expected} titolari di movimento ` +
           `(${shape.defenders} difensori, ${shape.midfielders} centrocampisti, ` +
           `${shape.strikers} attaccanti), l'invio ne porta ${lineup.starterIds.length}`,
         severity: "bloccante",
@@ -322,7 +340,7 @@ function compositionViolations(
         code: SUBMISSION_VIOLATION_CODES.composizioneNonVerificabile,
         message:
           "i ruoli non sono stati passati: la composizione dei reparti contro il modulo " +
-          `«${String(lineup.module)}» non è verificabile da qui, e non viene supposta`,
+          `«${moduleLabel(String(lineup.module))}» non è verificabile da qui, e non viene supposta`,
         severity: "avvertimento",
         observed: false,
       },
@@ -397,7 +415,7 @@ function compositionViolations(
   for (const department of departments) {
     const found = counts[department.role];
     const head =
-      `il modulo «${lineup.module}» richiede ${department.expected} ${department.label} ` +
+      `il modulo «${moduleLabel(lineup.module)}» richiede ${department.expected} ${department.label} ` +
       `fra i titolari, l'invio ne porta ${found}`;
     if (found > department.expected) {
       violations.push({

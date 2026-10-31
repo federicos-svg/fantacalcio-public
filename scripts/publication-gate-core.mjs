@@ -28,6 +28,7 @@ import {
   DOC_SAFELIST as SECRET_DOC_SAFELIST,
 } from "./secret-scan-core.mjs";
 import { DATA_EXTS as GUARDRAILS_DATA_EXTS } from "./guardrails-core.mjs";
+import { siteAssetStatus, staleSiteAssetEntries, SITE_ASSETS } from "./site-assets-core.mjs";
 
 export { SECRET_PATTERNS, SECRET_DOC_SAFELIST };
 
@@ -57,12 +58,16 @@ export const ALLOWED_TOP_LEVEL_FILES = new Set([
   "playwright.config.ts",
   "index.html",
   ".gitignore",
+  // Solo per fissare i file del sito con impronta (public/brand, public/fonts,
+  // i PNG, public/favicon.svg) come non convertibili: niente conversione dei
+  // fine riga, quindi nessuna impronta che cambia su un altro sistema. È una
+  // configurazione di git, non codice né dati; la guardia la legge come ogni
+  // altro file tracciato (schemi di segreto compresi).
+  ".gitattributes",
   "README.md",
   "CLAUDE.md",
   "PROJECT_STATE.md",
 ]);
-
-const ALLOWED_TOP_LEVEL = new Set([...ALLOWED_TOP_LEVEL_DIRS, ...ALLOWED_TOP_LEVEL_FILES]);
 
 /** The first path segment of a tracked path: `"packages/engine/x.ts"` -> `"packages"`. */
 export function topLevelEntry(path) {
@@ -72,7 +77,13 @@ export function topLevelEntry(path) {
 
 export function checkForbiddenTopLevel(path) {
   const entry = topLevelEntry(path);
-  if (ALLOWED_TOP_LEVEL.has(entry)) return null;
+  // Una CARTELLA ammessa ammette tutto ciò che sta sotto. Un FILE ammesso
+  // ammette solo se stesso: il percorso intero deve coincidere con la voce, non
+  // basta che il primo segmento le somigli. Prima l'insieme era uno solo, quindi
+  // `.gitattributes/x.md` o `.gitignore/x.md` (una cartella con il nome di un file
+  // ammesso) passavano per il primo segmento.
+  if (ALLOWED_TOP_LEVEL_DIRS.has(entry)) return null;
+  if (ALLOWED_TOP_LEVEL_FILES.has(entry) && entry === path) return null;
   return { rule: "forbidden-top-level", detail: `top-level entry "${entry}" not in the public allowlist` };
 }
 
@@ -406,8 +417,14 @@ export async function checkFingerprints(path, content, fingerprintHashes) {
 // ---------------------------------------------------------------------------
 // 7. UNEXPECTED BINARY — no binary payload is expected anywhere in this tree
 //    right now (no allowlisted directory/extension, unlike the private
-//    repo's club-logo exception). Same NUL-byte / zip-magic sniff as
-//    guardrails-core.mjs's blocked-binary classification.
+//    repo's club-logo exception) EXCEPT the closed list of exact site-asset
+//    paths in site-assets-core.mjs, each pinned to its sha256. Same NUL-byte /
+//    zip-magic sniff as guardrails-core.mjs's blocked-binary classification.
+//    The pin waives ONLY this rule (see evaluateTrackedFile): a listed file
+//    whose content differs from its pin is a finding of its own
+//    (`site-asset-changed`) and still gets this rule too, and a listed entry
+//    that no longer exists in the tree is a `stale-site-asset` finding
+//    (checkStaleSiteAssets).
 // ---------------------------------------------------------------------------
 const NUL = String.fromCharCode(0);
 
@@ -425,15 +442,56 @@ export function checkUnexpectedBinary(path, sample) {
   return null;
 }
 
+/**
+ * Tree-level companion of rule 7: the entries of the site-asset list that no
+ * longer exist among the tracked paths. An exception that exempts nothing is a
+ * debt, so each one is a finding until the entry is removed.
+ *
+ * @param {Iterable<string>} trackedPaths
+ * @param {import("./site-assets-core.mjs").SiteAssets} [siteAssets]
+ */
+export function checkStaleSiteAssets(trackedPaths, siteAssets = SITE_ASSETS) {
+  return staleSiteAssetEntries(trackedPaths, siteAssets).map((path) => ({
+    path,
+    rule: "stale-site-asset",
+    detail: "listed in site-assets-core.mjs but no longer in the tracked tree — remove the entry",
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // Integration point — runs every rule for one tracked file. Content-dependent
 // checks (secret patterns, PII, fingerprints) only run when `content` is a
 // string; structural checks (top-level, forbidden path, extension, binary
 // sniff) always run. Every finding carries `path` so the CLI can just flatten
 // and print.
+//
+// `siteAssetDigest` is the sha256 (lowercase hex) of the whole file, supplied by
+// the caller and only consulted for a path in the closed site-asset list;
+// `siteAssets` lets a test inject a small list. For a path not in the list
+// nothing changes. For a listed path whose digest matches its pin, rule 7 alone
+// is waived — every other rule runs as for any file. A listed path whose digest
+// differs (or was not supplied) gets `site-asset-changed` on top of every rule.
 // ---------------------------------------------------------------------------
-export async function evaluateTrackedFile({ path, content, contentSample, fingerprintHashes = new Set() }) {
+/**
+ * @param {{
+ *   path: string,
+ *   content?: string | null,
+ *   contentSample?: string,
+ *   fingerprintHashes?: Set<string>,
+ *   siteAssetDigest?: string | null,
+ *   siteAssets?: import("./site-assets-core.mjs").SiteAssets,
+ * }} input
+ */
+export async function evaluateTrackedFile({
+  path,
+  content,
+  contentSample,
+  fingerprintHashes = new Set(),
+  siteAssetDigest = null,
+  siteAssets = SITE_ASSETS,
+}) {
   const findings = [];
+  const siteAsset = siteAssetStatus(path, siteAssetDigest, siteAssets);
 
   const topLevel = checkForbiddenTopLevel(path);
   if (topLevel) findings.push(topLevel);
@@ -444,8 +502,17 @@ export async function evaluateTrackedFile({ path, content, contentSample, finger
   const forbiddenExt = checkForbiddenExtension(path);
   if (forbiddenExt) findings.push(forbiddenExt);
 
-  const binary = checkUnexpectedBinary(path, contentSample);
-  if (binary) findings.push(binary);
+  if (siteAsset === "changed") {
+    findings.push({
+      rule: "site-asset-changed",
+      detail: "content differs from the sha256 pinned in site-assets-core.mjs (or could not be hashed)",
+    });
+  }
+
+  if (siteAsset !== "pinned") {
+    const binary = checkUnexpectedBinary(path, contentSample);
+    if (binary) findings.push(binary);
+  }
 
   if (typeof content === "string") {
     findings.push(...checkSecretPatterns(path, content));

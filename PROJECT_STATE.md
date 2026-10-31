@@ -1,6 +1,6 @@
 # PROJECT_STATE — public core
 
-Core pubblico sanitizzato del Fantacalcio Auction Copilot: engine d'asta
+Core pubblico sanitizzato del Fantacalcio Copilot: engine d'asta
 deterministico, UI listone, contratti dati e suite di test su fixture
 sintetiche. Il layer privato (acquisizione, connettori, dati reali,
 strategia) vive in un repository separato e non transita mai qui.

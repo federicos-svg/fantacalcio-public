@@ -34,40 +34,143 @@
   padding-bottom: var(--assign-bar-h);
 }
 
+/* L'ASTA TIENE IL CARATTERE DI PRIMA, finché non avrà un lavoro suo.
+   Le misure dell'Asta sono dichiarate e sorvegliate (il mastro della schermata
+   di chiamata, e2e/call-screen-budget.spec.ts: righe del listone, blocchi della
+   colonna) e poggiano sulla metrica del carattere di testo di sempre. Barlow è
+   più stretto: cambia gli a capo, quindi le altezze, e l'Asta non è nel
+   perimetro dell'impaginazione. Quindi qui — e solo qui — il testo e i controlli
+   del modulo restano com'erano (`revert` riporta i controlli al carattere di
+   default del browser, cioè a prima della regola `inherit` di base.css). I
+   numeri e gli identificativi stanno su --font-mono, che è anch'essa quella di
+   prima. La barra in alto ha un carattere suo e non cambia. Le altre schermate
+   (Formazione, Rose, Impostazioni) sono nei caratteri nuovi. */
+.app-shell[data-screen="asta"] { font-family: var(--font-sistema); }
+/* `:where()` AZZERA LA SPECIFICITÀ DEL RIFERIMENTO ALLA SCHERMATA: la regola vale
+   (0,0,1), come `button, input, select, textarea { font-family: inherit }` di
+   base.css, e vince su quella solo perché viene dopo. Scritta con
+   `.app-shell[data-screen="asta"] :is(…)` valeva (0,2,1) e batteva anche i
+   `font-family: inherit` DICHIARATI dall'Asta (`.critical-roster`,
+   `.moment-facts__toggle` in asta.css): quei due controlli passavano da
+   «inherit» al carattere di default del browser (Arial) e il secondo scendeva da
+   28 a 26px rispetto a prima. e2e/asta-controlli-carattere.spec.ts li tiene fermi. */
+:where(.app-shell[data-screen="asta"]) :is(button, input, select, textarea) { font-family: revert; }
+
+/* LA BARRA — marchio a sinistra, voci accanto. Alta 45px (44 + il filo di
+   sotto; era 44 con il filo dentro): le voci sono premibili su 44px di altezza,
+   che è la misura del dito, e il marchio (30px) ci sta in mezzo. Un pixel in più
+   rispetto a prima; le prove di geometria dell'Asta che la misurano restano verdi.
+   Le voci sono in Barlow Condensed maiuscolo; la voce attiva ha il peso 700 e
+   una sottolineatura menta di 3px: l'attiva non è affidata al solo colore. */
 .topbar {
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   padding: 0 24px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  height: 44px;
+  justify-content: flex-start;
+  gap: 0 32px;
+  height: 45px;
   flex: none;
 }
+.topbar__marchio {
+  display: block;
+  height: 30px;
+  width: auto;
+  flex: none;
+}
+/* Il file viene assegnato al `load` (src/main.ts, `MARCHIO_SRC`): finché non c'è,
+   l'immagine occupa il suo posto (width e height sono sull'elemento) ma non
+   mostra l'`alt` al posto del marchio. */
+.topbar__marchio:not([src]) { visibility: hidden; }
+.topbar nav {
+  display: flex;
+  align-items: stretch;
+  align-self: stretch;
+  /* Il vuoto fra due voci sta DENTRO le voci (padding orizzontale, sotto): così
+     l'anello del focus, che sta dentro il bordo della voce, resta lontano dal
+     testo invece di toccarlo. 6px di gap + 2 x 8px di padding = i 22px di prima
+     fra un testo e l'altro, più 10px prima della prima e dopo l'ultima. */
+  gap: 6px;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.topbar__voce {
+  display: flex;
+  align-items: center;
+  /* Tutta l'altezza della barra: 44px di zona premibile. Il bordo sotto è
+     sempre presente (trasparente) così l'attiva non sposta le altre. */
+  min-height: 44px;
+  border-bottom: 3px solid transparent;
+  padding: 3px 8px 0;
+  cursor: pointer;
+  color: var(--text-sec);
+}
+.topbar__voce:hover { color: var(--text-primary); }
+.topbar__voce--attiva {
+  color: var(--text-primary);
+  font-weight: 700;
+  border-bottom-color: var(--accent);
+}
+.topbar__voce:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
 
-/* QUATTRO VOCI NON STANNO IN 390px SU UNA RIGA SOLA, e la barra non deve
-   provarci.
-   Da quando esiste la schermata Formazione (prima voce, src/main.ts
-   renderHeader) la barra porta quattro etichette invece di tre: misurate a
-   390px, insieme al marchio, sforano la larghezza utile e farebbero scorrere
-   di lato TUTTA la pagina — la stessa cosa che una dozzina di spec E2E
-   sorveglia su ogni schermata («senza scorrimento laterale»).
-   Si sceglie di mandare la barra a capo, non di nascondere una voce né di
-   troncare il marchio: una voce nascosta è una schermata irraggiungibile dal
-   telefono, e un marchio troncato somiglia a un difetto. Sopra i 560px la
-   barra resta esattamente com'era — una riga, 44px — quindi desktop e tablet
-   non cambiano di un pixel. */
-@media (max-width: 560px) {
+/* LA BARRA COMPATTA — IL SIMBOLO E LE QUATTRO VOCI SU UNA RIGA — FINO A 719px.
+   Quattro voci più il marchio orizzontale (175px) non stanno in 390px su una
+   riga: prima la barra andava a capo e saliva a 85px, il doppio, su ogni
+   schermata, e su un telefono l'altezza è la cosa più cara. Si toglie la
+   scritta, non una voce: una voce nascosta è una schermata irraggiungibile dal
+   telefono. Resta il SIMBOLO del marchio — i primi 32px dello stesso file,
+   ritagliati da `object-fit: cover` + `object-position: left`, quindi nessun
+   secondo file da tenere allineato — e il nome del prodotto resta nell'`alt` e
+   nel titolo della scheda. Le voci perdono un po' di corpo (15px) e di
+   spaziatura fra le lettere per stare anche in 360px; la zona premibile resta
+   alta 44px.
+
+   PERCHÉ 719 E NON 560. La barra intera (marchio da 175px, 32px di vuoto, le
+   quattro voci: circa 330px) ha bisogno di 561px SENZA il margine destro e di
+   585 con: a 561px la scheda «Formazione» sbordava di 1px in CI, dove i caratteri
+   di sistema e l'arrotondamento dei testi sono un filo diversi, e con i
+   caratteri ospitati che non arrivano (o un ripiego più largo) di oltre 100px
+   fino a 674px. Il passaggio alla barra intera è quindi messo dove c'è margine
+   anche per un testo largo di un decimo: da 720px in su. Sotto, la barra resta
+   quella compatta, che a 561px ha ancora 190px di vuoto. */
+@media (max-width: 719px) {
   .topbar {
-    height: auto;
-    min-height: 44px;
-    padding: 5px 14px;
-    flex-wrap: wrap;
-    row-gap: 2px;
+    padding: 0 6px 0 14px;
+    gap: 0 4px;
+    flex-wrap: nowrap;
+  }
+  .topbar__marchio {
+    width: 32px;
+    height: 30px;
+    object-fit: cover;
+    object-position: left center;
   }
   .topbar nav {
-    gap: 14px !important;
+    flex: 1 1 auto;
+    min-width: 0;
+    justify-content: flex-start;
+    gap: 6px;
+    font-size: 15px;
+    letter-spacing: 0.03em;
   }
+}
+
+/* Al telefono vero (fino a 560px) le voci si distribuiscono su tutta la
+   larghezza che resta e perdono un po' di padding: quattro voci in 360px. */
+@media (max-width: 560px) {
+  .topbar nav {
+    justify-content: space-between;
+    gap: 0;
+  }
+  .topbar__voce { padding: 3px 6px 0; }
 }
 
 /* Shared "centered, max-width page column" shape between the Asta and Rose

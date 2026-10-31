@@ -246,11 +246,13 @@ test("un posto vuoto accetta chi viene dalla panchina", async ({ page, context }
   await expect(vuoto).toHaveCount(1);
 
   await page.locator(gettone(ATTACCANTE_PANCHINA)).click();
-  // Con qualcuno in mano il posto vuoto si accende, e dice che cosa farà — «posa
-  // qui», che è ciò che succede, e non «diventa un attaccante», che non succede:
-  // il reparto lo decide il ruolo letto, mai la casella su cui si posa.
+  // Con qualcuno in mano il posto vuoto si accende, e dice che cosa farà —
+  // «mettilo qui» (Pico, 31/10/2026: era «posa qui»), che è ciò che succede, e non
+  // «diventa un attaccante», che non succede: il reparto lo decide il ruolo letto,
+  // mai la casella su cui si posa.
   await expect(vuoto).toBeEnabled();
-  await expect(vuoto).toHaveAttribute("aria-label", /posa qui «.*»/);
+  await expect(vuoto).toHaveAttribute("aria-label", /mettilo qui «.*»/);
+  await expect(vuoto).not.toHaveAttribute("aria-label", /posa qui/i);
   await vuoto.click();
 
   await expect(page.locator(CAMPO)).toContainText(ATTACCANTE_PANCHINA);
@@ -501,7 +503,7 @@ test("il modulo bloccato non si aggira trascinando", async ({ page, context }) =
   const conflitto = page.locator(`#formazione-conflitto-${PROVA_COMPETITION_ID}`);
   await expect(conflitto).toBeVisible();
   await expect(conflitto).toHaveAttribute("data-conflitto", "modulo_bloccato");
-  await expect(conflitto).toContainText("442");
+  await expect(conflitto).toContainText("4-4-2");
 
   await page.locator(`#formazione-conflitto-procedi-${PROVA_COMPETITION_ID}`).click();
   // Tolto il blocco, la mossa passa e il modulo diventa quello che gli undici

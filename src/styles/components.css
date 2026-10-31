@@ -107,7 +107,9 @@
   font-weight: 700;
   padding: 10px 20px;
   background: var(--accent);
-  color: white;
+  /* Sopra la menta il testo è l'ardesia (10,76:1): il bianco che stava sul
+     vecchio accento blu qui si fermerebbe a 1,5:1. */
+  color: var(--on-accent);
 }
 .btn--primary:disabled {
   background: var(--border);

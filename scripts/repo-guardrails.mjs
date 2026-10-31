@@ -19,6 +19,7 @@
  */
 
 import { execSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
   classifyTrackedFile,
@@ -26,6 +27,7 @@ import {
   lintProjectState,
   NO_EXTENSION_EXCEPTIONS,
 } from "./guardrails-core.mjs";
+import { SITE_ASSETS, staleSiteAssetEntries } from "./site-assets-core.mjs";
 
 const NUL = String.fromCharCode(0);
 const EXCEPTIONS_FILE = "guardrails.exceptions.json";
@@ -90,13 +92,29 @@ function sampleBytes(path) {
   }
 }
 
+// sha256 of the WHOLE file, only for the paths in the closed site-asset list
+// (scripts/site-assets-core.mjs). null when unreadable: a listed file that cannot
+// be hashed is not verified, and an unverified file does not pass.
+function siteAssetDigest(path) {
+  try {
+    return createHash("sha256").update(readFileSync(path)).digest("hex");
+  } catch {
+    return null;
+  }
+}
+
 const offenders = [];
 const extensionExceptions = loadExtensionExceptions();
 
-for (const path of trackedFiles()) {
-  const verdict = classifyTrackedFile(path, sampleBytes(path), extensionExceptions);
+const tracked = trackedFiles();
+for (const path of tracked) {
+  const digest = SITE_ASSETS.digestOf(path) === null ? null : siteAssetDigest(path);
+  const verdict = classifyTrackedFile(path, sampleBytes(path), extensionExceptions, digest);
   if (verdict !== "allowed") offenders.push(`${verdict}: ${path}`);
 }
+// An entry of the site-asset list that no longer exists in the tree exempts
+// nothing — a debt, and red until the entry is removed.
+for (const path of staleSiteAssetEntries(tracked)) offenders.push(`stale-site-asset: ${path}`);
 
 try {
   const ps = readFileSync("PROJECT_STATE.md", "utf8");
@@ -109,7 +127,9 @@ if (offenders.length > 0) {
   console.error("[REPO-GUARDRAILS] FAIL — blocked entries:");
   for (const o of offenders) console.error(`  - ${o}`);
   console.error(
-    "\nRules: no .xlsx/.xls/.csv or binary payloads; only known text/source kinds; " +
+    "\nRules: no .xlsx/.xls/.csv or binary payloads; only known text/source kinds " +
+      "(the one exception: the closed list of exact site-asset paths, each with its " +
+      "pinned sha256, in scripts/site-assets-core.mjs — a changed or missing entry is red); " +
       "graphify-out/ is never tracked (Leiden clustering isn't run-to-run " +
       "deterministic — see CLAUDE.md), no root graph.json; " +
       ".claude/worktrees/ (worker checkouts) is never tracked — a tracked file " +
@@ -126,6 +146,9 @@ const exceptionsNote =
   extensionExceptions.size > 0
     ? ` ${extensionExceptions.size} extension exception(s) active from ${EXCEPTIONS_FILE}.`
     : "";
+// Same discipline for the site-asset list: a green run says how many non-text
+// files it let through on a pinned sha256, instead of leaving it implicit.
+const siteAssetsNote = ` ${SITE_ASSETS.size} site asset(s) allowed on a pinned sha256 (scripts/site-assets-core.mjs).`;
 console.log(
-  `[REPO-GUARDRAILS] OK — tracked tree clean, PROJECT_STATE.md not auto-stale.${exceptionsNote}`,
+  `[REPO-GUARDRAILS] OK — tracked tree clean, PROJECT_STATE.md not auto-stale.${exceptionsNote}${siteAssetsNote}`,
 );
