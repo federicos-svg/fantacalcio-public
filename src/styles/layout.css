@@ -121,18 +121,27 @@
   border-radius: 4px;
 }
 
-/* AL TELEFONO LA BARRA RESTA UNA RIGA SOLA, 45px, con le quattro voci.
+/* LA BARRA COMPATTA — IL SIMBOLO E LE QUATTRO VOCI SU UNA RIGA — FINO A 719px.
    Quattro voci più il marchio orizzontale (175px) non stanno in 390px su una
    riga: prima la barra andava a capo e saliva a 85px, il doppio, su ogni
    schermata, e su un telefono l'altezza è la cosa più cara. Si toglie la
    scritta, non una voce: una voce nascosta è una schermata irraggiungibile dal
-   telefono. Resta il SIMBOLO del marchio — i primi 32px dello stesso file, ritagliati
-   da `object-fit: cover` + `object-position: left`, quindi nessun secondo file
-   da tenere allineato — e il nome del prodotto resta nell'`alt` e nel titolo
-   della scheda. Le voci perdono un po' di corpo (15px) e di spaziatura fra
-   le lettere per stare anche in 360px; la zona premibile resta alta 44px. Sopra i
-   560px la barra non cambia. */
-@media (max-width: 560px) {
+   telefono. Resta il SIMBOLO del marchio — i primi 32px dello stesso file,
+   ritagliati da `object-fit: cover` + `object-position: left`, quindi nessun
+   secondo file da tenere allineato — e il nome del prodotto resta nell'`alt` e
+   nel titolo della scheda. Le voci perdono un po' di corpo (15px) e di
+   spaziatura fra le lettere per stare anche in 360px; la zona premibile resta
+   alta 44px.
+
+   PERCHÉ 719 E NON 560. La barra intera (marchio da 175px, 32px di vuoto, le
+   quattro voci: circa 330px) ha bisogno di 561px SENZA il margine destro e di
+   585 con: a 561px la scheda «Formazione» sbordava di 1px in CI, dove i caratteri
+   di sistema e l'arrotondamento dei testi sono un filo diversi, e con i
+   caratteri ospitati che non arrivano (o un ripiego più largo) di oltre 100px
+   fino a 674px. Il passaggio alla barra intera è quindi messo dove c'è margine
+   anche per un testo largo di un decimo: da 720px in su. Sotto, la barra resta
+   quella compatta, che a 561px ha ancora 190px di vuoto. */
+@media (max-width: 719px) {
   .topbar {
     padding: 0 6px 0 14px;
     gap: 0 4px;
@@ -147,10 +156,19 @@
   .topbar nav {
     flex: 1 1 auto;
     min-width: 0;
-    justify-content: space-between;
-    gap: 0;
+    justify-content: flex-start;
+    gap: 6px;
     font-size: 15px;
     letter-spacing: 0.03em;
+  }
+}
+
+/* Al telefono vero (fino a 560px) le voci si distribuiscono su tutta la
+   larghezza che resta e perdono un po' di padding: quattro voci in 360px. */
+@media (max-width: 560px) {
+  .topbar nav {
+    justify-content: space-between;
+    gap: 0;
   }
   .topbar__voce { padding: 3px 6px 0; }
 }

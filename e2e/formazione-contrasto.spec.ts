@@ -255,6 +255,116 @@ test("la pagina non scorre di lato a nessuna larghezza, dal telefono stretto all
   expect(externalRequests).toEqual([]);
 });
 
+/**
+ * UNA SOLA LETTURA, DENTRO LA PAGINA: quanto margine ha la barra in alto e se
+ * qualcosa esce dalla finestra. «Margine» = la finestra, meno il riempimento a
+ * destra della barra, meno il bordo destro dell'ultima voce: se è negativo la
+ * barra non sta nel proprio spazio, anche quando il documento non scorre ancora
+ * (l'ultima voce sconfina nel riempimento).
+ */
+async function leggiBarra(page: Page) {
+  return page.evaluate(() => {
+    const doc = document.documentElement;
+    const barra = document.querySelector(".topbar");
+    const voci = barra === null ? [] : Array.from(barra.querySelectorAll(".topbar__voce"));
+    const ultima = voci[voci.length - 1];
+    const riempimento = barra === null ? 0 : parseFloat(getComputedStyle(barra).paddingRight);
+    const fuori: string[] = [];
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>("#formazione-screen, #formazione-screen *"))) {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.right > doc.clientWidth + 0.01) fuori.push(`${el.tagName.toLowerCase()}${el.id ? "#" + el.id : ""} esce di ${(r.right - doc.clientWidth).toFixed(1)}px`);
+    }
+    return {
+      larghezza: doc.clientWidth,
+      sbordoDocumento: Math.max(0, doc.scrollWidth - doc.clientWidth),
+      margineBarra: ultima === undefined ? NaN : doc.clientWidth - riempimento - ultima.getBoundingClientRect().right,
+      larghezzaVoci: barra?.querySelector("nav")?.getBoundingClientRect().width ?? NaN,
+      fuori,
+    };
+  });
+}
+
+test("la barra in alto sta dentro il proprio margine a ogni larghezza: nessuna tolleranza di mezzo pixel", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await apriLaProva(page, context, externalRequests);
+
+  // 561px è il caso che in CI sbordava di 1px: la barra intera (marchio, vuoto,
+  // quattro voci) ha bisogno di 561px SENZA il margine destro e di 585 con, e a
+  // 561 le avanzavano 0,125px — un arrotondamento dei testi diverso, su un'altra
+  // macchina, bastava a farla uscire. Non si misura «il documento non scorre»
+  // (con un margine così, passa o non passa a seconda della macchina): si misura
+  // che alla barra AVANZI spazio, e la prova è rossa a 561 con la barra di prima.
+  // 560 e 719 sono gli ultimi due della barra compatta; 720 il primo della intera.
+  for (const larghezza of [320, 360, 390, 560, 561, 640, 719, 720, 768, 1099, 1100, 1440]) {
+    await page.setViewportSize({ width: larghezza, height: 900 });
+    const m = await leggiBarra(page);
+    expect(m.margineBarra, `a ${larghezza}px la barra deve stare dentro il proprio margine (margine ${m.margineBarra.toFixed(2)}px)`).toBeGreaterThanOrEqual(-0.01);
+    expect(m.sbordoDocumento, `a ${larghezza}px la pagina sborda`).toBe(0);
+  }
+  // Dove la barra è quella intera (da 720px) il margine non è un'incollatura: almeno
+  // 100px di vuoto, che reggono un testo largo di un decimo.
+  await page.setViewportSize({ width: 720, height: 900 });
+  expect((await leggiBarra(page)).margineBarra, "a 720px, dove comincia la barra intera, avanzano almeno 100px").toBeGreaterThanOrEqual(100);
+  expect(externalRequests).toEqual([]);
+});
+
+test("la pagina non scorre di lato nemmeno con un carattere più largo di un quinto (Barlow 700 al posto del Condensed)", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await apriLaProva(page, context, externalRequests);
+  await page.setViewportSize({ width: 1000, height: 900 });
+  const prima = (await leggiBarra(page)).larghezzaVoci;
+
+  // IL CARATTERE DEL CONTENITORE NON C'ENTRA. La prova di larghezza qui sopra
+  // gira con i caratteri ospitati, identici ovunque, ma un sistema che ne
+  // sostituisce uno (rete lenta, carattere bloccato, ripiego diverso) mostra
+  // testi più larghi, ed è così che una barra tirata al pixel sbordava. Qui OGNI
+  // testo passa al Barlow normale al posto del Condensed (titoli, voci della
+  // barra, numeri) — un file del sito, lo stesso su ogni macchina, più largo del
+  // Condensed di circa un quinto — e la scansione si ripete: stesse larghezze,
+  // stessa regola. Nessun carattere del contenitore entra nella misura.
+  await page.addStyleTag({
+    content: "body, body * { font-family: 'Barlow', sans-serif !important; }",
+  });
+  await page.evaluate(async () => {
+    await document.fonts.load("600 17px 'Barlow'");
+    await document.fonts.load("700 17px 'Barlow'");
+    await document.fonts.ready;
+  });
+  // Il carattere nuovo arriva (e si ridisegna) dopo la dichiarazione: si aspetta che
+  // le voci siano davvero più larghe, e se non lo diventano la prova è rossa — una
+  // scansione col carattere di prima non proverebbe niente.
+  await expect
+    .poll(async () => (await leggiBarra(page)).larghezzaVoci, {
+      message: `il carattere deve essere davvero più largo (voci di partenza ${prima.toFixed(0)}px)`,
+      timeout: 5_000,
+    })
+    .toBeGreaterThan(prima * 1.1);
+
+  // Dalla barra intera in su niente sborda, e alla barra avanza spazio.
+  for (const larghezza of [561, 640, 719, 720, 768, 1099, 1100, 1440]) {
+    await page.setViewportSize({ width: larghezza, height: 900 });
+    const m = await leggiBarra(page);
+    expect(m.sbordoDocumento, `con il carattere largo la pagina sborda di ${m.sbordoDocumento}px a ${larghezza}px`).toBe(0);
+    expect(m.margineBarra, `con il carattere largo la barra non sta nel proprio margine a ${larghezza}px`).toBeGreaterThanOrEqual(-0.01);
+    expect(m.fuori, `con il carattere largo, elementi fuori a ${larghezza}px`).toEqual([]);
+  }
+  // Al telefono la barra compatta è disegnata sulla larghezza del Condensed (quattro
+  // voci in 360px) e un carattere più largo non ci sta: lì si misura il CONTENUTO
+  // della pagina, non la barra.
+  for (const larghezza of [320, 360, 390, 560]) {
+    await page.setViewportSize({ width: larghezza, height: 900 });
+    const m = await leggiBarra(page);
+    expect(m.fuori, `con il carattere largo, elementi della Formazione fuori a ${larghezza}px`).toEqual([]);
+  }
+  expect(externalRequests).toEqual([]);
+});
+
 test("senza la prova — la lega non risponde — i riquadri di avviso e l'invito si leggono e si toccano", async ({
   page,
   context,
