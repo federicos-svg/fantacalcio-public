@@ -187,19 +187,30 @@ test("la barra in alto sta su una riga sola, sotto i 56px, con le quattro voci",
   // quattro voci su una riga: nessuna voce tolta, nessuna fuori schermo.
   const larghezza = page.viewportSize()?.width ?? 0;
   await expect(page.locator(".topbar")).toBeVisible();
-  const barra = await page.locator(".topbar").boundingBox();
-  expect(barra?.height ?? 999, "altezza della barra").toBeLessThanOrEqual(56);
+  // UNA SOLA LETTURA, DENTRO LA PAGINA. L'app ricostruisce tutto il DOM a ogni
+  // cambio di stato: una misura fatta con più chiamate (`boundingBox` sulla barra,
+  // poi su ogni voce) può trovare la barra staccata fra una chiamata e l'altra e
+  // restituire `null`. Qui barra e voci si leggono nello stesso istante.
+  const barra = await page.evaluate(() => {
+    const rect = (el: Element) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width, height: r.height };
+    };
+    const topbar = document.querySelector(".topbar");
+    return {
+      barra: topbar === null ? null : rect(topbar),
+      voci: Array.from(document.querySelectorAll(".topbar__voce")).map(rect),
+    };
+  });
+  expect(barra.barra?.height ?? 999, "altezza della barra").toBeLessThanOrEqual(56);
 
-  const voci = page.locator(".topbar__voce");
-  await expect(voci).toHaveCount(4);
-  const box = [];
-  for (let i = 0; i < 4; i += 1) box.push(await voci.nth(i).boundingBox());
-  const topPrima = box[0]?.y ?? -1;
-  for (const [i, b] of box.entries()) {
-    expect(b?.y ?? -2, `la voce ${i} sta sulla stessa riga della prima`).toBeCloseTo(topPrima, 0);
-    expect(b?.x ?? -1, `la voce ${i} a sinistra`).toBeGreaterThanOrEqual(0);
-    expect((b?.x ?? 0) + (b?.width ?? 0), `la voce ${i} a destra`).toBeLessThanOrEqual(larghezza);
-    expect(b?.height ?? 0, `la voce ${i} è premibile (≥ 44px)`).toBeGreaterThanOrEqual(44);
+  expect(barra.voci, "le quattro voci ci sono tutte").toHaveLength(4);
+  const topPrima = barra.voci[0]?.y ?? -1;
+  for (const [i, b] of barra.voci.entries()) {
+    expect(b.y, `la voce ${i} sta sulla stessa riga della prima`).toBeCloseTo(topPrima, 0);
+    expect(b.x, `la voce ${i} a sinistra`).toBeGreaterThanOrEqual(0);
+    expect(b.x + b.width, `la voce ${i} a destra`).toBeLessThanOrEqual(larghezza);
+    expect(b.height, `la voce ${i} è premibile (≥ 44px)`).toBeGreaterThanOrEqual(44);
   }
   expect(await sbordoOrizzontale(page), "la barra non fa scorrere in orizzontale").toBe(0);
 

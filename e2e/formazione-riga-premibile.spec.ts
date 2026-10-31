@@ -29,6 +29,10 @@ for (const [nome, prefisso] of [
     const casella = page.locator(`#${prefisso}-${PROVA_COMPETITION_ID}`);
     const riga = page.locator(".fz-flag").filter({ has: casella });
     await casella.scrollIntoViewIfNeeded();
+    // L'app ricostruisce il DOM a ogni cambio di stato: la riga può risultare
+    // staccata per un istante e `boundingBox` restituire `null`. Si rilegge finché
+    // c'è, invece di far dipendere la prova da quell'istante.
+    await expect.poll(async () => (await riga.boundingBox()) !== null).toBe(true);
     const box = await riga.boundingBox();
     expect(box).not.toBeNull();
     expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
