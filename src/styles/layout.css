@@ -79,7 +79,11 @@
   display: flex;
   align-items: stretch;
   align-self: stretch;
-  gap: 22px;
+  /* Il vuoto fra due voci sta DENTRO le voci (padding orizzontale, sotto): così
+     l'anello del focus, che sta dentro il bordo della voce, resta lontano dal
+     testo invece di toccarlo. 6px di gap + 2 x 8px di padding = i 22px di prima
+     fra un testo e l'altro, più 10px prima della prima e dopo l'ultima. */
+  gap: 6px;
   font-family: var(--font-display);
   font-size: 17px;
   font-weight: 600;
@@ -93,7 +97,7 @@
      sempre presente (trasparente) così l'attiva non sposta le altre. */
   min-height: 44px;
   border-bottom: 3px solid transparent;
-  padding-top: 3px;
+  padding: 3px 8px 0;
   cursor: pointer;
   color: var(--text-sec);
 }
@@ -109,33 +113,38 @@
   border-radius: 4px;
 }
 
-/* QUATTRO VOCI NON STANNO IN 390px SU UNA RIGA SOLA, e la barra non deve
-   provarci.
-   Da quando esiste la schermata Formazione (prima voce, src/main.ts
-   renderHeader) la barra porta quattro etichette invece di tre: misurate a
-   390px, insieme al marchio, sforano la larghezza utile e farebbero scorrere
-   di lato TUTTA la pagina — la stessa cosa che una dozzina di spec E2E
-   sorveglia su ogni schermata («senza scorrimento laterale»).
-   Si sceglie di mandare la barra a capo, non di nascondere una voce né di
-   troncare il marchio: una voce nascosta è una schermata irraggiungibile dal
-   telefono, e un marchio troncato somiglia a un difetto. Sopra i 560px la
-   barra resta una riga, 45px — quindi desktop e tablet non cambiano di
-   altezza. Al telefono: il marchio sulla prima riga, le voci sulla seconda,
-   ognuna di 44px di zona premibile. */
+/* AL TELEFONO LA BARRA RESTA UNA RIGA SOLA, 45px, con le quattro voci.
+   Quattro voci più il marchio orizzontale (175px) non stanno in 390px su una
+   riga: prima la barra andava a capo e saliva a 85px, il doppio, su ogni
+   schermata, e su un telefono l'altezza è la cosa più cara. Si toglie la
+   scritta, non una voce: una voce nascosta è una schermata irraggiungibile dal
+   telefono. Resta il SIMBOLO del marchio — i primi 32px dello stesso file, ritagliati
+   da `object-fit: cover` + `object-position: left`, quindi nessun secondo file
+   da tenere allineato — e il nome del prodotto resta nell'`alt` e nel titolo
+   della scheda. Le voci perdono un po' di corpo (15px) e di spaziatura fra
+   le lettere per stare anche in 360px; la zona premibile resta alta 44px. Sopra i
+   560px la barra non cambia. */
 @media (max-width: 560px) {
   .topbar {
-    height: auto;
-    min-height: 44px;
-    padding: 0 14px;
-    flex-wrap: wrap;
-    row-gap: 0;
+    padding: 0 6px 0 14px;
+    gap: 0 4px;
+    flex-wrap: nowrap;
   }
-  .topbar__marchio { margin: 7px 0 3px; }
+  .topbar__marchio {
+    width: 32px;
+    height: 30px;
+    object-fit: cover;
+    object-position: left center;
+  }
   .topbar nav {
-    flex: 1 1 100%;
-    gap: 16px;
-    font-size: 16px;
+    flex: 1 1 auto;
+    min-width: 0;
+    justify-content: space-between;
+    gap: 0;
+    font-size: 15px;
+    letter-spacing: 0.03em;
   }
+  .topbar__voce { padding: 3px 6px 0; }
 }
 
 /* Shared "centered, max-width page column" shape between the Asta and Rose

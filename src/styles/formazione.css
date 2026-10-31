@@ -281,6 +281,19 @@
   cursor: default;
 }
 .fz-flag:not(.fz-flag--centrato) input[type="checkbox"] { margin-top: 12px; }
+/* LA RIGA INTERA REAGISCE AL TOCCO, non solo i 20px della casella e le righe di
+   testo dell'etichetta. L'etichetta stende sopra tutta la riga un riquadro
+   trasparente (`::before`, assoluto): toccarlo è toccare l'etichetta, e
+   l'etichetta è associata alla casella, quindi il comportamento è quello di
+   sempre — la stessa casella, la stessa tastiera, lo stesso lettore di
+   schermo — su 44px di altezza e su tutta la larghezza, compreso lo spazio fra
+   la casella e il testo e la riga di spiegazione sotto. */
+.fz-flag { position: relative; }
+.fz-flag label::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
 .fz-flag__testo {
   display: flex;
   flex-direction: column;
@@ -580,6 +593,22 @@
   color: var(--text-dim);
 }
 .formazione-campo .fz-comandi { justify-content: center; }
+/* I COMANDI NEL CAMPO HANNO IL FONDO PIENO. Le linee del campo stanno sotto
+   (`.fz-campo-linee` è il primo figlio del campo e i comandi sono dopo, quindi
+   sopra), ma con un bottone o una spunta trasparenti la linea si vede attraverso
+   e taglia le scritte: il cerchio e le aree passavano dietro «In panchina» e
+   «Lo voglio in campo», e una metà campo finiva sul bordo di un bottone. Il fondo
+   è quello del campo, quindi il comando «interrompe» la linea invece di
+   attraversarla. I due `:disabled`/`:hover` ripetono la regola perché le regole
+   generali dei bottoni (`.fz-screen .btn:disabled`, `:hover:not(:disabled)`)
+   hanno specificità più alta e rimetterebbero il fondo trasparente. */
+.fz-screen .formazione-campo .fz-mini,
+.fz-screen .formazione-campo .fz-mini:disabled { background: var(--campo); }
+.fz-screen .formazione-campo .fz-mini:hover:not(:disabled) { background: var(--panel-inner); }
+.formazione-campo .fz-spunta {
+  background: var(--campo);
+  border-radius: 8px;
+}
 .fz-spunta {
   display: flex;
   align-items: center;
@@ -699,6 +728,21 @@
     align-items: start;
   }
   .fz-lato .fz-unit { flex: 0 1 calc(50% - 5px); min-width: 0; }
+}
+
+/* IL CAMPO RESTA IN VISTA MENTRE LA COLONNA DI DESTRA SCORRE. Con una panchina
+   piena e i non convocati la colonna di destra è più lunga del campo (circa
+   650px nella schermata di prova a 1440px di larghezza), e sotto il campo
+   restava il vuoto. Il campo si ferma sotto il bordo alto dello schermo finché
+   la colonna scorre, e riparte con la pagina quando la colonna finisce. Solo
+   dove c'è l'altezza per tenerlo tutto: un campo più alto dello schermo, fermo,
+   avrebbe la porta fuori vista finché la colonna scorre, quindi sotto i 1000px
+   di altezza resta come prima. */
+@media (min-width: 1100px) and (min-height: 1000px) {
+  .fz-pitch {
+    position: sticky;
+    top: 12px;
+  }
 }
 
 /* ── Il telefono ────────────────────────────────────────────────────────── */
