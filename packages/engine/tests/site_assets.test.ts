@@ -94,6 +94,42 @@ describe("SITE_ASSETS — the real closed list", () => {
 });
 
 // ---------------------------------------------------------------------------
+// The impronte are on BYTES: no line-ending conversion may ever touch a listed file.
+// ---------------------------------------------------------------------------
+describe("SITE_ASSETS — .gitattributes keeps the bytes exactly as pinned", () => {
+  it("every listed file is `text: unset` (no end-of-line conversion), in the real repository", () => {
+    const paths = [...SITE_ASSETS.paths];
+    const out = execSync(`git check-attr text -- ${paths.map((p) => `"${p}"`).join(" ")}`, {
+      cwd: ROOT,
+      encoding: "utf8",
+    });
+    const unset = new Set(
+      out
+        .split("\n")
+        .filter((line) => line.endsWith(": text: unset"))
+        .map((line) => line.slice(0, line.length - ": text: unset".length)),
+    );
+    for (const path of paths) {
+      expect(unset.has(path), `${path}: .gitattributes must declare it \`-text\` or \`binary\``).toBe(true);
+    }
+  });
+
+  it("the fonts and PNGs are `binary`, the two SVGs keep line-by-line diffs (`-text` only)", () => {
+    const attrs = (path: string) =>
+      execSync(`git check-attr binary diff -- "${path}"`, { cwd: ROOT, encoding: "utf8" });
+    for (const path of SITE_ASSETS.paths) {
+      const out = attrs(path);
+      if (path.endsWith(".svg")) {
+        expect(out, path).not.toContain("binary: set");
+        expect(out, path).not.toContain("diff: unset");
+      } else {
+        expect(out, path).toContain("binary: set");
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // The list compiler: a malformed, wide or doubled entry never compiles.
 // ---------------------------------------------------------------------------
 describe("compileSiteAssets — the list is closed by construction", () => {

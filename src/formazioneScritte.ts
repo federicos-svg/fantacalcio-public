@@ -111,12 +111,25 @@ export function codiceScritto(codice: string): string {
 }
 
 /**
+ * I sette moduli di §9, scritti qui in lettere perché questo file non importa il
+ * contratto (vedi sopra). Sono gli stessi di `MODULES` in
+ * `packages/league-gameweek`: `formazioneScritte.test.ts` li confronta con
+ * quelli veri e fallisce se uno dei due elenchi cambia da solo.
+ */
+const MODULI_DI_PAGINA: readonly string[] = ["541", "451", "532", "442", "352", "433", "343"];
+
+/**
  * Un modulo come si legge: «4-4-2», non «442». Il valore che si scambia con la
  * lega e che sta nel modello resta «442»; questa funzione si usa solo nel punto
- * in cui il modulo diventa testo per chi guarda. Una stringa che non è tre cifre
- * non è un modulo di §9 e passa com'è: meglio mostrare quello che c'è che
+ * in cui il modulo diventa testo per chi guarda.
+ *
+ * SOLO I SETTE MODULI DI §9 PRENDONO I TRATTINI, come in `moduleLabel` del
+ * contratto (`submissionLegality.ts`): un valore che non è uno dei sette passa
+ * com'è, ed è proprio ciò che una violazione («modulo_non_ammesso») sta
+ * denunciando — «999» scritto «9-9-9» sembrerebbe un modulo. Prima bastava
+ * «tre cifre qualunque», che dava «9-9-9»: mostrare quello che c'è è meglio che
  * inventare un trattino dove non c'è un modulo.
  */
 export function moduloScritto(modulo: string): string {
-  return /^\d{3}$/.test(modulo) ? modulo.split("").join("-") : modulo;
+  return MODULI_DI_PAGINA.includes(modulo) ? modulo.split("").join("-") : modulo;
 }

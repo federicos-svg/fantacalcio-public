@@ -1,0 +1,16 @@
+# I 15 FILE DEL SITO CHE LA GUARDIA TIENE PER IMPRONTA (scripts/site-assets-core.mjs)
+# non vanno mai convertiti: l'impronta sha256 è sui byte, e una conversione dei
+# fine riga (`core.autocrlf` su Windows, `eol=` su altri sistemi) cambierebbe i
+# byte di un SVG e di conseguenza la sua impronta, con il file rosso al
+# prossimo controllo su un'altra macchina. I binari (PNG, woff2) sono
+# `binary`: niente conversione, niente confronto riga per riga, niente unione
+# automatica. I due SVG sono testo, ma di testo con impronta: `-text` toglie la
+# conversione e lascia il confronto riga per riga.
+# `packages/engine/tests/site_assets.test.ts` verifica che ogni file dell'elenco
+# sia coperto da una di queste righe (con `git check-attr`).
+public/brand/** -text
+public/favicon.svg -text
+public/favicon-32.png binary
+public/favicon-48.png binary
+public/apple-touch-icon.png binary
+public/fonts/*.woff2 binary

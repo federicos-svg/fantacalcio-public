@@ -177,6 +177,35 @@ describe("moduli", () => {
     }
   });
 
+  it("tre cifre qualunque NON sono un modulo: «999» resta «999», non «9-9-9»", () => {
+    for (const altro of ["999", "000", "123", "444", "343 ", " 442", "4421", "٤٤٢"]) {
+      expect(moduloScritto(altro), altro).toBe(altro);
+    }
+  });
+
+  it("la pagina e il contratto scrivono lo stesso su OGNI stringa di tre cifre (000-999)", () => {
+    // Le due copie della regola si confrontano su tutte le mille stringhe di tre
+    // cifre, non solo sui sette moduli: è lì che prima divergevano (la pagina
+    // metteva i trattini a tutte, il contratto solo ai sette).
+    for (let n = 0; n < 1000; n += 1) {
+      const tre = String(n).padStart(3, "0");
+      expect(moduloScritto(tre), tre).toBe(moduleLabel(tre));
+    }
+  });
+
+  it("l'elenco dei sette moduli della pagina è quello del contratto", () => {
+    // Se `MODULES` cambia (un ottavo modulo, un modulo tolto), la pagina deve
+    // saperlo: un modulo nuovo senza trattini si mostrerebbe «352» al posto di
+    // «3-5-2», uno tolto continuerebbe a prenderli.
+    for (const modulo of MODULES) {
+      expect(moduloScritto(modulo), modulo).toContain("-");
+    }
+    const conTrattini = Array.from({ length: 1000 }, (_, n) => String(n).padStart(3, "0")).filter((tre) =>
+      moduloScritto(tre).includes("-"),
+    );
+    expect(conTrattini.sort()).toEqual([...MODULES].sort());
+  });
+
   it("si scrive soltanto: tolti i trattini si torna al valore che si scambia con la lega", () => {
     for (const modulo of MODULES) {
       expect(moduloScritto(modulo).replaceAll("-", "")).toBe(modulo);
