@@ -4242,6 +4242,44 @@ function renderFormazione(): HTMLElement {
 }
 
 // ── Header — persistent nav across the 4 shell screens ───────────────────────
+
+// IL MARCHIO NON TIENE L'EVENTO `load`. Un `<img>` con `src` assegnato al
+// momento della creazione parte subito e, finché non è decodificato, il
+// documento non è «caricato»: con questo file (21 KB di SVG, lettere tracciate)
+// `load` arrivava 45–130 ms dopo `DOMContentLoaded`; col file assegnato al `load`
+// e il quarto carattere precaricato (index.html) arriva 1–15 ms dopo, come sul
+// ramo prima del restyling (0–2 ms). Misure del 31/10/2026, stessa macchina e
+// stesso build, sei passaggi per variante. Chi aspetta il
+// `load` — `page.goto` di Playwright, e quindi ogni prova e2e — parte più tardi
+// di altrettanto, mentre il resto dell'avvio (le letture, e il deposito del
+// listone che risponde a tempo fisso) è già in corso: la prova PROBE L di
+// e2e/listone-identity-reconciliation.spec.ts, che corre contro un deposito a
+// +1200 ms, su 20 passaggi con due worker (osservazione del 31/10/2026, stessa
+// macchina, passaggi alternati) è andata in rosso 9 volte col marchio assegnato
+// alla creazione, 3 volte con questa correzione, 1 volta sul ramo prima del
+// restyling.
+// Quindi il file viene assegnato al `load`: da lì il marchio è un'immagine come
+// un'altra, e ogni render successivo lo trova già nella cache (`marchioSbloccato`
+// vale già `true`). Il marchio è precaricato da index.html (`rel=preload`), quindi
+// al `load` i byte ci sono già e la comparsa non si fa aspettare; finché non c'è
+// il file, layout.css lo nasconde (`:not([src])`) invece di mostrare l'`alt`. Che
+// il file NON sia assegnato prima del `load` lo prova e2e/marchio-dopo-il-load.spec.ts;
+// le misure di sopra sono osservazioni, non una prova che si rifà.
+const MARCHIO_SRC = "/brand/orizzontale-colori.svg";
+let marchioSbloccato = document.readyState === "complete";
+if (!marchioSbloccato) {
+  window.addEventListener(
+    "load",
+    () => {
+      marchioSbloccato = true;
+      for (const img of document.querySelectorAll<HTMLImageElement>("img.topbar__marchio:not([src])")) {
+        img.src = MARCHIO_SRC;
+      }
+    },
+    { once: true },
+  );
+}
+
 function renderHeader(): HTMLElement {
   const header = document.createElement("div");
   header.className = "topbar";
@@ -4258,11 +4296,13 @@ function renderHeader(): HTMLElement {
   // spazio libero intorno gestito dal gap della barra.
   const logo = document.createElement("img");
   logo.className = "topbar__marchio";
-  logo.src = "/brand/orizzontale-colori.svg";
   logo.alt = "Fantacalcio Copilot";
   logo.width = 175;
   logo.height = 30;
   logo.decoding = "async";
+  // Il file si assegna DOPO l'evento `load`, non alla creazione: il perché sta
+  // nel commento di `MARCHIO_SRC`, qui sopra.
+  if (marchioSbloccato) logo.src = MARCHIO_SRC;
 
   const nav = document.createElement("nav");
 

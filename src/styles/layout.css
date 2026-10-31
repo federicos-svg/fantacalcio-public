@@ -71,6 +71,10 @@
   width: auto;
   flex: none;
 }
+/* Il file viene assegnato al `load` (src/main.ts, `MARCHIO_SRC`): finché non c'è,
+   l'immagine occupa il suo posto (width e height sono sull'elemento) ma non
+   mostra l'`alt` al posto del marchio. */
+.topbar__marchio:not([src]) { visibility: hidden; }
 .topbar nav {
   display: flex;
   align-items: stretch;
