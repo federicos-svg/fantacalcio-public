@@ -112,8 +112,8 @@ export function codiceScritto(codice: string): string {
 
 /**
  * I sette moduli di §9, scritti qui in lettere perché questo file non importa il
- * contratto (vedi sopra). Sono gli stessi di `MODULES` in
- * `packages/league-gameweek`: `formazioneScritte.test.ts` li confronta con
+ * contratto (vedi sopra). Sono gli stessi di `MODULES` nel pacchetto che
+ * definisce la giornata di lega: `formazioneScritte.test.ts` li confronta con
  * quelli veri e fallisce se uno dei due elenchi cambia da solo.
  */
 const MODULI_DI_PAGINA: readonly string[] = ["541", "451", "532", "442", "352", "433", "343"];

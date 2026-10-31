@@ -58,6 +58,12 @@ export const ALLOWED_TOP_LEVEL_FILES = new Set([
   "playwright.config.ts",
   "index.html",
   ".gitignore",
+  // Solo per fissare i file del sito con impronta (public/brand, public/fonts,
+  // i PNG, public/favicon.svg) come non convertibili: niente conversione dei
+  // fine riga, quindi nessuna impronta che cambia su un altro sistema. È una
+  // configurazione di git, non codice né dati; la guardia la legge come ogni
+  // altro file tracciato (schemi di segreto compresi).
+  ".gitattributes",
   "README.md",
   "CLAUDE.md",
   "PROJECT_STATE.md",

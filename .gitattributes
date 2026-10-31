@@ -6,6 +6,8 @@
 # `binary`: niente conversione, niente confronto riga per riga, niente unione
 # automatica. I due SVG sono testo, ma di testo con impronta: `-text` toglie la
 # conversione e lascia il confronto riga per riga.
+# Sta alla radice (e non in public/, dove finirebbe nel pacchetto del sito e nel
+# precache): `scripts/publication-gate-core.mjs` la ammette per nome.
 # `packages/engine/tests/site_assets.test.ts` verifica che ogni file dell'elenco
 # sia coperto da una di queste righe (con `git check-attr`).
 public/brand/** -text

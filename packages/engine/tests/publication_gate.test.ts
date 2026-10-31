@@ -37,6 +37,16 @@ describe("checkForbiddenTopLevel — rule 1", () => {
     }
   });
 
+  it("allows .gitattributes by exact name, and nothing that merely starts with it", () => {
+    // Una sola voce, per un solo scopo: fissare i file del sito con impronta come
+    // non convertibili (packages/engine/tests/site_assets.test.ts). Un altro file
+    // di configurazione di git a quella radice NON passa per somiglianza.
+    expect(checkForbiddenTopLevel(".gitattributes")).toBeNull();
+    expect(checkForbiddenTopLevel(".gitattributes.bak")).not.toBeNull();
+    expect(checkForbiddenTopLevel(".gitmodules")).not.toBeNull();
+    expect(checkForbiddenTopLevel(".gitconfig")).not.toBeNull();
+  });
+
   it("fails a root-level file not on the allowlist", () => {
     const finding = checkForbiddenTopLevel("PROJECT_HISTORY.md");
     expect(finding).not.toBeNull();
