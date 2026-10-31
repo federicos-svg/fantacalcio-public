@@ -1970,7 +1970,7 @@ function renderPlayerUnit(
  * non che reparto prende chi arriva: un centrocampista posato sulla casella
  * libera della difesa resta un centrocampista, il conto dei reparti cambia, e
  * se la forma nuova non è nessuno dei sette moduli la mossa si rifiuta dicendo
- * la forma. L'etichetta promette quindi «posa qui», che è ciò che succede, e
+ * la forma. L'etichetta promette quindi «mettilo qui», che è ciò che succede, e
  * non «diventa un difensore», che non succede.
  *
  * SPENTO SOLO QUANDO PREMERLO NON SIGNIFICHEREBBE NIENTE — niente in mano, o
@@ -2003,7 +2003,7 @@ function renderEmptySlot(
     "aria-label",
     impedito.length > 0
       ? `Posto vuoto, ${ruolo} — ${impedito}`
-      : `Posto vuoto, ${ruolo} — posa qui «${held ?? ""}»`,
+      : `Posto vuoto, ${ruolo} — mettilo qui «${held ?? ""}»`,
   );
   bottone.style.cssText =
     // Misure, bordo e colori stanno in formazione.css (`.formazione-posto-vuoto`).
@@ -2299,7 +2299,7 @@ function renderStrip(
   }
   if (zona !== null) {
     // La striscia intera accetta una posa, ma non si evidenzia da sé quando si
-    // ha qualcosa in mano: il suo bottone «Posa qui» lo fa già, e due cornici
+    // ha qualcosa in mano: il suo bottone «Mettilo in…» lo fa già, e due cornici
     // annidate accese insieme direbbero due destinazioni dove ce n'è una.
     rendiBersaglio(striscia, competition, handlers, zona);
   }

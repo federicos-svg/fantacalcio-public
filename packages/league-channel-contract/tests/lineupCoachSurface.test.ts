@@ -754,7 +754,7 @@ describe("una spunta che non cambia niente sarebbe peggio di nessuna spunta", ()
 
   it("un modulo bloccato diverso da quello schierato è dichiarato non rispettato", () => {
     const unmet = unmetConstraints(FORMAZIONE, { lockedStarterIds: [], lockedModule: "352", locked: false });
-    expect(unmet[0]).toContain("352");
+    expect(unmet[0]).toContain("3-5-2");
   });
 
   it("i titolari e il portiere già in campo non producono niente", () => {
@@ -1280,5 +1280,68 @@ describe("il nome riconciliato da un'altra fonte, e la sua provenienza", () => {
     );
     const riga = (view.competitions[0]?.players ?? []).find((r) => r.id === "p1");
     expect(riga?.name).toBeUndefined();
+  });
+});
+
+// I MODULI DENTRO LE FRASI SI LEGGONO COI TRATTINI (Pico, 31/10/2026: «Sì, solo
+// queste»): quarantena, vincoli rifiutati e vincoli non rispettati. Il valore
+// del vincolo e quello in quarantena restano «343», «352»: cambia il testo.
+describe("i moduli nelle frasi dei vincoli si leggono coi trattini", () => {
+  const roles = rolesByPlayerId(ROSA);
+
+  it("la quarantena dice il modulo coi trattini e tiene il valore grezzo", () => {
+    const reconciled = reconcileConstraints(
+      { lockedStarterIds: [], lockedModule: "343", locked: false },
+      ROSA,
+      ["442", "352"],
+    );
+    expect(reconciled.quarantined[0]?.value).toBe("343");
+    expect(reconciled.quarantined[0]?.reason).toBe(
+      "la lega non dichiara più «3-4-3» fra i moduli schierabili: il blocco resta da parte",
+    );
+  });
+
+  it("il modulo bloccato che la lega non ammette è un rifiuto che lo scrive coi trattini", () => {
+    const issues = localConstraintIssues(
+      { lockedStarterIds: [], lockedModule: "343", locked: false },
+      FORMAZIONE,
+      roles,
+      ["442", "352"],
+    );
+    const rifiuto = issues.rejections.find((issue) => issue.code === "LOCKED_MODULE_NOT_ALLOWED");
+    expect(rifiuto?.message).toBe(
+      "il modulo bloccato «3-4-3» non è fra quelli che la lega dichiara schierabili",
+    );
+  });
+
+  it("l'elenco dei moduli praticabili si scrive coi trattini, uno per uno", () => {
+    const cinqueDifensori = new Map<string, "D">([
+      ["p2", "D"],
+      ["p3", "D"],
+      ["p4", "D"],
+      ["p5", "D"],
+      ["p13", "D"],
+    ]);
+    const issues = localConstraintIssues(
+      { lockedStarterIds: ["p2", "p3", "p4", "p5", "p13"], locked: false },
+      FORMAZIONE,
+      cinqueDifensori,
+      ["442", "433"],
+    );
+    const rifiuto = issues.rejections.find((issue) => issue.code === "LOCKED_MODULE_INCOMPATIBLE");
+    expect(rifiuto?.message).toBe(
+      "nessuno dei moduli praticabili (4-4-2, 4-3-3) regge 5 giocatori spuntati nel reparto D",
+    );
+  });
+
+  it("il vincolo non rispettato nomina i due moduli coi trattini", () => {
+    const unmet = unmetConstraints(FORMAZIONE, {
+      lockedStarterIds: [],
+      lockedModule: "352",
+      locked: false,
+    });
+    expect(unmet).toEqual([
+      "il modulo bloccato è «3-5-2» e questa formazione è schierata con «4-4-2»",
+    ]);
   });
 });

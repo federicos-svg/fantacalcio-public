@@ -7,6 +7,7 @@ import { toSubmission } from "../src/lineupSubmission.js";
 import { rolesByPlayerId } from "../src/roster.js";
 import {
   SUBMISSION_VIOLATION_CODES,
+  moduleLabel,
   validateSubmissionAgainstSettings,
   type SubmissionViolation,
 } from "../src/submissionLegality.js";
@@ -478,5 +479,90 @@ describe("l'ordine dell'esito è stabile", () => {
     // due coincidessero questa prova non distinguerebbe nulla.
     expect(violations[0]?.message).toContain("«p14»");
     expect(violations[1]?.message).toContain("«p9»");
+  });
+});
+
+// I MODULI DENTRO LE FRASI SI LEGGONO COI TRATTINI (Pico, 31/10/2026: «Sì, solo
+// queste»). Cambia come il modulo si scrive nel messaggio; il codice della
+// violazione e il modulo dell'invio restano quelli di prima.
+describe("i moduli nelle frasi delle violazioni si leggono coi trattini", () => {
+  const messaggio = (
+    violations: readonly SubmissionViolation[],
+    code: string,
+  ): string | undefined => violations.find((violation) => violation.code === code)?.message;
+
+  it("moduleLabel dà i trattini ai sette moduli di §9 e lascia com'è tutto il resto", () => {
+    expect(
+      (["541", "451", "532", "442", "352", "433", "343"] as const).map(moduleLabel),
+    ).toEqual(["5-4-1", "4-5-1", "5-3-2", "4-4-2", "3-5-2", "4-3-3", "3-4-3"]);
+    // Ciò che non è uno dei sette è proprio ciò che una violazione denuncia: non
+    // si veste da modulo.
+    expect(moduleLabel("999")).toBe("999");
+    expect(moduleLabel("4411")).toBe("4411");
+    expect(moduleLabel("")).toBe("");
+  });
+
+  it("un modulo fuori dall'elenco della lega: il modulo e l'elenco coi trattini", () => {
+    const settings: ObservedLeagueSettings = {
+      ...SETTINGS_IN_ACCORDO,
+      allowedModules: ["442", "352"],
+    };
+    const violations = validateSubmissionAgainstSettings(invio({ module: "343" }), settings);
+    expect(messaggio(violations, SUBMISSION_VIOLATION_CODES.moduloNonAmmesso)).toBe(
+      "modulo «3-4-3» fuori dall'elenco dichiarato dalla lega (4-4-2, 3-5-2): l'invio verrebbe respinto",
+    );
+  });
+
+  it("senza elenco dichiarato, l'avvertimento nomina il modulo coi trattini", () => {
+    const { allowedModules: _ignorato, ...senzaModuli } = SETTINGS_IN_ACCORDO;
+    const violations = validateSubmissionAgainstSettings(invio({ module: "343" }), senzaModuli);
+    expect(messaggio(violations, SUBMISSION_VIOLATION_CODES.moduloNonVerificabile)).toContain(
+      "la legalità di «3-4-3» non è verificabile",
+    );
+  });
+
+  it("un modulo che non è uno dei sette resta scritto com'è arrivato", () => {
+    const violations = validateSubmissionAgainstSettings(
+      invio({ module: "999" as ObservedLineup["module"] }),
+      SETTINGS_IN_ACCORDO,
+    );
+    expect(messaggio(violations, SUBMISSION_VIOLATION_CODES.moduloSconosciuto)).toBe(
+      "modulo «999» fuori dai sette di §9: non è schierabile in questa lega",
+    );
+  });
+
+  it("i titolari in numero sbagliato nominano il modulo coi trattini", () => {
+    const violations = validateSubmissionAgainstSettings(
+      invio({ starterIds: ["p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10"] }),
+      SETTINGS_IN_ACCORDO,
+    );
+    expect(messaggio(violations, SUBMISSION_VIOLATION_CODES.titolariNumeroErrato)).toContain(
+      "il modulo «4-4-2» richiede 10 titolari di movimento",
+    );
+  });
+
+  it("i reparti sbagliati nominano il modulo coi trattini, e il codice resta quello", () => {
+    const violations = validateSubmissionAgainstSettings(
+      invio({
+        starterIds: ["p2", "p3", "p4", "p5", "p13", "p6", "p7", "p8", "p10", "p11"],
+        benchIds: ["p12", "p9", "p14", "p15", "p16"],
+      }),
+      SETTINGS_IN_ACCORDO,
+      { rosterIds: ROSTER_IDS, roles: RUOLI },
+    );
+    expect(messaggio(violations, SUBMISSION_VIOLATION_CODES.difensoriNumeroErrato)).toContain(
+      "il modulo «4-4-2» richiede 4 difensori",
+    );
+    expect(messaggio(violations, SUBMISSION_VIOLATION_CODES.centrocampistiNumeroErrato)).toContain(
+      "il modulo «4-4-2» richiede 4 centrocampisti",
+    );
+    for (const violation of violations) expect(violation.message).not.toMatch(/«\d{3}»/);
+  });
+
+  it("senza i ruoli, l'avvertimento sulla composizione nomina il modulo coi trattini", () => {
+    const violations = validateSubmissionAgainstSettings(invio(), SETTINGS_IN_ACCORDO);
+    expect(
+      messaggio(violations, SUBMISSION_VIOLATION_CODES.composizioneNonVerificabile),
+    ).toContain("contro il modulo «4-4-2» non è verificabile");
   });
 });

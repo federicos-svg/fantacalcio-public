@@ -127,6 +127,9 @@ test("in prova nessun codice col trattino basso compare, in nessuno degli stati 
   const legalita = page.locator(`#formazione-legalita-bloccanti-${PROVA_COMPETITION_ID}`);
   await expect(legalita).toContainText("difensori in numero sbagliato");
   await expect(legalita).toContainText("attaccanti in numero sbagliato");
+  // Anche la frase accanto al titolo nomina il modulo come lo nomina il bottone.
+  await expect(legalita).toContainText("il modulo «3-4-3» richiede 3 difensori");
+  await expect(legalita).not.toContainText(/«\d{3}»/);
   expect(await scritteCrude(page)).toEqual([]);
 
   // TROPPE SPUNTE: i motivi di rifiuto dei vincoli, tutti insieme.
@@ -218,6 +221,20 @@ test("i moduli si leggono coi trattini, e i valori che si scambiano restano «44
   // Scegliere «4-4-2» blocca il valore «442».
   await selettore.selectOption({ label: "4-4-2" });
   await expect(selettore).toHaveValue("442");
+
+  // E NELLE FRASI: col modulo bloccato, schierarne un altro chiede conferma, e il
+  // conflitto nomina i due moduli coi trattini (Pico, 31/10/2026: «Sì, solo
+  // queste»), come i bottoni. Il valore che si scambia è ancora «442».
+  await page.locator(`#formazione-modulo-schierato-${PROVA_COMPETITION_ID}-343`).click();
+  const conflitto = page.locator(`#formazione-conflitto-${PROVA_COMPETITION_ID}`);
+  await expect(conflitto).toHaveAttribute("data-conflitto", "modulo_bloccato");
+  await expect(conflitto).toContainText(
+    "il modulo bloccato è «4-4-2»: schierare «3-4-3» contraddice quel vincolo",
+  );
+  await expect(conflitto).toContainText(
+    "il blocco sul modulo «4-4-2» viene tolto, e la formazione passa a «3-4-3»",
+  );
+  await expect(conflitto).not.toContainText(/«\d{3}»/);
 
   expect(externalRequests).toEqual([]);
 });

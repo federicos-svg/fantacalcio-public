@@ -40,7 +40,7 @@ import { LINEA_PORTA, pitchLayout } from "./pitchLayout.js";
 import type { ObservedTeam } from "./roster.js";
 import { rolesByPlayerId } from "./roster.js";
 import type { SubmissionViolation } from "./submissionLegality.js";
-import { validateSubmissionAgainstSettings } from "./submissionLegality.js";
+import { moduleLabel, validateSubmissionAgainstSettings } from "./submissionLegality.js";
 
 /**
  * L'esito di una mossa: la formazione nuova, oppure il motivo del rifiuto.
@@ -255,7 +255,7 @@ export function moveBench(
  * giocatori sacrificare — che è precisamente la decisione che sta prendendo.
  */
 export function setLineupModule(lineup: ObservedLineup, module: Module): LineupEdit {
-  if (lineup.module === module) return rifiutata(`la formazione è già schierata con «${module}»`);
+  if (lineup.module === module) return rifiutata(`la formazione è già schierata con «${moduleLabel(module)}»`);
   return eseguita({ ...lineup, module });
 }
 
@@ -607,7 +607,7 @@ export function fillSlot(
   const casella = riga === undefined ? undefined : riga[slot.indexInLine];
   if (casella === undefined || casella.role !== slot.role) {
     return rifiutata(
-      `quella casella non esiste nel campo di questa formazione: il modulo «${lineup.module}» ` +
+      `quella casella non esiste nel campo di questa formazione: il modulo «${moduleLabel(lineup.module)}» ` +
         "non la prevede, e una casella di un disegno precedente non è un posto",
     );
   }
@@ -737,8 +737,8 @@ export function moduleChangeConflict(
   if (bloccato === undefined || bloccato === module) return null;
   return {
     kind: "modulo_bloccato",
-    message: `il modulo bloccato è «${bloccato}»: schierare «${module}» contraddice quel vincolo`,
-    ifRemoved: `il blocco sul modulo «${bloccato}» viene tolto, e la formazione passa a «${module}»`,
+    message: `il modulo bloccato è «${moduleLabel(bloccato)}»: schierare «${moduleLabel(module)}» contraddice quel vincolo`,
+    ifRemoved: `il blocco sul modulo «${moduleLabel(bloccato)}» viene tolto, e la formazione passa a «${moduleLabel(module)}»`,
   };
 }
 

@@ -10,6 +10,7 @@ import {
 } from "./formazioneScritte.js";
 import {
   localConstraintIssues,
+  moduleLabel,
   MODULES,
   NO_LINEUP_CONSTRAINTS,
   SUBMISSION_VIOLATION_CODES,
@@ -161,6 +162,19 @@ describe("moduli", () => {
       "4-3-3",
       "3-4-3",
     ]);
+  });
+
+  it("il contratto scrive i moduli nelle sue frasi come li scrive la pagina nei bottoni", () => {
+    // Due copie della stessa riga, per scelta (la pagina non importa il contratto
+    // in questo file, il contratto non importa la pagina): questa prova le tiene
+    // d'accordo sui sette moduli, che sono quelli che si mostrano.
+    for (const modulo of MODULES) {
+      expect(moduleLabel(modulo), modulo).toBe(moduloScritto(modulo));
+    }
+    // Fuori dai sette passano entrambe com'è arrivato.
+    for (const altro of ["", "4231", "abc", "4-4-2"]) {
+      expect(moduleLabel(altro)).toBe(moduloScritto(altro));
+    }
   });
 
   it("si scrive soltanto: tolti i trattini si torna al valore che si scambia con la lega", () => {

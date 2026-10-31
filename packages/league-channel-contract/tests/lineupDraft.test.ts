@@ -186,7 +186,7 @@ describe("modifica contro vincolo: si chiede, non si decide", () => {
   it("cambiare modulo con un modulo bloccato diverso è un conflitto; con lo stesso no", () => {
     const constraints = { lockedStarterIds: [], lockedModule: "442", locked: false } as const;
     expect(moduleChangeConflict(constraints, "352")?.kind).toBe("modulo_bloccato");
-    expect(moduleChangeConflict(constraints, "352")?.message).toContain("442");
+    expect(moduleChangeConflict(constraints, "352")?.message).toContain("4-4-2");
     expect(moduleChangeConflict(constraints, "442")).toBeNull();
     expect(moduleChangeConflict({ lockedStarterIds: [], locked: false }, "352")).toBeNull();
   });
@@ -524,7 +524,7 @@ describe("un modulo bloccato non si cambia trascinando", () => {
     // stesse parole, stessa via d'uscita.
     expect(conflitto).toEqual(moduleChangeConflict(MODULO_BLOCCATO, "352"));
     expect(conflitto.kind).toBe("modulo_bloccato");
-    expect(conflitto.ifRemoved).toContain("352");
+    expect(conflitto.ifRemoved).toContain("3-5-2");
 
     // E senza il vincolo lo stesso identico scambio passa: è la spunta a
     // cambiare la strada, non lo scambio.
@@ -842,5 +842,40 @@ describe("uno spuntato non esce dagli undici trascinando", () => {
     expect(placeOf(dopo, "p2")).toBe("titolare");
     expect(placeOf(dopo, "p6")).toBe("titolare");
     expect(placeOf(dopo, "p13")).toBe("titolare");
+  });
+});
+
+// I MODULI DENTRO LE FRASI SI LEGGONO COI TRATTINI (Pico, 31/10/2026: «Sì, solo
+// queste»). Cambia come si mostra il modulo nel testo; il valore scambiato resta
+// «442», e le prove qui sopra che guardano `.module` lo dicono ancora.
+describe("i moduli nelle frasi si leggono coi trattini", () => {
+  it("la formazione già schierata col modulo chiesto lo dice come lo dice il bottone", () => {
+    const copia = copiaDi(FORMAZIONE);
+    const reason = rifiutata(setLineupModule(FORMAZIONE, "442"), FORMAZIONE, copia);
+    expect(reason).toBe("la formazione è già schierata con «4-4-2»");
+  });
+
+  it("il conflitto del modulo bloccato nomina entrambi i moduli coi trattini, in tutte e due le frasi", () => {
+    const conflitto = moduleChangeConflict(MODULO_BLOCCATO, "352");
+    expect(conflitto?.message).toBe(
+      "il modulo bloccato è «4-4-2»: schierare «3-5-2» contraddice quel vincolo",
+    );
+    expect(conflitto?.ifRemoved).toBe(
+      "il blocco sul modulo «4-4-2» viene tolto, e la formazione passa a «3-5-2»",
+    );
+    // Il valore del vincolo, invece, non si è mosso.
+    expect(MODULO_BLOCCATO.lockedModule).toBe("442");
+  });
+
+  it("la casella che il modulo non prevede nomina il modulo coi trattini", () => {
+    const copia = copiaDi(SENZA_UN_DIFENSORE);
+    const oltreLAttacco: PitchSlot = { role: "A", line: 3, indexInLine: 4, playerId: null };
+    const reason = rifiutata(
+      fillSlot(SENZA_UN_DIFENSORE, "p13", oltreLAttacco, RUOLI, SENZA_VINCOLI),
+      SENZA_UN_DIFENSORE,
+      copia,
+    );
+    expect(reason).toContain("il modulo «4-4-2» non la prevede");
+    expect(reason).not.toMatch(/«\d{3}»/);
   });
 });

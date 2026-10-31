@@ -69,7 +69,7 @@ import { toSubmission } from "./lineupSubmission.js";
 import type { ObservedPlayer, ObservedTeam } from "./roster.js";
 import { rolesByPlayerId } from "./roster.js";
 import type { SubmissionViolation } from "./submissionLegality.js";
-import { validateSubmissionAgainstSettings } from "./submissionLegality.js";
+import { moduleLabel, validateSubmissionAgainstSettings } from "./submissionLegality.js";
 
 /**
  * I moduli, ri-esportati da qui.
@@ -340,7 +340,7 @@ export function reconcileConstraints(
     quarantined.push({
       kind: "modulo_non_ammesso",
       value: lockedModule,
-      reason: `la lega non dichiara più «${lockedModule}» fra i moduli schierabili: il blocco resta da parte`,
+      reason: `la lega non dichiara più «${moduleLabel(lockedModule)}» fra i moduli schierabili: il blocco resta da parte`,
     });
     lockedModule = undefined;
   }
@@ -556,7 +556,7 @@ export function localConstraintIssues(
   ) {
     rejections.push({
       code: "LOCKED_MODULE_NOT_ALLOWED",
-      message: `il modulo bloccato «${constraints.lockedModule}» non è fra quelli che la lega dichiara schierabili`,
+      message: `il modulo bloccato «${moduleLabel(constraints.lockedModule)}» non è fra quelli che la lega dichiara schierabili`,
       playerIds: [],
     });
   }
@@ -582,7 +582,7 @@ export function localConstraintIssues(
       rejections.push({
         code: "LOCKED_MODULE_INCOMPATIBLE",
         message:
-          `nessuno dei moduli praticabili (${candidati.join(", ")}) regge ${quanti} giocatori ` +
+          `nessuno dei moduli praticabili (${candidati.map(moduleLabel).join(", ")}) regge ${quanti} giocatori ` +
           `spuntati nel reparto ${role}`,
         playerIds: conteggio[role],
       });
@@ -726,7 +726,7 @@ export function unmetConstraints(
   }
   if (constraints.lockedModule !== undefined && constraints.lockedModule !== lineup.module) {
     unmet.push(
-      `il modulo bloccato è «${constraints.lockedModule}» e questa formazione è schierata con «${lineup.module}»`,
+      `il modulo bloccato è «${moduleLabel(constraints.lockedModule)}» e questa formazione è schierata con «${moduleLabel(lineup.module)}»`,
     );
   }
   return unmet;
