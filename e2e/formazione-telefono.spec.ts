@@ -173,3 +173,66 @@ test("col dito si schiera davvero: modulo, scambio, panchina e Salva sono tutti 
 
   expect(externalRequests).toEqual([]);
 });
+
+test("la barra in alto sta su una riga sola, sotto i 56px, con le quattro voci", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests);
+  await page.goto("/");
+
+  // Prima la barra andava a capo (marchio sopra, voci sotto) e saliva a 85px, il
+  // doppio, su ogni schermata. Al telefono resta il simbolo del marchio e le
+  // quattro voci su una riga: nessuna voce tolta, nessuna fuori schermo.
+  const larghezza = page.viewportSize()?.width ?? 0;
+  await expect(page.locator(".topbar")).toBeVisible();
+  const barra = await page.locator(".topbar").boundingBox();
+  expect(barra?.height ?? 999, "altezza della barra").toBeLessThanOrEqual(56);
+
+  const voci = page.locator(".topbar__voce");
+  await expect(voci).toHaveCount(4);
+  const box = [];
+  for (let i = 0; i < 4; i += 1) box.push(await voci.nth(i).boundingBox());
+  const topPrima = box[0]?.y ?? -1;
+  for (const [i, b] of box.entries()) {
+    expect(b?.y ?? -2, `la voce ${i} sta sulla stessa riga della prima`).toBeCloseTo(topPrima, 0);
+    expect(b?.x ?? -1, `la voce ${i} a sinistra`).toBeGreaterThanOrEqual(0);
+    expect((b?.x ?? 0) + (b?.width ?? 0), `la voce ${i} a destra`).toBeLessThanOrEqual(larghezza);
+    expect(b?.height ?? 0, `la voce ${i} è premibile (≥ 44px)`).toBeGreaterThanOrEqual(44);
+  }
+  expect(await sbordoOrizzontale(page), "la barra non fa scorrere in orizzontale").toBe(0);
+
+  // Il simbolo c'è e il nome del prodotto resta nell'`alt`: togliere la scritta
+  // non toglie il nome a chi non vede.
+  const marchio = page.locator("img.topbar__marchio");
+  await expect(marchio).toBeVisible();
+  await expect(marchio).toHaveAttribute("alt", "Fantacalcio Copilot");
+  expect(externalRequests).toEqual([]);
+});
+
+test("nel campo i comandi hanno il fondo pieno: le linee del campo non li attraversano", async ({
+  page,
+  context,
+}) => {
+  const externalRequests: string[] = [];
+  await apriSulTelefono(page, context, externalRequests);
+
+  // Le linee del campo (cerchio, aree, metà campo) stanno sotto i comandi; con un
+  // fondo trasparente si vedevano attraverso il bottone e tagliavano le scritte.
+  const campo = page.locator(`#formazione-titolari-${PROVA_COMPETITION_ID} .formazione-campo`);
+  const fondi = await campo.evaluate((el) => {
+    const trasparente = (c: string) => c === "transparent" || /^rgba\(.*,\s*0\)$/.test(c);
+    const fuori: string[] = [];
+    let quanti = 0;
+    for (const nodo of el.querySelectorAll<HTMLElement>(".fz-mini, .fz-spunta")) {
+      quanti += 1;
+      const c = getComputedStyle(nodo).backgroundColor;
+      if (trasparente(c)) fuori.push(`${nodo.className}: ${c}`);
+    }
+    return { quanti, fuori };
+  });
+  expect(fondi.quanti, "i comandi del campo ci sono").toBeGreaterThan(10);
+  expect(fondi.fuori, "comandi del campo con fondo trasparente").toEqual([]);
+  expect(externalRequests).toEqual([]);
+});

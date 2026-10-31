@@ -294,6 +294,15 @@
   position: absolute;
   inset: 0;
 }
+/* La casella resta SOPRA il riquadro dell'etichetta: chi la preme (o la prova,
+   come fa Playwright con `.check()`) colpisce la casella stessa e non un
+   elemento che la «intercetta»; tutto il resto della riga colpisce l'etichetta.
+   Il comportamento è lo stesso in entrambi i casi, ma il bersaglio della prima
+   pressione resta quello vero. */
+.fz-flag input[type="checkbox"] {
+  position: relative;
+  z-index: 1;
+}
 .fz-flag__testo {
   display: flex;
   flex-direction: column;
