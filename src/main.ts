@@ -19,6 +19,7 @@
 // exists and its requests are never gated. Keeping this import first is the
 // cheap way to make that impossible by construction.
 import "./offline/register.js";
+import "./styles/fonts.css";
 import "./styles/base.css";
 import "./styles/layout.css";
 import "./styles/components.css";
@@ -2714,6 +2715,11 @@ function render(): void {
 
   const wrapper = document.createElement("div");
   wrapper.className = "app-shell";
+  // LA SCHERMATA, COME ATTRIBUTO. Serve soltanto a una regola di presentazione:
+  // l'Asta tiene il carattere di prima (layout.css, `.app-shell[data-screen]`),
+  // perché le sue misure dichiarate (e2e/call-screen-budget.spec.ts) sono
+  // fissate su quel carattere e l'Asta non è nel perimetro dell'impaginazione.
+  wrapper.dataset.screen = state.screen;
 
   wrapper.appendChild(renderHeader());
 
@@ -4239,12 +4245,25 @@ function renderHeader(): HTMLElement {
   const header = document.createElement("div");
   header.className = "topbar";
 
-  const logo = document.createElement("span");
-  logo.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.08em;color:${C.textSec};`;
-  logo.textContent = "FANTACALCIO COPILOT";
+  // IL MARCHIO ORIZZONTALE — «Tre esiti» più «FANTACALCIO COPILOT» (Pico,
+  // 31/10/2026) — al posto del testo grigio a 11px che stava qui. Un'immagine
+  // vera: le lettere sono già tracciati nel file, quindi non dipende dal
+  // carattere ospitato e non c'è un secondo testo da tenere allineato al
+  // titolo della scheda. Il nome accessibile è lo stesso che c'era (il nome del
+  // prodotto), e sta nell'`alt`. Il file sta nel pacchetto (public/brand/):
+  // nessuna richiesta esterna, precachato come ogni altro file costruito.
+  // Altezza 30px → larghezza 175px, sopra il minimo di 120px delle regole del
+  // marchio (e la scritta, a 24px di altezza, restava di 9px di maiuscolo);
+  // spazio libero intorno gestito dal gap della barra.
+  const logo = document.createElement("img");
+  logo.className = "topbar__marchio";
+  logo.src = "/brand/orizzontale-colori.svg";
+  logo.alt = "Fantacalcio Copilot";
+  logo.width = 175;
+  logo.height = 30;
+  logo.decoding = "async";
 
   const nav = document.createElement("nav");
-  nav.style.cssText = `display:flex;gap:20px;font-size:13px;`;
 
   const items: Array<{ label: string; screen: Screen }> = [
     // Prima di Asta, come Pico ha chiesto: la giornata viene prima del mercato.
@@ -4257,7 +4276,9 @@ function renderHeader(): HTMLElement {
     const link = document.createElement("span");
     link.textContent = item.label;
     const active = state.screen === item.screen;
-    link.style.cssText = `cursor:pointer;font-weight:${active ? "700" : "400"};color:${active ? C.textPrimary : C.textSec};`;
+    // La voce attiva non si distingue solo per colore: peso 700 e sottolineatura
+    // menta (le regole stanno in layout.css, `.topbar__voce--attiva`).
+    link.className = active ? "topbar__voce topbar__voce--attiva" : "topbar__voce";
     link.tabIndex = 0;
     link.setAttribute("role", "button");
     link.addEventListener("click", () => {

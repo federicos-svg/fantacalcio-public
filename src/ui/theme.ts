@@ -2,28 +2,36 @@
 // and views.ts can reuse the same tokens without duplicating them.
 
 export const C = {
-  bg: "oklch(0.19 0.008 270)",
-  panel: "oklch(0.24 0.01 270)",
-  panelInner: "oklch(0.28 0.012 270)",
-  border: "oklch(0.32 0.012 270)",
-  accent: "oklch(0.55 0.13 250)",
-  accentDim: "oklch(0.35 0.06 250)",
+  // LA DIREZIONE «LAVAGNA» (Pico, 31/10/2026) — copia letterale dei token di
+  // src/styles/base.css, dove stanno le misure di contrasto e la motivazione.
+  // I due elenchi si tengono allineati a mano.
+  bg: "#0d1a19",
+  panel: "#152422",
+  panelInner: "#1d2e2c",
+  border: "#304140",
+  // La menta: fondo, bordo e testo (10,64 / 9,60 / 8,48 :1 su bg / panel /
+  // panelInner). Sopra la menta, il testo è `onAccent`.
+  accent: "#63dbcd",
+  onAccent: "#041a18",
+  accentDim: "#1b4a45",
   // Rampa del testo: ogni livello ≥ 4,5:1 (WCAG AA) su ogni sfondo su cui
-  // compare davvero. Lo sfondo peggiore è panelInner (0.28), che impone
-  // L ≥ 0.6493. Su panelInner: dim 4,69:1, sec 6,33:1, mid 8,36:1,
-  // primary 13,00:1. La copia normativa e la motivazione stanno in
-  // src/styles/base.css — questi due elenchi si tengono allineati a mano.
-  textPrimary: "oklch(0.96 0.005 270)",
-  textSec: "oklch(0.74 0.01 270)",
-  textMid: "oklch(0.82 0.006 270)",
-  textDim: "oklch(0.66 0.01 270)",
-  // L'accent come TESTO (5,09:1 su panelInner); `accent` resta il colore di
-  // fondi, bordi e focus ring e non cambia.
-  textAccent: "oklch(0.68 0.13 250)",
+  // compare davvero. Lo sfondo peggiore è panelInner. Su panelInner: dim
+  // 4,98:1, sec 7,16:1, mid 9,82:1, primary 12,32:1.
+  textPrimary: "#f1efe6",
+  textSec: "#adbbb9",
+  textMid: "#d3d8d2",
+  textDim: "#8e9c9a",
+  // Come `accent`: il nome resta perché il codice lo usa già.
+  textAccent: "#63dbcd",
+  // STOP e verde: identici a prima, per scelta di Pico.
   stopRed: "oklch(0.7 0.19 25)",
   stopRedDark: "oklch(0.5 0.16 25)",
   green: "oklch(0.65 0.15 145)",
+  // La monospaziata di prima, identica: numeri e identificativi dell'Asta.
   mono: "ui-monospace,'SF Mono',Menlo,Consolas,monospace",
+  // Il testo, e i titoli/etichette/numeri grandi.
+  font: "'Barlow',system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif",
+  display: "'Barlow Condensed','Barlow',system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif",
 };
 
 /**
@@ -45,16 +53,20 @@ export function escHtml(s: string): string {
 
 /**
  * Uniform role chip palette (P/D/C/A) — one dot+letter look everywhere a
- * role appears, instead of ad-hoc plain text per screen. C reuses the
- * app's existing accent blue (no new near-duplicate token). A is red but
+ * role appears, instead of ad-hoc plain text per screen. C è il blu che
+ * l'app usava come accento — `oklch(0.55 0.13 250)` — ma NON è più legato
+ * all'accento: da quando l'accento è la menta (direzione «Lavagna», Pico
+ * 31/10/2026) il colore del ruolo è scritto qui per esteso, identico a
+ * prima, e non segue più nessun token. A is red but
  * at a different hue (18) than the STOP badge (hue 25, C.stopRed) — same
  * "role at a glance" convention as most Fantacalcio apps, deliberately not
  * identical to the STOP token so the two stay visually distinct.
  *
  * I FONDI NON SI TOCCANO. La convenzione di hue qui sopra è una decisione di
- * prodotto: A a 18 distinto da STOP a 25, D che riusa il verde, C che riusa
- * l'accent. Restano identici — dimensione, forma e bordo del disco pure.
- * L'unica cosa che è cambiata è IL COLORE DEL GLIFO dentro il disco.
+ * prodotto: A a 18 distinto da STOP a 25, D che riusa il verde, C il blu di
+ * sempre (scritto per esteso, non più legato all'accent). Restano identici —
+ * dimensione, forma e bordo del disco pure. L'unica cosa che è cambiata nei
+ * colori è IL COLORE DEL GLIFO dentro il disco.
  *
  * GLIFO: SCURO, non bianco, dove il disco non regge il bianco. Il chip è
  * testo a 10px — testo normale per WCAG, soglia 4,5:1, nessuna eccezione
@@ -82,7 +94,7 @@ export function escHtml(s: string): string {
 export const ROLE_COLORS: Record<string, { bg: string; text: string; mutedBg: string }> = {
   P: { bg: "oklch(0.82 0.14 95)", text: "oklch(0.25 0.03 95)", mutedBg: "oklch(0.42 0.14 95)" },
   D: { bg: "oklch(0.65 0.16 145)", text: "oklch(0.25 0.03 145)", mutedBg: "oklch(0.42 0.16 145)" },
-  C: { bg: C.accent, text: "white", mutedBg: "oklch(0.42 0.13 250)" },
+  C: { bg: "oklch(0.55 0.13 250)", text: "white", mutedBg: "oklch(0.42 0.13 250)" },
   A: { bg: "oklch(0.62 0.22 18)", text: "oklch(0.16 0.03 18)", mutedBg: "oklch(0.42 0.22 18)" },
 };
 

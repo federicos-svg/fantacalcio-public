@@ -289,7 +289,7 @@ async function handleDataAsset(request: Request): Promise<Response> {
 const OFFLINE_SHELL_MISSING_HTML =
   '<!doctype html><html lang="it"><head><meta charset="utf-8">' +
   '<meta name="viewport" content="width=device-width, initial-scale=1">' +
-  "<title>Fantacalcio Auction Copilot — offline</title></head>" +
+  "<title>Fantacalcio Copilot — offline</title></head>" +
   '<body style="font-family:system-ui,sans-serif;background:#0f1115;color:#e6e6e6;padding:24px">' +
   "<h1>App non disponibile offline</h1>" +
   "<p>Questa copia del browser non ha ancora una cache dell'app: serve una visita online " +

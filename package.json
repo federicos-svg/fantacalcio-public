@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
-  "description": "Fantacalcio Auction Copilot — public core (engine + UI + contracts). Personal use.",
+  "description": "Fantacalcio Copilot — public core (engine + UI + contracts). Personal use.",
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/build-service-worker.mjs",

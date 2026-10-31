@@ -34,15 +34,75 @@
   padding-bottom: var(--assign-bar-h);
 }
 
+/* L'ASTA TIENE IL CARATTERE DI PRIMA, finché non avrà un lavoro suo.
+   Le misure dell'Asta sono dichiarate e sorvegliate (il mastro della schermata
+   di chiamata, e2e/call-screen-budget.spec.ts: righe del listone, blocchi della
+   colonna) e poggiano sulla metrica del carattere di testo di sempre. Barlow è
+   più stretto: cambia gli a capo, quindi le altezze, e l'Asta non è nel
+   perimetro dell'impaginazione. Quindi qui — e solo qui — il testo e i controlli
+   del modulo restano com'erano (`revert` riporta i controlli al carattere di
+   default del browser, cioè a prima della regola `inherit` di base.css). I
+   numeri e gli identificativi stanno su --font-mono, che è anch'essa quella di
+   prima. La barra in alto ha un carattere suo e non cambia. Le altre schermate
+   (Formazione, Rose, Impostazioni) sono nei caratteri nuovi. */
+.app-shell[data-screen="asta"] { font-family: var(--font-sistema); }
+.app-shell[data-screen="asta"] :is(button, input, select, textarea) { font-family: revert; }
+
+/* LA BARRA — marchio a sinistra, voci accanto. Alta 45px (44 + il filo di
+   sotto; era 44 con il filo dentro): le voci sono premibili su 44px di altezza,
+   che è la misura del dito, e il marchio (30px) ci sta in mezzo. Un pixel in più
+   rispetto a prima; le prove di geometria dell'Asta che la misurano restano verdi.
+   Le voci sono in Barlow Condensed maiuscolo; la voce attiva ha il peso 700 e
+   una sottolineatura menta di 3px: l'attiva non è affidata al solo colore. */
 .topbar {
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   padding: 0 24px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  height: 44px;
+  justify-content: flex-start;
+  gap: 0 32px;
+  height: 45px;
   flex: none;
+}
+.topbar__marchio {
+  display: block;
+  height: 30px;
+  width: auto;
+  flex: none;
+}
+.topbar nav {
+  display: flex;
+  align-items: stretch;
+  align-self: stretch;
+  gap: 22px;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.topbar__voce {
+  display: flex;
+  align-items: center;
+  /* Tutta l'altezza della barra: 44px di zona premibile. Il bordo sotto è
+     sempre presente (trasparente) così l'attiva non sposta le altre. */
+  min-height: 44px;
+  border-bottom: 3px solid transparent;
+  padding-top: 3px;
+  cursor: pointer;
+  color: var(--text-sec);
+}
+.topbar__voce:hover { color: var(--text-primary); }
+.topbar__voce--attiva {
+  color: var(--text-primary);
+  font-weight: 700;
+  border-bottom-color: var(--accent);
+}
+.topbar__voce:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 4px;
 }
 
 /* QUATTRO VOCI NON STANNO IN 390px SU UNA RIGA SOLA, e la barra non deve
@@ -55,18 +115,22 @@
    Si sceglie di mandare la barra a capo, non di nascondere una voce né di
    troncare il marchio: una voce nascosta è una schermata irraggiungibile dal
    telefono, e un marchio troncato somiglia a un difetto. Sopra i 560px la
-   barra resta esattamente com'era — una riga, 44px — quindi desktop e tablet
-   non cambiano di un pixel. */
+   barra resta una riga, 45px — quindi desktop e tablet non cambiano di
+   altezza. Al telefono: il marchio sulla prima riga, le voci sulla seconda,
+   ognuna di 44px di zona premibile. */
 @media (max-width: 560px) {
   .topbar {
     height: auto;
     min-height: 44px;
-    padding: 5px 14px;
+    padding: 0 14px;
     flex-wrap: wrap;
-    row-gap: 2px;
+    row-gap: 0;
   }
+  .topbar__marchio { margin: 7px 0 3px; }
   .topbar nav {
-    gap: 14px !important;
+    flex: 1 1 100%;
+    gap: 16px;
+    font-size: 16px;
   }
 }
 

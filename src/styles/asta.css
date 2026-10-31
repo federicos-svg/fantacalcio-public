@@ -2340,7 +2340,8 @@
 .interest-chip--on {
   background: var(--accent);
   border-color: var(--accent);
-  color: white;
+  /* Sopra la menta il testo è l'ardesia (10,76:1), non il bianco. */
+  color: var(--on-accent);
 }
 /* Il gesto è raggiungibile da tastiera come ogni altro bottone della
    schermata, e da tastiera si deve VEDERE dove si è: stesso anello di focus
