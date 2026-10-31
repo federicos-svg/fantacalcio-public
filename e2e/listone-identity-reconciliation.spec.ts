@@ -365,12 +365,29 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
     await installSyntheticNetworkGuard(context, SYNTHETIC_LISTONE_POOL, externalRequests, {
       kind: "unavailable",
     });
-    // The deposit answers late but well inside the app's 4s window — the
-    // situation the probe reproduced: it lands with the asta moment already
-    // open on the selected player. Registered AFTER the guard so it wins for
-    // this path (Playwright matches the most recently added route first).
+    // IL DEPOSITO ASPETTA LA PAGINA, NON L'OROLOGIO. Prima rispondeva a tempo
+    // fisso (+1200 ms dalla richiesta) e la prova correva per arrivare al momento
+    // d'asta aperto prima di lui: una corsa che dipendeva da quanto era carica la
+    // macchina, e che a volte il deposito vinceva (la riga selezionata spariva
+    // prima del clic su «Avvia», e la prova cadeva per un motivo che non è quello
+    // che sorveglia). Adesso la richiesta resta in sospeso finché la prova non ha
+    // VISTO il momento d'asta aperto sul selezionato; solo allora la risposta
+    // parte. L'ordine «prima l'asta aperta, poi il deposito» è per costruzione, non
+    // per fortuna, ed è quello che la sonda descrive. Registrata DOPO la guardia,
+    // così vince su questo percorso (Playwright usa la rotta aggiunta per ultima).
+    //
+    // Il solo orologio che resta è quello dell'app: la richiesta del deposito ha
+    // una finestra di 4 s (`LISTONE_REMOTE_TIMEOUT_MS`, src/main.ts), poi viene
+    // abbandonata. È una proprietà del prodotto e non si tocca; la prova la
+    // dichiara nel messaggio dell'attesa finale, invece di fallire in silenzio.
+    let rilascia: () => void = () => undefined;
+    const rilascio = new Promise<void>((risolvi) => {
+      rilascia = risolvi;
+    });
+    let richiestaArrivata = false;
     await context.route(`**${LISTONE_REMOTE_PATH}`, async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 1200));
+      richiestaArrivata = true;
+      await rilascio;
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -385,8 +402,18 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
     await page.getByRole("button", { name: /^Avvia/ }).click();
     await expect(page.locator("#assign-price")).toBeVisible();
 
+    // Il deposito era davvero in sospeso (non una prova che passa perché nessuno
+    // l'ha mai chiesto) e il listone sullo schermo è ancora quello statico: la
+    // riga selezionata c'è, e con lei il modulo d'asta.
+    expect(richiestaArrivata, "l'app deve aver chiesto il deposito prima che la prova lo rilasci").toBe(true);
+    await expect(page.getByText(RENAMED_TARGET.name, { exact: true })).toHaveCount(0);
+    rilascia();
+
     // The deposit lands: its rows are what the listone shows now.
-    await expect(page.getByText(RENAMED_TARGET.name, { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByText(RENAMED_TARGET.name, { exact: true }),
+      "il deposito deve essere applicato e la chiamata tornare visibile (due modi di non riuscirci: la pagina ha impiegato più di 4 s ad aprire l'asta e l'app ha già abbandonato il deposito; oppure il momento d'asta è rimasto aperto, cioè la selezione NON è stata annullata)",
+    ).toBeVisible({ timeout: 10_000 });
 
     // Back to the call moment, with the reason stated: the assignment form is
     // gone, so no purchase can be recorded against an identity the listone on
