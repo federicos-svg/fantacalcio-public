@@ -353,6 +353,10 @@ test.describe("listone ⇄ log identity reconciliation (audit r2, findings 1 and
     expect(externalRequests).toEqual([]);
   });
 
+  // COSA GARANTISCE (questa riga non cambia con il modo di sincronizzarla): un
+  // deposito che arriva MENTRE il momento d'asta è aperto sul giocatore
+  // selezionato annulla la selezione e riporta alla chiamata, invece di lasciare
+  // registrare un acquisto con l'identità del listone ormai sostituito.
   test("PROBE L: a deposit landing while the asta moment is open disarms the selection instead of recording a stale identity", async ({
     page,
     context,
