@@ -28,6 +28,7 @@ import "./styles/listone.css";
 import "./styles/bait.css";
 import "./styles/perMe.css";
 import "./styles/schedaCard.css";
+import "./styles/formazione.css";
 import {
   type AuctionEvent,
   type AuctionState,

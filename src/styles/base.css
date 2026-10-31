@@ -30,6 +30,10 @@
      Mai la menta come fondo sotto testo chiaro. */
   --accent: #63dbcd;
   --on-accent: #041a18;
+  /* La menta al passaggio del mouse sui bottoni principali: un gradino più
+     chiara, e l'ardesia sopra resta a 12,7:1. Un valore e non un `filter`: il
+     contrasto si misura sul colore reso, e un filtro non si può misurare. */
+  --accent-hover: #8de8de;
   /* Fondo scuro tinto d'accento (modulo acceso, valore evidenziato): sopra ci
      stanno il testo primario (8,63:1), il medio (6,88:1) e il secondario
      (5,01:1). */
@@ -58,7 +62,16 @@
      4,89:1. */
   --stop-red: oklch(0.7 0.19 25);
   --stop-red-dark: oklch(0.5 0.16 25);
+  /* Il fondo dei riquadri di allarme (STOP): un rosso quasi nero. Non è un nuovo
+     colore di STOP — il rosso resta quello sopra — è la superficie su cui il
+     rosso si legge (--stop-red su questo fondo: 5,99:1). */
+  --stop-surface: #2a1414;
   --green: oklch(0.65 0.15 145);
+  /* Il campo della Formazione: verde lavagna e linee a gesso. Servono solo a
+     src/styles/formazione.css; il testo sopra il campo sta sempre su una
+     targhetta di --bg o su una pastiglia propria, mai sul verde nudo. */
+  --campo: #12302b;
+  --campo-linea: rgba(241, 239, 230, 0.22);
   /* ── Caratteri. `--font-ui` è il testo; `--font-display` i titoli, le
      etichette in maiuscoletto e i numeri grandi. `--font-mono` è la
      monospaziata di prima, IDENTICA: numeri e identificativi dell'Asta restano

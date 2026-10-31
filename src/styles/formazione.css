@@ -1,0 +1,764 @@
+/* LA PAGINA FORMAZIONE — direzione «Lavagna» (Pico, 31/10/2026).
+
+   COSA È QUESTO FILE. Tutta la presentazione della schermata Formazione:
+   misure, caratteri, colori dei riquadri, il campo. `src/ui/formazione.ts` non
+   la scrive più in linea (uno stile in linea non lo batte nessuna media query,
+   e il campo sul telefono ne ha bisogno): mette le classi `fz-*` e lascia in
+   linea soltanto ciò che cambia da un elemento all'altro (il colore con cui un
+   titolo dichiara che cosa è).
+
+   COSA NON È. Non decide niente, non sposta niente, non aggiunge niente: gli
+   `id`, le classi `formazione-*`, i `data-*` e le `aria-*` su cui poggiano le
+   prove e i lettori di schermo sono tutti dove erano, e i testi sono quelli di
+   prima. Cambia come si vede, non che cosa si vede.
+
+   I NUMERI CHE NON SI TOCCANO.
+   - Corpo minimo 12px, ovunque su questa pagina. Il testo corrente sta a 14px.
+   - Ogni comando è alto almeno 44px (la misura del dito): bottoni, spunte,
+     moduli, voci della barra. Dove lo spazio non basta in larghezza il comando
+     va a capo su due righe e resta alto 44px: non si rimpicciolisce.
+   - Ogni testo ≥ 4,5:1 sul proprio fondo. I token (base.css) portano le misure;
+     un comando spento non perde il testo: cambia bordo (tratteggiato) e colore
+     (--text-dim, 5,64:1 su --panel), niente `opacity`, che moltiplicherebbe il
+     contrasto contro lo sfondo.
+   - I colori dei ruoli e il rosso dello STOP sono quelli di sempre: qui si
+     usano soltanto, non si ridefiniscono. */
+
+/* ── La pagina ──────────────────────────────────────────────────────────── */
+
+.fz-screen {
+  flex: 1;
+  padding: 20px 24px 36px;
+  gap: 16px;
+  /* Il disco del ruolo: 24px con la lettera a 12px (corpo minimo) ovunque non
+     sia sul campo. Il campo lo ingrandisce sotto. `theme.ts` lo legge. */
+  --chip-d: 24px;
+  --chip-f: 12px;
+}
+.fz-screen .panel {
+  border-radius: 12px;
+  padding: 18px 20px;
+}
+
+/* ── Tipografia ─────────────────────────────────────────────────────────── */
+
+/* Titolo di riquadro: Barlow Condensed, maiuscolo, spaziato. Il colore lo
+   decide chi lo scrive (rosso per l'allarme, menta per la prova). */
+.fz-screen .panel-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+/* Il riquadro di una competizione: una colonna di blocchi, nell'ordine in cui il
+   DOM li scrive. */
+.fz-comp {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+/* Il titolo della competizione è il titolo della pagina: grande e gesso. */
+.fz-comp > .panel-title {
+  font-size: 32px;
+  letter-spacing: 0.02em;
+  line-height: 1.05;
+  color: var(--text-primary);
+}
+/* L'intestazione piccola dentro un riquadro («MODULO SCHIERATO», «IN CAMPO»…):
+   il colore è in linea, perché è il colore a dire se è un'etichetta, un guasto
+   o una scelta costosa. */
+.fz-kicker {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  line-height: 1.25;
+}
+.fz-p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-mid);
+}
+.fz-p--nota { font-size: 13px; }
+.fz-lista {
+  margin: 4px 0 0;
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-mid);
+}
+.fz-lista li + li { margin-top: 2px; }
+.fz-lista--sec { color: var(--text-sec); font-size: 13px; line-height: 1.6; }
+.fz-codice {
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+}
+
+/* ── Riquadri ───────────────────────────────────────────────────────────── */
+
+.fz-riquadro {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+/* L'allarme: rosso STOP su fondo rosso quasi nero. Lo portano le parole del
+   riquadro (il titolo dice che cosa è), il colore è soltanto un rinforzo. */
+.fz-allarme {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--stop-red);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--stop-surface);
+}
+.fz-screen .panel.fz-allarme { padding: 16px 20px; }
+
+/* Lo stato (come letta / modificata, inviata / da inviare): una barra con
+   l'icona, e l'etichetta in maiuscoletto. Il bordo dice lo stato, ma lo dice
+   anche il testo e il tratteggio: mai il solo colore. */
+.fz-stato {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--panel);
+}
+.fz-stato--riga {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+}
+.fz-stato--riga > .fz-p { flex: 1 1 240px; }
+.fz-stato[data-modificata="si"] {
+  border-style: dashed;
+  border-color: var(--text-sec);
+}
+.fz-stato[data-stato="inviato_confermato"] { border-color: var(--accent); }
+.fz-stato__etichetta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+.fz-ico {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ── Comandi ────────────────────────────────────────────────────────────── */
+
+/* Ogni bottone della pagina: 44px di altezza, bordo gesso, nessun fondo. Il
+   bianco del browser su fondo scuro, e il bottone spento quasi invisibile, sono
+   i due difetti di prima. Spento: bordo tratteggiato e testo --text-dim, che si
+   legge (5,64:1). */
+.fz-screen .btn {
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--text-primary);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.fz-screen .btn:hover:not(:disabled) { background: var(--panel-inner); }
+.fz-screen .btn:disabled {
+  border: 1px dashed var(--text-dim);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: default;
+}
+.fz-screen .btn:focus-visible,
+.fz-screen .formazione-gettone:focus-visible,
+.fz-screen .formazione-posto-vuoto:focus-visible,
+.fz-screen .fz-modulo:focus-visible,
+.fz-screen .fz-select:focus-visible,
+.fz-screen input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* Il comando principale (Salva, «Togli il vincolo e procedi»): menta con
+   l'ardesia sopra, 10,76:1. */
+.fz-screen .fz-btn--primario {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.fz-screen .fz-btn--primario:hover:not(:disabled) {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+}
+.fz-screen .fz-btn--primario:disabled {
+  border: 1px dashed var(--text-dim);
+  background: transparent;
+  color: var(--text-dim);
+}
+/* I comandi piccoli sotto un giocatore («In panchina», «Su», «Giù»…): stessa
+   altezza, corpo un po' più piccolo, bordo meno acceso. */
+.fz-screen .fz-mini {
+  align-self: auto;
+  min-width: 44px;
+  padding: 0 10px;
+  border-color: var(--text-dim);
+  color: var(--text-mid);
+  font-size: 15px;
+}
+
+.fz-select {
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px solid var(--text-dim);
+  border-radius: 8px;
+  background: var(--panel-inner);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 16px;
+}
+.fz-select:disabled { border-style: dashed; color: var(--text-dim); }
+
+/* Le caselle: 20px, in menta; la riga che le porta è alta almeno 44px. */
+.fz-flag {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 44px;
+}
+.fz-flag--centrato { align-items: center; }
+/* La casella è disegnata, non quella bianca del browser: fondo trasparente e
+   bordo --text-dim (5,64:1) da spenta; menta con la spunta ardesia da accesa.
+   Resta un `<input type="checkbox">` vero — tastiera, etichetta e lettori di
+   schermo non cambiano. */
+.fz-flag input[type="checkbox"],
+.fz-spunta input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  border: 2px solid var(--text-dim);
+  border-radius: 5px;
+  background: transparent center / 14px 14px no-repeat;
+  cursor: pointer;
+}
+.fz-flag input[type="checkbox"]:checked,
+.fz-spunta input[type="checkbox"]:checked {
+  border-color: var(--accent);
+  background-color: var(--accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23041a18' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7'/%3E%3C/svg%3E");
+}
+.fz-flag input[type="checkbox"]:disabled,
+.fz-spunta input[type="checkbox"]:disabled {
+  border-style: dashed;
+  cursor: default;
+}
+.fz-flag:not(.fz-flag--centrato) input[type="checkbox"] { margin-top: 12px; }
+.fz-flag__testo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 0;
+}
+.fz-flag--centrato .fz-flag__testo { padding: 0; }
+.fz-flag label {
+  display: block;
+  font-size: 16px;
+  line-height: 24px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.fz-flag--centrato label { padding: 10px 0; }
+
+/* ── La barra dei moduli: sette riquadri, sempre tutti ──────────────────── */
+
+.fz-moduli {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.fz-modulo {
+  flex: 1 1 64px;
+  max-width: 110px;
+  min-height: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 4px 6px;
+  border: 1px solid var(--text-dim);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-mid);
+  text-align: center;
+  cursor: pointer;
+}
+.fz-modulo:disabled {
+  border-color: var(--border);
+  color: var(--text-dim);
+  cursor: default;
+}
+/* Quello schierato è ACCESO, e per costruzione è anche spento (non si
+   «schiera» un modulo che è già quello): per questo la regola sta dopo
+   `:disabled` e lo batte. Il testo «schierato» lo dice anche a parole. */
+.fz-modulo[data-attivo="si"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.fz-modulo__chiave {
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+}
+.fz-modulo__nota {
+  min-height: 14px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1.15;
+  text-transform: uppercase;
+}
+
+/* ── Il campo ───────────────────────────────────────────────────────────── */
+
+/* La porta in basso, poi difesa, centrocampo, attacco: l'ordine del DOM è
+   porta-difesa-centrocampo-attacco e `column-reverse` lo impila dal basso. Le
+   linee del campo sono quattro, e SEMPRE righe: ogni linea sta su una riga sola
+   (`nowrap`), anche sul telefono, dove i gettoni si stringono invece di andare
+   a capo — è questo che fa del campo un campo e non una colonna. */
+.formazione-campo {
+  position: relative;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 14px;
+  padding: 24px 14px;
+  border: 2px solid var(--campo-linea);
+  border-radius: 14px;
+  background: var(--campo);
+  overflow: hidden;
+  --chip-d: 38px;
+  --chip-f: 16px;
+}
+.formazione-campo__linea {
+  position: relative;
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: space-around;
+  align-items: flex-start;
+  gap: 8px;
+}
+.formazione-campo .fz-unit,
+.formazione-campo .formazione-posto-vuoto__posa {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 190px;
+}
+
+/* Le linee del campo: disegnate con riquadri e non con un SVG stirato, così il
+   cerchio resta un cerchio e il tratto resta di 2px a ogni larghezza. */
+.fz-campo-linee {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.fz-campo-linee > * {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid var(--campo-linea);
+}
+.fz-campo-linee__meta {
+  left: 0;
+  right: 0;
+  top: 50%;
+  border-width: 2px 0 0;
+}
+.fz-campo-linee__cerchio {
+  left: 50%;
+  top: 50%;
+  width: 120px;
+  height: 120px;
+  margin: -60px 0 0 -60px;
+  border-radius: 50%;
+}
+.fz-campo-linee__area {
+  left: 30%;
+  right: 30%;
+  height: 88px;
+}
+.fz-campo-linee__area--alta { top: 0; border-top-width: 0; }
+.fz-campo-linee__area--bassa { bottom: 0; border-bottom-width: 0; }
+
+/* ── Il giocatore: gettone, ordine, comandi ─────────────────────────────── */
+
+.fz-unit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 0 1 190px;
+  min-width: 0;
+}
+.formazione-riga__ordine {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-accent);
+}
+
+.formazione-gettone {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-inner);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  text-align: left;
+  cursor: grab;
+}
+.formazione-gettone:disabled { cursor: default; }
+.formazione-gettone[data-voluto="si"] { border-color: var(--accent); }
+/* In mano: bordo e anello menta, e `aria-pressed` lo dice a parole. */
+.formazione-gettone[data-preso="si"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.formazione-gettone__testa {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.formazione-gettone__nome {
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+}
+.formazione-gettone__nome-ignoto,
+.formazione-gettone__nome-fonte {
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--text-dim);
+}
+.formazione-gettone__segni {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Le pastiglie di stato sotto il nome. La disponibilità «normale» è soltanto
+   testo; quella che chiede attenzione ha un bordo (tratteggiato per «in
+   dubbio», rosso per «indisponibile»), e le parole sono comunque le stesse. */
+.fz-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-sec);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.fz-chip--disponibile {
+  padding: 0;
+  border-color: transparent;
+  background: none;
+  font-weight: 400;
+}
+.fz-chip--in_dubbio {
+  border-style: dashed;
+  border-color: var(--text-sec);
+  color: var(--text-primary);
+}
+.fz-chip--indisponibile,
+.fz-chip--codice {
+  border-color: var(--stop-red);
+  background: var(--stop-surface);
+  color: var(--stop-red);
+}
+.fz-chip--codice { font-family: var(--font-mono); }
+.fz-chip--voluto,
+.fz-chip--prova {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.fz-chip--prova {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* IL GETTONE SUL CAMPO: il disco del ruolo e sotto il nome su una targhetta
+   ardesia, come sulla lavagna. Niente cornice, niente fondo: il campo è il
+   fondo. Chi è in mano si vede dall'anello menta sul disco e sul nome. */
+.formazione-campo .formazione-gettone {
+  align-items: center;
+  gap: 4px;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  text-align: center;
+}
+.formazione-campo .formazione-gettone[data-preso="si"] { box-shadow: none; }
+.formazione-campo .formazione-gettone[data-preso="si"] .role-chip {
+  box-shadow: 0 0 0 3px var(--accent);
+}
+.formazione-campo .formazione-gettone[data-preso="si"] .formazione-gettone__nome {
+  outline: 2px solid var(--accent);
+}
+.formazione-campo .formazione-gettone__testa {
+  flex-direction: column;
+  gap: 5px;
+}
+.formazione-campo .formazione-gettone__nome {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--bg);
+  font-family: var(--font-display);
+  font-size: 17px;
+  text-align: center;
+}
+.formazione-campo .formazione-gettone__segni { justify-content: center; }
+.formazione-campo .formazione-gettone__nome-ignoto,
+.formazione-campo .formazione-gettone__nome-fonte { text-align: center; }
+
+/* I comandi del posto, sotto il gettone: sempre tutti, mai nascosti. */
+.fz-comandi {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+}
+.fz-comandi__nota {
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--text-dim);
+}
+.formazione-campo .fz-comandi { justify-content: center; }
+.fz-spunta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+}
+.fz-spunta label {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding-right: 4px;
+  font-size: 14px;
+  color: var(--text-sec);
+  cursor: pointer;
+}
+
+/* Un posto che il modulo prevede e nessuno occupa: resta a vista, tratteggiato. */
+.formazione-posto-vuoto__posa {
+  display: flex;
+  flex: 0 1 190px;
+  min-width: 0;
+  border-radius: 10px;
+}
+.formazione-posto-vuoto {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  min-height: 72px;
+  padding: 6px 7px;
+  border: 1px dashed var(--accent);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-sec);
+  font-family: var(--font-ui);
+  text-align: center;
+  cursor: pointer;
+}
+.formazione-posto-vuoto:disabled {
+  border-color: var(--text-dim);
+  cursor: default;
+}
+.formazione-posto-vuoto__ruolo {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.formazione-posto-vuoto__testo {
+  font-size: 13px;
+  line-height: 1.2;
+}
+.formazione-campo .formazione-posto-vuoto { background: var(--campo); }
+
+/* ── Panchina, fuori dai convocati, rosa ────────────────────────────────── */
+
+.fz-striscia {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.fz-striscia__testa {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.fz-striscia__righe {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.fz-striscia .fz-unit { flex: 0 1 190px; min-width: 150px; }
+.fz-posa {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  border-radius: 8px;
+}
+.fz-posa__motivo {
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--text-dim);
+}
+
+/* ── Il corpo: il campo e, accanto, la panchina e i non convocati ───────── */
+
+.fz-corpo {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.fz-lato {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.fz-pitch { min-width: 0; }
+
+/* SULLO SCHERMO LARGO il campo sta a sinistra e le due strisce a destra, come
+   sulla lavagna del desktop. Sotto i 1100px resta la colonna sola, nell'ordine
+   del DOM. Nella colonna di destra i giocatori vanno a due per riga e l'ordine
+   di ingresso si legge da sinistra a destra e poi in giù, che è ciò che la nota
+   della panchina dice. */
+@media (min-width: 1100px) {
+  .fz-corpo {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 400px;
+    gap: 20px;
+    align-items: start;
+  }
+  .fz-lato .fz-unit { flex: 0 1 calc(50% - 5px); min-width: 0; }
+}
+
+/* ── Il telefono ────────────────────────────────────────────────────────── */
+
+@media (max-width: 560px) {
+  .fz-screen { padding: 12px 12px 28px; gap: 12px; }
+  .fz-screen .panel { padding: 14px 12px; }
+  .fz-screen .panel.fz-allarme { padding: 14px 12px; }
+  .fz-comp > .panel-title { font-size: 26px; }
+  .fz-riquadro, .fz-allarme, .fz-stato, .fz-striscia { padding: 12px 10px; }
+  .fz-stato--riga > .fz-p { flex-basis: 100%; }
+
+  /* Il campo: cinque posti per linea al massimo (5-4-1, 4-5-1), quindi ogni
+     gettone ha un quinto della larghezza utile — poco più di 60px. Disco a
+     30px, nome a 15px, e i comandi sotto in colonna, ognuno alto 44px. */
+  .formazione-campo {
+    gap: 12px;
+    padding: 16px 4px;
+    --chip-d: 30px;
+    --chip-f: 14px;
+  }
+  .formazione-campo__linea { gap: 2px; }
+  .formazione-campo .formazione-gettone__nome { font-size: 15px; padding: 2px 4px; }
+  .formazione-campo .fz-comandi {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+  }
+  .formazione-campo .fz-mini {
+    width: 100%;
+    min-width: 0;
+    padding: 0 2px;
+    font-size: 13px;
+    line-height: 1.15;
+  }
+  .formazione-campo .fz-spunta { justify-content: center; gap: 4px; }
+  .formazione-campo .fz-spunta label { padding-right: 0; font-size: 13px; }
+  .formazione-campo .formazione-posto-vuoto { min-height: 64px; padding: 4px 2px; }
+  .formazione-campo .formazione-posto-vuoto__testo { font-size: 12px; }
+  .fz-campo-linee__cerchio {
+    width: 84px;
+    height: 84px;
+    margin: -42px 0 0 -42px;
+  }
+  .fz-campo-linee__area { height: 60px; }
+
+  /* La panchina e i non convocati, al telefono, vanno a due per riga: l'ordine
+     di ingresso si legge da sinistra a destra e poi in giù — ed è ciò che la
+     nota della panchina dice («a sinistra si entra prima»). I cinque comandi di
+     un giocatore stanno su due righe da 44px (voglio + In campo; Su, Giù,
+     Fuori). Una colonna sola costava il doppio dell'altezza. */
+  .fz-striscia__righe {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 10px;
+  }
+  .fz-striscia .fz-unit { flex: none; width: auto; min-width: 0; }
+  .fz-striscia .fz-comandi { gap: 0 4px; }
+  .fz-striscia .fz-mini { padding: 0 8px; }
+  .fz-striscia .formazione-gettone { padding: 6px 8px; }
+  .fz-striscia .formazione-gettone__nome { font-size: 15px; }
+  .fz-moduli { gap: 6px; }
+  /* Sette moduli in 4 + 3: a larghezza fissa, senza allargare l'ultima riga. */
+  .fz-modulo { flex: 0 0 calc((100% - 18px) / 4); max-width: none; }
+}

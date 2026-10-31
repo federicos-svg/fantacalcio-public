@@ -288,17 +288,52 @@ function sectionTitle(text: string): HTMLElement {
   return title;
 }
 
+// LA PRESENTAZIONE STA IN `src/styles/formazione.css`, non qui. Questo file
+// scrive le classi `fz-*` e lascia in linea soltanto ciò che cambia da un
+// elemento all'altro — il colore con cui un testo dichiara che cosa è (rosso per
+// un guasto, menta per una scelta costosa, secondario per un'etichetta). Uno
+// stile in linea non lo batte nessuna media query, e il campo sul telefono ne ha
+// bisogno.
+
+/** Un paragrafo. Il corpo e l'interlinea sono della classe; `extraCss` porta il
+ *  colore (e al massimo un margine o un `flex`): mai una misura del testo. */
 function paragraph(text: string, extraCss = ""): HTMLElement {
   const p = document.createElement("p");
-  p.style.cssText = `font-size:13px;line-height:1.55;color:${C.textMid};margin:0;${extraCss}`;
+  p.className = "fz-p";
+  if (extraCss.length > 0) p.style.cssText = extraCss;
   p.textContent = text;
   return p;
 }
 
-function smallHeading(text: string, color: string): HTMLElement {
+/**
+ * Un'icona di stato, disegnata e non scritta: nessun testo in più, quindi nessun
+ * testo che le prove o i lettori di schermo debbano conoscere. `aria-hidden`
+ * perché l'informazione sta già nelle parole accanto — l'icona la rinforza, non
+ * la porta.
+ */
+type IconaStato = "ok" | "avviso" | "stop";
+function icona(tipo: IconaStato): SVGSVGElement {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("class", "fz-ico");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  const path = document.createElementNS(NS, "path");
+  path.setAttribute(
+    "d",
+    tipo === "ok" ? "M5 12.5l4.5 4.5L19 7" : tipo === "avviso" ? "M12 7v6M12 17h.01" : "M6 6l12 12M18 6L6 18",
+  );
+  svg.appendChild(path);
+  return svg;
+}
+
+function smallHeading(text: string, color: string, segno: IconaStato | null = null): HTMLElement {
   const heading = document.createElement("div");
-  heading.style.cssText = `font-size:11px;font-weight:700;letter-spacing:0.06em;color:${color};`;
-  heading.textContent = text;
+  heading.className = "fz-kicker";
+  heading.style.cssText = `color:${color};${segno === null ? "" : "display:flex;align-items:center;gap:8px;"}`;
+  if (segno !== null) heading.appendChild(icona(segno));
+  heading.appendChild(document.createTextNode(text));
   return heading;
 }
 
@@ -309,17 +344,20 @@ function commandButton(
   ariaLabel: string,
   disabled: boolean,
   onClick: () => void,
+  primario = false,
 ): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
   button.id = id;
-  button.className = "btn";
+  button.className = primario ? "btn fz-btn--primario" : "btn";
   button.textContent = text;
   button.setAttribute("aria-label", ariaLabel);
   button.disabled = disabled;
   // DISABILITATO E VISIBILMENTE TALE: il colore non basta da solo, ma qui il
-  // bottone resta anche non premibile e i lettori di schermo lo annunciano.
-  button.style.cssText = `font-size:11px;padding:2px 8px;${disabled ? "opacity:0.45;" : ""}`;
+  // bottone resta anche non premibile e i lettori di schermo lo annunciano. Lo
+  // si vede dal bordo tratteggiato e dal testo attenuato (formazione.css), non
+  // da un `opacity`: l'opacità moltiplicava il contrasto contro lo sfondo e
+  // rendeva illeggibile il motivo per cui il comando era spento.
   if (!disabled) button.addEventListener("click", onClick);
   return button;
 }
@@ -396,10 +434,9 @@ function renderUnknownNotice(view: FormazioneView): HTMLElement {
   const notice = view.notice;
   const panel = document.createElement("section");
   panel.id = "formazione-stato-ignoto";
-  panel.className = "panel";
+  panel.className = "panel fz-allarme";
   panel.setAttribute("role", "alert");
   panel.setAttribute("aria-label", "Stato della squadra non noto");
-  panel.style.cssText = `border:1px solid ${C.stopRedDark};display:flex;flex-direction:column;gap:10px;`;
 
   const title = sectionTitle(notice === null ? "STATO DELLA SQUADRA IGNOTO" : notice.title);
   title.style.cssText = `color:${C.stopRed};`;
@@ -510,13 +547,11 @@ function renderLettura(lettura: FormazioneLettura, prova: boolean): HTMLElement 
 
   const banda = document.createElement("section");
   banda.id = "formazione-momento-lettura";
-  banda.className = "panel";
+  banda.className = allarme ? "panel fz-allarme" : "panel";
   banda.dataset.freschezza = fresca.kind;
   banda.setAttribute(allarme ? "role" : "aria-live", allarme ? "alert" : "polite");
   banda.setAttribute("aria-label", "Momento della lettura della formazione");
-  banda.style.cssText =
-    `display:flex;flex-direction:column;gap:6px;` +
-    (allarme ? `border:1px solid ${C.stopRedDark};` : ``);
+  if (!allarme) banda.style.cssText = `display:flex;flex-direction:column;gap:6px;`;
 
   const quando =
     fresca.kind === "eta_ignota" ? lineupAgeLabel(null) : lineupAgeLabel(fresca.ageMinutes);
@@ -550,7 +585,8 @@ function renderLettura(lettura: FormazioneLettura, prova: boolean): HTMLElement 
   // di una riga diventerebbe un'informazione che nessuno ha scritto.
   const elenco = document.createElement("ul");
   elenco.id = "formazione-momenti-per-pezzo";
-  elenco.style.cssText = `margin:0;padding-left:18px;font-size:12px;line-height:1.7;color:${C.textSec};`;
+  elenco.className = "fz-lista fz-lista--sec";
+  elenco.style.cssText = `margin:0;`;
   // La formazione per prima, perché è il pezzo di cui la fascia sta parlando;
   // gli altri nell'ordine che il modello dichiara.
   for (const parte of [lettura.formazione, ...lettura.altre]) {
@@ -577,10 +613,11 @@ function renderLettura(lettura: FormazioneLettura, prova: boolean): HTMLElement 
   // giornata vecchia è sbagliato quanto una formazione di una giornata vecchia.
   for (const sfida of lettura.sfide) {
     const riga = document.createElement("p");
-    riga.style.cssText = `margin:0;font-size:13px;line-height:1.6;color:${C.textPrimary};`;
+    riga.className = "fz-p";
+    riga.style.cssText = `color:${C.textPrimary};`;
     const giornata = sfida.giornata === null ? "giornata non dichiarata" : `giornata ${sfida.giornata}`;
     if (sfida.motivoAssenza.length > 0) {
-      riga.style.cssText += `color:${C.textSec};`;
+      riga.style.cssText = `color:${C.textSec};`;
       riga.textContent = `${sfida.competizione}, ${giornata} — ${sfida.motivoAssenza}`;
     } else {
       const dove =
@@ -631,7 +668,7 @@ function renderProvaMarchio(prova: FormazioneProva, posizione: "testa" | "coda")
   panel.appendChild(title);
   panel.appendChild(paragraph(PROVA_SPIEGAZIONE, `color:${C.textPrimary};`));
   if (prova.nonPersistita) {
-    panel.appendChild(paragraph(PROVA_NON_PERSISTITA, `color:${C.textDim};font-size:12px;`));
+    panel.appendChild(paragraph(PROVA_NON_PERSISTITA, `color:${C.textDim};`));
   }
 
   if (posizione === "testa") {
@@ -658,7 +695,7 @@ function renderProvaMarchio(prova: FormazioneProva, posizione: "testa" | "coda")
 function renderProvaInvito(prova: FormazioneProva): HTMLElement {
   const box = document.createElement("div");
   box.id = "formazione-prova-invito";
-  box.style.cssText = `border:1px solid ${C.border};border-radius:8px;padding:10px 14px;display:flex;flex-direction:column;gap:10px;`;
+  box.className = "fz-riquadro";
   box.appendChild(paragraph(PROVA_INVITO, `color:${C.textSec};`));
   box.appendChild(
     commandButton(
@@ -684,10 +721,9 @@ function renderProvaInvito(prova: FormazioneProva): HTMLElement {
 function renderDuplicateNotice(duplicated: readonly string[]): HTMLElement {
   const box = document.createElement("section");
   box.id = "formazione-competizioni-duplicate";
-  box.className = "panel";
+  box.className = "panel fz-allarme";
   box.setAttribute("role", "alert");
   box.setAttribute("aria-label", "Competizioni con lo stesso identificativo");
-  box.style.cssText = `border:1px solid ${C.stopRedDark};display:flex;flex-direction:column;gap:8px;`;
   const title = sectionTitle("DUE COMPETIZIONI CON LO STESSO IDENTIFICATIVO");
   title.style.cssText = `color:${C.stopRed};`;
   box.appendChild(title);
@@ -711,14 +747,16 @@ function renderViolations(
   label: string,
   violations: readonly SubmissionViolation[],
   color: string,
+  segno: IconaStato | null = null,
 ): HTMLElement | null {
   if (violations.length === 0) return null;
   const wrap = document.createElement("div");
   wrap.id = id;
   wrap.style.cssText = `display:flex;flex-direction:column;gap:4px;`;
-  wrap.appendChild(smallHeading(label, color));
+  wrap.appendChild(smallHeading(label, color, segno));
   const list = document.createElement("ul");
-  list.style.cssText = `margin:0;padding-left:18px;font-size:12px;line-height:1.5;color:${C.textMid};`;
+  list.className = "fz-lista";
+  list.style.cssText = `margin:0;`;
   list.innerHTML = violations
     .map((violation) => `<li><strong>${escHtml(violation.code)}</strong> — ${escHtml(violation.message)}</li>`)
     .join("");
@@ -730,7 +768,8 @@ function renderDifferences(differences: readonly LineupDifference[]): HTMLElemen
   if (differences.length === 0) return null;
   const list = document.createElement("ul");
   list.id = "formazione-differenze";
-  list.style.cssText = `margin:6px 0 0;padding-left:18px;font-size:12px;line-height:1.5;color:${C.textMid};`;
+  list.className = "fz-lista";
+  list.style.cssText = `margin:6px 0 0;`;
   list.innerHTML = differences
     .map((difference) => {
       const dove = difference.index === null ? difference.field : `${difference.field}[${difference.index}]`;
@@ -756,28 +795,49 @@ function renderSubmissionState(save: FormazioneSaveState, prova: boolean): HTMLE
   const inProva = etichettaProvaVale(prova, save.state.kind);
   const box = document.createElement("div");
   box.id = "formazione-stato-invio";
+  box.className = "fz-stato";
   box.dataset.stato = save.state.kind;
   if (inProva) box.dataset.prova = "attiva";
   box.setAttribute("role", "status");
+  // IL COLORE È UN RINFORZO, NON IL MESSAGGIO: la parola dello stato e l'icona
+  // dicono la stessa cosa. Confermata = bordo e icona menta, scritta in gesso;
+  // esito ignoto = rosso (STOP, invariato); da inviare = bordo neutro; in prova
+  // = menta, perché la prova è un'altra cosa da tutte e tre.
   const colore = inProva
     ? C.textAccent
     : save.state.kind === "inviato_confermato"
-      ? C.green
+      ? C.accent
       : save.state.kind === "inviato_esito_ignoto"
         ? C.stopRed
         : C.textSec;
-  box.style.cssText = `border:1px solid ${colore};border-radius:8px;padding:10px 14px;display:flex;flex-direction:column;gap:6px;`;
+  const coloreScritta =
+    !inProva && save.state.kind === "inviato_confermato" ? C.textPrimary : colore;
+  if (inProva || save.state.kind === "inviato_esito_ignoto") {
+    box.style.cssText = `border-color:${colore};`;
+  }
 
   const etichetta = document.createElement("div");
   etichetta.id = "formazione-stato-invio-etichetta";
-  etichetta.style.cssText = `font-size:12px;font-weight:800;letter-spacing:0.06em;color:${colore};`;
-  etichetta.textContent = inProva
-    ? PROVA_ETICHETTA_SALVATAGGIO
-    : save.state.kind === "inviato_confermato"
-      ? "INVIATA E CONFERMATA DALLA PIATTAFORMA"
+  etichetta.className = "fz-stato__etichetta";
+  etichetta.style.cssText = `color:${coloreScritta};`;
+  const segnoStato: IconaStato =
+    !inProva && save.state.kind === "inviato_confermato"
+      ? "ok"
       : save.state.kind === "inviato_esito_ignoto"
-        ? "INVIATA, ESITO IGNOTO"
-        : "DA INVIARE — NULLA È PARTITO";
+        ? "stop"
+        : "avviso";
+  etichetta.appendChild(icona(segnoStato));
+  etichetta.appendChild(
+    document.createTextNode(
+      inProva
+        ? PROVA_ETICHETTA_SALVATAGGIO
+        : save.state.kind === "inviato_confermato"
+          ? "INVIATA E CONFERMATA DALLA PIATTAFORMA"
+          : save.state.kind === "inviato_esito_ignoto"
+            ? "INVIATA, ESITO IGNOTO"
+            : "DA INVIARE — NULLA È PARTITO",
+    ),
+  );
   box.appendChild(etichetta);
   if (inProva) box.appendChild(paragraph(PROVA_ESITO_SALVATAGGIO, `color:${C.textPrimary};`));
   box.appendChild(paragraph(save.state.reason, `color:${C.textMid};`));
@@ -819,17 +879,24 @@ function renderDraftState(
 ): HTMLElement {
   const box = document.createElement("div");
   box.id = `formazione-modifica-${competition.competitionId}`;
+  box.className = "fz-stato fz-stato--riga";
   box.dataset.modificata = competition.modified ? "si" : "no";
   box.setAttribute("role", "status");
-  const colore = competition.modified ? C.textAccent : C.textSec;
-  box.style.cssText = `border:1px solid ${colore};border-radius:8px;padding:10px 14px;display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;`;
+  // MODIFICATA SI DISTINGUE DAL TRATTEGGIO E DALL'ICONA, oltre che dalle parole:
+  // il bordo diventa tratteggiato (formazione.css, `data-modificata`), e
+  // davanti alla scritta c'è il punto esclamativo.
+  const colore = competition.modified ? C.textPrimary : C.textSec;
 
   const etichetta = document.createElement("div");
   etichetta.id = `formazione-modifica-etichetta-${competition.competitionId}`;
-  etichetta.style.cssText = `font-size:12px;font-weight:800;letter-spacing:0.06em;color:${colore};`;
-  etichetta.textContent = competition.modified
-    ? "MODIFICATA — NON ANCORA INVIATA"
-    : "COME LETTA DALLA PIATTAFORMA";
+  etichetta.className = "fz-stato__etichetta";
+  etichetta.style.cssText = `color:${colore};`;
+  if (competition.modified) etichetta.appendChild(icona("avviso"));
+  etichetta.appendChild(
+    document.createTextNode(
+      competition.modified ? "MODIFICATA — NON ANCORA INVIATA" : "COME LETTA DALLA PIATTAFORMA",
+    ),
+  );
   box.appendChild(etichetta);
 
   box.appendChild(
@@ -837,7 +904,7 @@ function renderDraftState(
       competition.modified
         ? "Quello che vedi non è quello che la piattaforma riporta: finché non premi Salva, là c'è ancora la formazione di prima."
         : "Quello che vedi è quello che la piattaforma riporta adesso.",
-      `flex:1 1 240px;color:${C.textMid};`,
+      `color:${C.textMid};`,
     ),
   );
 
@@ -921,7 +988,7 @@ function renderModuleBar(
   barra.id = `formazione-modulo-schierato-${competition.competitionId}`;
   barra.setAttribute("role", "group");
   barra.setAttribute("aria-label", `Modulo schierato — ${competition.label}`);
-  barra.style.cssText = `display:flex;flex-wrap:wrap;gap:6px;`;
+  barra.className = "fz-moduli";
 
   for (const module of MODULES) {
     const impedito = moduloImpedito(competition, module);
@@ -941,16 +1008,10 @@ function renderModuleBar(
         ? `Modulo ${module} — non schierabile: ${impedito}`
         : `Schiera il modulo ${module} — ${competition.label}`,
     );
-    bottone.style.cssText =
-      `display:flex;flex-direction:column;align-items:center;gap:2px;min-width:58px;` +
-      `padding:5px 9px;border-radius:8px;font-family:${C.mono};cursor:${bottone.disabled ? "default" : "pointer"};` +
-      `background:${attivo ? C.accentDim : C.panelInner};` +
-      `border:1px solid ${attivo ? C.textAccent : C.border};` +
-      `color:${attivo ? C.textPrimary : C.textMid};` +
-      (bottone.disabled && !attivo ? "opacity:0.5;" : "");
+    bottone.className = "fz-modulo";
 
     const chiave = document.createElement("span");
-    chiave.style.cssText = `font-size:14px;font-weight:800;letter-spacing:0.04em;`;
+    chiave.className = "fz-modulo__chiave";
     chiave.textContent = module;
     bottone.appendChild(chiave);
 
@@ -958,7 +1019,7 @@ function renderModuleBar(
     // per chi ha un dito al posto del mouse, ed è precisamente chi ha più
     // bisogno di sapere perché un bottone è spento.
     const nota = document.createElement("span");
-    nota.style.cssText = `font-size:9px;letter-spacing:0.04em;text-transform:uppercase;color:${attivo ? C.textSec : C.textDim};min-height:11px;`;
+    nota.className = "fz-modulo__nota";
     nota.textContent = etichetta;
     bottone.appendChild(nota);
 
@@ -986,7 +1047,7 @@ function renderLineupControls(
 ): HTMLElement {
   const wrap = document.createElement("div");
   wrap.id = `formazione-comandi-${competition.competitionId}`;
-  wrap.style.cssText = `display:flex;flex-direction:column;gap:10px;border:1px solid ${C.border};border-radius:8px;padding:10px 14px;`;
+  wrap.className = "fz-riquadro";
   wrap.appendChild(smallHeading("LA FORMAZIONE DI QUESTA GIORNATA", C.textSec));
 
   const lineup = competition.lineup;
@@ -1015,7 +1076,7 @@ function renderLineupControls(
           (fuoriElenco
             ? ` — la formazione è schierata con «${lineup.module}», che la lega non dichiara più`
             : ""),
-        `font-size:12px;color:${fuoriElenco ? C.textAccent : C.textDim};`,
+        `color:${fuoriElenco ? C.textAccent : C.textDim};`,
       ),
     );
   }
@@ -1054,26 +1115,25 @@ function renderFlag(
   spiegazione: string,
 ): HTMLElement {
   const wrap = document.createElement("div");
-  wrap.style.cssText = `display:flex;align-items:flex-start;gap:8px;`;
+  wrap.className = "fz-flag";
 
   const input = document.createElement("input");
   input.type = "checkbox";
   input.id = id;
   input.checked = competition.lineup !== null && competition.lineup.flags[flag];
   input.disabled = !competition.editable || competition.lineup === null;
-  input.style.cssText = "margin-top:3px;";
   input.addEventListener("change", () =>
     handlers.onSetFlag(competition.competitionId, flag, input.checked),
   );
   wrap.appendChild(input);
 
   const testo = document.createElement("div");
+  testo.className = "fz-flag__testo";
   const etichetta = document.createElement("label");
   etichetta.setAttribute("for", id);
-  etichetta.style.cssText = `font-size:13px;color:${C.textPrimary};display:block;`;
   etichetta.textContent = label;
   testo.appendChild(etichetta);
-  testo.appendChild(paragraph(spiegazione, `font-size:12px;color:${C.textDim};margin-top:2px;`));
+  testo.appendChild(paragraph(spiegazione, `color:${C.textDim};`));
   wrap.appendChild(testo);
 
   return wrap;
@@ -1085,19 +1145,20 @@ function renderModuleControl(
   handlers: FormazioneHandlers,
 ): HTMLElement {
   const wrap = document.createElement("div");
-  wrap.style.cssText = `display:flex;flex-wrap:wrap;align-items:center;gap:12px;`;
+  wrap.style.cssText = `display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;`;
 
   const selectId = `formazione-modulo-${competition.competitionId}`;
   const label = document.createElement("label");
   label.setAttribute("for", selectId);
-  label.style.cssText = `font-size:12px;font-weight:700;letter-spacing:0.05em;color:${C.textSec};`;
+  label.className = "fz-kicker";
+  label.style.cssText = `color:${C.textSec};`;
   label.textContent = "MODULO BLOCCATO";
   wrap.appendChild(label);
 
   const select = document.createElement("select");
   select.id = selectId;
+  select.className = "fz-select";
   select.disabled = !competition.editable;
-  select.style.cssText = `background:${C.panelInner};color:${C.textPrimary};border:1px solid ${C.border};border-radius:6px;padding:5px 8px;font-size:13px;`;
   const nessuno = document.createElement("option");
   nessuno.value = "";
   nessuno.textContent = "nessun blocco";
@@ -1123,7 +1184,8 @@ function renderModuleControl(
   wrap.appendChild(select);
 
   const attuale = document.createElement("span");
-  attuale.style.cssText = `font-size:12px;color:${C.textDim};`;
+  attuale.className = "fz-p fz-p--nota";
+  attuale.style.cssText = `color:${C.textDim};`;
   attuale.textContent =
     competition.lineup === null
       ? "nessun modulo schierato dalla lega"
@@ -1140,7 +1202,7 @@ function renderLockControl(
 ): HTMLElement {
   const id = `formazione-blindata-${competition.competitionId}`;
   const wrap = document.createElement("div");
-  wrap.style.cssText = `display:flex;align-items:center;gap:8px;`;
+  wrap.className = "fz-flag fz-flag--centrato";
 
   const input = document.createElement("input");
   input.type = "checkbox";
@@ -1152,7 +1214,6 @@ function renderLockControl(
 
   const label = document.createElement("label");
   label.setAttribute("for", id);
-  label.style.cssText = `font-size:13px;color:${C.textMid};`;
   label.textContent = "Formazione intera non modificabile";
   wrap.appendChild(label);
 
@@ -1175,7 +1236,8 @@ function renderConflict(
   box.id = `formazione-conflitto-${competition.competitionId}`;
   box.dataset.conflitto = conflict.kind;
   box.setAttribute("role", "alert");
-  box.style.cssText = `border:1px solid ${C.textAccent};border-radius:8px;padding:10px 14px;display:flex;flex-direction:column;gap:8px;`;
+  box.className = "fz-riquadro";
+  box.style.cssText = `border-color:${C.textAccent};`;
   box.appendChild(smallHeading("QUESTA MODIFICA CONTRADDICE UN VINCOLO CHE HAI MESSO", C.textAccent));
   box.appendChild(paragraph(conflict.message, `color:${C.textPrimary};`));
   box.appendChild(paragraph(`Se procedi: ${conflict.ifRemoved}.`, `color:${C.textMid};`));
@@ -1189,6 +1251,7 @@ function renderConflict(
       `Togli il vincolo e applica la modifica — ${competition.label}`,
       false,
       () => handlers.onResolveConflict(competition.competitionId, true),
+      true,
     ),
   );
   comandi.appendChild(
@@ -1219,26 +1282,29 @@ function renderLegality(competition: FormazioneCompetitionView): HTMLElement | n
 
   if (legality.kind === "non_verificabile") {
     box.setAttribute("role", "alert");
-    box.style.cssText = `border:1px solid ${C.stopRedDark};border-radius:8px;padding:8px 12px;`;
-    box.appendChild(smallHeading("LEGALITÀ NON VERIFICABILE DA QUI", C.stopRed));
-    box.appendChild(paragraph(legality.reason, `color:${C.textMid};margin-top:4px;`));
+    box.className = "fz-allarme";
+    box.appendChild(smallHeading("LEGALITÀ NON VERIFICABILE DA QUI", C.stopRed, "stop"));
+    box.appendChild(paragraph(legality.reason, `color:${C.textMid};`));
     return box;
   }
 
   if (legality.blocking.length === 0 && legality.warnings.length === 0) {
     box.setAttribute("role", "status");
-    box.style.cssText = `border:1px solid ${C.border};border-radius:8px;padding:8px 12px;`;
-    box.appendChild(smallHeading("LEGALE PER TUTTO CIÒ CHE SI È POTUTO VERIFICARE", C.green));
+    box.className = "fz-riquadro";
+    box.appendChild(
+      smallHeading("LEGALE PER TUTTO CIÒ CHE SI È POTUTO VERIFICARE", C.accent, "ok"),
+    );
     return box;
   }
 
   box.setAttribute("role", legality.blocking.length > 0 ? "alert" : "status");
-  box.style.cssText = `border:1px solid ${legality.blocking.length > 0 ? C.stopRedDark : C.border};border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;gap:8px;`;
+  box.className = legality.blocking.length > 0 ? "fz-allarme" : "fz-riquadro";
   const bloccanti = renderViolations(
     `formazione-legalita-bloccanti-${competition.competitionId}`,
     "COSÌ NON SI PUÒ MANDARE",
     legality.blocking,
     C.stopRed,
+    "stop",
   );
   if (bloccanti !== null) box.appendChild(bloccanti);
   const avvisi = renderViolations(
@@ -1496,6 +1562,9 @@ function renderPlayerToken(
   bottone.dataset.posto = player.place;
   bottone.dataset.ruolo = player.role;
   bottone.dataset.preso = preso ? "si" : "no";
+  // «Lo voglio in campo» detto su questo giocatore: lo legge il CSS per dare il
+  // bordo menta, e lo dice anche la pastiglia scritta qui sotto.
+  bottone.dataset.voluto = player.locked ? "si" : "no";
   bottone.disabled = !competition.editable;
   bottone.setAttribute("aria-pressed", preso ? "true" : "false");
 
@@ -1523,18 +1592,14 @@ function renderPlayerToken(
           : `Scambia «${held}» con ${chiSono}`,
   );
 
-  const bordo = preso ? C.textAccent : player.locked ? C.accent : C.border;
-  bottone.style.cssText =
-    `display:flex;flex-direction:column;align-items:stretch;gap:3px;width:100%;` +
-    `padding:6px 7px;border-radius:8px;text-align:left;` +
-    `background:${C.panel};border:${preso ? "2px" : "1px"} solid ${bordo};` +
-    `cursor:${bottone.disabled ? "default" : "grab"};` +
-    (bottone.disabled ? "opacity:0.6;" : "");
-
+  // Bordo, fondo e cursore stanno in formazione.css (`.formazione-gettone`, con
+  // `data-preso` e `data-voluto`). Un gettone non modificabile non si attenua
+  // più con `opacity: 0.6`: l'opacità portava il nome sotto la soglia di
+  // contrasto, e il motivo per cui non si può toccare è già scritto nella sua
+  // `aria-label`.
   const testa = document.createElement("span");
-  testa.style.cssText = `display:flex;align-items:center;gap:5px;`;
+  testa.className = "formazione-gettone__testa";
   testa.appendChild(renderRoleChip(player.role));
-
 
   // IL NOME QUANDO C'È, L'IDENTIFICATIVO QUANDO NON C'È — e la differenza fra i
   // due si vede, invece di essere lasciata indovinare. Un identificativo
@@ -1546,13 +1611,9 @@ function renderPlayerToken(
   // non se ne accorgerebbe leggendo il solo testo.
   nome.dataset.nome =
     player.name === undefined ? "non-letto" : player.nameSource === "listone" ? "listone" : "lega";
-  // LA STESSA CASSA DI PRIMA, di proposito. Un nome sta bene anche in
-  // proporzionale — si legge meglio — ma cambiare cassa qui cambia la
-  // larghezza del testo, il testo va a capo un'altra volta e il gettone
-  // cresce: misurato, il campo si allunga e la pagina con lui. Il compito di
-  // oggi è mostrare il nome, non ridisegnare il gettone; la cassa resta quella
-  // che era, e chi vorrà cambiarla lo farà misurando l'altezza.
-  nome.style.cssText = `font-family:${C.mono};font-size:11px;font-weight:700;color:${C.textPrimary};overflow-wrap:anywhere;line-height:1.25;`;
+  // IL CARATTERE DEL NOME sta in formazione.css: Barlow nei gettoni delle
+  // liste, Barlow Condensed sul campo, dove il gettone è largo un quinto dello
+  // schermo e un nome stretto va a capo meno volte.
   nome.textContent = player.name ?? player.id;
   testa.appendChild(nome);
   bottone.appendChild(testa);
@@ -1565,7 +1626,6 @@ function renderPlayerToken(
   if (player.name === undefined) {
     const avviso = document.createElement("span");
     avviso.className = "formazione-gettone__nome-ignoto";
-    avviso.style.cssText = `font-size:9.5px;letter-spacing:0.03em;color:${C.textDim};line-height:1.3;`;
     avviso.textContent = NOME_NON_LETTO;
     bottone.appendChild(avviso);
   } else if (player.nameSource === "listone") {
@@ -1574,7 +1634,6 @@ function renderPlayerToken(
     // lasciarlo passare per parola della piattaforma.
     const fonte = document.createElement("span");
     fonte.className = "formazione-gettone__nome-fonte";
-    fonte.style.cssText = `font-size:9.5px;letter-spacing:0.03em;color:${C.textDim};line-height:1.3;`;
     fonte.textContent = NOME_DAL_LISTONE;
     bottone.appendChild(fonte);
   }
@@ -1583,7 +1642,7 @@ function renderPlayerToken(
   // la lega ha dichiarato, la spunta è quella che qualcuno ha messo: qui non
   // nasce nessun giudizio nuovo sopra un dato mancante.
   const segni = document.createElement("span");
-  segni.style.cssText = `display:flex;flex-wrap:wrap;align-items:center;gap:4px;font-size:9.5px;line-height:1.3;`;
+  segni.className = "formazione-gettone__segni";
 
   // LA TARGA DELLA PROVA, SU OGNI GETTONE E INDIPENDENTE DAL TESTO ACCANTO.
   //
@@ -1602,41 +1661,31 @@ function renderPlayerToken(
   // avvolge da sé e non contende spazio a niente.
   if (prova) {
     const targa = document.createElement("span");
-    targa.className = "formazione-gettone__prova";
+    targa.className = "formazione-gettone__prova fz-chip fz-chip--prova";
     targa.dataset.prova = "attiva";
-    // A COSTO ZERO IN ALTEZZA, e non per eleganza: il bordo e l'imbottitura
-    // facevano crescere la riga dei segni di tre pixel per gettone, che su
-    // ventidue gettoni diventano una pagina più lunga e un campo più alto.
-    // Il marchio si vede per il colore e per il peso, non perché occupa spazio.
-    targa.style.cssText =
-      `font-weight:700;letter-spacing:0.06em;line-height:1.3;` +
-      `color:${C.textAccent};text-transform:uppercase;`;
     targa.textContent = PROVA_MARCHIO_GETTONE;
     segni.appendChild(targa);
   }
   if (player.availability !== undefined) {
     const stato = document.createElement("span");
-    const colore =
-      player.availability === "indisponibile"
-        ? C.stopRed
-        : player.availability === "in_dubbio"
-          ? C.textAccent
-          : C.textDim;
-    stato.style.cssText = `color:${colore};letter-spacing:0.03em;`;
+    // La disponibilità è quella che la lega ha dichiarato, scritta com'è
+    // (`in_dubbio` compreso). Cambia solo il vestito: testo semplice per
+    // «disponibile», bordo tratteggiato per «in_dubbio», rosso per
+    // «indisponibile» — vedi `.fz-chip--*` in formazione.css.
+    stato.className = `fz-chip fz-chip--${player.availability}`;
     stato.textContent = player.availability;
     segni.appendChild(stato);
   }
   if (player.locked) {
     const spunta = document.createElement("span");
-    spunta.style.cssText = `color:${C.textAccent};font-weight:700;letter-spacing:0.03em;`;
+    spunta.className = "fz-chip fz-chip--voluto";
     spunta.textContent = "lo voglio in campo";
     segni.appendChild(spunta);
   }
   const codici = codes.get(player.id) ?? [];
   if (codici.length > 0) {
     const nota = document.createElement("span");
-    nota.className = "formazione-riga__motivo";
-    nota.style.cssText = `font-family:${C.mono};color:${C.stopRed};`;
+    nota.className = "formazione-riga__motivo fz-chip fz-chip--codice";
     nota.textContent = codici.join(" ");
     segni.appendChild(nota);
   }
@@ -1667,14 +1716,13 @@ function renderSpunta(
 ): HTMLElement {
   const id = `formazione-spunta-${competition.competitionId}-${player.id}`;
   const wrap = document.createElement("span");
-  wrap.style.cssText = `display:flex;align-items:center;gap:4px;`;
+  wrap.className = "fz-spunta";
 
   const input = document.createElement("input");
   input.type = "checkbox";
   input.id = id;
   input.checked = player.locked;
   input.disabled = !competition.editable;
-  input.style.cssText = "margin:0;width:13px;height:13px;flex:none;";
   input.setAttribute("aria-label", `«${player.id}» — lo voglio in campo`);
   input.addEventListener("change", () =>
     handlers.onToggleLockedStarter(competition.competitionId, player.id),
@@ -1683,7 +1731,6 @@ function renderSpunta(
 
   const label = document.createElement("label");
   label.setAttribute("for", id);
-  label.style.cssText = `font-size:9.5px;letter-spacing:0.03em;color:${C.textSec};cursor:pointer;`;
   label.textContent = "voglio";
   wrap.appendChild(label);
   return wrap;
@@ -1700,11 +1747,10 @@ function miniButton(
   const button = document.createElement("button");
   button.type = "button";
   button.id = id;
-  button.className = "btn";
+  button.className = "btn fz-mini";
   button.textContent = text;
   button.setAttribute("aria-label", ariaLabel);
   button.disabled = disabled;
-  button.style.cssText = `font-size:9.5px;padding:1px 5px;${disabled ? "opacity:0.45;" : ""}`;
   if (!disabled) button.addEventListener("click", onClick);
   return button;
 }
@@ -1724,7 +1770,7 @@ function renderComandiPosto(
   benchLength: number,
 ): HTMLElement {
   const comandi = document.createElement("span");
-  comandi.style.cssText = `display:flex;flex-wrap:wrap;align-items:center;gap:3px;`;
+  comandi.className = "fz-comandi";
   const spento = !competition.editable;
   const prefisso = `formazione-${competition.competitionId}-${player.id}`;
 
@@ -1743,7 +1789,7 @@ function renderComandiPosto(
       ),
     );
     const nota = document.createElement("span");
-    nota.style.cssText = `font-size:9px;color:${C.textDim};`;
+    nota.className = "fz-comandi__nota";
     nota.textContent = "esce quando entra un altro portiere";
     comandi.appendChild(nota);
   } else if (player.place === "titolare") {
@@ -1836,15 +1882,13 @@ function renderPlayerUnit(
   prova: boolean,
 ): HTMLElement {
   const unit = document.createElement("div");
-  unit.className = "formazione-riga";
+  unit.className = "formazione-riga fz-unit";
   unit.dataset.posto = player.place;
   unit.id = `formazione-giocatore-${competition.competitionId}-${player.id}`;
-  unit.style.cssText = `display:flex;flex-direction:column;gap:3px;flex:0 1 148px;min-width:124px;`;
 
   if (player.place === "panchina" && player.benchOrder !== null) {
     const ordine = document.createElement("span");
     ordine.className = "formazione-riga__ordine";
-    ordine.style.cssText = `font-size:10px;font-weight:700;font-family:${C.mono};color:${C.textAccent};`;
     ordine.textContent = `${player.benchOrder}º a entrare`;
     unit.appendChild(ordine);
   }
@@ -1920,10 +1964,7 @@ function renderEmptySlot(
       : `Posto vuoto, ${ruolo} — posa qui «${held ?? ""}»`,
   );
   bottone.style.cssText =
-    `display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;` +
-    `width:100%;min-height:64px;padding:6px 7px;border-radius:8px;` +
-    `background:transparent;border:1px dashed ${bottone.disabled ? C.border : C.textAccent};` +
-    `color:${C.textSec};cursor:${bottone.disabled ? "default" : "pointer"};` +
+    // Misure, bordo e colori stanno in formazione.css (`.formazione-posto-vuoto`).
     // SPENTO, MA NON UN MURO. Un bottone disabilitato non riceve eventi del
     // mouse E non li lascia passare a chi gli sta dietro: senza questa riga il
     // contenitore che accetta il trascinamento non vedrebbe mai arrivare
@@ -1933,11 +1974,11 @@ function renderEmptySlot(
     (bottone.disabled ? "pointer-events:none;" : "");
 
   const glifo = document.createElement("span");
-  glifo.style.cssText = `font-size:11px;font-weight:800;font-family:${C.mono};letter-spacing:0.06em;`;
+  glifo.className = "formazione-posto-vuoto__ruolo";
   glifo.textContent = slot.role;
   bottone.appendChild(glifo);
   const testo = document.createElement("span");
-  testo.style.cssText = `font-size:9.5px;letter-spacing:0.03em;`;
+  testo.className = "formazione-posto-vuoto__testo";
   testo.textContent = "posto vuoto";
   bottone.appendChild(testo);
 
@@ -1955,44 +1996,38 @@ function renderEmptySlot(
   // e per la tastiera; il trascinamento atterra un livello più fuori.
   const contenitore = document.createElement("div");
   contenitore.className = "formazione-posto-vuoto__posa";
-  contenitore.style.cssText = `flex:0 1 148px;min-width:124px;display:flex;border-radius:8px;`;
   contenitore.appendChild(bottone);
   marcaDestinazione(contenitore, competition.editable && held !== null);
   rendiBersaglio(contenitore, competition, handlers, { kind: "posto_vuoto", slot });
   return contenitore;
 }
 
-/** Le righe del campo, disegnate con quello che il campo ha davvero. */
-function renderPitchLines(): SVGSVGElement {
-  const NS = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(NS, "svg");
-  svg.setAttribute("viewBox", "0 0 100 150");
-  svg.setAttribute("preserveAspectRatio", "none");
-  svg.setAttribute("aria-hidden", "true");
-  svg.setAttribute("focusable", "false");
-  svg.style.cssText =
-    "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;";
-
-  const linea = (attrs: Readonly<Record<string, string>>, tag: string): void => {
-    const el = document.createElementNS(NS, tag);
-    for (const [name, value] of Object.entries(attrs)) el.setAttribute(name, value);
-    el.setAttribute("fill", "none");
-    el.setAttribute("stroke", "oklch(0.92 0.02 150 / 0.30)");
-    el.setAttribute("stroke-width", "0.7");
-    svg.appendChild(el);
-  };
-
-  linea({ x: "2", y: "2", width: "96", height: "146" }, "rect");
-  linea({ x1: "2", y1: "75", x2: "98", y2: "75" }, "line");
-  linea({ cx: "50", cy: "75", r: "13" }, "circle");
+/**
+ * Le linee del campo, disegnate con quello che il campo ha davvero: il
+ * rettangolo (è il bordo del campo stesso), la metà campo, il cerchio e le due
+ * aree. Sono riquadri e non un SVG con `preserveAspectRatio="none"`: stirato su
+ * un campo largo o su uno stretto, l'SVG deformava il cerchio e variava lo
+ * spessore del tratto; qui il cerchio resta un cerchio e il tratto resta di 2px
+ * a ogni larghezza. Misure e colori in formazione.css (`.fz-campo-linee`).
+ */
+function renderPitchLines(): HTMLElement {
+  const linee = document.createElement("div");
+  linee.className = "fz-campo-linee";
+  linee.setAttribute("aria-hidden", "true");
   // La porta è in basso: area di rigore e area piccola stanno da quella parte,
   // e in cima c'è quella dell'avversario. Un campo con una porta sola sarebbe
   // un campo che nessuno riconosce.
-  linea({ x: "22", y: "121", width: "56", height: "27" }, "rect");
-  linea({ x: "36", y: "138", width: "28", height: "10" }, "rect");
-  linea({ x: "22", y: "2", width: "56", height: "27" }, "rect");
-  linea({ x: "36", y: "2", width: "28", height: "10" }, "rect");
-  return svg;
+  for (const classe of [
+    "fz-campo-linee__meta",
+    "fz-campo-linee__cerchio",
+    "fz-campo-linee__area fz-campo-linee__area--alta",
+    "fz-campo-linee__area fz-campo-linee__area--bassa",
+  ]) {
+    const parte = document.createElement("div");
+    parte.className = classe;
+    linee.appendChild(parte);
+  }
+  return linee;
 }
 
 /**
@@ -2015,6 +2050,7 @@ function renderPitch(
   group.id = `formazione-titolari-${competition.competitionId}`;
   group.setAttribute("role", "group");
   group.setAttribute("aria-label", `In campo — ${competition.label}`);
+  group.className = "fz-pitch";
   group.style.cssText = `display:flex;flex-direction:column;gap:8px;`;
   group.appendChild(smallHeading("IN CAMPO", C.textSec));
 
@@ -2027,13 +2063,10 @@ function renderPitch(
   const campo = document.createElement("div");
   campo.className = "formazione-campo";
   campo.dataset.modulo = layout.module;
-  campo.style.cssText =
-    `position:relative;display:flex;flex-direction:column-reverse;gap:10px;` +
-    `padding:14px 10px;border-radius:12px;border:1px solid ${C.border};overflow:hidden;` +
-    // Il verde a strisce del taglio dell'erba: due toni scuri, non un prato
-    // acceso. Il fondo di questa app è scuro, e un campo luminoso qui sotto
-    // renderebbe illeggibile tutto ciò che ci sta sopra.
-    `background:repeating-linear-gradient(180deg, oklch(0.31 0.055 150) 0 26px, oklch(0.275 0.05 150) 26px 52px);`;
+  // Il verde lavagna con le linee a gesso: scuro, non un prato acceso. Il fondo
+  // di questa app è scuro, e un campo luminoso qui sotto renderebbe illeggibile
+  // tutto ciò che ci sta sopra. Fondo, bordo e `column-reverse` stanno in
+  // formazione.css (`.formazione-campo`).
   campo.appendChild(renderPitchLines());
 
   // `column-reverse`: le linee arrivano porta-difesa-centrocampo-attacco e si
@@ -2043,7 +2076,6 @@ function renderPitch(
     const riga = document.createElement("div");
     riga.className = "formazione-campo__linea";
     riga.dataset.linea = String(numero);
-    riga.style.cssText = `position:relative;display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;gap:8px;`;
     for (const slot of linea) {
       // Un posto occupato da un id che nella rosa non c'è non produce un gettone
       // inventato: resta il posto vuoto, e chi manca lo dichiara `legality` con
@@ -2078,18 +2110,18 @@ function renderPitch(
     const box = document.createElement("div");
     box.id = `formazione-senza-posto-${competition.competitionId}`;
     box.setAttribute("role", "alert");
-    box.style.cssText = `border:1px solid ${C.stopRedDark};border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:6px;`;
+    box.className = "fz-allarme";
     box.appendChild(smallHeading("IN CAMPO, E SENZA UN POSTO IN QUESTO MODULO", C.stopRed));
     box.appendChild(
       paragraph(
         `Sono schierati fra gli undici, e il modulo «${layout.module}» non ha un posto per loro. ` +
           "Finché restano qui la formazione non è quella che il modulo dichiara: cambia modulo, " +
           "oppure mandali in panchina.",
-        `font-size:12px;color:${C.textMid};`,
+        `color:${C.textMid};`,
       ),
     );
     const striscia = document.createElement("div");
-    striscia.style.cssText = `display:flex;flex-wrap:wrap;gap:8px;`;
+    striscia.className = "fz-striscia__righe";
     for (const player of senzaPosto) {
       striscia.appendChild(
         renderPlayerUnit(competition, player, handlers, codes, presa, competition.bench.length, prova),
@@ -2132,7 +2164,7 @@ function renderDropZone(
   const bottone = document.createElement("button");
   bottone.type = "button";
   bottone.id = `formazione-${bersaglio.kind}-posa-${competition.competitionId}`;
-  bottone.className = "btn";
+  bottone.className = "btn fz-mini";
   bottone.disabled = impedito.length > 0;
   bottone.textContent =
     bersaglio.kind === "panchina" ? "Posa qui: in panchina" : "Posa qui: fuori dai convocati";
@@ -2144,7 +2176,6 @@ function renderDropZone(
         ? `Manda «${held ?? ""}» in panchina`
         : `Togli «${held ?? ""}» dai convocati`,
   );
-  bottone.style.cssText = `font-size:11px;padding:3px 9px;${bottone.disabled ? "opacity:0.45;" : ""}`;
   if (!bottone.disabled && held !== null) {
     bottone.addEventListener("click", () =>
       posaSuBersaglio(competition, handlers, bersaglio, held),
@@ -2155,8 +2186,7 @@ function renderDropZone(
   // bottone spento non riceve eventi del mouse, e questo è spento proprio quando
   // un trascinamento potrebbe arrivarci.
   const riga = document.createElement("span");
-  riga.className = `formazione-${bersaglio.kind}-posa`;
-  riga.style.cssText = `display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;border-radius:6px;`;
+  riga.className = `formazione-${bersaglio.kind}-posa fz-posa`;
   riga.appendChild(bottone);
 
   // IL MOTIVO SI LEGGE ACCANTO AL BOTTONE, non solo dentro l'etichetta per i
@@ -2166,7 +2196,7 @@ function renderDropZone(
   // già fa la nota accanto al comando spento del portiere.
   if (impedito.length > 0 && impedito !== "nessun giocatore in mano") {
     const nota = document.createElement("span");
-    nota.style.cssText = `font-size:11px;color:${C.textDim};`;
+    nota.className = "fz-posa__motivo";
     nota.textContent = impedito;
     riga.appendChild(nota);
   }
@@ -2199,22 +2229,22 @@ function renderStrip(
   group.id = `formazione-${suffisso}-${competition.competitionId}`;
   group.setAttribute("role", "group");
   group.setAttribute("aria-label", `${titolo} — ${competition.label}`);
-  group.style.cssText = `display:flex;flex-direction:column;gap:6px;border:1px solid ${C.border};border-radius:10px;padding:10px 12px;`;
+  group.className = `fz-striscia fz-striscia--${suffisso}`;
 
   const testa = document.createElement("div");
-  testa.style.cssText = `display:flex;flex-wrap:wrap;align-items:center;gap:8px;`;
+  testa.className = "fz-striscia__testa";
   testa.appendChild(smallHeading(titolo.toUpperCase(), C.textSec));
   if (zona !== null) testa.appendChild(renderDropZone(competition, handlers, presa, zona));
   group.appendChild(testa);
 
   if (nota.length > 0) {
-    group.appendChild(paragraph(nota, `font-size:12px;color:${C.textDim};`));
+    group.appendChild(paragraph(nota, `color:${C.textDim};`));
   }
 
   const striscia = document.createElement("div");
-  striscia.style.cssText = `display:flex;flex-wrap:wrap;gap:8px;`;
+  striscia.className = "fz-striscia__righe";
   if (righe.length === 0) {
-    striscia.appendChild(paragraph("nessuno", `font-size:12px;color:${C.textDim};`));
+    striscia.appendChild(paragraph("nessuno", `color:${C.textDim};`));
   }
   for (const player of righe) {
     striscia.appendChild(
@@ -2279,13 +2309,13 @@ function renderQuarantine(
   const box = document.createElement("div");
   box.id = `formazione-quarantena-${competition.competitionId}`;
   box.setAttribute("role", "alert");
-  box.style.cssText = `border:1px solid ${C.stopRedDark};border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;gap:8px;`;
+  box.className = "fz-allarme";
   box.appendChild(smallHeading("VINCOLI MESSI DA PARTE", C.stopRed));
   box.appendChild(
     paragraph(
       "Non vengono applicati, e finché sono qui il salvataggio si ferma: erano scelte tue e non " +
         "si buttano al posto tuo. Toglili da qui quando non li vuoi più.",
-      `font-size:12px;color:${C.textDim};`,
+      `color:${C.textMid};`,
     ),
   );
 
@@ -2293,7 +2323,7 @@ function renderQuarantine(
     const riga = document.createElement("div");
     riga.className = "formazione-quarantena__riga";
     riga.dataset.vincolo = q.kind;
-    riga.style.cssText = `display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;font-size:12px;line-height:1.5;color:${C.textMid};`;
+    riga.style.cssText = `display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;font-size:14px;line-height:1.5;color:${C.textMid};`;
     const testo = document.createElement("span");
     testo.style.cssText = "flex:1 1 240px;";
     testo.innerHTML = `<strong style="font-family:${C.mono};">${escHtml(q.value)}</strong> — ${escHtml(q.reason)}`;
@@ -2324,7 +2354,7 @@ function renderCompetition(
   presa: FormazionePresa,
 ): HTMLElement {
   const panel = document.createElement("section");
-  panel.className = "panel";
+  panel.className = "panel fz-comp";
   panel.id = `formazione-competizione-${competition.competitionId}`;
   panel.setAttribute(
     "aria-label",
@@ -2333,7 +2363,6 @@ function renderCompetition(
       : `Formazione — ${competition.label}`,
   );
   if (prova) panel.dataset.prova = "attiva";
-  panel.style.cssText = `display:flex;flex-direction:column;gap:12px;`;
 
   const giornata = competition.matchday === null ? "giornata non nota" : `giornata ${competition.matchday}`;
   // IL MARCHIO ANCHE SUL TITOLO. La cornice in testa alla pagina si può perdere
@@ -2351,12 +2380,13 @@ function renderCompetition(
     const box = document.createElement("div");
     box.id = `formazione-non-disponibile-${competition.competitionId}`;
     box.setAttribute("role", "status");
-    box.style.cssText = `border:1px dashed ${C.border};border-radius:8px;padding:10px 14px;`;
+    box.className = "fz-riquadro";
+    box.style.cssText = `border-style:dashed;gap:4px;`;
     box.appendChild(paragraph(`Non disponibile: ${competition.unavailableReason}`, `color:${C.textMid};`));
     box.appendChild(
       paragraph(
         "Nessuna formazione viene mostrata per questa competizione, e non se ne può salvare una.",
-        `color:${C.textDim};font-size:12px;margin-top:4px;`,
+        `color:${C.textDim};`,
       ),
     );
     panel.appendChild(box);
@@ -2396,9 +2426,9 @@ function renderCompetition(
     const box = document.createElement("div");
     box.id = `formazione-mossa-rifiutata-${competition.competitionId}`;
     box.setAttribute("role", "alert");
-    box.style.cssText = `border:1px solid ${C.stopRedDark};border-radius:8px;padding:8px 12px;`;
-    box.appendChild(smallHeading("MOSSA NON ESEGUITA", C.stopRed));
-    box.appendChild(paragraph(edit.refusal, `color:${C.textMid};margin-top:4px;`));
+    box.className = "fz-allarme";
+    box.appendChild(smallHeading("MOSSA NON ESEGUITA", C.stopRed, "stop"));
+    box.appendChild(paragraph(edit.refusal, `color:${C.textMid};`));
     panel.appendChild(box);
   }
 
@@ -2412,8 +2442,18 @@ function renderCompetition(
   if (competition.lineup === null) {
     panel.appendChild(renderRosterOnly(competition, handlers, codes, presa, prova));
   } else {
-    panel.appendChild(renderPitch(competition, handlers, codes, presa, prova));
-    panel.appendChild(
+    // IL CAMPO E, ACCANTO, LA PANCHINA E I NON CONVOCATI. Sono due contenitori
+    // solo per la presentazione: sullo schermo largo (≥ 1100px, formazione.css)
+    // il campo sta a sinistra e le due strisce in una colonna a destra, come
+    // sulla lavagna; sotto quella larghezza sono una colonna sola nell'ordine di
+    // sempre — campo, panchina, non convocati. L'ordine del DOM, gli
+    // identificativi e i comandi sono gli stessi.
+    const corpo = document.createElement("div");
+    corpo.className = "fz-corpo";
+    corpo.appendChild(renderPitch(competition, handlers, codes, presa, prova));
+    const lato = document.createElement("div");
+    lato.className = "fz-lato";
+    lato.appendChild(
       renderStrip(
         competition,
         handlers,
@@ -2428,7 +2468,7 @@ function renderCompetition(
         { kind: "panchina" },
       ),
     );
-    panel.appendChild(
+    lato.appendChild(
       renderStrip(
         competition,
         handlers,
@@ -2442,11 +2482,13 @@ function renderCompetition(
         { kind: "fuori" },
       ),
     );
+    corpo.appendChild(lato);
+    panel.appendChild(corpo);
   }
 
   const vincoli = document.createElement("div");
   vincoli.id = `formazione-vincoli-${competition.competitionId}`;
-  vincoli.style.cssText = `display:flex;flex-direction:column;gap:10px;border:1px solid ${C.border};border-radius:8px;padding:10px 14px;`;
+  vincoli.className = "fz-riquadro";
   vincoli.appendChild(smallHeading("I VINCOLI — VALGONO ANCHE PER LE PROSSIME GIORNATE", C.textSec));
   vincoli.appendChild(renderModuleControl(competition, handlers));
   vincoli.appendChild(renderLockControl(competition, handlers));
@@ -2462,12 +2504,12 @@ function renderCompetition(
     const impossibile = document.createElement("div");
     impossibile.id = `formazione-impossibile-${competition.competitionId}`;
     impossibile.setAttribute("role", "alert");
-    impossibile.style.cssText = `border:1px solid ${C.stopRedDark};border-radius:8px;padding:8px 12px;`;
+    impossibile.className = "fz-allarme";
     impossibile.appendChild(
-      smallHeading("CON QUESTI VINCOLI LA FORMAZIONE NON SI PUÒ FARE", C.stopRed),
+      smallHeading("CON QUESTI VINCOLI LA FORMAZIONE NON SI PUÒ FARE", C.stopRed, "stop"),
     );
     const list = document.createElement("ul");
-    list.style.cssText = `margin:4px 0 0;padding-left:18px;font-size:12px;line-height:1.5;color:${C.textMid};`;
+    list.className = "fz-lista";
     list.innerHTML = competition.issues.rejections
       .map((issue) => {
         const chi =
@@ -2488,10 +2530,11 @@ function renderCompetition(
     const avvisi = document.createElement("div");
     avvisi.id = `formazione-avvertimenti-vincoli-${competition.competitionId}`;
     avvisi.setAttribute("role", "status");
-    avvisi.style.cssText = `border:1px solid ${C.border};border-radius:8px;padding:8px 12px;`;
+    avvisi.className = "fz-riquadro";
+    avvisi.style.cssText = `gap:4px;`;
     avvisi.appendChild(smallHeading("SCELTE COSTOSE, NON ERRORI — RESTANO TUE", C.textAccent));
     const list = document.createElement("ul");
-    list.style.cssText = `margin:4px 0 0;padding-left:18px;font-size:12px;line-height:1.5;color:${C.textMid};`;
+    list.className = "fz-lista";
     list.innerHTML = competition.issues.warnings
       .map((issue) => {
         const chi =
@@ -2514,16 +2557,16 @@ function renderCompetition(
     const box = document.createElement("div");
     box.id = `formazione-vincoli-non-rispettati-${competition.competitionId}`;
     box.setAttribute("role", "alert");
-    box.style.cssText = `border:1px solid ${C.stopRedDark};border-radius:8px;padding:8px 12px;`;
-    box.appendChild(smallHeading("VINCOLI NON RISPETTATI DA QUESTA FORMAZIONE", C.stopRed));
+    box.className = "fz-allarme";
+    box.appendChild(smallHeading("VINCOLI NON RISPETTATI DA QUESTA FORMAZIONE", C.stopRed, "stop"));
     const list = document.createElement("ul");
-    list.style.cssText = `margin:4px 0 0;padding-left:18px;font-size:12px;line-height:1.5;color:${C.textMid};`;
+    list.className = "fz-lista";
     list.innerHTML = competition.unmet.map((riga) => `<li>${escHtml(riga)}</li>`).join("");
     box.appendChild(list);
     box.appendChild(
       paragraph(
         "Finché non sono rispettati il salvataggio si ferma: non viene mandato niente.",
-        `color:${C.textDim};font-size:12px;margin-top:4px;`,
+        `color:${C.textMid};`,
       ),
     );
     panel.appendChild(box);
@@ -2536,7 +2579,7 @@ function renderCompetition(
   const salva = document.createElement("button");
   salva.type = "button";
   salva.id = `formazione-salva-${competition.competitionId}`;
-  salva.className = "btn";
+  salva.className = "btn fz-btn--primario";
   salva.disabled = blockers.length > 0;
   salva.textContent = "Salva";
   salva.setAttribute("aria-describedby", "formazione-stato-invio");
@@ -2549,7 +2592,7 @@ function renderCompetition(
     const perche = document.createElement("div");
     perche.id = `formazione-salva-impedito-${competition.competitionId}`;
     perche.setAttribute("role", "status");
-    perche.style.cssText = `font-size:12px;line-height:1.5;color:${C.textMid};`;
+    perche.className = "fz-p";
     perche.innerHTML =
       `<strong style="color:${C.stopRed};">Non si può salvare:</strong> ` +
       escHtml(blockers.join("; "));
@@ -2591,9 +2634,8 @@ export function renderFormazioneScreen(
   presa: FormazionePresa = NESSUNA_PRESA,
 ): HTMLElement {
   const wrap = document.createElement("div");
-  wrap.className = "screen-container";
+  wrap.className = "screen-container fz-screen";
   wrap.id = "formazione-screen";
-  wrap.style.cssText = `flex:1;padding:18px 24px;gap:14px;`;
   if (prova.attiva) wrap.dataset.prova = "attiva";
 
   // PRIMA DI TUTTO IL RESTO, e prima di qualunque formazione: se quello che si
@@ -2604,7 +2646,8 @@ export function renderFormazioneScreen(
     const riga = document.createElement("div");
     riga.id = "formazione-avviso-vincoli";
     riga.setAttribute("role", "alert");
-    riga.style.cssText = `font-size:13px;line-height:1.5;color:${C.stopRed};border:1px solid ${C.stopRedDark};border-radius:8px;padding:10px 14px;`;
+    riga.className = "fz-allarme fz-p";
+    riga.style.cssText = `color:${C.stopRed};`;
     riga.textContent = notice;
     wrap.appendChild(riga);
   }

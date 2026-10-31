@@ -65,8 +65,9 @@ export function escHtml(s: string): string {
  * I FONDI NON SI TOCCANO. La convenzione di hue qui sopra è una decisione di
  * prodotto: A a 18 distinto da STOP a 25, D che riusa il verde, C il blu di
  * sempre (scritto per esteso, non più legato all'accent). Restano identici —
- * dimensione, forma e bordo del disco pure. L'unica cosa che è cambiata nei
- * colori è IL COLORE DEL GLIFO dentro il disco.
+ * forma e bordo del disco pure; la dimensione è identica ovunque tranne dove una
+ * schermata la chiede più grande (vedi ROLE_CHIP_STYLE). L'unica cosa che è
+ * cambiata nei colori è IL COLORE DEL GLIFO dentro il disco.
  *
  * GLIFO: SCURO, non bianco, dove il disco non regge il bianco. Il chip è
  * testo a 10px — testo normale per WCAG, soglia 4,5:1, nessuna eccezione
@@ -140,8 +141,13 @@ export type RoleChipVariant = "full" | "muted";
  */
 export const ROLE_CHIP_CLASS = "role-chip";
 
+// DIAMETRO E CORPO DEL DISCO SONO DUE VARIABILI CON UN DEFAULT: 18px e 10px,
+// com'era, ovunque nessuno le imposti. Una schermata che vuole il disco più
+// grande (il campo della Formazione) le scrive su un contenitore, e a una
+// media query basta cambiarle: lo stile in linea non si può battere dal CSS,
+// una variabile sì.
 const ROLE_CHIP_STYLE =
-  "display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;font-size:10px;font-weight:800;line-height:1;flex:none;";
+  "display:inline-flex;align-items:center;justify-content:center;width:var(--chip-d,18px);height:var(--chip-d,18px);border-radius:50%;font-size:var(--chip-f,10px);font-weight:800;line-height:1;flex:none;";
 
 /** Classe e colori di una pastiglia, in una sola funzione: le due varianti
  *  non si scrivono due volte. */
