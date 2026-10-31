@@ -247,3 +247,77 @@ test("nel campo i comandi hanno il fondo pieno: le linee del campo non li attrav
   expect(fondi.fuori, "comandi del campo con fondo trasparente").toEqual([]);
   expect(externalRequests).toEqual([]);
 });
+
+/**
+ * UNA SOLA LETTURA, DENTRO LA PAGINA, di ciò che interessa dell'allineamento del
+ * campo: per ogni linea, la quota (in alto) della casella e del primo bottone di
+ * ogni scheda, e quante righe occupa l'etichetta «Lo voglio in campo».
+ */
+async function leggiAllineamento(page: Page) {
+  return page.evaluate(() => {
+    const linee = Array.from(document.querySelectorAll(".formazione-campo__linea"));
+    return {
+      linee: linee.map((linea) =>
+        Array.from(linea.querySelectorAll(".fz-unit")).map((unita) => {
+          const casella = unita.querySelector("input[type=checkbox]")?.getBoundingClientRect().top ?? NaN;
+          const bottone = unita.querySelector(".fz-mini")?.getBoundingClientRect().top ?? NaN;
+          const etichetta = unita.querySelector<HTMLElement>(".fz-spunta label");
+          const stile = etichetta === null ? null : getComputedStyle(etichetta);
+          const righe =
+            etichetta === null || stile === null
+              ? NaN
+              : Math.round(etichetta.getBoundingClientRect().height / parseFloat(stile.lineHeight));
+          return {
+            casella,
+            bottone,
+            righeEtichetta: righe,
+            corpo: stile === null ? NaN : parseFloat(stile.fontSize),
+          };
+        }),
+      ),
+      nota: (() => {
+        const nota = document.querySelector(".formazione-campo .fz-comandi__nota");
+        return nota === null ? null : getComputedStyle(nota).backgroundColor;
+      })(),
+    };
+  });
+}
+
+for (const modulo of ["442", "541"] as const) {
+  test(`campo al telefono, modulo ${modulo}: le schede di una fila restano allineate, l'etichetta sta su due righe al più, la nota del portiere ha il fondo`, async ({
+    page,
+    context,
+  }) => {
+    const externalRequests: string[] = [];
+    await apriSulTelefono(page, context, externalRequests);
+    const bottoneModulo = page.locator(`#formazione-modulo-schierato-${PROVA_COMPETITION_ID}-${modulo}`);
+    await bottoneModulo.scrollIntoViewIfNeeded();
+    if (await bottoneModulo.isEnabled()) await bottoneModulo.tap();
+    await expect(
+      page.locator(`#formazione-titolari-${PROVA_COMPETITION_ID} .formazione-campo`),
+    ).toHaveAttribute("data-modulo", modulo);
+
+    // I nomi vanno a capo su un numero diverso di righe da una scheda all'altra
+    // della stessa fila: la casella e «In panchina» devono stare comunque alla
+    // stessa quota (i testi sono quelli, cambia solo la disposizione).
+    const m = await leggiAllineamento(page);
+    expect(m.linee, "quattro linee").toHaveLength(4);
+    for (const [i, linea] of m.linee.entries()) {
+      expect(linea.length, `la linea ${i} ha schede`).toBeGreaterThan(0);
+      const c0 = linea[0]?.casella ?? NaN;
+      const b0 = linea[0]?.bottone ?? NaN;
+      for (const [k, scheda] of linea.entries()) {
+        expect(scheda.casella, `linea ${i}, scheda ${k}: casella alla stessa quota`).toBeCloseTo(c0, 0);
+        expect(scheda.bottone, `linea ${i}, scheda ${k}: «In panchina» alla stessa quota`).toBeCloseTo(b0, 0);
+        expect(scheda.righeEtichetta, `linea ${i}, scheda ${k}: «Lo voglio in campo» su due righe al più`).toBeLessThanOrEqual(2);
+        expect(scheda.corpo, `linea ${i}, scheda ${k}: corpo dell'etichetta ≥ 12px`).toBeGreaterThanOrEqual(12);
+      }
+    }
+
+    // La nota «esce quando entra un altro portiere» sta dentro l'area del
+    // portiere: senza fondo, le linee le passano attraverso le lettere.
+    expect(m.nota, "la nota del portiere esiste").not.toBeNull();
+    expect(m.nota, "la nota del portiere ha il fondo pieno").not.toMatch(/^rgba\(.*,\s*0\)$|^transparent$/);
+    expect(externalRequests).toEqual([]);
+  });
+}

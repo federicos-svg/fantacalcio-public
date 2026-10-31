@@ -2073,6 +2073,45 @@ function renderPitchLines(): HTMLElement {
 }
 
 /**
+ * IL CAMPO RESTA FERMO SOLO SE CI STA NELLA FINESTRA.
+ *
+ * Sullo schermo largo, con la colonna di destra più lunga del campo, il campo può
+ * restare in vista mentre la colonna scorre (`.fz-pitch[data-fermo]`,
+ * formazione.css). Ma un riquadro fermo che è più alto della finestra nasconde la
+ * sua parte bassa — la porta, e l'avviso rosso «in campo e senza un posto» che sta
+ * sotto il campo — finché la colonna scorre. L'altezza del riquadro dipende dal
+ * modulo (5-4-1, 3-5-2… vanno a capo di più) e dalla finestra, e il CSS non può
+ * sapere se ci sta: lo si misura qui. Il riquadro è `data-fermo` solo se, con i due
+ * margini, sta tutto nell'altezza della finestra; altrimenti scorre come ogni altro
+ * pezzo della pagina, e l'avviso si vede. Misurato alla comparsa, a ogni
+ * variazione di misura del riquadro e al ridimensionamento della finestra.
+ */
+const CAMPO_FERMO_MARGINE_PX = 12;
+let campoFermoAscoltaLaFinestra = false;
+
+function misuraCampoFermo(pitch: HTMLElement): void {
+  if (!pitch.isConnected) return;
+  const ciStaTutto = pitch.getBoundingClientRect().height + 2 * CAMPO_FERMO_MARGINE_PX <= window.innerHeight;
+  pitch.toggleAttribute("data-fermo", ciStaTutto);
+}
+
+function campoFermoSeCiSta(pitch: HTMLElement): void {
+  if (typeof window === "undefined") return;
+  if (typeof ResizeObserver !== "undefined") {
+    new ResizeObserver(() => misuraCampoFermo(pitch)).observe(pitch);
+  }
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(() => misuraCampoFermo(pitch));
+  }
+  if (!campoFermoAscoltaLaFinestra) {
+    campoFermoAscoltaLaFinestra = true;
+    window.addEventListener("resize", () => {
+      for (const campo of document.querySelectorAll<HTMLElement>(".fz-pitch")) misuraCampoFermo(campo);
+    });
+  }
+}
+
+/**
  * IL CAMPO — la porta in basso, poi difesa, centrocampo, attacco.
  *
  * L'ordine del disegno è quello con cui si guarda una partita da dietro la
@@ -2094,6 +2133,7 @@ function renderPitch(
   group.setAttribute("aria-label", `In campo — ${competition.label}`);
   group.className = "fz-pitch";
   group.style.cssText = `display:flex;flex-direction:column;gap:8px;`;
+  campoFermoSeCiSta(group);
   group.appendChild(smallHeading("IN CAMPO", C.textSec));
 
   const lineup = competition.lineup;

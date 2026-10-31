@@ -602,6 +602,14 @@
   color: var(--text-dim);
 }
 .formazione-campo .fz-comandi { justify-content: center; }
+/* La nota «esce quando entra un altro portiere» sta dentro l'area del portiere:
+   senza fondo, le linee dell'area le passano attraverso le lettere. */
+.formazione-campo .fz-comandi__nota {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--campo);
+  text-align: center;
+}
 /* I COMANDI NEL CAMPO HANNO IL FONDO PIENO. Le linee del campo stanno sotto
    (`.fz-campo-linee` è il primo figlio del campo e i comandi sono dopo, quindi
    sopra), ma con un bottone o una spunta trasparenti la linea si vede attraverso
@@ -743,12 +751,15 @@
    piena e i non convocati la colonna di destra è più lunga del campo (circa
    650px nella schermata di prova a 1440px di larghezza), e sotto il campo
    restava il vuoto. Il campo si ferma sotto il bordo alto dello schermo finché
-   la colonna scorre, e riparte con la pagina quando la colonna finisce. Solo
-   dove c'è l'altezza per tenerlo tutto: un campo più alto dello schermo, fermo,
-   avrebbe la porta fuori vista finché la colonna scorre, quindi sotto i 1000px
-   di altezza resta come prima. */
-@media (min-width: 1100px) and (min-height: 1000px) {
-  .fz-pitch {
+   la colonna scorre, e riparte con la pagina quando la colonna finisce. SOLO SE
+   CI STA TUTTO NELLA FINESTRA: `data-fermo` lo mette `campoFermoSeCiSta`
+   (src/ui/formazione.ts) dopo aver misurato il riquadro, perché l'altezza
+   dipende dal modulo e dalla finestra e il CSS non può saperlo. Un riquadro più
+   alto della finestra, fermo, nasconderebbe la porta e l'avviso rosso che sta
+   sotto il campo: in quel caso scorre come tutto il resto (il vuoto resta, ma
+   niente si nasconde). */
+@media (min-width: 1100px) {
+  .fz-pitch[data-fermo] {
     position: sticky;
     top: 12px;
   }
@@ -787,8 +798,62 @@
     font-size: 13px;
     line-height: 1.15;
   }
-  .formazione-campo .fz-spunta { justify-content: center; gap: 4px; }
-  .formazione-campo .fz-spunta label { padding-right: 0; font-size: 13px; }
+  /* LE SCHEDE DI UNA STESSA FILA RESTANO ALLINEATE, qualunque sia il numero di
+     righe a cui vanno a capo i nomi (i testi non cambiano, cambia la
+     disposizione). La fila è una griglia con due righe CONDIVISE — il gettone e i
+     comandi — e ogni scheda occupa entrambe con `subgrid`: la riga dei gettoni
+     è alta quanto il gettone più alto della fila, quindi la casella e «In
+     panchina» di ogni scheda partono tutte alla stessa quota. Dove `subgrid`
+     non c'è, la scheda resta una colonna come prima (la dichiarazione viene
+     ignorata): peggiora l'allineamento, non rompe niente. Colonne come prima:
+     al più 190px, tutte uguali, centrate. */
+  .formazione-campo__linea {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 190px);
+    grid-template-rows: auto auto;
+    justify-content: space-around;
+    align-items: start;
+    column-gap: 2px;
+    row-gap: 0;
+  }
+  .formazione-campo .fz-unit,
+  .formazione-campo .formazione-posto-vuoto__posa { grid-row: span 2; }
+  .formazione-campo .fz-unit {
+    display: grid;
+    grid-template-rows: subgrid;
+    row-gap: 4px;
+    min-width: 0;
+  }
+
+  /* «LO VOGLIO IN CAMPO» NON VA SU TRE RIGHE accanto alla casella: a colonne
+     strette la casella sta SOPRA la scritta, centrata, e la scritta ha due righe
+     al più («Lo voglio / in campo»), a 13px (mai sotto i 12). Il riquadro
+     trasparente sull'etichetta (`::before`) fa reagire al tocco tutta la
+     superficie, come nelle righe «Formazione nascosta» e «Vale per tutte»; la
+     casella resta sopra di lui. */
+  .formazione-campo .fz-spunta {
+    position: relative;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    padding: 4px 0;
+    text-align: center;
+  }
+  .formazione-campo .fz-spunta input[type="checkbox"] { position: relative; z-index: 1; }
+  .formazione-campo .fz-spunta label {
+    justify-content: center;
+    min-height: 0;
+    padding: 0 2px;
+    font-size: 13px;
+    line-height: 1.2;
+    text-align: center;
+  }
+  .formazione-campo .fz-spunta label::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+  }
   .formazione-campo .formazione-posto-vuoto { min-height: 64px; padding: 4px 2px; }
   .formazione-campo .formazione-posto-vuoto__testo { font-size: 12px; }
   .fz-campo-linee__cerchio {
