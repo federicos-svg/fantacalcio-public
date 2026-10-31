@@ -289,8 +289,12 @@ async function handleDataAsset(request: Request): Promise<Response> {
 const OFFLINE_SHELL_MISSING_HTML =
   '<!doctype html><html lang="it"><head><meta charset="utf-8">' +
   '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+  '<meta name="theme-color" content="#0d1a19">' +
   "<title>Fantacalcio Copilot — offline</title></head>" +
-  '<body style="font-family:system-ui,sans-serif;background:#0f1115;color:#e6e6e6;padding:24px">' +
+  // I colori della «Lavagna» (ardesia e gesso, base.css: --bg, --text-primary).
+  // Il carattere resta quello di sistema: questa pagina esce proprio quando i
+  // file dell'app, caratteri compresi, non ci sono.
+  '<body style="font-family:system-ui,sans-serif;background:#0d1a19;color:#f1efe6;padding:24px">' +
   "<h1>App non disponibile offline</h1>" +
   "<p>Questa copia del browser non ha ancora una cache dell'app: serve una visita online " +
   "per installarla. Torna online e ricarica.</p></body></html>";
