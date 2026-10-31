@@ -5,6 +5,8 @@
 // Keeping this file dependency-free lets the TypeScript test import it
 // (tsconfig allowJs) without pulling Node globals or needing @types/node.
 
+import { siteAssetStatus, SITE_ASSETS } from "./site-assets-core.mjs";
+
 const NUL = String.fromCharCode(0);
 
 // Data formats that would mean real (proprietary) data landed in the repo.
@@ -497,22 +499,33 @@ const WORKTREES_DIR = ".claude/worktrees/";
 
 // Pure classifier — no I/O. contentSample = first bytes of the file (may be empty).
 // Returns: "allowed" | "blocked-data" | "blocked-ext" | "blocked-binary" |
-// "blocked-graphify" | "blocked-worktree".
+// "blocked-graphify" | "blocked-worktree" | "blocked-site-asset".
 //
 // `extensionExceptions` is a matcher from `compileExtensionExceptions()`;
 // omitting it keeps the strict default. Where it is consulted in the sequence
 // below — and what it is gated on — is the whole safety argument: see the
 // exception block above.
+//
+// `siteAssetDigest` is the sha256 (lowercase hex) of the WHOLE file, computed by
+// the caller, and it is only ever consulted for a path in the closed site-asset
+// list (scripts/site-assets-core.mjs — read its header: it is a different, much
+// narrower mechanism than the injected extension exceptions above, and it does
+// not touch them). For any other path it is ignored and every rule below applies
+// exactly as before. `siteAssets` exists so a test can inject a small list.
 /**
  * @param {string} path
  * @param {string} [contentSample]
  * @param {ExtensionExceptionMatcher | null} [extensionExceptions]
- * @returns {"allowed"|"blocked-data"|"blocked-ext"|"blocked-binary"|"blocked-graphify"|"blocked-worktree"}
+ * @param {string | null} [siteAssetDigest]
+ * @param {import("./site-assets-core.mjs").SiteAssets} [siteAssets]
+ * @returns {"allowed"|"blocked-data"|"blocked-ext"|"blocked-binary"|"blocked-graphify"|"blocked-worktree"|"blocked-site-asset"}
  */
 export function classifyTrackedFile(
   path,
   contentSample = "",
   extensionExceptions = NO_EXTENSION_EXCEPTIONS,
+  siteAssetDigest = null,
+  siteAssets = SITE_ASSETS,
 ) {
   const base = path.split("/").pop() ?? path;
   const dot = base.lastIndexOf(".");
@@ -522,6 +535,16 @@ export function classifyTrackedFile(
   // this must win over every allowlist below (club logos, supabase
   // migrations, allowed extensions), not just the blocklists.
   if (path.startsWith(WORKTREES_DIR)) return "blocked-worktree";
+  // Site assets: a listed path is judged by its pinned content alone. Pinned ->
+  // allowed (this is the one rule that waives the extension AND the binary
+  // sniff, and only for these exact files); anything else about a listed path
+  // -> blocked, never a fall-through to the rules below, so a changed file can
+  // not be waved through by looking like some other allowed kind. Entries are
+  // all under public/ (compileSiteAssets refuses the rest), so they can never
+  // overlap the graphify zones checked further down.
+  const siteAsset = siteAssetStatus(path, siteAssetDigest, siteAssets);
+  if (siteAsset === "pinned") return "allowed";
+  if (siteAsset === "changed") return "blocked-site-asset";
   if (path.startsWith(CLUB_LOGO_ASSET_DIR) && CLUB_LOGO_ASSET_EXTS.has(ext)) return "allowed";
   // Injected exception, resolved once, and gated on THREE things before the
   // injected list is even asked:
