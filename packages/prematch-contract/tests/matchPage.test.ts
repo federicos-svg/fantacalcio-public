@@ -460,3 +460,49 @@ describe("la nota di un ballottaggio si porta, non si interpreta", () => {
     expect(outcome.value.favourite).toEqual(absentInSource());
   });
 });
+
+/**
+ * L'IDENTIFICATIVO DELLA FONTE — le tre affermazioni che il campo fa, ciascuna
+ * con la sua prova, perché nessuna delle tre si ricava dalle altre.
+ *
+ * La terza è quella che conta di più e sembra la più noiosa: un candidato
+ * costruito prima che il campo esistesse resta leggibile. È la promessa di
+ * `readFieldOrUnobserved`, ed è ciò che rende un'aggiunta al contratto un atto
+ * non distruttivo — se questa diventa rossa, ogni lettore scritto prima di oggi
+ * è rotto, e il campo nuovo è la causa.
+ */
+describe("l'identificativo che la fonte scrive accanto al nome", () => {
+  const primoTitolare = (candidate: unknown) => {
+    const outcome = readTeamLineup(candidate, ["l"]);
+    expect(outcome.status).toBe("read");
+    if (!isRead(outcome)) return null;
+    const starters = outcome.value.starters;
+    return starters.presence === "observed" ? (starters.value.players[0] ?? null) : null;
+  };
+
+  const conPrimoTitolare = (primo: Record<string, unknown>) =>
+    syntheticLineup("Alfa", "probable", {
+      starters: {
+        presence: "observed",
+        value: syntheticRoster(
+          syntheticEleven("Alfa").map((player, index) => (index === 0 ? { ...player, ...primo } : player)),
+          "declared-complete",
+        ),
+      },
+    });
+
+  it("si legge come la fonte lo scrive, testo e non numero", () => {
+    const primo = primoTitolare(conPrimoTitolare({ sourceIdentifier: { presence: "observed", value: "A-0007" } }));
+    expect(primo?.sourceIdentifier).toEqual(observed("A-0007"));
+  });
+
+  it("una fonte che tace è assenza dichiarata, non stringa vuota", () => {
+    const primo = primoTitolare(conPrimoTitolare({ sourceIdentifier: { presence: "absent-in-source" } }));
+    expect(primo?.sourceIdentifier).toEqual(absentInSource());
+  });
+
+  it("un candidato scritto prima che il campo esistesse resta leggibile, e dichiara di non averlo guardato", () => {
+    const primo = primoTitolare(syntheticLineup("Alfa", "probable"));
+    expect(primo?.sourceIdentifier).toEqual(notObserved());
+  });
+});

@@ -104,6 +104,20 @@ export interface ObservedStartingForecast {
    * e questo contratto non ne ha nemmeno una.
    */
   readonly doubtful: Field<boolean>;
+  /**
+   * L'identificativo che la fonte scrive per il giocatore previsto — stessa
+   * regola, stesse avvertenze e stesse due assenze di
+   * `ObservedPlayer.sourceIdentifier`, che è il posto dove sono spiegate.
+   *
+   * QUI VALE DI PIÙ CHE ALTROVE, e conviene dirlo dove il campo sta. Questo
+   * pacchetto dichiara di non ricongiungere la previsione al giocatore
+   * dell'undici, e continua a non farlo: i due elenchi restano come la fonte li
+   * scrive. Ma finché l'unica etichetta era il nome, chi consuma non AVEVA il
+   * materiale per ricongiungerli senza indovinare; con l'identificativo quel
+   * materiale c'è, e resta suo il mestiere di usarlo. La differenza è fra una
+   * deduzione impossibile e una deduzione che qualcun altro può fare bene.
+   */
+  readonly sourceIdentifier: Field<string>;
 }
 
 /**
@@ -288,10 +302,22 @@ export function readStartingForecast(
   const doubtful = readField(record.value["doubtful"], [...at, "doubtful"], readDeclaredFlag);
   if (!isRead(doubtful)) return carryFailure(doubtful);
 
+  // `readFieldOrUnobserved` e non `readField`: è un campo nato dopo, e il
+  // pacchetto dichiara che è il suo unico caso d'uso legittimo. Un lettore
+  // scritto prima che questo campo esistesse non lo nomina, e romperlo per
+  // questo significherebbe che il contratto non può più crescere.
+  const sourceIdentifier = readFieldOrUnobserved(
+    record.value["sourceIdentifier"],
+    [...at, "sourceIdentifier"],
+    readLabel,
+  );
+  if (!isRead(sourceIdentifier)) return carryFailure(sourceIdentifier);
+
   return read({
     player: player.value,
     startingProbability: startingProbability.value,
     doubtful: doubtful.value,
+    sourceIdentifier: sourceIdentifier.value,
   });
 }
 
