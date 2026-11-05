@@ -74,15 +74,11 @@
   --campo-linea: rgba(241, 239, 230, 0.22);
   /* ── Caratteri. `--font-ui` è il testo; `--font-display` i titoli, le
      etichette in maiuscoletto e i numeri grandi. `--font-mono` è la
-     monospaziata di prima, IDENTICA: numeri e identificativi dell'Asta restano
-     com'erano (e con loro le misure che l'Asta dichiara). */
+     monospaziata di prima, IDENTICA: i numeri e gli identificativi dell'Asta
+     (budget, prezzi, max bid) non cambiano carattere con il restyling. */
   --font-ui: 'Barlow', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-display: 'Barlow Condensed', 'Barlow', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  /* Il carattere di testo di PRIMA, identico. Lo tiene l'Asta (vedi layout.css,
-     `.app-shell[data-screen="asta"]`): le sue misure dichiarate poggiano su
-     questo carattere, e l'Asta non è nel perimetro dell'impaginazione. */
-  --font-sistema: -apple-system, system-ui, 'Helvetica Neue', Arial, sans-serif;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

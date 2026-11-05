@@ -34,27 +34,6 @@
   padding-bottom: var(--assign-bar-h);
 }
 
-/* L'ASTA TIENE IL CARATTERE DI PRIMA, finché non avrà un lavoro suo.
-   Le misure dell'Asta sono dichiarate e sorvegliate (il mastro della schermata
-   di chiamata, e2e/call-screen-budget.spec.ts: righe del listone, blocchi della
-   colonna) e poggiano sulla metrica del carattere di testo di sempre. Barlow è
-   più stretto: cambia gli a capo, quindi le altezze, e l'Asta non è nel
-   perimetro dell'impaginazione. Quindi qui — e solo qui — il testo e i controlli
-   del modulo restano com'erano (`revert` riporta i controlli al carattere di
-   default del browser, cioè a prima della regola `inherit` di base.css). I
-   numeri e gli identificativi stanno su --font-mono, che è anch'essa quella di
-   prima. La barra in alto ha un carattere suo e non cambia. Le altre schermate
-   (Formazione, Rose, Impostazioni) sono nei caratteri nuovi. */
-.app-shell[data-screen="asta"] { font-family: var(--font-sistema); }
-/* `:where()` AZZERA LA SPECIFICITÀ DEL RIFERIMENTO ALLA SCHERMATA: la regola vale
-   (0,0,1), come `button, input, select, textarea { font-family: inherit }` di
-   base.css, e vince su quella solo perché viene dopo. Scritta con
-   `.app-shell[data-screen="asta"] :is(…)` valeva (0,2,1) e batteva anche i
-   `font-family: inherit` DICHIARATI dall'Asta (`.critical-roster`,
-   `.moment-facts__toggle` in asta.css): quei due controlli passavano da
-   «inherit» al carattere di default del browser (Arial) e il secondo scendeva da
-   28 a 26px rispetto a prima. e2e/asta-controlli-carattere.spec.ts li tiene fermi. */
-:where(.app-shell[data-screen="asta"]) :is(button, input, select, textarea) { font-family: revert; }
 
 /* LA BARRA — marchio a sinistra, voci accanto. Alta 45px (44 + il filo di
    sotto; era 44 con il filo dentro): le voci sono premibili su 44px di altezza,

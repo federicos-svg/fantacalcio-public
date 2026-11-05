@@ -291,7 +291,7 @@ test("il contesto della chiamata aperto sfonda il totale dichiarato, e nessuna g
    3. IL FATTO CHE RIMETTE IN DISCUSSIONE TUTTI I NUMERI: LA LUNGHEZZA DEI NOMI
    ──────────────────────────────────────────────────────────────────────────── */
 
-test("i nomi lunghi muovono lo span di 200px da soli, e per 40px non lo sfondano più", async ({
+test("i nomi lunghi muovono lo span da soli, oltre i 18 caratteri, e nemmeno così lo sfondano", async ({
   page,
   context,
 }) => {
@@ -334,37 +334,30 @@ test("i nomi lunghi muovono lo span di 200px da soli, e per 40px non lo sfondano
       Math.round(sweep.spanPx) - CALL_SCREEN_VERTICAL_BUDGET_PX,
       `nomi da ${pin.chars} caratteri: scarto dal totale`,
     ).toBe(pin.deltaFromBudgetPx);
-    // IL MARGINE È SOTTILE E VA DETTO COSÌ COM'È: dentro, ma per poco. 74 px
-    // col pin da 18 caratteri e 54 con quello da 22 — il 4,4% e il 3,2% del
-    // totale. Erano 38 e 18 (l'1%) fino al 2026-08-31, poi 60 e 40 col titolo
-    // del sottoblocco PER ME che ha smesso di disegnarsi, e questi da quando
-    // l'occhiello è salito a intestare le due metà: −14 px ciascuno.
-    //
-    // LA SOGLIA È PASSATA DAL 4% AL 5%, ED È UNA RIMISURA, NON UN
-    // ALLENTAMENTO: il margine del pin largo ha superato il 4% (4,4%) perché
-    // la schermata si è ACCORCIATA, cioè per la ragione opposta a quella per
-    // cui una soglia si allenta. Il numero esatto non è affidato a questa
-    // percentuale — lo pinna `deltaFromBudgetPx` due asserzioni più su, alla
-    // lettera — e questa riga dice soltanto che il margine resta un margine
-    // sottile: quattro righe di testo in un blocco qualunque rimandano fuori
-    // il pin stretto.
+    // IL MARGINE NON È PIÙ SOTTILE (dal 2026-11-05). Era il 4,4% e il 3,2% del
+    // totale; col carattere del sito sono il 15% (18 caratteri, il nome sta su
+    // una riga) e l'11% (22 caratteri, a capo). Il numero esatto lo pinna
+    // `deltaFromBudgetPx` più su, alla lettera; qui si dice soltanto che lo span
+    // sta dentro il totale. Vedi la nota «RIMISURA DEL 2026-11-05» in
+    // src/ui/callScreenBudget.ts: la soglia del 5% non è stata allargata, è
+    // stata tolta perché la cosa che misurava non è più vera.
     expect(
       Math.round(sweep.spanPx),
       `nomi da ${pin.chars} caratteri: lo span sta dentro il totale, e di quanto`,
     ).toBeLessThan(CALL_SCREEN_VERTICAL_BUDGET_PX);
-    expect(
-      CALL_SCREEN_VERTICAL_BUDGET_PX - Math.round(sweep.spanPx),
-      `nomi da ${pin.chars} caratteri: il margine che resta è meno del 5% del totale`,
-    ).toBeLessThan(CALL_SCREEN_VERTICAL_BUDGET_PX * 0.05);
-
-    // E il mastro NOMINA IL LISTONE, non l'ultimo blocco arrivato: la riga si
-    // è alzata, quindi l'uguaglianza derivata dalla sua forma non torna più.
+    // Se il nome va a capo il mastro NOMINA IL LISTONE, non l'ultimo blocco
+    // arrivato: la riga si è alzata, quindi l'uguaglianza derivata dalla sua
+    // forma non torna più. Se non va a capo, non c'è niente da nominare.
     const findings = callScreenBudgetFindings(sweep);
-    expect(
-      findings.map((f) => (f.kind === "forma-listone" ? f.part : f.kind)),
-      `nomi da ${pin.chars} caratteri`,
-    ).toContain("altezza-riga");
-    expect(report(findings).join(" | ")).toContain("LISTONE");
+    if (pin.rigaSiAlza) {
+      expect(
+        findings.map((f) => (f.kind === "forma-listone" ? f.part : f.kind)),
+        `nomi da ${pin.chars} caratteri`,
+      ).toContain("altezza-riga");
+      expect(report(findings).join(" | ")).toContain("LISTONE");
+    } else {
+      expect(report(findings), `nomi da ${pin.chars} caratteri: la riga non si alza`).toEqual([]);
+    }
 
     expect(externalRequests).toEqual([]);
     await context.unroute("**/*");
@@ -454,7 +447,7 @@ test("PROVA 1 — una riga di testo in più a un blocco esistente: rosso il mast
   // giorno, quando l'occhiello è salito a intestare le due metà: il consumo
   // massimo è sceso a 245 px esatti, senza frazione da arrotondare, e
   // l'allocazione è 245.
-  const PER_ME_SILENT_CUSHION_PX = 14;
+  const PER_ME_SILENT_CUSHION_PX = 14.5;
   await page.evaluate((extraPx) => {
     const host = document.getElementById("suggested-player-halves");
     if (host === null)
@@ -508,12 +501,16 @@ test("PROVA 1 — una riga di testo in più a un blocco esistente: rosso il mast
   // a intestare le due metà e due spaziature che non avevano più un compito
   // sono cadute con lui — 13,5 px, anche questi usciti e non traslocati.
   //
-  // 254 di margine a boot, meno i 34 (20 + il gap della griglia) che questa
-  // prova ci mette dentro.
+  // 255 di margine a boot, meno i 34 (20 + il gap della griglia) che questa
+  // prova ci mette dentro. ERA 220 e 254 fino al 2026-11-05: il restyling
+  // «Lavagna» dell'Asta (testo in Barlow) accorcia lo span di boot di 1 px
+  // (1434 -> 1433: il listone cresce di 12 px e i due sottoblocchi del
+  // suggerito calano di 16,5, più l'occhiello +1) e il cuscino del PER ME
+  // silenzioso passa da 14 a 14,5 (allocazione 229, consumo 214,5).
   expect(
     CALL_SCREEN_VERTICAL_BUDGET_PX - Math.round(sweep.spanPx),
     "margine residuo sul totale, con l'aggiunta già dentro",
-  ).toBe(220);
+  ).toBe(221);
 
   expect(externalRequests).toEqual([]);
 });

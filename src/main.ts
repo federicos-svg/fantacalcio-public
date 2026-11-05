@@ -2716,10 +2716,11 @@ function render(): void {
 
   const wrapper = document.createElement("div");
   wrapper.className = "app-shell";
-  // LA SCHERMATA, COME ATTRIBUTO. Serve soltanto a una regola di presentazione:
-  // l'Asta tiene il carattere di prima (layout.css, `.app-shell[data-screen]`),
-  // perché le sue misure dichiarate (e2e/call-screen-budget.spec.ts) sono
-  // fissate su quel carattere e l'Asta non è nel perimetro dell'impaginazione.
+  // LA SCHERMATA, COME ATTRIBUTO. Serve alle regole di presentazione che
+  // valgono per una schermata sola (`.app-shell[data-screen="asta"]` in
+  // asta.css) e alle prove che devono sapere dove stanno. Dal restyling
+  // «Lavagna» dell'Asta il carattere è lo stesso di tutto il sito: non c'è più
+  // nessuna eccezione di carattere legata a questo attributo.
   wrapper.dataset.screen = state.screen;
 
   wrapper.appendChild(renderHeader());

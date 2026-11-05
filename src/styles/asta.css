@@ -2769,3 +2769,61 @@
   font-weight: 700;
 }
 .scheda-icona__pop-testo { color: var(--text-mid); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   L'ASTA NELLO STILE «LAVAGNA» (Pico, 31/10/2026; restyling dell'Asta avviato il
+   5/11/2026).
+
+   COSA È. Lo stesso sistema grafico della pagina Formazione (formazione.css):
+   i token di base.css, Barlow per il testo (eredita dal sito: l'eccezione «l'Asta
+   tiene il carattere di prima» di layout.css non esiste più) e Barlow Condensed
+   per titoli ed etichette in maiuscoletto, come `.fz-screen .panel-title` e
+   `.fz-kicker`. I colori erano già quelli dei token; qui cambia il carattere dei
+   titoli e delle etichette, e la misura minima del loro corpo.
+
+   COSA NON È. Nessun testo, id, classe, ordine del DOM o comportamento cambia: lo
+   stile arriva tutto da qui, e i numeri (budget, prezzi, max bid) restano nella
+   monospaziata di sempre (--font-mono).
+
+   CORPO. Le etichette che erano a 9–10px (e a 9,5) salgono a 12px, il minimo
+   della Formazione; una Barlow Condensed a 12px occupa in larghezza meno di una
+   sans di sistema a 10px, quindi le etichette non vanno a capo dove prima
+   stavano su una riga. Le altezze misurate dal mastro verticale
+   (src/ui/callScreenBudget.ts) sono state rimisurate dopo questo blocco.
+
+   SCOPO. Tutto sotto `.app-shell[data-screen="asta"]`: Formazione, Rose e
+   Impostazioni hanno il loro stile e non vengono toccati. */
+
+/* Titolo di riquadro: come nella Formazione, ma a 16px perché l'Asta ha il
+   budget verticale più stretto del sito. */
+.app-shell[data-screen="asta"] .panel-title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+}
+
+/* Etichette in maiuscoletto: tutte in Barlow Condensed, 12px minimo, peso 600/700. */
+.app-shell[data-screen="asta"] :is(
+  .nomination-context__block-title,
+  .scarcity-cell__head em,
+  .critical-metric > span:first-child,
+  .critical-role-plan-item em,
+  .war-board-mini__nums em,
+  .war-board__metric > span,
+  .moment-scarcity__head em,
+  .moment-scarcity__called,
+  .opponent-precedents__support > em,
+  .value-box__cell em,
+  .expert-titolarita__value,
+  .expert-chip em,
+  .tier-band__prices-head,
+  .status-filter__label,
+  .listone-columns__lock
+) {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
