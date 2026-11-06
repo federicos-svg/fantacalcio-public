@@ -319,7 +319,7 @@ describe("la spazzata che attribuisce", () => {
   it("una riga di testo in più a un blocco esistente lo nomina, e nomina solo lui", () => {
     const findings = callScreenBudgetFindings(
       healthySweep({
-        spanPx: 1434 + 17.25,
+        spanPx: 1433 + 17.25,
         blocks: healthySweep().blocks.map((b) =>
           b.domId === "suggested-player" ? block(b.domId, 229 + 17.25) : b,
         ),

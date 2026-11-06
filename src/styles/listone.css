@@ -522,9 +522,12 @@
    maiuscoletto dell'Asta (asta.css, «L'ASTA NELLO STILE «LAVAGNA»»), portava la
    riga del listone da 94 a 119px (misurato): quarantotto etichette per pagina
    vanno a capo e il listone perde un terzo dello schermo; a 11px la riga è alta
-   94px (93,75 misurati), uno in più di prima. Nessun testo cambia. */
+   94px (93,75 misurati), uno in più di prima. La regola vale SOLO nell'Asta
+   (`.app-shell[data-screen="asta"]`): `data-label` lo scrive solo
+   `cellAttributes` (src/ui/listone.ts), ma `.listone-row` compare anche in
+   altre viste (src/ui/views.ts) e nessun'altra schermata deve cambiare. Nessun testo cambia. */
 @media (max-width: 899px) {
-  .listone-row > div[data-label]::before {
+  .app-shell[data-screen="asta"] .listone-row > div[data-label]::before {
     font-family: var(--font-display);
     font-size: 11px;
     letter-spacing: 0.02em;

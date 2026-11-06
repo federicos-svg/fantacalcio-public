@@ -2785,10 +2785,21 @@
    stile arriva tutto da qui, e i numeri (budget, prezzi, max bid) restano nella
    monospaziata di sempre (--font-mono).
 
-   CORPO. Le etichette che erano a 9–10px (e a 9,5) salgono a 12px, il minimo
-   della Formazione; una Barlow Condensed a 12px occupa in larghezza meno di una
-   sans di sistema a 10px, quindi le etichette non vanno a capo dove prima
-   stavano su una riga. Le altezze misurate dal mastro verticale
+   CORPO. SALGONO A 12px, e solo loro, le etichette dell'elenco `:is(…)` qui
+   sotto: `.nomination-context__block-title`, `.scarcity-cell__head em`,
+   `.critical-metric > span:first-child`, `.critical-role-plan-item em`,
+   `.war-board-mini__nums em`, `.war-board__metric > span`,
+   `.moment-scarcity__head em`, `.moment-scarcity__called`,
+   `.opponent-precedents__support > em`, `.value-box__cell em`,
+   `.expert-titolarita__value`, `.expert-chip em`, `.tier-band__prices-head`,
+   `.status-filter__label`, `.listone-columns__lock` (erano a 9–11px). Le
+   etichette delle caselle del listone al telefono (listone.css) sono a 11px.
+   NON salgono, e restano nel carattere del sito alla loro misura, le altre
+   dichiarazioni a 9–10,5px che l'Asta ha ancora in questo file e altrove
+   (badge, note, testi di supporto): il restyling non le ha toccate. Una Barlow
+   Condensed a 12px occupa in larghezza meno di una sans di sistema a 10px,
+   quindi le etichette dell'elenco non vanno a capo dove prima stavano su una
+   riga. Le altezze misurate dal mastro verticale
    (src/ui/callScreenBudget.ts) sono state rimisurate dopo questo blocco.
 
    SCOPO. Tutto sotto `.app-shell[data-screen="asta"]`: Formazione, Rose e
