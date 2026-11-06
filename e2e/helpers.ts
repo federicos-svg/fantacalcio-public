@@ -894,15 +894,15 @@ export async function waitForCallScreenSettled(page: Page): Promise<void> {
     );
   await dueFrame();
   // I CARATTERI DEL SITO (Barlow, src/styles/fonts.css, `font-display: swap`) si
-  // scaricano alla PRIMA volta che un elemento li usa, e il testo di ripiego è
+  // scaricano alla prima volta che un elemento li usa, e il testo di ripiego è
   // più largo: finché un file è in volo le altezze misurate sono quelle del
-  // ripiego. Misurato: con la rete dei caratteri lenta lo span del contesto
-  // aperto passa da 1708 a 1725 (o a 1779 senza nessun carattere), e in CI
-  // (testa 73d30ae) è uscito 1717 invece di 1708 con la misura, per il resto,
-  // identica. Il primo giro di frame fa partire i caricamenti di ciò che la
-  // schermata ha appena disegnato, `fonts.ready` li aspetta, il secondo giro
-  // lascia ricalcolare il layout con i caratteri veri. Non è una tolleranza:
-  // la misura resta esatta, si aspetta soltanto che il suo ingrediente sia al suo posto.
+  // ripiego (provato in locale con la rete dei caratteri rallentata: 1708 -> 1725,
+  // senza nessun carattere 1779). Il primo giro di frame fa partire i
+  // caricamenti, `fonts.ready` li aspetta, il secondo giro lascia ricalcolare il
+  // layout. NON è la causa del 1717 visto in CI sullo stato `contesto-aperto`
+  // (smentita: la CI dà 1717 anche con questa attesa): quella è la resa diversa
+  // delle revisioni di Chromium, vedi CALL_SCREEN_OVER_BUDGET_STATES. Qui resta
+  // perché è innocua e rende la misura indipendente dalla velocità dei file.
   await page.evaluate(() => document.fonts.ready.then(() => undefined));
   await dueFrame();
 }

@@ -461,7 +461,7 @@ describe("la spazzata che attribuisce", () => {
   it("il contesto aperto sta esattamente sulla propria allocazione: un pixel in più è rosso", () => {
     const open = (consumption: number): CallScreenSweep => ({
       state: "contesto-aperto",
-      spanPx: 1708,
+      spanPx: 1717,
       blocks: [
         block("call-screen-eyebrow", 19),
         block("call-search-row", 0),

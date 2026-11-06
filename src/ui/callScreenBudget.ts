@@ -818,8 +818,8 @@ export interface CallScreenOverBudgetState {
 export const CALL_SCREEN_OVER_BUDGET_STATES: readonly CallScreenOverBudgetState[] = [
   {
     state: "contesto-aperto",
-    spanPx: 1708,
-    overBudgetPx: 20,
+    spanPx: 1717,
+    overBudgetPx: 29,
     why:
       "il corpo di CONTESTO CHIAMATA aperto porta il blocco da 151,5 a 1096,25 px; il listone " +
       "è filtrato a una riga sola e lo span sfonda lo stesso. Erano 1874 px su ac8814c, 1901 " +
@@ -837,7 +837,16 @@ export const CALL_SCREEN_OVER_BUDGET_STATES: readonly CallScreenOverBudgetState[
       "intestare le due metà e con lui sono cadute due spaziature senza compito (vedi " +
       "`giocatore-suggerito`), −13,5 px. Lo stato resta oltre il totale di 58 px con la " +
       "tabella filtrata a UNA riga: il debito è più piccolo, e per la terza volta di seguito " +
-      "è più piccolo perché qualcosa è stato tolto o spostato, non perché sia stato traslocato.",
+      "è più piccolo perché qualcosa è stato tolto o spostato, non perché sia stato traslocato. " +
+      "1708 -> 1717 IL 2026-11-06, ed è una MISURA DELLA CI, non di un'altra schermata: dopo il " +
+      "restyling «Lavagna» dell'Asta questo stato misurava 1708 in locale (Chromium " +
+      "chromium-1243, quello pre-installato nel sandbox di lavoro) e 1717 in CI (la revisione " +
+      "che `@playwright/test` 1.62.0 scarica con `npx playwright install chromium`), stabile " +
+      "anche aspettando `document.fonts.ready` e al retry. I 9 px sono una differenza di resa " +
+      "fra le due revisioni di Chromium, non un carattere non ancora caricato; il pin è il " +
+      "valore della CI perché è il cancello. Gli altri pin (ricerca vuota 2504, nomi lunghi " +
+      "1433/1506) coincidono fra le due. La causa precisa dei 9 px (perché solo in questo " +
+      "stato, con una riga di listone) non è stata isolata.",
   },
   {
     state: "contesto-aperto-ricerca-vuota",
