@@ -7602,6 +7602,11 @@ function renderMomentoAsta(
   const callName = document.createElement("div");
   callName.style.cssText = `font-size:20px;font-weight:700;color:${C.textPrimary};display:flex;align-items:center;gap:8px;flex-wrap:wrap;`;
   callName.append(state.call.playerName || "—");
+  // RUOLO E CLUB STANNO IN UN SOLO SPAN (`.call-identity-meta`, asta.css): a 390px
+  // vanno a capo insieme, e il separatore «·» resta in mezzo alla riga invece di
+  // cominciarla. Stessi testi, stesso ordine; cambia solo il contenitore.
+  const identityMeta = document.createElement("span");
+  identityMeta.className = "call-identity-meta";
   if (state.call.role) {
     const roleSpan = document.createElement("span");
     roleSpan.style.cssText = `font-size:14px;font-weight:400;color:${C.textSec};display:inline-flex;align-items:center;gap:5px;`;
@@ -7610,7 +7615,7 @@ function renderMomentoAsta(
       renderRoleChip(state.call.role),
       ` ${ROLE_LABEL_SING[state.call.role as Role]}`,
     );
-    callName.appendChild(roleSpan);
+    identityMeta.appendChild(roleSpan);
   }
   if (state.call.club) {
     const clubSpan = document.createElement("span");
@@ -7620,8 +7625,9 @@ function renderMomentoAsta(
       renderClubBadge(state.call.club),
       ` ${state.call.club}`,
     );
-    callName.appendChild(clubSpan);
+    identityMeta.appendChild(clubSpan);
   }
+  if (identityMeta.childNodes.length > 0) callName.appendChild(identityMeta);
   playerInfo.appendChild(callLabel);
   playerInfo.appendChild(callName);
 

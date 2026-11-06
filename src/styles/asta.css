@@ -2838,3 +2838,16 @@
   font-weight: 700;
   letter-spacing: 0.08em;
 }
+
+/* L'intestazione della scheda del chiamato: ruolo e club (`.call-identity-meta`,
+   src/main.ts) formano un'unità sola che non va a capo al suo interno. A 390px
+   scende intera sulla riga sotto il nome, e il separatore «·» sta in mezzo alla
+   riga invece di cominciarla. A schermo largo sta accanto al nome, come prima
+   (il vuoto fra i due è lo stesso: 8px). */
+.app-shell[data-screen="asta"] .call-identity-meta {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  white-space: nowrap;
+}
