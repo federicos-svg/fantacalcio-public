@@ -219,7 +219,20 @@ function playersFrom(element: unknown, shape: ProbableLineupsShape): readonly Ob
     for (const piece of pieces) {
       const name = label(piece);
       if (name === null) return null;
-      many.push({ displayName: name, shirtNumber: absentInSource(), role: absentInSource() });
+      many.push({
+        displayName: name,
+        shirtNumber: absentInSource(),
+        role: absentInSource(),
+        // Nessuna famiglia di chiavi per l'identificativo, e non è una
+        // dimenticanza: le famiglie sono un elenco CHIUSO, quindi aggiungerne
+        // una obbligherebbe ogni tabella di forma a nominare una chiave che la
+        // sua fonte magari non ha — cioè a dichiarare il falso per far partire
+        // il parser. Questo lettore non lo cerca, e lo dice: `not-observed` è
+        // «noi non abbiamo guardato», diverso da «la fonte tace». Quando una
+        // fonte a blocco JSON si scoprirà portarlo, quello è il momento di
+        // aprire la famiglia.
+        sourceIdentifier: notObserved(),
+      });
     }
     return many.length === 0 ? null : many;
   }
@@ -233,6 +246,7 @@ function playersFrom(element: unknown, shape: ProbableLineupsShape): readonly Ob
       displayName: name,
       shirtNumber: shirt === null ? absentInSource() : observed(shirt),
       role: role === null ? absentInSource() : observed(role),
+      sourceIdentifier: notObserved(),
     },
   ];
 }

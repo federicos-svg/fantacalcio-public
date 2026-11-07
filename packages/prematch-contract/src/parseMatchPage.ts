@@ -306,6 +306,9 @@ function playerFrom(element: unknown, shape: SourceShape): ObservedPlayer | null
     displayName: name,
     shirtNumber: shirt === null ? absentInSource() : observed(shirt),
     role: role === null ? absentInSource() : observed(role),
+    // `not-observed`, non `absent-in-source`: questo lettore non cerca nessun
+    // identificativo — motivo in `parseProbableLineupsPage.ts`, stesso punto.
+    sourceIdentifier: notObserved(),
   };
 }
 

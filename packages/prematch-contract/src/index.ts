@@ -44,6 +44,15 @@
 //     qui. Questo pacchetto prepara la materia prima e si ferma;
 //   * l'identità dei giocatori. Un nome è l'etichetta che la fonte scrive, non
 //     una persona riconosciuta: riconciliare due fonti è un altro mestiere.
+//     VALE ANCHE PER L'IDENTIFICATIVO, e va detto perché il campo esiste e a
+//     prima vista sembra il contrario: `ObservedPlayer.sourceIdentifier` e
+//     `ObservedStartingForecast.sourceIdentifier` riportano il numero che la
+//     fonte scrive accanto al nome, esattamente come il nome — un'etichetta
+//     della fonte, riportata e non interpretata. Che quel numero sia lo stesso
+//     numero di un'altra fonte è una MISURA, e non si fa qui: qui non esiste
+//     nessuna funzione che confronti due identificativi, e non ci deve arrivare.
+//     La riga sopra resta intera: questo pacchetto porta più materia prima allo
+//     stesso mestiere di prima, e continua a non esercitarne un altro.
 //
 // L'ANCORA DELLE MISURE CITATE QUI DENTRO — perché un numero in un commento,
 // senza il dato su cui è stato preso, invecchia senza che nessuno se ne
