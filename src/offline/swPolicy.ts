@@ -46,6 +46,7 @@
 //   network-only /api/** — the private deposit is never cached. A stale
 //                deposit served from Cache Storage during an auction would be
 //                worse than no deposit at all, which the app already handles.
+//                /cdn-cgi/** is network-only too: it is Cloudflare's, not ours.
 //   passthrough  everything else: cross-origin, non-GET, unknown same-origin
 //                paths. The service worker does not answer what it was not
 //                built to answer.
@@ -77,6 +78,14 @@ export const SHELL_ASSET_PREFIX = "/assets/";
 export const DATA_ASSET_PREFIX = "/data/";
 /** Paths under this prefix are backend endpoints and are never cached. */
 export const NETWORK_ONLY_PREFIX = "/api/";
+/**
+ * Paths under this prefix belong to Cloudflare (Access login/return, challenge
+ * endpoints), not to the app: the worker never answers them, whether they are
+ * a navigation or a subresource. A login return such as
+ * `/cdn-cgi/access/authorized` is a redirect hop; answering it from the cached
+ * shell, or with a replayed redirect, breaks the login.
+ */
+export const PLATFORM_NETWORK_ONLY_PREFIX = "/cdn-cgi/";
 
 /** How long a navigation waits for the network before falling back to the cached shell. */
 export const NAVIGATION_NETWORK_TIMEOUT_MS = 2500;
@@ -119,7 +128,9 @@ export function classifySwRequest(facts: SwRequestFacts): SwRouteKind {
     return "passthrough";
   }
 
-  if (pathname.startsWith(NETWORK_ONLY_PREFIX)) return "network-only";
+  if (pathname.startsWith(NETWORK_ONLY_PREFIX) || pathname.startsWith(PLATFORM_NETWORK_ONLY_PREFIX)) {
+    return "network-only";
+  }
   // Checked before the prefix rules: a document load is a navigation whatever
   // path it carries, and it is the only request that can bring the app back
   // from a cold start.

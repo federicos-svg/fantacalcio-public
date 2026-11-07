@@ -89,6 +89,17 @@ describe("classifySwRequest", () => {
     expect(classifySwRequest(facts({ mode: "navigate", url: `${ORIGIN}/api/listone` }))).toBe("network-only");
   });
 
+  it("never touches Cloudflare's own /cdn-cgi/ paths, navigation or not", () => {
+    for (const mode of ["navigate", "cors", "no-cors"]) {
+      expect(classifySwRequest(facts({ mode, url: `${ORIGIN}/cdn-cgi/access/authorized?code=x` }))).toBe(
+        "network-only",
+      );
+      expect(classifySwRequest(facts({ mode, url: `${ORIGIN}/cdn-cgi/qualcosa` }))).toBe("network-only");
+    }
+    // Only the exact prefix: a lookalike is an ordinary path.
+    expect(classifySwRequest(facts({ mode: "navigate", url: `${ORIGIN}/cdn-cgix/a` }))).toBe("navigation");
+  });
+
   it("passes through anything that is not a same-origin GET", () => {
     expect(classifySwRequest(facts({ method: "POST" }))).toBe("passthrough");
     expect(classifySwRequest(facts({ method: "HEAD" }))).toBe("passthrough");
