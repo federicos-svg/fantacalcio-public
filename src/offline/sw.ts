@@ -185,10 +185,31 @@ async function putInCache(request: Request, response: Response): Promise<void> {
   }
 }
 
+/**
+ * A response that was reached through a redirect (`redirected === true`) cannot
+ * be handed to `respondWith` for a navigation: Chrome refuses it with
+ * ERR_FAILED. The precache can hold such a copy (a host that answers
+ * `/index.html` with a redirect to `/`), so every cached answer to a navigation
+ * is rebuilt as a plain response first. Other responses pass untouched.
+ */
+async function cleanRedirected(response: Response): Promise<Response> {
+  if (!response.redirected) return response;
+  return new Response(await response.blob(), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
 async function handleNavigation(request: Request): Promise<Response> {
   try {
     const fresh = await fetchWithTimeout(request, NAVIGATION_NETWORK_TIMEOUT_MS);
     void reportNetwork(true, request.url);
+    // The origin (or the access layer in front of it) answered with a redirect
+    // the worker must not follow on its own (expired session -> login page).
+    // The browser follows it; replacing it with an old cached shell would hide
+    // the login.
+    if (fresh.type === "opaqueredirect") return fresh;
     if (fresh.ok) {
       await putInCache(request, fresh.clone());
       return fresh;
@@ -200,10 +221,10 @@ async function handleNavigation(request: Request): Promise<Response> {
   const fallbackPath = navigationFallbackPath(PRECACHED_PATHS);
   if (fallbackPath !== null) {
     const cached = await matchInCache(fallbackPath);
-    if (cached) return cached;
+    if (cached) return cleanRedirected(cached);
   }
   const cachedExact = await matchInCache(request);
-  if (cachedExact) return cachedExact;
+  if (cachedExact) return cleanRedirected(cachedExact);
   // Nothing cached and no network: say so in a page instead of the browser's
   // own dinosaur, so the state is readable during an auction.
   return new Response(OFFLINE_SHELL_MISSING_HTML, {
