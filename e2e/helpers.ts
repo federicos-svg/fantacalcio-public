@@ -885,12 +885,26 @@ export async function waitForCallScreenSettled(page: Page): Promise<void> {
   );
   // Due frame: il primo lascia applicare gli `onerror`, il secondo lascia
   // ricalcolare il layout che quelli hanno cambiato.
-  await page.evaluate(
-    async () =>
-      new Promise<void>((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-      }),
-  );
+  const dueFrame = (): Promise<void> =>
+    page.evaluate(
+      async () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        }),
+    );
+  await dueFrame();
+  // I CARATTERI DEL SITO (Barlow, src/styles/fonts.css, `font-display: swap`) si
+  // scaricano alla prima volta che un elemento li usa, e il testo di ripiego è
+  // più largo: finché un file è in volo le altezze misurate sono quelle del
+  // ripiego (provato in locale con la rete dei caratteri rallentata: 1708 -> 1725,
+  // senza nessun carattere 1779). Il primo giro di frame fa partire i
+  // caricamenti, `fonts.ready` li aspetta, il secondo giro lascia ricalcolare il
+  // layout. NON è la causa del 1717 visto in CI sullo stato `contesto-aperto`
+  // (smentita: la CI dà 1717 anche con questa attesa): quella è la resa diversa
+  // delle revisioni di Chromium, vedi CALL_SCREEN_OVER_BUDGET_STATES. Qui resta
+  // perché è innocua e rende la misura indipendente dalla velocità dei file.
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  await dueFrame();
 }
 
 /**

@@ -2716,10 +2716,11 @@ function render(): void {
 
   const wrapper = document.createElement("div");
   wrapper.className = "app-shell";
-  // LA SCHERMATA, COME ATTRIBUTO. Serve soltanto a una regola di presentazione:
-  // l'Asta tiene il carattere di prima (layout.css, `.app-shell[data-screen]`),
-  // perché le sue misure dichiarate (e2e/call-screen-budget.spec.ts) sono
-  // fissate su quel carattere e l'Asta non è nel perimetro dell'impaginazione.
+  // LA SCHERMATA, COME ATTRIBUTO. Serve alle regole di presentazione che
+  // valgono per una schermata sola (`.app-shell[data-screen="asta"]` in
+  // asta.css) e alle prove che devono sapere dove stanno. Dal restyling
+  // «Lavagna» dell'Asta il carattere è lo stesso di tutto il sito: non c'è più
+  // nessuna eccezione di carattere legata a questo attributo.
   wrapper.dataset.screen = state.screen;
 
   wrapper.appendChild(renderHeader());
@@ -7601,6 +7602,11 @@ function renderMomentoAsta(
   const callName = document.createElement("div");
   callName.style.cssText = `font-size:20px;font-weight:700;color:${C.textPrimary};display:flex;align-items:center;gap:8px;flex-wrap:wrap;`;
   callName.append(state.call.playerName || "—");
+  // RUOLO E CLUB STANNO IN UN SOLO SPAN (`.call-identity-meta`, asta.css): a 390px
+  // vanno a capo insieme, e il separatore «·» resta in mezzo alla riga invece di
+  // cominciarla. Stessi testi, stesso ordine; cambia solo il contenitore.
+  const identityMeta = document.createElement("span");
+  identityMeta.className = "call-identity-meta";
   if (state.call.role) {
     const roleSpan = document.createElement("span");
     roleSpan.style.cssText = `font-size:14px;font-weight:400;color:${C.textSec};display:inline-flex;align-items:center;gap:5px;`;
@@ -7609,7 +7615,7 @@ function renderMomentoAsta(
       renderRoleChip(state.call.role),
       ` ${ROLE_LABEL_SING[state.call.role as Role]}`,
     );
-    callName.appendChild(roleSpan);
+    identityMeta.appendChild(roleSpan);
   }
   if (state.call.club) {
     const clubSpan = document.createElement("span");
@@ -7619,8 +7625,9 @@ function renderMomentoAsta(
       renderClubBadge(state.call.club),
       ` ${state.call.club}`,
     );
-    callName.appendChild(clubSpan);
+    identityMeta.appendChild(clubSpan);
   }
+  if (identityMeta.childNodes.length > 0) callName.appendChild(identityMeta);
   playerInfo.appendChild(callLabel);
   playerInfo.appendChild(callName);
 

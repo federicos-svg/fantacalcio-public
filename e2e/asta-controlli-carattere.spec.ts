@@ -2,27 +2,22 @@ import { expect, test, type Page } from "@playwright/test";
 import { E2E_TARGET_PLAYER, SYNTHETIC_LISTONE_POOL } from "./fixtures/synthetic-listone.js";
 import { apriAsta, installSyntheticNetworkGuard } from "./helpers.js";
 
-// L'ASTA TIENE IL CARATTERE DI PRIMA, ANCHE NEI CONTROLLI CHE LO DICHIARANO.
+// L'ASTA HA IL CARATTERE DEL SITO, NON UNO SUO (restyling «Lavagna» dell'Asta).
 //
-// L'Asta non entra nel restyling: tiene il carattere di sistema di prima
-// (`.app-shell[data-screen="asta"]` in layout.css) e i controlli del modulo
-// tornano al carattere di default del browser con `font-family: revert`. Quella
-// regola, scritta con la specificità dello schermo (0,2,1), batteva anche i
-// `font-family: inherit` che l'Asta dichiara apposta su due controlli —
-// `#critical-roster` (asta.css) e `.moment-facts__toggle` — e li portava ad
-// Arial: il secondo perdeva 2px di altezza (28 → 26) rispetto a prima.
-//
-// COSA SI MISURA, SENZA UN CARATTERE SCRITTO NELLA PROVA (cambia da macchina a
-// macchina: qui `system-ui` risolve su Inter, altrove su un altro):
-//  1. il carattere calcolato di quei due controlli è IDENTICO a quello della
-//     schermata d'Asta di cui sono figli — è ciò che `inherit` significa;
-//  2. la loro altezza è la stessa che avrebbero con `font-family: inherit`
-//     imposto in linea (`!important`): se la cascata dà loro un altro
-//     carattere, l'altezza cambia con lui;
-//  3. controllo positivo — un controllo che NON dichiara il suo carattere
-//     («Avvia») resta al carattere di default del browser, diverso da quello
-//     della schermata: la regola `revert` non è sparita, ha solo smesso di
-//     travolgere ciò che la batteva per dichiarazione.
+// Fino al restyling l'Asta teneva il carattere di sistema di prima
+// (`.app-shell[data-screen="asta"]` in layout.css, con `font-family: revert` sui
+// controlli del modulo). Quell'eccezione è tolta: il testo dell'Asta è Barlow
+// come quello di Formazione, Rose e Impostazioni, e i controlli del modulo
+// ereditano la famiglia dal testo (`button, input, select, textarea { font-family:
+// inherit }` di base.css). Questa prova tiene ferme tre cose, senza scrivere nel
+// test un nome di carattere diverso da quello del sito:
+//  1. il carattere della schermata d'Asta è quello del corpo del sito;
+//  2. i controlli (compresi i due che dichiarano `inherit` da sé, `#critical-roster`
+//     e `.moment-facts__toggle`, e quelli che non dichiarano niente, «Avvia» e il
+//     campo prezzo) hanno la stessa famiglia della schermata: non esiste più un
+//     controllo che torna al carattere di default del browser;
+//  3. l'altezza dei due controlli con `inherit` dichiarato è quella che avrebbero
+//     con `font-family: inherit` imposto in linea.
 
 async function misura(page: Page, selettore: string) {
   return page.evaluate((sel) => {
@@ -57,7 +52,7 @@ async function controlla(page: Page, selettore: string): Promise<void> {
   expect(m?.altezza, `${selettore}: stessa altezza che avrebbe con «inherit»`).toBe(m?.conInherit.altezza);
 }
 
-test("nell'Asta i controlli che dichiarano `inherit` lo mantengono: stesso carattere e stessa altezza di prima", async ({
+test("nell'Asta tutti i controlli hanno il carattere del sito, e quelli con `inherit` dichiarato restano alti quanto con `inherit`", async ({
   page,
   context,
 }) => {
@@ -77,12 +72,12 @@ test("nell'Asta i controlli che dichiarano `inherit` lo mantengono: stesso carat
   await expect(page.locator("#moment-facts-toggle")).toBeVisible();
   await controlla(page, ".moment-facts__toggle");
 
-  // Controllo positivo: «Avvia» non dichiara un carattere, quindi resta a quello
-  // di default del browser (revert), diverso da quello della schermata.
+  // Un controllo che NON dichiara il suo carattere («Avvia», il campo prezzo)
+  // prende ora quello della schermata, come tutti gli altri.
   const avvia = await misura(page, "#assign-price");
   expect(avvia, "il campo prezzo esiste").not.toBeNull();
-  expect(avvia?.famiglia, "i controlli senza carattere proprio restano al default del browser").not.toBe(
-    avvia?.famigliaSchermata,
-  );
+  expect(avvia?.famiglia, "il campo prezzo eredita il carattere della schermata").toBe(avvia?.famigliaSchermata);
+  const corpo = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
+  expect(avvia?.famigliaSchermata, "la schermata d'Asta ha il carattere del corpo del sito").toBe(corpo);
   expect(externalRequests).toEqual([]);
 });

@@ -218,7 +218,7 @@ export const CALL_SCREEN_STATES: readonly CallScreenStateSpec[] = [
  * stanno dentro. Vedi `LISTONE_COLONNE_DEFAULT_NON_DICHIARATE` e
  * `NOME_GIOCATORE_LUNGHEZZA_NON_DICHIARATA` in `CALL_SCREEN_BUDGET_UNRATIFIED`.
  */
-export const LISTONE_ROW_PX = 93;
+export const LISTONE_ROW_PX = 94;
 
 /** Da dove il blocco del listone comincia al bordo superiore della PRIMA riga:
  *  margine del blocco, titolo, i quattro interruttori di ruolo, filtro stato,
@@ -241,11 +241,11 @@ export const LISTONE_ROW_PX = 93;
  *  riga è stata abbassata, perché nessun altro blocco ha perso qualcosa. È la
  *  procedura scritta in cima a questo file — si misura, si dichiara, si
  *  sottrae — e non un tetto ritoccato per far tornare un test. */
-export const LISTONE_HEAD_PX = 233;
+export const LISTONE_HEAD_PX = 234;
 
 /** Dal bordo inferiore dell'ULTIMA riga al bordo superiore dell'indicatore di
  *  pagina: la coda della tabella dentro lo span. */
-export const LISTONE_TAIL_PX = 13;
+export const LISTONE_TAIL_PX = 14;
 
 /** Tutto ciò che nel listone non è una riga: testata + coda. */
 export const LISTONE_CHROME_PX = LISTONE_HEAD_PX + LISTONE_TAIL_PX;
@@ -310,7 +310,7 @@ export interface CallScreenBlockAllocation {
 export const CALL_SCREEN_BUDGET_MEASURED_AT = "519d694";
 
 /** La data della misura. Cambia INSIEME ai numeri, mai da sola. */
-export const CALL_SCREEN_BUDGET_MEASURED_ON = "2026-08-29";
+export const CALL_SCREEN_BUDGET_MEASURED_ON = "2026-11-05";
 
 // ⚠️ RIMISURA DEL 2026-08-26 — «IL RADAR DELLA PAGELLA ENTRA NELLA SCHERMATA DI
 // CHIAMATA», e il mastro dice quanto costa.
@@ -496,7 +496,7 @@ export const CALL_SCREEN_BUDGET_LEDGER: readonly CallScreenBlockAllocation[] = [
     id: "intestazione-ricerca",
     label: "RICERCA GIOCATORE (occhiello)",
     domId: "call-screen-eyebrow",
-    allocationPx: 18,
+    allocationPx: 19,
     measuredInState: "ricerca",
     measuredAtCommit: CALL_SCREEN_BUDGET_MEASURED_AT,
     requiredIn: ALL_STATES,
@@ -560,7 +560,7 @@ export const CALL_SCREEN_BUDGET_LEDGER: readonly CallScreenBlockAllocation[] = [
     id: "contesto-chiamata",
     label: "CONTESTO CHIAMATA",
     domId: "nomination-context",
-    allocationPx: 1096,
+    allocationPx: 1071,
     measuredInState: "contesto-aperto",
     measuredAtCommit: CALL_SCREEN_BUDGET_MEASURED_AT,
     requiredIn: WITH_SELECTION,
@@ -569,13 +569,16 @@ export const CALL_SCREEN_BUDGET_LEDGER: readonly CallScreenBlockAllocation[] = [
       "blocco solo. Da chiuso ne misura 151,5. L'allocazione tiene l'aperto perché è " +
       "l'altezza che il blocco RAGGIUNGE, e un mastro che allocasse il chiuso direbbe verde " +
       "su una schermata che è al 161% del budget. Nessun documento dichiara quanto questo " +
-      "pannello possa occupare: vedi CONTESTO_CHIAMATA_APERTO_NON_DICHIARATO.",
+      "pannello possa occupare: vedi CONTESTO_CHIAMATA_APERTO_NON_DICHIARATO. 1096 -> 1071 IL " +
+      "2026-11-05: 1070,7 px misurati col corpo aperto dopo il restyling «Lavagna» dell'Asta " +
+      "(il testo in Barlow, più stretto, manda a capo meno righe: −25 px). Da chiuso ne " +
+      "misura 153,7.",
   },
   {
     id: "giocatore-suggerito",
     label: "GIOCATORE SUGGERITO (chi chiamare ora + esca)",
     domId: "suggested-player",
-    allocationPx: 245,
+    allocationPx: 229,
     measuredInState: "ricerca",
     measuredAtCommit: CALL_SCREEN_BUDGET_MEASURED_AT,
     requiredIn: ALL_STATES,
@@ -650,7 +653,10 @@ export const CALL_SCREEN_BUDGET_LEDGER: readonly CallScreenBlockAllocation[] = [
       "intero esatto, e il mastro arrotonda per eccesso solo quando c'è una frazione da " +
       "coprire. Nella scena PIENA il blocco misura 220,2 px di altezza propria con una riga " +
       "selezionata (era 233,7) contro i 227 della scena muta che questo mastro misura: la " +
-      "scena piena resta la più leggera delle due, e l'allocazione continua a contenerla.",
+      "scena piena resta la più leggera delle due, e l'allocazione continua a contenerla. " +
+      "245 -> 229 IL 2026-11-05: restyling «Lavagna» dell'Asta, testo in Barlow (più stretto: " +
+      "meno righe a capo nei due sottoblocchi). Consumo massimo 228,5 px, in `riga-selezionata`; " +
+      "allo stato `ricerca` 214,5 (era 231). Il −16,5 è lo stesso nei due stati.",
   },
   {
     id: "listone",
@@ -761,8 +767,19 @@ export const CALL_SCREEN_ALLOCATED_PX = CALL_SCREEN_BUDGET_LEDGER.reduce(
  * salto più grosso di quella serie è il trasloco della barra e non una
  * riparazione: vedi PROVA_1_MARGINE_RIAPERTO_SENZA_RIPAGARE e PROVA 1 in
  * e2e/call-screen-budget.spec.ts.
+ *
+ * −896 -> −868 IL 2026-11-05, restyling «Lavagna» dell'Asta (il carattere di
+ * sistema lascia il posto a Barlow, l'eccezione dell'Asta in layout.css è
+ * tolta). Rimisurati sul vivo, per blocco: +1 `intestazione-ricerca` (18 -> 19),
+ * +12 il listone (10 righe × +1, testata +1, coda +1: 93 -> 94, 233 -> 234,
+ * 13 -> 14), −25 `contesto-chiamata` (1096 -> 1071) e −16 `giocatore-suggerito`
+ * (245 -> 229), perché il testo più stretto va a capo meno volte. Il saldo è −28:
+ * la riserva sale, ed è la prima volta che sale per il carattere e non per un
+ * blocco tolto. Nessun'altra riga si è mossa. Il margine di `ricerca` al boot
+ * è 255 px (span 1433). Misura presa sul build di questo albero, non su un
+ * commit già unito.
  */
-export const CALL_SCREEN_BUDGET_RESERVE_PX = -896;
+export const CALL_SCREEN_BUDGET_RESERVE_PX = -868;
 
 /**
  * Che cosa costa, oggi, far entrare un blocco nuovo alto `heightPx`: quanti px
@@ -801,8 +818,8 @@ export interface CallScreenOverBudgetState {
 export const CALL_SCREEN_OVER_BUDGET_STATES: readonly CallScreenOverBudgetState[] = [
   {
     state: "contesto-aperto",
-    spanPx: 1746,
-    overBudgetPx: 58,
+    spanPx: 1717,
+    overBudgetPx: 29,
     why:
       "il corpo di CONTESTO CHIAMATA aperto porta il blocco da 151,5 a 1096,25 px; il listone " +
       "è filtrato a una riga sola e lo span sfonda lo stesso. Erano 1874 px su ac8814c, 1901 " +
@@ -820,12 +837,21 @@ export const CALL_SCREEN_OVER_BUDGET_STATES: readonly CallScreenOverBudgetState[
       "intestare le due metà e con lui sono cadute due spaziature senza compito (vedi " +
       "`giocatore-suggerito`), −13,5 px. Lo stato resta oltre il totale di 58 px con la " +
       "tabella filtrata a UNA riga: il debito è più piccolo, e per la terza volta di seguito " +
-      "è più piccolo perché qualcosa è stato tolto o spostato, non perché sia stato traslocato.",
+      "è più piccolo perché qualcosa è stato tolto o spostato, non perché sia stato traslocato. " +
+      "1708 -> 1717 IL 2026-11-06, ed è una MISURA DELLA CI, non di un'altra schermata: dopo il " +
+      "restyling «Lavagna» dell'Asta questo stato misurava 1708 in locale (Chromium " +
+      "chromium-1243, quello pre-installato nel sandbox di lavoro) e 1717 in CI (la revisione " +
+      "che `@playwright/test` 1.62.0 scarica con `npx playwright install chromium`), stabile " +
+      "anche aspettando `document.fonts.ready` e al retry. I 9 px sono una differenza di resa " +
+      "fra le due revisioni di Chromium, non un carattere non ancora caricato; il pin è il " +
+      "valore della CI perché è il cancello. Gli altri pin (ricerca vuota 2504, nomi lunghi " +
+      "1433/1506) coincidono fra le due. La causa precisa dei 9 px (perché solo in questo " +
+      "stato, con una riga di listone) non è stata isolata.",
   },
   {
     state: "contesto-aperto-ricerca-vuota",
-    spanPx: 2530,
-    overBudgetPx: 842,
+    spanPx: 2504,
+    overBudgetPx: 816,
     why:
       "contesto aperto E listone di nuovo a pagina piena: 2669 px contro 1688, il 158% del " +
       "totale dichiarato (erano 2724 — il 161% — su ac8814c, 2901 il 2026-08-26 col riquadro " +
@@ -953,6 +979,14 @@ export interface CallScreenNameLengthPin {
    * modo in cui una misura comincia a mentire.
    */
   readonly deltaFromBudgetPx: number;
+  /**
+   * Se con questa lunghezza la riga del listone si alza, cioè se il nome va a
+   * capo e l'uguaglianza derivata dalla forma del listone si rompe. Dal
+   * 2026-11-05 non è più vero per tutti: col carattere del sito (Barlow, più
+   * stretto del carattere di sistema di prima) un nome da 18 caratteri sta su
+   * una riga.
+   */
+  readonly rigaSiAlza: boolean;
 }
 
 /**
@@ -994,9 +1028,23 @@ export interface CallScreenNameLengthPin {
  * mastro dice da solo quanto manca.
  */
 export const CALL_SCREEN_NAME_LENGTH_PINS: readonly CallScreenNameLengthPin[] = [
-  { chars: 18, spanPx: 1614, deltaFromBudgetPx: -74 },
-  { chars: 22, spanPx: 1634, deltaFromBudgetPx: -54 },
+  { chars: 18, spanPx: 1433, deltaFromBudgetPx: -255, rigaSiAlza: false },
+  { chars: 22, spanPx: 1506, deltaFromBudgetPx: -182, rigaSiAlza: true },
 ];
+
+// ⚠️ RIMISURA DEL 2026-11-05 — IL DEBITO DEI NOMI LUNGHI SI È RIDOTTO PER IL
+// CARATTERE, NON PER UN BLOCCO TOLTO. Con Barlow al posto del carattere di
+// sistema (restyling «Lavagna» dell'Asta) un nome da 18 caratteri sta su una
+// riga: lo span resta 1433, uguale a quello della fixture da 13 caratteri, e il
+// mastro non trova niente da dire (255 px di margine, il 15% del totale). A 22
+// caratteri il nome va a capo, la riga si alza e il mastro nomina il listone
+// come prima — ma lo span è 1506, a 182 px dal totale e non più a 54. Le due
+// affermazioni che erano scritte qui («il margine è sottile», meno del 5%) non
+// sono più vere, e non sono state allentate: sono state sostituite dalle
+// misure, pinnate alla lettera sopra. Il fatto che resta è quello di sempre,
+// dichiarato senza essere approvato: nessun documento dice quanto può essere
+// lungo un nome, e a 22 caratteri la riga si alza ancora. Da questa misura in
+// poi i pin sono due, uno per lato del punto in cui il nome va a capo.
 
 /* ────────────────────────────────────────────────────────────────────────────
    7. LA SPAZZATA CHE ATTRIBUISCE — funzione pura, testabile senza browser
