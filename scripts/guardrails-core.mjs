@@ -55,9 +55,18 @@ const SUPABASE_MIGRATIONS_EXTS = new Set([".sql"]);
 // everywhere". Prefix over extension-everywhere because a `.xml`/`.java`/
 // `.gradle` file outside `apps/` stays blocked exactly as before. The binary
 // sniff still runs first, so a renamed archive is `blocked-binary`; `.apk`,
-// `.keystore`, `.class` and `google-services.json`-style secrets are not here.
+// `.keystore` and `.class` are not here. Files that carry secrets are refused BY
+// NAME under `apps/` (see `isAndroidSecretName`): `local.properties`, any
+// `*keystore*.properties` / `*signing*.properties`, and `google-services.json`
+// (the Firebase config is injected at build time, never tracked; it is blocked
+// only under `apps/`, so a `.json` of that name elsewhere is judged as before).
 const ANDROID_APP_DIR = "apps/";
 const ANDROID_APP_EXTS = new Set([".java", ".gradle", ".xml", ".properties"]);
+function isAndroidSecretName(base) {
+  const b = base.toLowerCase();
+  return b === "local.properties" || b === "google-services.json" ||
+    (b.endsWith(".properties") && (b.includes("keystore") || b.includes("signing")));
+}
 
 // ---------------------------------------------------------------------------
 // Extension exceptions — INJECTED BY THE HOST REPOSITORY, never listed here
@@ -585,6 +594,7 @@ export function classifyTrackedFile(
   // waives the EXTENSION rules, never the CONTENT rule.
   if (contentSample.includes(NUL) || contentSample.startsWith("PK")) return "blocked-binary";
   if (path.startsWith(SUPABASE_MIGRATIONS_DIR) && SUPABASE_MIGRATIONS_EXTS.has(ext)) return "allowed";
+  if (path.startsWith(ANDROID_APP_DIR) && isAndroidSecretName(base)) return "blocked-ext";
   if (path.startsWith(ANDROID_APP_DIR) && ANDROID_APP_EXTS.has(ext)) return "allowed";
   if (path === "graph.json") return "blocked-graphify";
   if (path.startsWith(GRAPHIFY_OUT_DIR)) return "blocked-graphify";
