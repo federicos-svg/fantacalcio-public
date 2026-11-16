@@ -47,6 +47,27 @@ const CLUB_LOGO_ASSET_EXTS = new Set([".svg", ".png"]);
 const SUPABASE_MIGRATIONS_DIR = "supabase/migrations/";
 const SUPABASE_MIGRATIONS_EXTS = new Set([".sql"]);
 
+// Android project sources — text only, and ONLY under `apps/`. Why: the Coach's
+// Android app is PRIVATE and lives in the private repository that vendors this
+// core; no app enters the public core (it has no `apps/` directory), so this is
+// a tolerance, not a content. Same shape as the two precedents above: one
+// hardcoded directory + a closed extension list, never "Java is fine
+// everywhere". Prefix over extension-everywhere because a `.xml`/`.java`/
+// `.gradle` file outside `apps/` stays blocked exactly as before. The binary
+// sniff still runs first, so a renamed archive is `blocked-binary`; `.apk`,
+// `.keystore` and `.class` are not here. Files that carry secrets are refused BY
+// NAME under `apps/` (see `isAndroidSecretName`): `local.properties`, any
+// `*keystore*.properties` / `*signing*.properties`, and `google-services.json`
+// (the Firebase config is injected at build time, never tracked; it is blocked
+// only under `apps/`, so a `.json` of that name elsewhere is judged as before).
+const ANDROID_APP_DIR = "apps/";
+const ANDROID_APP_EXTS = new Set([".java", ".gradle", ".xml", ".properties"]);
+function isAndroidSecretName(base) {
+  const b = base.toLowerCase();
+  return b === "local.properties" || b === "google-services.json" ||
+    (b.endsWith(".properties") && (b.includes("keystore") || b.includes("signing")));
+}
+
 // ---------------------------------------------------------------------------
 // Extension exceptions — INJECTED BY THE HOST REPOSITORY, never listed here
 // ---------------------------------------------------------------------------
@@ -573,6 +594,8 @@ export function classifyTrackedFile(
   // waives the EXTENSION rules, never the CONTENT rule.
   if (contentSample.includes(NUL) || contentSample.startsWith("PK")) return "blocked-binary";
   if (path.startsWith(SUPABASE_MIGRATIONS_DIR) && SUPABASE_MIGRATIONS_EXTS.has(ext)) return "allowed";
+  if (path.startsWith(ANDROID_APP_DIR) && isAndroidSecretName(base)) return "blocked-ext";
+  if (path.startsWith(ANDROID_APP_DIR) && ANDROID_APP_EXTS.has(ext)) return "allowed";
   if (path === "graph.json") return "blocked-graphify";
   if (path.startsWith(GRAPHIFY_OUT_DIR)) return "blocked-graphify";
   if (path.startsWith(GRAPHIFY_TOOLS_DIR)) return "blocked-graphify";

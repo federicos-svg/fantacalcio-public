@@ -40,6 +40,27 @@ describe("classifyTrackedFile — synthetic", () => {
   it("allows .github/CODEOWNERS (extensionless by GitHub's own requirement)", () => {
     expect(classifyTrackedFile(".github/CODEOWNERS")).toBe("allowed");
   });
+  it("allows Android project sources (.java .gradle .xml .properties) only under apps/", () => {
+    for (const p of ["apps/x/app/src/Main.java", "apps/x/app/build.gradle", "apps/x/app/src/main/AndroidManifest.xml", "apps/x/gradle.properties"]) {
+      expect(classifyTrackedFile(p), p).toBe("allowed");
+      // the same kinds elsewhere stay blocked
+      expect(classifyTrackedFile(p.replace("apps/", "src/")), p).toBe("blocked-ext");
+    }
+    expect(classifyTrackedFile("apps/x/app/release.apk")).toBe("blocked-ext");
+    expect(classifyTrackedFile("apps/x/app/release.keystore")).toBe("blocked-ext");
+    expect(classifyTrackedFile("apps/x/Main.class")).toBe("blocked-ext");
+    expect(classifyTrackedFile("apps/x/Main.java", "PK\u0003\u0004")).toBe("blocked-binary");
+  });
+  it("apps/ prefix edge cases and secret names under apps/", () => {
+    for (const p of ["xapps/a/Main.java", "Apps/a/Main.java", "src/apps/a/Main.java", "app/a/build.gradle"]) expect(classifyTrackedFile(p), p).toBe("blocked-ext");
+    for (const p of ["apps/a/local.properties", "apps/a/keystore.properties", "apps/a/my-keystore.properties", "apps/a/signing.properties", "apps/a/release-signing.properties", "apps/a/app/google-services.json", "apps/a/Local.Properties"]) {
+      expect(classifyTrackedFile(p), p).toBe("blocked-ext");
+    }
+    expect(classifyTrackedFile("apps/a/gradle.properties")).toBe("allowed");
+    expect(classifyTrackedFile("apps/a/app/src/main/res/values/colors.xml")).toBe("allowed");
+    // outside apps/ the name is judged as before
+    expect(classifyTrackedFile("config/google-services.json")).toBe("allowed");
+  });
   it("does not turn CODEOWNERS into a general extensionless pass", () => {
     // The entry is one basename, not a relaxation: anything else without an
     // extension is still blocked exactly as before.
