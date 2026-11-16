@@ -40,6 +40,17 @@ describe("classifyTrackedFile — synthetic", () => {
   it("allows .github/CODEOWNERS (extensionless by GitHub's own requirement)", () => {
     expect(classifyTrackedFile(".github/CODEOWNERS")).toBe("allowed");
   });
+  it("allows Android project sources (.java .gradle .xml .properties) only under apps/", () => {
+    for (const p of ["apps/x/app/src/Main.java", "apps/x/app/build.gradle", "apps/x/app/src/main/AndroidManifest.xml", "apps/x/gradle.properties"]) {
+      expect(classifyTrackedFile(p), p).toBe("allowed");
+      // the same kinds elsewhere stay blocked
+      expect(classifyTrackedFile(p.replace("apps/", "src/")), p).toBe("blocked-ext");
+    }
+    expect(classifyTrackedFile("apps/x/app/release.apk")).toBe("blocked-ext");
+    expect(classifyTrackedFile("apps/x/app/release.keystore")).toBe("blocked-ext");
+    expect(classifyTrackedFile("apps/x/Main.class")).toBe("blocked-ext");
+    expect(classifyTrackedFile("apps/x/Main.java", "PK\u0003\u0004")).toBe("blocked-binary");
+  });
   it("does not turn CODEOWNERS into a general extensionless pass", () => {
     // The entry is one basename, not a relaxation: anything else without an
     // extension is still blocked exactly as before.
