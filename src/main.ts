@@ -505,7 +505,6 @@ interface RosterSlotModal {
    */
   manualPlayerId: string;
   manualPriceRaw: string;
-  releaseCreditsRaw: string;
   tradeCreditsRaw: string;
 }
 
@@ -8612,7 +8611,6 @@ function openRosterSlot(
     returnFocusId,
     manualPlayerId: "",
     manualPriceRaw: "",
-    releaseCreditsRaw: "",
     tradeCreditsRaw: "",
   };
   render();
@@ -8677,10 +8675,9 @@ const RELEASE_VIOLATION_MESSAGES: Record<ReleaseViolation, string> = {
   "unknown-team": "Squadra non riconosciuta: ricarica la pagina e riprova.",
   "player-not-on-roster":
     "Questo giocatore non risulta più nella rosa di questa squadra: lo storico potrebbe essere cambiato in un'altra scheda. Ricarica prima di riprovare.",
-  "credits-invalid": "Crediti non validi: inserisci un numero intero.",
-  "credits-negative": "Uno svincolo non può togliere crediti: inserisci zero o un numero positivo.",
-  "credits-above-price":
-    "Non puoi recuperare più di quanto è stato pagato: sarebbero crediti che nessuno ha messo sul tavolo.",
+  "credits-invalid": "Il registro contiene uno svincolo con crediti restituiti non validi.",
+  "credits-negative": "Il registro contiene uno svincolo con crediti restituiti non validi.",
+  "credits-above-price": "Il registro contiene uno svincolo con crediti restituiti non validi.",
 };
 
 const TRADE_VIOLATION_MESSAGES: Record<TradeViolation, string> = {
@@ -9135,51 +9132,22 @@ function commitSlotRenewal(slot: RosterSlotModal, candidate: RenewalCandidate): 
   closeRosterSlot(slot.returnFocusId);
 }
 
-/** Svincolo: un campo solo, e accanto il numero del regolamento §5 come FATTO
- *  citato, non come valore precompilato. Precompilarlo sarebbe il sistema che
- *  sceglie: §5 vale per l'aggiudicazione oltre budget, ogni altro svincolo si
- *  concorda al tavolo, e l'app non sa quale dei due sta guardando. */
+/** Svincolo: nessun campo. Regola di lega (Pico, 2026-11-23): lo svincolo vale
+ *  sempre zero, anche per l'aggiudicazione oltre budget di LEAGUE_RULES §5.
+ *  Il pannello lo dice e basta; l'evento registra `creditsReturned: 0`. */
 function renderSlotReleasePanel(
   panel: HTMLElement,
   slot: RosterSlotModal,
   pricePaid: number | null,
 ): void {
   const intro = document.createElement("p");
+  intro.id = "roster-slot-release-rule";
   intro.className = "hint-text";
   intro.textContent =
     pricePaid === null
-      ? "Libera la casella e restituisce alla squadra i crediti che dichiari."
-      : `Pagato ${pricePaid} cr. Libera la casella e restituisce alla squadra i crediti che dichiari: la differenza resta spesa.`;
+      ? "Lo svincolo libera la casella e non restituisce crediti (regola della lega)."
+      : `Pagato ${pricePaid} cr. Lo svincolo libera la casella e non restituisce crediti (regola della lega).`;
   panel.appendChild(intro);
-
-  if (pricePaid !== null) {
-    const rule = document.createElement("p");
-    rule.id = "roster-slot-release-rule";
-    rule.className = "hint-text";
-    rule.textContent = `Regolamento §5 (aggiudicazione oltre budget): il recupero sarebbe ${Math.ceil(pricePaid / 2)} cr. Ogni altro svincolo si concorda al tavolo, quindi il numero lo scrivi tu.`;
-    panel.appendChild(rule);
-  }
-
-  const field = document.createElement("label");
-  field.className = "roster-slot-dialog__field";
-  const label = document.createElement("span");
-  label.className = "field-label";
-  label.textContent = "Crediti che tornano alla squadra";
-  const input = document.createElement("input");
-  input.id = "roster-slot-release-credits";
-  input.className = "field-input";
-  input.type = "number";
-  input.min = "0";
-  input.step = "1";
-  input.inputMode = "numeric";
-  if (pricePaid !== null) input.max = String(pricePaid);
-  input.value = slot.releaseCreditsRaw;
-  input.addEventListener("input", () => {
-    slot.releaseCreditsRaw = input.value;
-  });
-  field.appendChild(label);
-  field.appendChild(input);
-  panel.appendChild(field);
 
   const apply = document.createElement("button");
   apply.type = "button";
@@ -9193,25 +9161,11 @@ function renderSlotReleasePanel(
 
 function commitSlotRelease(slot: RosterSlotModal): void {
   if (slot.playerId === null) return;
-  const text = slot.releaseCreditsRaw.trim();
-  // Il campo vuoto NON e uno zero: uno svincolo a zero e una decisione, e va
-  // scritta. Indovinarla farebbe bruciare l'intero prezzo per una distrazione.
-  if (text.length === 0) {
-    slot.error =
-      "Scrivi quanti crediti tornano alla squadra. Se non ne torna nessuno, scrivi 0: è una decisione, non un campo lasciato in bianco.";
-    render();
-    return;
-  }
-  if (!/^\d+$/.test(text)) {
-    slot.error = "Crediti non validi: inserisci un numero intero, zero compreso.";
-    render();
-    return;
-  }
   const aState = deriveAuctionState();
   const proposed = {
     playerId: slot.playerId,
     fantaTeamId: slot.fantaTeamId,
-    creditsReturned: Number(text),
+    creditsReturned: 0,
   };
   const feasibility = releaseFeasibility(aState, proposed);
   if (!feasibility.ok) {

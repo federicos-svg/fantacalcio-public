@@ -62,9 +62,6 @@ import {
 const PREZZO_ATTACCANTE = 25;
 const PREZZO_DIFENSORE = 10;
 const CONGUAGLIO = 5;
-/** Quanto torna in cassa da uno svincolo concordato al tavolo: meno del
- *  pagato, perché la differenza «resta spesa» è metà del punto di §5. */
-const CREDITI_RESTITUITI = 7;
 
 const KEY_ALFA = listonePlayerKey(D_ALFA);
 const KEY_BETA = listonePlayerKey(D_BETA);
@@ -353,18 +350,12 @@ test("il rinnovo che non ha righe dice perché: i portieri non si riconfermano, 
 
 // ── 5. La casella occupata: svincolo ─────────────────────────────────────────
 //
-// §5 QUI È UN FATTO CITATO, NON UN CAMPO PRECOMPILATO, e la spec misura
-// esattamente quella distinzione: il pannello dice quanto sarebbe il recupero
-// per l'aggiudicazione oltre budget, e lascia scrivere il numero a chi sa
-// quale dei due svincoli sta guardando. Da qui la scena svincola a una cifra
-// DIVERSA dalla metà: se il credito salisse del prezzo pagato — o della metà
-// regolamentare — invece che della cifra dichiarata, la differenza si
-// vedrebbe solo così.
-//
-// IL CAMPO VUOTO È IL SECONDO MEZZO TEST, e non è pedanteria: leggere un
-// campo bianco come zero significherebbe bruciare l'intero prezzo per una
-// distrazione, in modo silenzioso e irreversibile senza rileggere il log.
-test("lo svincolo cita §5, rifiuta il campo bianco, e restituisce i crediti dichiarati liberando il giocatore", async ({
+// REGOLA DI LEGA (Pico, 2026-11-23): lo svincolo vale sempre zero, §5 compreso.
+// Il pannello non ha piu un campo: dice che non si restituiscono crediti e il
+// pulsante registra `creditsReturned: 0`. La spec misura le due meta: il testo
+// detto (col prezzo pagato) e il budget che NON si muove, mentre la casella si
+// libera e il giocatore torna comprabile.
+test("lo svincolo non restituisce crediti: libera la casella, il budget non si muove", async ({
   page,
   context,
 }) => {
@@ -383,32 +374,20 @@ test("lo svincolo cita §5, rifiuta il campo bianco, e restituisce i crediti dic
   await expect(page.locator("#roster-slot-tab-manuale")).toHaveCount(0);
   await expect(page.locator("#roster-slot-tab-rinnovo")).toHaveCount(0);
 
-  // Il prezzo pagato e il numero del regolamento, entrambi detti.
+  // Il prezzo pagato e la regola di lega, entrambi detti; nessun campo crediti.
   const regola = page.locator("#roster-slot-release-rule");
-  await expect(regola).toContainText("§5");
-  await expect(regola).toContainText(`${Math.ceil(PREZZO_ATTACCANTE / 2)} cr`);
+  await expect(regola).toContainText(`Pagato ${PREZZO_ATTACCANTE} cr`);
+  await expect(regola).toContainText("non restituisce crediti");
+  await expect(page.locator("#roster-slot-release-credits")).toHaveCount(0);
 
-  // Il campo bianco è un rifiuto: nessuno svincolo, modale ancora aperta.
-  await page.locator("#roster-slot-release-apply").click();
-  await expect(page.locator("#roster-slot-error")).toBeVisible();
-  await expect(page.locator("#roster-slot-error")).toHaveAttribute("role", "alert");
-  await expect(page.locator("#roster-slot-overlay")).toBeVisible();
-  await page.locator("#roster-slot-close").click();
-  await expect(page.locator(slotId("Io", "A", 0))).toHaveClass(/roster-slot--filled/);
-  expect(await creditiResidui(page, "Io")).toBe(dopoAcquisto);
-
-  // Lo svincolo vero, alla cifra concordata al tavolo.
-  await page.locator(slotId("Io", "A", 0)).click();
-  await page.locator("#roster-slot-release-credits").fill(String(CREDITI_RESTITUITI));
   await page.locator("#roster-slot-release-apply").click();
   await expect(page.locator("#roster-slot-overlay")).toHaveCount(0);
 
   const casella = page.locator(slotId("Io", "A", 0));
   await expect(casella).toHaveClass(/roster-slot--empty/);
   await expect(casella).not.toContainText(A_ALFA.name);
-  // Torna in cassa la cifra DICHIARATA, non il prezzo pagato: la differenza
-  // resta spesa.
-  expect(await creditiResidui(page, "Io")).toBe(dopoAcquisto + CREDITI_RESTITUITI);
+  // Nessun credito torna in cassa: il prezzo pagato resta speso.
+  expect(await creditiResidui(page, "Io")).toBe(dopoAcquisto);
 
   // «Chi è ancora di qualcuno»: svincolato vuol dire di nuovo comprabile.
   await gotoScreen(page, "Asta");
@@ -601,19 +580,23 @@ test("dopo un rifiuto il fuoco resta sul bottone premuto, non torna in cima alle
   await page.locator(".roster-slot--filled").first().click();
   await expect(page.locator("#roster-slot-tab-svincolo")).toBeFocused();
 
-  // Il rifiuto del campo bianco. La modale si ridipinge, e il fuoco NON deve
+  // Un rifiuto vero: lo scambio con un conguaglio impossibile (lo svincolo non
+  // ha piu campi e non rifiuta). La modale si ridipinge, e il fuoco NON deve
   // tornare sulla riga delle schede: chi naviga da tastiera dovrebbe
   // ripercorrere tutto il pannello per rimettere le mani sul campo.
-  await page.locator("#roster-slot-release-apply").click();
+  await page.locator("#roster-slot-tab-scambio").click();
+  await page.locator("#roster-slot-trade-team").selectOption({ index: 1 });
+  await page.locator("#roster-slot-trade-credits").fill(String(INITIAL_BUDGET * 10));
+  await page.locator("#roster-slot-trade-apply").click();
   await expect(page.locator("#roster-slot-error")).toBeVisible();
   // Resta dov'erano le mani: sul bottone appena premuto. NON sul messaggio —
   // `role="alert"` si annuncia da sé, e portarci sopra il fuoco e un pattern
   // discusso che il resto di questo file non usa (vedi il commento in
   // `renderRosterSlotModal`).
-  await expect(page.locator("#roster-slot-release-apply")).toBeFocused();
+  await expect(page.locator("#roster-slot-trade-apply")).toBeFocused();
   // E da lì Shift+Tab riporta al campo da correggere, che è il gesto vero.
   await page.keyboard.press("Shift+Tab");
-  await expect(page.locator("#roster-slot-release-credits")).toBeFocused();
+  await expect(page.locator("#roster-slot-trade-credits")).toBeFocused();
 
   expect(externalRequests).toEqual([]);
 });

@@ -433,15 +433,18 @@ test("il testo regge AA in ogni schermata, in entrambi i momenti e su ogni pasti
   await sweepScene("rose/casella-piena-svincolo");
   // IL RIFIUTO IN ROSSO E IL TESTO CHE PIU DI OGNI ALTRO DEVE ESSERE LEGGIBILE,
   // e vive dietro un gesto: si provoca invece di aspettarlo.
-  await page.locator("#roster-slot-release-apply").click();
+  // (lo svincolo non rifiuta piu niente: il rifiuto si provoca con uno scambio
+  // dal conguaglio impossibile.)
+  await page.locator("#roster-slot-tab-scambio").click();
+  await page.locator("#roster-slot-trade-team").selectOption({ index: 1 });
+  await page.locator("#roster-slot-trade-credits").fill("100000");
+  await page.locator("#roster-slot-trade-apply").click();
   await expect(page.locator("#roster-slot-error")).toBeVisible();
   expect(
     await textContrast(page, "#roster-slot-error"),
     "rose/casella: la frase di rifiuto",
   ).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
   await sweepScene("rose/casella-piena-rifiuto");
-  await page.locator("#roster-slot-tab-scambio").click();
-  await page.locator("#roster-slot-trade-team").selectOption({ index: 1 });
   await sweepScene("rose/casella-piena-scambio");
   await page.locator("#roster-slot-close").click();
 

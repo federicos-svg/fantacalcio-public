@@ -57,14 +57,12 @@ export interface VoidEvent {
  * Uno SVINCOLO: un giocatore lascia la rosa e una quota di crediti torna al
  * budget di quella squadra.
  *
- * PERCHE I CREDITI SONO UN CAMPO E NON UNA FORMULA. Il regolamento fissa il
- * recupero in un caso solo — l'aggiudicazione oltre budget di
- * LEAGUE_RULES.md §5, dove vale `ceil(prezzo / 2)` — e tace su ogni altro
- * svincolo, che al tavolo si concorda. Calcolare qui il 50% e applicarlo
- * sempre significherebbe far dire al motore una regola che il regolamento non
- * ha: il numero lo DICHIARA chi registra, come il prezzo di un acquisto, e la
- * schermata gli mostra accanto quanto varrebbe il caso §5 senza sceglierlo per
- * lui.
+ * REGOLA DI LEGA (Pico, 2026-11-23): lo svincolo vale sempre zero, in ogni
+ * caso, anche per l'aggiudicazione oltre budget di LEAGUE_RULES.md §5 (prima
+ * `ceil(prezzo / 2)`). Gli svincoli nuovi registrano quindi
+ * `creditsReturned: 0`. Il campo RESTA nel formato dell'evento perche i registri
+ * gia salvati o importati con valori diversi da 0 devono rigiocare come prima:
+ * non si rifiutano e non si riscrivono.
  *
  * Il prezzo pagato all'acquisto NON viene riscritto: resta nel log, dove e un
  * fatto. Quello che cambia e la rosa (una casella si libera) e il budget (di
