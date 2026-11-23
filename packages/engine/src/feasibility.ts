@@ -319,10 +319,12 @@ export interface ReleaseFeasibilityResult {
  * completabile» — l'unica cosa che uno svincolo puo rompere e la contabilita,
  * e la rompe in un modo solo: restituendo piu di quanto e stato pagato.
  *
- * IL TETTO NON E UNA REGOLA DI LEGA, E UNA CONSERVAZIONE. Il regolamento fissa
- * il recupero solo per §5 (`ceil(prezzo / 2)`); qui non si impone quel numero —
- * lo si mostra a schermo e lo si lascia scegliere — ma si rifiuta il caso in
- * cui l'app fabbricherebbe crediti che nessuno ha mai messo sul tavolo.
+ * LA REGOLA DI LEGA E ZERO (Pico, 2026-11-23): lo svincolo non restituisce mai
+ * crediti, nemmeno per l'aggiudicazione oltre budget di §5; la schermata
+ * registra sempre `creditsReturned: 0`. Questo controllo NON impone lo zero:
+ * resta una guardia di CONSERVAZIONE (intero, non negativo, non oltre il
+ * prezzo pagato) cosi che i registri gia salvati con valori diversi da 0
+ * continuino a rigiocare invariati.
  */
 export function releaseFeasibility(
   state: AuctionState,

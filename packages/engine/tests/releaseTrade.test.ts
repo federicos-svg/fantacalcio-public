@@ -437,6 +437,39 @@ describe("annullamento — il log resta riducibile", () => {
   });
 });
 
+describe("svincolo a zero crediti (regola di lega, Pico 2026-11-23) e compatibilita dei registri", () => {
+  it("lo svincolo nuovo registra creditsReturned 0: il prezzo pagato resta speso", () => {
+    const bought = buy([], [{ playerId: "A1", role: "A", fantaTeamId: A, price: 25 }]);
+    const released = recordRelease(
+      bought,
+      reduce(bought, TEAMS),
+      { playerId: "A1", fantaTeamId: A, creditsReturned: 0 },
+      TS,
+    );
+    expect(released[released.length - 1]).toMatchObject({ type: "RELEASE", creditsReturned: 0 });
+    expect(team(released, A).budgetResidual).toBe(INITIAL_BUDGET - 25);
+  });
+
+  it("un registro esistente con recupero diverso da 0 si valida e rigioca come prima", () => {
+    // Gli svincoli storici (metà prezzo, cifra concordata) non si rifiutano e
+    // non si riscrivono: la regola nuova vale solo per quelli che si registrano.
+    const log: AuctionEvent[] = [
+      ...buy([], [{ playerId: "A1", role: "A", fantaTeamId: A, price: 25 }]),
+      validateEvent({
+        type: "RELEASE",
+        seq: 1,
+        ts: TS,
+        playerId: "A1",
+        fantaTeamId: A,
+        creditsReturned: 13,
+      }) as AuctionEvent,
+    ];
+    const s = reduce(log, TEAMS);
+    expect(s.teams[A]!.budgetResidual).toBe(INITIAL_BUDGET - 25 + 13);
+    expect(s.teams[A]!.roster).toHaveLength(0);
+  });
+});
+
 describe("schema e forma", () => {
   it("validateEvent accetta i due eventi nuovi", () => {
     expect(
