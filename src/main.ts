@@ -8675,10 +8675,9 @@ const RELEASE_VIOLATION_MESSAGES: Record<ReleaseViolation, string> = {
   "unknown-team": "Squadra non riconosciuta: ricarica la pagina e riprova.",
   "player-not-on-roster":
     "Questo giocatore non risulta più nella rosa di questa squadra: lo storico potrebbe essere cambiato in un'altra scheda. Ricarica prima di riprovare.",
-  "credits-invalid": "Crediti non validi: inserisci un numero intero.",
-  "credits-negative": "Uno svincolo non può togliere crediti: inserisci zero o un numero positivo.",
-  "credits-above-price":
-    "Non puoi recuperare più di quanto è stato pagato: sarebbero crediti che nessuno ha messo sul tavolo.",
+  "credits-invalid": "Il registro contiene uno svincolo con crediti restituiti non validi.",
+  "credits-negative": "Il registro contiene uno svincolo con crediti restituiti non validi.",
+  "credits-above-price": "Il registro contiene uno svincolo con crediti restituiti non validi.",
 };
 
 const TRADE_VIOLATION_MESSAGES: Record<TradeViolation, string> = {
